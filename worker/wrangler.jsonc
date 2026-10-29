@@ -1,0 +1,11 @@
+{
+  "name": "bankpipe-auth",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-23",
+  "observability": { "enabled": true },
+  "vars": {
+    "CLIENT_ID": "818823170955-ian9o65o99isum5uff3f4ilc54vnb5ss.apps.googleusercontent.com",
+    "APP_RETURN": "https://bankpipe.pages.dev/",
+    "ALLOWED_ORIGINS": "https://bankpipe.pages.dev,http://localhost:8801"
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "sheet_index": 1,
+  "generated_by": "mtplx-bonsai-2-27b-optimized-speed",
+  "note": "Section plan only: row ranges, kinds and column letters. No names, numbers or values.",
+  "sections": [
+    {
+      "kind": "insurance",
+      "first_row": 2,
+      "last_row": 4,
+      "institution": "LIC",
+      "number_col": "D",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "G",
+      "rate_col": "E",
+      "notes_col": "E"
+    },
+    {
+      "kind": "insurance",
+      "first_row": 7,
+      "last_row": 7,
+      "institution": "PNB MetLife",
+      "number_col": "D",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "G",
+      "rate_col": "E",
+      "notes_col": "E"
+    },
+    {
+      "kind": "fd",
+      "first_row": 8,
+      "last_row": 8,
+      "institution": "PNB",
+      "number_col": "D",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "G",
+      "rate_col": "E",
+      "notes_col": "E"
+    },
+    {
+      "kind": "fd",
+      "first_row": 11,
+      "last_row": 15,
+      "institution": "PNB",
+      "number_col": "A",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "F",
+      "rate_col": "E",
+      "notes_col": "E"
+    },
+    {
+      "kind": "fd",
+      "first_row": 17,
+      "last_row": 18,
+      "institution": "Standard Chartered Bank",
+      "number_col": "A",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "F",
+      "rate_col": "E",
+      "notes_col": "E"
+    },
+    {
+      "kind": "fd",
+      "first_row": 20,
+      "last_row": 21,
+      "institution": "Bank of Baroda",
+      "number_col": "A",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "F",
+      "rate_col": "E",
+      "notes_col": "E"
+    },
+    {
+      "kind": "fd",
+      "first_row": 24,
+      "last_row": 27,
+      "institution": "State Bank of India",
+      "number_col": "A",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "F",
+      "rate_col": "E",
+      "notes_col": "E"
+    },
+    {
+      "kind": "fd",
+      "first_row": 29,
+      "last_row": 29,
+      "institution": "ICICI Direct",
+      "number_col": "A",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "F",
+      "rate_col": "E",
+      "notes_col": "E"
+    },
+    {
+      "kind": "demat",
+      "first_row": 30,
+      "last_row": 31,
+      "institution": "Axis Asset Management / Mirae Asset Management",
+      "number_col": "D",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "G",
+      "rate_col": "E",
+      "notes_col": "E"
+    },
+    {
+      "kind": "gold",
+      "first_row": 34,
+      "last_row": 38,
+      "institution": "Mohanlal Jewellers / Moti Lal / GRT",
+      "number_col": "D",
+      "principal_col": "B",
+      "start_col": "C",
+      "maturity_col": "G",
+      "rate_col": "E",
+      "notes_col": "E"
+    }
+  ]
+}

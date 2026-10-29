@@ -1,0 +1,428 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-23T00:00:00",
+  "note": "Layout for the 11-sheet family workbook. Indices are 0-based. No values.",
+  "sheets": [
+    {
+      "i": 0,
+      "purpose": "sensitive",
+      "importable": false,
+      "note": "credentials and totals; never import"
+    },
+    {
+      "i": 1,
+      "purpose": "register",
+      "importable": true,
+      "header_row": 1,
+      "columns": [
+        {
+          "col": "A",
+          "kind": "free_text",
+          "role": "label"
+        },
+        {
+          "col": "B",
+          "kind": "amount",
+          "role": "value"
+        },
+        {
+          "col": "C",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "D",
+          "kind": "security_id",
+          "role": "value"
+        },
+        {
+          "col": "E",
+          "kind": "free_text",
+          "role": "value"
+        },
+        {
+          "col": "F",
+          "kind": "free_text",
+          "role": "value"
+        },
+        {
+          "col": "G",
+          "kind": "free_text",
+          "role": "value"
+        }
+      ],
+      "note": "parser reads header words; dates and maturity are inside text cells"
+    },
+    {
+      "i": 2,
+      "purpose": "holdings",
+      "importable": true,
+      "header_row": 21,
+      "asset_id": "holdings-3",
+      "asset_label": "Bonds \u00b7 portfolio 1",
+      "asset_category": "bonds",
+      "asset_subtype": "bond",
+      "columns": [
+        {
+          "col": "C",
+          "kind": "security_id",
+          "role": "key"
+        },
+        {
+          "col": "D",
+          "kind": "security_name",
+          "role": "label"
+        },
+        {
+          "col": "E",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "F",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "G",
+          "kind": "category",
+          "role": "grouping"
+        },
+        {
+          "col": "H",
+          "kind": "quantity",
+          "role": "value"
+        },
+        {
+          "col": "I",
+          "kind": "amount",
+          "role": "value"
+        },
+        {
+          "col": "J",
+          "kind": "amount",
+          "role": "value"
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "purpose": "holdings",
+      "importable": true,
+      "header_row": 1,
+      "asset_id": "holdings-4",
+      "asset_label": "Bonds \u00b7 portfolio 2",
+      "asset_category": "bonds",
+      "asset_subtype": "bond",
+      "columns": [
+        {
+          "col": "D",
+          "kind": "security_id",
+          "role": "key"
+        },
+        {
+          "col": "E",
+          "kind": "security_name",
+          "role": "label"
+        },
+        {
+          "col": "F",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "G",
+          "kind": "category",
+          "role": "grouping"
+        },
+        {
+          "col": "H",
+          "kind": "quantity",
+          "role": "value"
+        },
+        {
+          "col": "I",
+          "kind": "amount",
+          "role": "value"
+        },
+        {
+          "col": "J",
+          "kind": "amount",
+          "role": "value"
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "purpose": "transactions",
+      "importable": true,
+      "header_row": 11,
+      "account_label": "ICICI savings",
+      "account_bank": "ICICI",
+      "columns": [
+        {
+          "col": "B",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "C",
+          "kind": "free_text",
+          "role": "label"
+        },
+        {
+          "col": "D",
+          "kind": "amount",
+          "role": "value",
+          "use": "debit"
+        },
+        {
+          "col": "E",
+          "kind": "amount",
+          "role": "value",
+          "use": "credit"
+        },
+        {
+          "col": "F",
+          "kind": "amount",
+          "role": "value",
+          "use": "balance"
+        }
+      ],
+      "note": "F is a running balance; verified by F(n)-F(n-1)=CR-DR"
+    },
+    {
+      "i": 5,
+      "purpose": "transactions",
+      "importable": true,
+      "header_row": 13,
+      "account_label": "ICICI demat account",
+      "account_bank": "ICICI",
+      "columns": [
+        {
+          "col": "B",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "C",
+          "kind": "free_text",
+          "role": "label"
+        },
+        {
+          "col": "D",
+          "kind": "amount",
+          "role": "value",
+          "use": "debit"
+        },
+        {
+          "col": "E",
+          "kind": "amount",
+          "role": "value",
+          "use": "credit"
+        },
+        {
+          "col": "F",
+          "kind": "amount",
+          "role": "value",
+          "use": "balance"
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "purpose": "transactions",
+      "importable": true,
+      "header_row": 2,
+      "account_label": "SCB savings",
+      "account_bank": "Standard Chartered",
+      "columns": [
+        {
+          "col": "A",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "B",
+          "kind": "free_text",
+          "role": "label"
+        },
+        {
+          "col": "C",
+          "kind": "amount",
+          "role": "value",
+          "use": "debit"
+        },
+        {
+          "col": "D",
+          "kind": "amount",
+          "role": "value",
+          "use": "credit"
+        },
+        {
+          "col": "E",
+          "kind": "amount",
+          "role": "value",
+          "use": "balance"
+        }
+      ],
+      "account_number": ""
+    },
+    {
+      "i": 7,
+      "purpose": "transactions",
+      "importable": true,
+      "header_row": 176,
+      "account_id": "foreign-8",
+      "account_label": "SCB joint",
+      "account_bank": "Standard Chartered",
+      "account_number": "",
+      "currency": "INR",
+      "columns": [
+        {
+          "col": "A",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "B",
+          "kind": "free_text",
+          "role": "label"
+        },
+        {
+          "col": "C",
+          "kind": "amount",
+          "role": "value",
+          "use": "debit"
+        },
+        {
+          "col": "D",
+          "kind": "amount",
+          "role": "value",
+          "use": "credit"
+        },
+        {
+          "col": "E",
+          "kind": "amount",
+          "role": "value",
+          "use": "balance"
+        }
+      ],
+      "note": "rows 1-176 are the older Bank Dhofar OMR ledger; rows 177+ are the SCB MOM INR ledger (C debit, D credit, E balance)"
+    },
+    {
+      "i": 8,
+      "purpose": "transactions",
+      "importable": true,
+      "header_row": 2,
+      "account_label": "SBI savings",
+      "account_bank": "SBI",
+      "columns": [
+        {
+          "col": "A",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "B",
+          "kind": "free_text",
+          "role": "label"
+        },
+        {
+          "col": "C",
+          "kind": "amount",
+          "role": "value",
+          "use": "debit"
+        },
+        {
+          "col": "D",
+          "kind": "amount",
+          "role": "value",
+          "use": "credit"
+        },
+        {
+          "col": "E",
+          "kind": "amount",
+          "role": "value",
+          "use": "balance"
+        }
+      ]
+    },
+    {
+      "i": 9,
+      "purpose": "transactions",
+      "importable": true,
+      "header_row": 2,
+      "account_label": "Bank of Baroda savings",
+      "account_bank": "Bank of Baroda",
+      "columns": [
+        {
+          "col": "A",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "B",
+          "kind": "free_text",
+          "role": "label"
+        },
+        {
+          "col": "D",
+          "kind": "amount",
+          "role": "value",
+          "use": "credit"
+        },
+        {
+          "col": "E",
+          "kind": "amount",
+          "role": "value",
+          "use": "debit"
+        },
+        {
+          "col": "F",
+          "kind": "amount",
+          "role": "value",
+          "use": "balance"
+        }
+      ]
+    },
+    {
+      "i": 10,
+      "purpose": "transactions",
+      "importable": true,
+      "header_row": 2,
+      "account_label": "PNB savings",
+      "account_bank": "PNB",
+      "columns": [
+        {
+          "col": "A",
+          "kind": "date",
+          "role": "value"
+        },
+        {
+          "col": "B",
+          "kind": "free_text",
+          "role": "label"
+        },
+        {
+          "col": "C",
+          "kind": "amount",
+          "role": "value",
+          "use": "debit"
+        },
+        {
+          "col": "D",
+          "kind": "amount",
+          "role": "value",
+          "use": "credit"
+        },
+        {
+          "col": "E",
+          "kind": "amount",
+          "role": "value",
+          "use": "balance"
+        }
+      ]
+    }
+  ]
+}

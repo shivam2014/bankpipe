@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="430" viewBox="0 0 1200 430"
+     role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">BankPipe — a local-first family ledger</title>
+  <desc id="hero-desc">BankPipe wordmark and promise next to a sample net-worth card showing bank balances, fixed deposits, equity and gold.</desc>
+
+  <rect width="1200" height="430" rx="28" fill="#F7F4EF"/>
+
+  <g id="title-block" transform="translate(64 46)">
+    <text x="0" y="12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="16" letter-spacing="2.2" fill="#6B6F6A">LOCAL-FIRST FAMILY LEDGER</text>
+
+    <g transform="translate(0 38)">
+      <rect width="42" height="42" rx="11" fill="#126E52"/>
+      <text x="21" y="29" text-anchor="middle"
+            font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+            font-size="23" font-weight="700" fill="#FFFFFF">₹</text>
+      <text x="58" y="31" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+            font-size="38" font-weight="700" letter-spacing="-1" fill="#14211B">BankPipe</text>
+    </g>
+
+    <text x="0" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="46" font-weight="700" letter-spacing="-1.6" fill="#14211B">Every account, deposit</text>
+    <text x="0" y="208" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="46" font-weight="700" letter-spacing="-1.6" fill="#14211B">and policy. One ledger.</text>
+
+    <text x="0" y="252" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="20" fill="#4A504B">Import a bank statement, prove the arithmetic,</text>
+    <text x="0" y="279" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="20" fill="#4A504B">and keep the family portfolio on your machine.</text>
+
+    <g transform="translate(0 316)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+       font-size="16" fill="#126E52">
+      <rect width="170" height="34" rx="17" fill="#E3EFE9"/>
+      <text x="18" y="22">browser-only</text>
+      <rect x="182" width="176" height="34" rx="17" fill="#E3EFE9"/>
+      <text x="200" y="22">AES-256-GCM</text>
+      <rect x="370" width="112" height="34" rx="17" fill="#E3EFE9"/>
+      <text x="388" y="22">MIT</text>
+    </g>
+  </g>
+
+  <g id="project-proof" transform="translate(756 48)">
+    <rect width="380" height="334" rx="20" fill="#FFFFFF" stroke="#E4DED4"/>
+    <rect x="1" y="1" width="378" height="332" rx="19" fill="none" stroke="#FFFFFF"/>
+
+    <text x="24" y="40" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="14" letter-spacing="1.8" fill="#6B6F6A">NET WORTH · SAMPLE</text>
+    <text x="24" y="86" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="34" font-weight="700" letter-spacing="-1" fill="#14211B">₹ 3,85,33,972</text>
+    <text x="24" y="108" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          font-size="15" fill="#6B6F6A">across 7 accounts and 7 asset types</text>
+    <line x1="24" y1="126" x2="356" y2="126" stroke="#EDE8DF" stroke-width="1.5"/>
+
+    <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" fill="#14211B">
+      <circle cx="30" cy="158" r="4" fill="#126E52"/>
+      <text x="46" y="164">HDFC Bank</text>
+      <text x="356" y="164" text-anchor="end">₹ 18,42,560</text>
+
+      <circle cx="30" cy="200" r="4" fill="#126E52"/>
+      <text x="46" y="206">Fixed deposits</text>
+      <text x="356" y="206" text-anchor="end">₹ 1,13,00,000</text>
+
+      <circle cx="30" cy="242" r="4" fill="#B06E12"/>
+      <text x="46" y="248">Equity shares</text>
+      <text x="356" y="248" text-anchor="end">₹ 76,03,040</text>
+
+      <circle cx="30" cy="284" r="4" fill="#B06E12"/>
+      <text x="46" y="290">Gold</text>
+      <text x="356" y="290" text-anchor="end">₹ 33,13,900</text>
+    </g>
+
+    <line x1="24" y1="310" x2="356" y2="310" stroke="#EDE8DF" stroke-width="1.5"/>
+    <text x="24" y="332" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="13" fill="#6B6F6A">opening + credits − debits = closing</text>
+  </g>
+</svg>

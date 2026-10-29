@@ -1,0 +1,47 @@
+# Local data and secrets
+data/
+*.db
+*.db-wal
+*.db-shm
+*.age
+*.log
+salt
+.env
+.env.*
+.secret
+.secret.*
+*.pem
+*.key
+
+# Generated / build artefacts
+venv/
+build/
+dist/
+out/
+export/
+export.zip
+__pycache__/
+*.pyc
+bootstrap-report.txt
+bootstrap-error.txt
+
+# Browser debug pages
+web/_probe*.html
+
+# OS
+.DS_Store
+bridge/out/
+bridge/__pycache__/
+
+web/private/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
+
+# Local agent harness state (not part of the app)
+.ratchet/
+.opencode/
+.agents/
