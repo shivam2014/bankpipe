@@ -1,0 +1,622 @@
+[
+ {
+  "date": "2026-10-31",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "NEFT · Salary — Meridian Analytics",
+  "amount": 24500000,
+  "balance": 184256040,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-31|24500000|184256040|1"
+ },
+ {
+  "date": "2026-10-30",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Blinkit — groceries",
+  "amount": -216700,
+  "balance": 159756040,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-30|-216700|159756040|1"
+ },
+ {
+  "date": "2026-10-29",
+  "account": "scb-arjun",
+  "account_label": "SCB savings · 0005",
+  "description": "UPI · Blue Tokai — coffee",
+  "amount": -72000,
+  "balance": 148623060,
+  "n": 1,
+  "key": "scb-arjun|2026-10-29|-72000|148623060|1"
+ },
+ {
+  "date": "2026-10-28",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "NEFT · Zerodha — SIP top-up",
+  "amount": -500000,
+  "balance": 159972740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-28|-500000|159972740|1"
+ },
+ {
+  "date": "2026-10-27",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · BookMyShow — cinema",
+  "amount": -96000,
+  "balance": 160472740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-27|-96000|160472740|1"
+ },
+ {
+  "date": "2026-10-26",
+  "account": "sbi-arjun",
+  "account_label": "SBI savings · 0003",
+  "description": "INT · Savings interest Q3",
+  "amount": 386000,
+  "balance": 62451000,
+  "n": 1,
+  "key": "sbi-arjun|2026-10-26|386000|62451000|1"
+ },
+ {
+  "date": "2026-10-25",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Third Wave Coffee",
+  "amount": -48000,
+  "balance": 160568740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-25|-48000|160568740|1"
+ },
+ {
+  "date": "2026-10-24",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Zomato — lunch",
+  "amount": -84900,
+  "balance": 160616740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-24|-84900|160616740|1"
+ },
+ {
+  "date": "2026-10-23",
+  "account": "icici-kavita",
+  "account_label": "ICICI savings · 0002",
+  "description": "UPI · Greenwood School — activity",
+  "amount": -450000,
+  "balance": 97842015,
+  "n": 1,
+  "key": "icici-kavita|2026-10-23|-450000|97842015|1"
+ },
+ {
+  "date": "2026-10-22",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Amazon — household",
+  "amount": -198400,
+  "balance": 160701640,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-22|-198400|160701640|1"
+ },
+ {
+  "date": "2026-10-21",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Shell — fuel",
+  "amount": -510000,
+  "balance": 160900040,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-21|-510000|160900040|1"
+ },
+ {
+  "date": "2026-10-20",
+  "account": "scb-arjun",
+  "account_label": "SCB savings · 0005",
+  "description": "ACH · Bajaj Finance — dividend",
+  "amount": 315000,
+  "balance": 148695060,
+  "n": 1,
+  "key": "scb-arjun|2026-10-20|315000|148695060|1"
+ },
+ {
+  "date": "2026-10-20",
+  "account": "axis-rohan",
+  "account_label": "Axis savings · 0004",
+  "description": "NEFT · Rent — HSR Layout",
+  "amount": -2800000,
+  "balance": 31804575,
+  "n": 1,
+  "key": "axis-rohan|2026-10-20|-2800000|31804575|1"
+ },
+ {
+  "date": "2026-10-19",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Third Wave Coffee",
+  "amount": -52000,
+  "balance": 161410040,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-19|-52000|161410040|1"
+ },
+ {
+  "date": "2026-10-18",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · BigBasket — groceries",
+  "amount": -402300,
+  "balance": 161462040,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-18|-402300|161462040|1"
+ },
+ {
+  "date": "2026-10-18",
+  "account": "icici-kavita",
+  "account_label": "ICICI savings · 0002",
+  "description": "UPI · Apollo Pharmacy",
+  "amount": -94500,
+  "balance": 98292015,
+  "n": 1,
+  "key": "icici-kavita|2026-10-18|-94500|98292015|1"
+ },
+ {
+  "date": "2026-10-17",
+  "account": "scb-arjun",
+  "account_label": "SCB savings · 0005",
+  "description": "UPI · Blue Tokai — coffee",
+  "amount": -68000,
+  "balance": 148380060,
+  "n": 1,
+  "key": "scb-arjun|2026-10-17|-68000|148380060|1"
+ },
+ {
+  "date": "2026-10-17",
+  "account": "sbi-arjun",
+  "account_label": "SBI savings · 0003",
+  "description": "UPI · Rent — R. Iyer",
+  "amount": -4200000,
+  "balance": 62065000,
+  "n": 1,
+  "key": "sbi-arjun|2026-10-17|-4200000|62065000|1"
+ },
+ {
+  "date": "2026-10-16",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Titan — watch service",
+  "amount": -350000,
+  "balance": 161864340,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-16|-350000|161864340|1"
+ },
+ {
+  "date": "2026-10-15",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "BBPS · Airtel — broadband",
+  "amount": -189900,
+  "balance": 162214340,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-15|-189900|162214340|1"
+ },
+ {
+  "date": "2026-10-15",
+  "account": "axis-rohan",
+  "account_label": "Axis savings · 0004",
+  "description": "UPI · Swiggy — groceries",
+  "amount": -128400,
+  "balance": 34604575,
+  "n": 1,
+  "key": "axis-rohan|2026-10-15|-128400|34604575|1"
+ },
+ {
+  "date": "2026-10-14",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Zomato — dinner",
+  "amount": -112500,
+  "balance": 162404240,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-14|-112500|162404240|1"
+ },
+ {
+  "date": "2026-10-13",
+  "account": "icici-kavita",
+  "account_label": "ICICI savings · 0002",
+  "description": "UPI · Amazon — refund",
+  "amount": 129900,
+  "balance": 98386515,
+  "n": 1,
+  "key": "icici-kavita|2026-10-13|129900|98386515|1"
+ },
+ {
+  "date": "2026-10-13",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Urban Company — repair",
+  "amount": -285000,
+  "balance": 162516740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-13|-285000|162516740|1"
+ },
+ {
+  "date": "2026-10-12",
+  "account": "scb-arjun",
+  "account_label": "SCB savings · 0005",
+  "description": "INT · Fixed deposit interest",
+  "amount": 1254000,
+  "balance": 148448060,
+  "n": 1,
+  "key": "scb-arjun|2026-10-12|1254000|148448060|1"
+ },
+ {
+  "date": "2026-10-12",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · BookMyShow — cinema",
+  "amount": -76000,
+  "balance": 162801740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-12|-76000|162801740|1"
+ },
+ {
+  "date": "2026-10-11",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "NEFT · HDFC Credit Card — payment",
+  "amount": -920000,
+  "balance": 162877740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-11|-920000|162877740|1"
+ },
+ {
+  "date": "2026-10-10",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Third Wave Coffee",
+  "amount": -46000,
+  "balance": 163797740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-10|-46000|163797740|1"
+ },
+ {
+  "date": "2026-10-10",
+  "account": "sbi-arjun",
+  "account_label": "SBI savings · 0003",
+  "description": "UPI · BigBasket — groceries",
+  "amount": -341200,
+  "balance": 66265000,
+  "n": 1,
+  "key": "sbi-arjun|2026-10-10|-341200|66265000|1"
+ },
+ {
+  "date": "2026-10-09",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Apollo Pharmacy",
+  "amount": -236000,
+  "balance": 163843740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-09|-236000|163843740|1"
+ },
+ {
+  "date": "2026-10-09",
+  "account": "icici-kavita",
+  "account_label": "ICICI savings · 0002",
+  "description": "NACH · HDFC Balanced Advantage — SIP",
+  "amount": -1500000,
+  "balance": 98256615,
+  "n": 1,
+  "key": "icici-kavita|2026-10-09|-1500000|98256615|1"
+ },
+ {
+  "date": "2026-10-08",
+  "account": "axis-rohan",
+  "account_label": "Axis savings · 0004",
+  "description": "NEFT · Salary — Lumen Labs",
+  "amount": 8500000,
+  "balance": 34732975,
+  "n": 1,
+  "key": "axis-rohan|2026-10-08|8500000|34732975|1"
+ },
+ {
+  "date": "2026-10-08",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Petrol — Shell",
+  "amount": -480000,
+  "balance": 164079740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-08|-480000|164079740|1"
+ },
+ {
+  "date": "2026-10-07",
+  "account": "icici-kavita",
+  "account_label": "ICICI savings · 0002",
+  "description": "UPI · Nykaa — personal care",
+  "amount": -164800,
+  "balance": 99756615,
+  "n": 1,
+  "key": "icici-kavita|2026-10-07|-164800|99756615|1"
+ },
+ {
+  "date": "2026-10-07",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Zomato — lunch",
+  "amount": -68400,
+  "balance": 164559740,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-07|-68400|164559740|1"
+ },
+ {
+  "date": "2026-10-06",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "NEFT · Zerodha — equity purchase",
+  "amount": -1200000,
+  "balance": 164628140,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-06|-1200000|164628140|1"
+ },
+ {
+  "date": "2026-10-06",
+  "account": "scb-arjun",
+  "account_label": "SCB savings · 0005",
+  "description": "TD · Fixed deposit booked — 12 months",
+  "amount": -5000000,
+  "balance": 147194060,
+  "n": 1,
+  "key": "scb-arjun|2026-10-06|-5000000|147194060|1"
+ },
+ {
+  "date": "2026-10-05",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Third Wave Coffee",
+  "amount": -52000,
+  "balance": 165828140,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-05|-52000|165828140|1"
+ },
+ {
+  "date": "2026-10-05",
+  "account": "sbi-arjun",
+  "account_label": "SBI savings · 0003",
+  "description": "UPI · Karnataka Power — deposit",
+  "amount": -450000,
+  "balance": 66606200,
+  "n": 1,
+  "key": "sbi-arjun|2026-10-05|-450000|66606200|1"
+ },
+ {
+  "date": "2026-10-04",
+  "account": "icici-kavita",
+  "account_label": "ICICI savings · 0002",
+  "description": "IMPS · Transfer from Arjun Mehta",
+  "amount": 1500000,
+  "balance": 99921415,
+  "n": 1,
+  "key": "icici-kavita|2026-10-04|1500000|99921415|1"
+ },
+ {
+  "date": "2026-10-04",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "ATM · Cash — Indiranagar",
+  "amount": -1000000,
+  "balance": 165880140,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-04|-1000000|165880140|1"
+ },
+ {
+  "date": "2026-10-03",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Blinkit — groceries",
+  "amount": -189400,
+  "balance": 166880140,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-03|-189400|166880140|1"
+ },
+ {
+  "date": "2026-10-03",
+  "account": "scb-arjun",
+  "account_label": "SCB savings · 0005",
+  "description": "IMPS · Transfer to Kavita Mehta",
+  "amount": -1500000,
+  "balance": 152194060,
+  "n": 1,
+  "key": "scb-arjun|2026-10-03|-1500000|152194060|1"
+ },
+ {
+  "date": "2026-10-02",
+  "account": "axis-rohan",
+  "account_label": "Axis savings · 0004",
+  "description": "UPI · Cult.fit — membership",
+  "amount": -249900,
+  "balance": 26232975,
+  "n": 1,
+  "key": "axis-rohan|2026-10-02|-249900|26232975|1"
+ },
+ {
+  "date": "2026-10-01",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Landlord — maintenance",
+  "amount": -680000,
+  "balance": 167069540,
+  "n": 1,
+  "key": "hdfc-arjun|2026-10-01|-680000|167069540|1"
+ },
+ {
+  "date": "2026-09-30",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "NEFT · Salary — Meridian Analytics",
+  "amount": 24500000,
+  "balance": 167749540,
+  "n": 1,
+  "key": "hdfc-arjun|2026-09-30|24500000|167749540|1"
+ },
+ {
+  "date": "2026-09-30",
+  "account": "icici-kavita",
+  "account_label": "ICICI savings · 0002",
+  "description": "NACH · LIC Jeevan Labh — premium",
+  "amount": -4525000,
+  "balance": 98421415,
+  "n": 1,
+  "key": "icici-kavita|2026-09-30|-4525000|98421415|1"
+ },
+ {
+  "date": "2026-09-29",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Give India — monthly",
+  "amount": -250000,
+  "balance": 143249540,
+  "n": 1,
+  "key": "hdfc-arjun|2026-09-29|-250000|143249540|1"
+ },
+ {
+  "date": "2026-09-28",
+  "account": "sbi-arjun",
+  "account_label": "SBI savings · 0003",
+  "description": "UPI · Rent — R. Iyer",
+  "amount": -4200000,
+  "balance": 67056200,
+  "n": 1,
+  "key": "sbi-arjun|2026-09-28|-4200000|67056200|1"
+ },
+ {
+  "date": "2026-09-27",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Amazon — household",
+  "amount": -264900,
+  "balance": 143499540,
+  "n": 1,
+  "key": "hdfc-arjun|2026-09-27|-264900|143499540|1"
+ },
+ {
+  "date": "2026-09-26",
+  "account": "scb-arjun",
+  "account_label": "SCB savings · 0005",
+  "description": "ACH · ITC — dividend",
+  "amount": 438000,
+  "balance": 153694060,
+  "n": 1,
+  "key": "scb-arjun|2026-09-26|438000|153694060|1"
+ },
+ {
+  "date": "2026-09-25",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Greenwood School — term fees",
+  "amount": -12500000,
+  "balance": 143764440,
+  "n": 1,
+  "key": "hdfc-arjun|2026-09-25|-12500000|143764440|1"
+ },
+ {
+  "date": "2026-09-24",
+  "account": "icici-kavita",
+  "account_label": "ICICI savings · 0002",
+  "description": "NACH · ICICI Pru Bluechip — SIP",
+  "amount": -1800000,
+  "balance": 102946415,
+  "n": 1,
+  "key": "icici-kavita|2026-09-24|-1800000|102946415|1"
+ },
+ {
+  "date": "2026-09-23",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Shell — fuel",
+  "amount": -520000,
+  "balance": 156264440,
+  "n": 1,
+  "key": "hdfc-arjun|2026-09-23|-520000|156264440|1"
+ },
+ {
+  "date": "2026-09-22",
+  "account": "axis-rohan",
+  "account_label": "Axis savings · 0004",
+  "description": "UPI · Swiggy — dinner",
+  "amount": -74500,
+  "balance": 26482875,
+  "n": 1,
+  "key": "axis-rohan|2026-09-22|-74500|26482875|1"
+ },
+ {
+  "date": "2026-09-21",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "NEFT · HDFC Credit Card — payment",
+  "amount": -1840000,
+  "balance": 156784440,
+  "n": 1,
+  "key": "hdfc-arjun|2026-09-21|-1840000|156784440|1"
+ },
+ {
+  "date": "2026-09-20",
+  "account": "scb-arjun",
+  "account_label": "SCB savings · 0005",
+  "description": "UPI · Apollo Pharmacy",
+  "amount": -187500,
+  "balance": 153256060,
+  "n": 1,
+  "key": "scb-arjun|2026-09-20|-187500|153256060|1"
+ },
+ {
+  "date": "2026-09-19",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "BBPS · BESCOM electricity",
+  "amount": -312000,
+  "balance": 158624440,
+  "n": 1,
+  "key": "hdfc-arjun|2026-09-19|-312000|158624440|1"
+ },
+ {
+  "date": "2026-09-18",
+  "account": "icici-kavita",
+  "account_label": "ICICI savings · 0002",
+  "description": "NACH · Parag Parikh Flexi Cap — SIP",
+  "amount": -2500000,
+  "balance": 104746415,
+  "n": 1,
+  "key": "icici-kavita|2026-09-18|-2500000|104746415|1"
+ },
+ {
+  "date": "2026-09-17",
+  "account": "sbi-arjun",
+  "account_label": "SBI savings · 0003",
+  "description": "INT · Savings interest Q2",
+  "amount": 642000,
+  "balance": 71256200,
+  "n": 1,
+  "key": "sbi-arjun|2026-09-17|642000|71256200|1"
+ },
+ {
+  "date": "2026-09-16",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · BigBasket — weekly groceries",
+  "amount": -286500,
+  "balance": 158936440,
+  "n": 1,
+  "key": "hdfc-arjun|2026-09-16|-286500|158936440|1"
+ },
+ {
+  "date": "2026-09-15",
+  "account": "hdfc-arjun",
+  "account_label": "HDFC savings · 0001",
+  "description": "UPI · Third Wave Coffee — Indiranagar",
+  "amount": -48000,
+  "balance": 159222940,
+  "n": 1,
+  "key": "hdfc-arjun|2026-09-15|-48000|159222940|1"
+ }
+]

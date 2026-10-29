@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy — BankPipe</title>
+<meta name="description" content="How BankPipe handles your data: locally by default, encrypted in your own Google Drive if you connect it.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #16181d;
+    --muted: #5c6270;
+    --line: #e3e6ec;
+    --accent: #1a6b4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --fg: #e8eaee;
+      --muted: #9aa1ae;
+      --line: #23262d;
+      --accent: #4fbf92;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 64px 24px 96px; }
+  h1 { font-size: 1.8rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.05rem; margin: 36px 0 8px; }
+  p, li { margin: 0 0 12px; }
+  ul { padding-left: 20px; }
+  a { color: var(--accent); }
+  .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 32px; }
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy policy</h1>
+  <p class="meta">Last updated 27 October 2026 · BankPipe</p>
+
+  <p>BankPipe is a local-first application. This policy describes every way data can move, including the optional Google Drive connection.</p>
+
+  <h2>1. Data we collect</h2>
+  <p><b>None on our servers.</b> BankPipe has no user accounts, no analytics, no advertising, and no tracking pixels. We do not operate a database of user data.</p>
+
+  <h2>2. Data stored on your device</h2>
+  <p>Your portfolio, imported statements and settings are stored in your browser's local storage on your device. This data is not transmitted anywhere unless you explicitly enable a sync destination.</p>
+
+  <h2>3. Optional Google Drive connection</h2>
+  <p>If you choose to connect Google Drive, BankPipe requests one permission:</p>
+  <ul>
+    <li><b>Drive file access limited to files this app creates</b> (<code>drive.file</code>). BankPipe cannot see, read or modify any other file in your Drive.</li>
+  </ul>
+  <p>When connected, BankPipe writes encrypted backup snapshots into a <b>BankPipe</b> folder in your own Drive. The data remains yours; we have no access to it.</p>
+
+  <h2>4. Encryption</h2>
+  <p>Backups are encrypted on your device with AES-GCM before upload. The encryption passphrase never leaves your device and is never transmitted to us or to Google. Google stores ciphertext it cannot read.</p>
+
+  <h2>5. Sign-in handling</h2>
+  <p>Google sign-in is brokered by a small server component whose only job is to exchange an authorization code for tokens. It does not receive, proxy or store your portfolio data, statements or encryption keys.</p>
+
+  <h2>6. What we never do</h2>
+  <ul>
+    <li>We do not ask for or store your bank credentials or passwords.</li>
+    <li>We do not sell, rent or share your data.</li>
+    <li>We do not use your data to train models or for advertising.</li>
+    <li>We do not transfer your data to third parties.</li>
+  </ul>
+
+  <h2>7. Deleting your data</h2>
+  <ul>
+    <li><b>Local data:</b> clear the site's storage in your browser, or use the in-app delete option.</li>
+    <li><b>Drive backups:</b> delete the <b>BankPipe</b> folder in your Google Drive.</li>
+    <li><b>Access:</b> revoke the app at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+  </ul>
+  <p>Deleting the app's access does not delete files already in your Drive; you control those.</p>
+
+  <h2>8. Data we receive from Google</h2>
+  <p>BankPipe's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. Data obtained through Google APIs is used only to provide the backup and restore features visible in the app.</p>
+
+  <h2>9. Children</h2>
+  <p>BankPipe is not directed at children under 13 and does not knowingly collect data from them.</p>
+
+  <h2>10. Changes</h2>
+  <p>If this policy changes, the date above changes with it. Material changes will be noted in the app.</p>
+
+  <h2>11. Contact</h2>
+  <p>Questions or deletion requests: <a href="https://github.com/shivam2014/bankpipe/issues">open an issue</a>.</p>
+
+  <footer>
+    <a href="./index.html">← BankPipe</a>
+  </footer>
+</main>
+</body>
+</html>

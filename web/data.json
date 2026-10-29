@@ -1,0 +1,698 @@
+{
+ "currency": "₹",
+ "generated": "2026-10-31T09:15:00+05:30",
+ "net_worth": 3853397224,
+ "by_class": {
+  "bank": 595965805,
+  "fd": 1130000000,
+  "equity": 760304000,
+  "mf": 501347419,
+  "bonds": 239690000,
+  "gold": 331390000,
+  "ppf": 210000000,
+  "insurance": 84700000
+ },
+ "accounts": [
+  {
+   "id": "hdfc-arjun",
+   "label": "HDFC Bank · Arjun",
+   "bank": "HDFC Bank",
+   "number": "5012 8842 0001",
+   "city": "Bengaluru",
+   "holder": "Arjun",
+   "acct_type": "savings",
+   "balance": 184256040,
+   "last": "2026-10-31"
+  },
+  {
+   "id": "icici-kavita",
+   "label": "ICICI Bank · Kavita",
+   "bank": "ICICI Bank",
+   "number": "0150 0048 0002",
+   "city": "Bengaluru",
+   "holder": "Kavita",
+   "acct_type": "savings",
+   "balance": 97842015,
+   "last": "2026-10-31"
+  },
+  {
+   "id": "sbi-arjun",
+   "label": "State Bank of India · Arjun",
+   "bank": "State Bank of India",
+   "number": "3829 1047 0003",
+   "city": "Bengaluru",
+   "holder": "Arjun",
+   "acct_type": "savings",
+   "balance": 62451000,
+   "last": "2026-10-31"
+  },
+  {
+   "id": "axis-rohan",
+   "label": "Axis Bank · Rohan",
+   "bank": "Axis Bank",
+   "number": "9180 2044 0004",
+   "city": "Hyderabad",
+   "holder": "Rohan",
+   "acct_type": "savings",
+   "balance": 31804575,
+   "last": "2026-10-31"
+  },
+  {
+   "id": "scb-arjun",
+   "label": "Standard Chartered · Arjun",
+   "bank": "Standard Chartered",
+   "number": "7501 2288 0005",
+   "city": "Mumbai",
+   "holder": "Arjun",
+   "acct_type": "savings",
+   "balance": 148623060,
+   "last": "2026-10-31"
+  },
+  {
+   "id": "pnb-kavita",
+   "label": "Punjab National Bank · Kavita",
+   "bank": "Punjab National Bank",
+   "number": "3041 1226 0006",
+   "city": "New Delhi",
+   "holder": "Kavita",
+   "acct_type": "savings",
+   "balance": 44258025,
+   "last": "2026-10-31"
+  },
+  {
+   "id": "bob-arjun",
+   "label": "Bank of Baroda · Arjun",
+   "bank": "Bank of Baroda",
+   "number": "4022 9187 0007",
+   "city": "Pune",
+   "holder": "Arjun",
+   "acct_type": "savings",
+   "balance": 26731090,
+   "last": "2026-10-31"
+  }
+ ],
+ "holdings": {
+  "equity": {
+   "label": "Equity shares",
+   "group": "Market",
+   "rows": [
+    {
+     "id": 1,
+     "label": "HDFC Bank",
+     "value": 51360000,
+     "holder": "Arjun",
+     "details": {
+      "qty": "300",
+      "price": 171200
+     }
+    },
+    {
+     "id": 2,
+     "label": "ICICI Bank",
+     "value": 49800000,
+     "holder": "Arjun",
+     "details": {
+      "qty": "400",
+      "price": 124500
+     }
+    },
+    {
+     "id": 3,
+     "label": "Infosys",
+     "value": 64600000,
+     "holder": "Arjun",
+     "details": {
+      "qty": "400",
+      "price": 161500
+     }
+    },
+    {
+     "id": 4,
+     "label": "Reliance Industries",
+     "value": 88650000,
+     "holder": "Arjun",
+     "details": {
+      "qty": "300",
+      "price": 295500
+     }
+    },
+    {
+     "id": 5,
+     "label": "Larsen & Toubro",
+     "value": 66384000,
+     "holder": "Arjun",
+     "details": {
+      "qty": "180",
+      "price": 368800
+     }
+    },
+    {
+     "id": 6,
+     "label": "ITC",
+     "value": 52560000,
+     "holder": "Kavita",
+     "details": {
+      "qty": "1200",
+      "price": 43800
+     }
+    },
+    {
+     "id": 7,
+     "label": "Tata Motors",
+     "value": 44700000,
+     "holder": "Arjun",
+     "details": {
+      "qty": "600",
+      "price": 74500
+     }
+    },
+    {
+     "id": 8,
+     "label": "Sun Pharmaceutical",
+     "value": 62300000,
+     "holder": "Kavita",
+     "details": {
+      "qty": "350",
+      "price": 178000
+     }
+    },
+    {
+     "id": 9,
+     "label": "Asian Paints",
+     "value": 57800000,
+     "holder": "Kavita",
+     "details": {
+      "qty": "200",
+      "price": 289000
+     }
+    },
+    {
+     "id": 10,
+     "label": "Hindustan Unilever",
+     "value": 47700000,
+     "holder": "Kavita",
+     "details": {
+      "qty": "180",
+      "price": 265000
+     }
+    },
+    {
+     "id": 11,
+     "label": "Bajaj Finance",
+     "value": 64350000,
+     "holder": "Arjun",
+     "details": {
+      "qty": "90",
+      "price": 715000
+     }
+    },
+    {
+     "id": 12,
+     "label": "Titan Company",
+     "value": 51300000,
+     "holder": "Kavita",
+     "details": {
+      "qty": "150",
+      "price": 342000
+     }
+    },
+    {
+     "id": 13,
+     "label": "Bharti Airtel",
+     "value": 58800000,
+     "holder": "Arjun",
+     "details": {
+      "qty": "350",
+      "price": 168000
+     }
+    }
+   ]
+  },
+  "mf": {
+   "label": "Mutual funds",
+   "group": "Market",
+   "rows": [
+    {
+     "id": 101,
+     "label": "Parag Parikh Flexi Cap · Growth",
+     "value": 184130419,
+     "holder": "Arjun",
+     "details": {
+      "units": "28450.312",
+      "price": 6472,
+      "folio": "F20481"
+     }
+    },
+    {
+     "id": 102,
+     "label": "HDFC Balanced Advantage · Growth",
+     "value": 126080000,
+     "holder": "Arjun",
+     "details": {
+      "units": "32000.000",
+      "price": 3940,
+      "folio": "F20482"
+     }
+    },
+    {
+     "id": 103,
+     "label": "ICICI Prudential Bluechip · Growth",
+     "value": 81955000,
+     "holder": "Kavita",
+     "details": {
+      "units": "18500.000",
+      "price": 4430,
+      "folio": "F20483"
+     }
+    },
+    {
+     "id": 104,
+     "label": "SBI Small Cap · Growth",
+     "value": 68082000,
+     "holder": "Arjun",
+     "details": {
+      "units": "4200.000",
+      "price": 16210,
+      "folio": "F20484"
+     }
+    },
+    {
+     "id": 105,
+     "label": "Kotak Bond Short Term · Growth",
+     "value": 41100000,
+     "holder": "Kavita",
+     "details": {
+      "units": "20000.000",
+      "price": 2055,
+      "folio": "F20485"
+     }
+    }
+   ]
+  },
+  "bonds": {
+   "label": "Corporate bonds",
+   "group": "Market",
+   "rows": [
+    {
+     "id": 301,
+     "label": "7.15% IRFC 2031",
+     "value": 104000000,
+     "holder": "Arjun",
+     "details": {
+      "isin": "INE053F07AX5",
+      "units": "1000",
+      "rate": "7.15%",
+      "maturity": "2031-05-15",
+      "invested": 98000000,
+      "value": 104000000
+     }
+    },
+    {
+     "id": 302,
+     "label": "8.10% Tata Capital 2028",
+     "value": 54250000,
+     "holder": "Arjun",
+     "details": {
+      "isin": "INE306N07KX3",
+      "units": "500",
+      "rate": "8.10%",
+      "maturity": "2028-11-20",
+      "invested": 50000000,
+      "value": 54250000
+     }
+    },
+    {
+     "id": 303,
+     "label": "7.40% HUDCO 2030",
+     "value": 81440000,
+     "holder": "Kavita",
+     "details": {
+      "isin": "INE031A07AB2",
+      "units": "800",
+      "rate": "7.40%",
+      "maturity": "2030-02-10",
+      "invested": 80000000,
+      "value": 81440000
+     }
+    }
+   ]
+  },
+  "fd": {
+   "label": "Fixed deposits",
+   "group": "Deposits",
+   "rows": [
+    {
+     "id": 201,
+     "label": "HDFC fixed deposit",
+     "value": 250000000,
+     "holder": "Arjun",
+     "details": {
+      "bank": "HDFC",
+      "fd_no": "FD-0001",
+      "rate": 725,
+      "started": "2025-06-30",
+      "matures": "2027-06-30"
+     }
+    },
+    {
+     "id": 202,
+     "label": "ICICI fixed deposit",
+     "value": 300000000,
+     "holder": "Kavita",
+     "details": {
+      "bank": "ICICI",
+      "fd_no": "FD-0002",
+      "rate": 750,
+      "started": "2025-03-31",
+      "matures": "2028-03-31"
+     }
+    },
+    {
+     "id": 203,
+     "label": "SBI fixed deposit",
+     "value": 200000000,
+     "holder": "Arjun",
+     "details": {
+      "bank": "SBI",
+      "fd_no": "FD-0003",
+      "rate": 680,
+      "started": "2025-12-31",
+      "matures": "2026-12-31"
+     }
+    },
+    {
+     "id": 204,
+     "label": "Axis fixed deposit",
+     "value": 125000000,
+     "holder": "Rohan",
+     "details": {
+      "bank": "Axis",
+      "fd_no": "FD-0004",
+      "rate": 730,
+      "started": "2025-11-30",
+      "matures": "2026-11-30"
+     }
+    },
+    {
+     "id": 205,
+     "label": "PNB fixed deposit",
+     "value": 75000000,
+     "holder": "Kavita",
+     "details": {
+      "bank": "PNB",
+      "fd_no": "FD-0005",
+      "rate": 710,
+      "started": "2025-01-15",
+      "matures": "2027-01-15"
+     }
+    },
+    {
+     "id": 206,
+     "label": "Bank of Baroda fixed deposit",
+     "value": 180000000,
+     "holder": "Arjun",
+     "details": {
+      "bank": "Bank",
+      "fd_no": "FD-0006",
+      "rate": 705,
+      "started": "2024-09-30",
+      "matures": "2029-09-30"
+     }
+    }
+   ]
+  },
+  "ppf": {
+   "label": "Public provident fund",
+   "group": "Deposits",
+   "rows": [
+    {
+     "id": 501,
+     "label": "PPF · Arjun",
+     "value": 124000000,
+     "holder": "Arjun",
+     "details": {
+      "bank": "State Bank of India",
+      "started": "2016-04-01",
+      "matures": "2031-04-01"
+     }
+    },
+    {
+     "id": 502,
+     "label": "PPF · Kavita",
+     "value": 86000000,
+     "holder": "Kavita",
+     "details": {
+      "bank": "Post Office",
+      "started": "2018-04-01",
+      "matures": "2033-04-01"
+     }
+    }
+   ]
+  },
+  "gold": {
+   "label": "Gold",
+   "group": "Physical",
+   "rows": [
+    {
+     "id": 401,
+     "label": "24k bars",
+     "value": 94500000,
+     "holder": "Arjun",
+     "details": {
+      "purity": "24k",
+      "grams": "100",
+      "rate": 945000
+     }
+    },
+    {
+     "id": 402,
+     "label": "24k coins",
+     "value": 47250000,
+     "holder": "Kavita",
+     "details": {
+      "purity": "24k",
+      "grams": "50",
+      "rate": 945000
+     }
+    },
+    {
+     "id": 403,
+     "label": "22k jewellery",
+     "value": 189640000,
+     "holder": "Kavita",
+     "details": {
+      "purity": "22k",
+      "grams": "220",
+      "rate": 862000
+     }
+    }
+   ]
+  },
+  "insurance": {
+   "label": "Insurance policies",
+   "group": "Protection",
+   "rows": [
+    {
+     "id": 601,
+     "label": "LIC Jeevan Labh",
+     "value": 41000000,
+     "holder": "Arjun",
+     "details": {
+      "insurer": "LIC",
+      "policy_no": "884-221-501",
+      "cover_type": "endowment",
+      "sum_assured": 150000000,
+      "premium": 4525000,
+      "started": "2018-07-24",
+      "matures": "2042-07-24"
+     }
+    },
+    {
+     "id": 602,
+     "label": "PNB MetLife Endowment",
+     "value": 28500000,
+     "holder": "Kavita",
+     "details": {
+      "insurer": "PNB MetLife",
+      "policy_no": "224-860-102",
+      "cover_type": "endowment",
+      "sum_assured": 100000000,
+      "premium": 3800000,
+      "started": "2019-03-26",
+      "matures": "2034-03-26"
+     }
+    },
+    {
+     "id": 603,
+     "label": "ICICI Pru iProtect",
+     "value": 15200000,
+     "holder": "Arjun",
+     "details": {
+      "insurer": "ICICI Prudential",
+      "policy_no": "160-881-460",
+      "cover_type": "term",
+      "sum_assured": 500000000,
+      "premium": 1820000,
+      "started": "2020-11-06",
+      "matures": "2050-11-06"
+     }
+    }
+   ]
+  }
+ },
+ "upcoming": [
+  {
+   "date": "2026-11-30",
+   "label": "Axis fixed deposit matures",
+   "kind": "matures",
+   "amount": 125000000,
+   "class": "fd",
+   "id": 204
+  },
+  {
+   "date": "2026-12-31",
+   "label": "SBI fixed deposit matures",
+   "kind": "matures",
+   "amount": 200000000,
+   "class": "fd",
+   "id": 203
+  },
+  {
+   "date": "2026-12-15",
+   "label": "LIC Jeevan Labh premium",
+   "kind": "premium",
+   "amount": 4525000,
+   "class": "insurance",
+   "id": 601
+  },
+  {
+   "date": "2027-01-15",
+   "label": "PNB fixed deposit matures",
+   "kind": "matures",
+   "amount": 75000000,
+   "class": "fd",
+   "id": 205
+  },
+  {
+   "date": "2027-02-10",
+   "label": "HUDCO bond coupon",
+   "kind": "coupon",
+   "amount": 2960000,
+   "class": "bonds",
+   "id": 303
+  },
+  {
+   "date": "2027-03-26",
+   "label": "PNB MetLife premium",
+   "kind": "premium",
+   "amount": 3800000,
+   "class": "insurance",
+   "id": 602
+  },
+  {
+   "date": "2027-05-15",
+   "label": "IRFC bond coupon",
+   "kind": "coupon",
+   "amount": 3575000,
+   "class": "bonds",
+   "id": 301
+  },
+  {
+   "date": "2027-06-30",
+   "label": "HDFC fixed deposit matures",
+   "kind": "matures",
+   "amount": 250000000,
+   "class": "fd",
+   "id": 201
+  },
+  {
+   "date": "2027-07-24",
+   "label": "LIC policy anniversary",
+   "kind": "premium",
+   "amount": 4525000,
+   "class": "insurance",
+   "id": 601
+  },
+  {
+   "date": "2027-09-30",
+   "label": "Bank of Baroda fixed deposit matures",
+   "kind": "matures",
+   "amount": 180000000,
+   "class": "fd",
+   "id": 206
+  },
+  {
+   "date": "2027-11-20",
+   "label": "Tata Capital bond coupon",
+   "kind": "coupon",
+   "amount": 2025000,
+   "class": "bonds",
+   "id": 302
+  },
+  {
+   "date": "2028-03-31",
+   "label": "ICICI fixed deposit matures",
+   "kind": "matures",
+   "amount": 300000000,
+   "class": "fd",
+   "id": 202
+  }
+ ],
+ "review": [
+  {
+   "id": 1,
+   "date": "2026-10-18",
+   "account": "SBI savings · 0003",
+   "amount": -1250000,
+   "balance": 62451000,
+   "detail": "Balance is ₹1,250 higher than the row above implies — likely a missed credit."
+  },
+  {
+   "id": 2,
+   "date": "2026-10-24",
+   "account": "HDFC savings · 0001",
+   "amount": -349900,
+   "balance": 184256040,
+   "detail": "Same amount and narration appear twice on this date, with different balances."
+  }
+ ],
+ "issues": 2,
+ "flows": [
+  {
+   "month": "2026-05",
+   "inn": 31250000,
+   "out": 26400000,
+   "n": 38
+  },
+  {
+   "month": "2026-06",
+   "inn": 30800000,
+   "out": 28900000,
+   "n": 41
+  },
+  {
+   "month": "2026-07",
+   "inn": 32450000,
+   "out": 27100000,
+   "n": 35
+  },
+  {
+   "month": "2026-08",
+   "inn": 31900000,
+   "out": 30250000,
+   "n": 44
+  },
+  {
+   "month": "2026-09",
+   "inn": 31750000,
+   "out": 29600000,
+   "n": 39
+  },
+  {
+   "month": "2026-10",
+   "inn": 31500000,
+   "out": 24800000,
+   "n": 42
+  }
+ ]
+}
