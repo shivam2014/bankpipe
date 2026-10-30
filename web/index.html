@@ -405,6 +405,18 @@ textarea.inline-input{resize:vertical;min-height:48px}
   #view th,#view td{padding:8px 6px;overflow-wrap:anywhere}
   table[data-table="transactions"] th:nth-child(5),
   table[data-table="transactions"] td:nth-child(5){display:none}
+  /* The account header and the day view carry the balance on phones, so the
+     ledger drops that column instead of clipping it past the card. */
+  table[data-table="account"] th:nth-child(5),
+  table[data-table="account"] td:nth-child(5){display:none}
+  #view table[data-table="account"]{table-layout:fixed!important}
+  #view table[data-table="account"] th:nth-child(2),
+  #view table[data-table="account"] td:nth-child(2){width:84px!important}
+  #view table[data-table="account"] th:nth-child(3){min-width:0!important}
+  #view table[data-table="account"] th:nth-child(4),
+  #view table[data-table="account"] td:nth-child(4){width:100px!important}
+  .fact-toolbar .fact-bar{gap:8px}
+  .fact-bar .btn{padding:7px 10px;font-size:12.5px}
   .srow{grid-template-columns:28px minmax(0,1fr) 108px;gap:10px}
   .srow .pc{display:none}
   .srow .vl{font-size:13.5px}
@@ -470,6 +482,49 @@ th{position:relative}
   cursor:col-resize;user-select:none;z-index:3;touch-action:none}
 .col-resizer:hover,.col-resizer:active{background:rgba(15,18,22,.18)}
 table.resizable{table-layout:fixed;width:100%}
+/* The ledger's tick and edit columns are controls, not data. Fixing their
+   widths stops fixed layout from handing them the slack; the description
+   takes what is left. */
+#view table[data-table="account"] th:first-child,
+#view table[data-table="account"] td:first-child{width:34px!important;min-width:34px;
+ max-width:34px;padding:8px 4px 8px 9px}
+#view table[data-table="account"] .pick input{margin:0;display:block}
+#view table[data-table="account"] th:last-child,
+#view table[data-table="account"] td:last-child{width:44px!important;min-width:44px;
+ max-width:44px;padding:8px 8px 8px 2px;text-align:right}
+#view table[data-table="account"] td:nth-child(2){font-variant-numeric:tabular-nums}
+#view table[data-table="account"] td.ledger-date .date-text{white-space:nowrap}
+#view table[data-table="account"] .date-short{display:none}
+@media (max-width:640px){
+  #view table[data-table="account"] .date-full{display:none}
+  #view table[data-table="account"] .date-short{display:inline}
+}
+#view table[data-table="account"] td.ledger-desc .desc-clamp{display:-webkit-box;
+ -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+ overflow-wrap:anywhere;line-height:1.4}
+@media (min-width:641px){
+  /* Fixed columns on desktop too: the description is the only column that
+     takes the slack, and the amount and balance headers stay readable. */
+  #view table[data-table="account"]{table-layout:fixed}
+  #view table[data-table="account"] th:nth-child(2){width:96px}
+  #view table[data-table="account"] th:nth-child(4){width:116px}
+  #view table[data-table="account"] th:nth-child(5){width:164px}
+}
+.fact-toolbar{display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin:0 0 8px}
+.fact-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.fact-delete-all{margin-left:auto}
+@media (max-width:420px){
+  #view table[data-table="account"] th:first-child,
+  #view table[data-table="account"] td:first-child{width:32px!important;min-width:32px;
+   max-width:32px;padding-left:8px}
+  #view table[data-table="account"] th:last-child,
+  #view table[data-table="account"] td:last-child{width:36px!important;min-width:36px;
+   max-width:36px;padding-right:4px}
+  #view table[data-table="account"] th:nth-child(2),
+  #view table[data-table="account"] td:nth-child(2){width:78px!important}
+  #view table[data-table="account"] th:nth-child(4),
+  #view table[data-table="account"] td:nth-child(4){width:96px!important}
+}
 .filter-head{display:flex;justify-content:space-between;align-items:center;
   gap:10px;flex-wrap:wrap}
 .filter-grid{display:grid;gap:12px;grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -673,6 +728,16 @@ function wireResizableTables() {
     const key = table.dataset.table || `${heading}-${index}`;
     const ths = [...table.querySelectorAll("tr:first-child th")];
     if (ths.length < 2) return;
+    const lastIndex = ths.length - 1;
+    const isPick = (th) => th.classList.contains("pick");
+    // The description is the one column that absorbs fixed-layout slack, so
+    // the tick column never turns into a gap before the date.
+    const isFlex = (th, i) => table.dataset.table === "account" && i === 2;
+    const fixedFor = (th, i) => {
+      if (isPick(th)) return 34;
+      if (i === lastIndex && table.dataset.table === "account") return 44;
+      return null;
+    };
     const minFor = (th) => {
       const t = (th.textContent || "").trim().toLowerCase();
       if (/description|security/.test(t)) return 180;
@@ -681,21 +746,40 @@ function wireResizableTables() {
       if (/qty|date/.test(t)) return 84;
       return 72;
     };
+    const pinWidth = (th, i) => {
+      const fixed = fixedFor(th, i);
+      if (fixed === null) return false;
+      th.style.width = fixed + "px";
+      th.style.minWidth = fixed + "px";
+      th.style.maxWidth = fixed + "px";
+      return true;
+    };
+    ths.forEach(pinWidth);
     const saved = (() => {
-      try { return JSON.parse(localStorage.getItem("bp.cols.v2." + key) || "null"); }
+      try { return JSON.parse(localStorage.getItem("bp.cols.v3." + key) || "null"); }
       catch (e) { return null; }
     })();
     if (Array.isArray(saved) && saved.length === ths.length) {
       table.classList.add("resizable");
-      ths.forEach((th, i) => { th.style.width = Math.max(minFor(th), saved[i]) + "px"; });
+      ths.forEach((th, i) => {
+        if (pinWidth(th, i)) return;
+        if (isFlex(th, i)) {
+          th.style.width = "auto";
+          th.style.minWidth = Math.max(minFor(th), saved[i]) + "px";
+          return;
+        }
+        th.style.width = Math.max(minFor(th), saved[i]) + "px";
+      });
     }
     ths.forEach((th, i) => {
-      if (i === ths.length - 1) return;
+      // The tick column and the trailing actions column are controls, not
+      // data, so they never get a drag handle.
+      if (isPick(th) || i === lastIndex) return;
       const handle = document.createElement("div");
       handle.className = "col-resizer";
       handle.title = "Drag to resize; double-click to reset";
       handle.addEventListener("dblclick", () => {
-        localStorage.removeItem("bp.cols.v2." + key);
+        localStorage.removeItem("bp.cols.v3." + key);
         location.reload();
       });
       th.appendChild(handle);
@@ -704,7 +788,10 @@ function wireResizableTables() {
         e.stopPropagation();
         if (!table.classList.contains("resizable")) {
           table.classList.add("resizable");
-          ths.forEach((t) => { t.style.width = t.getBoundingClientRect().width + "px"; });
+          ths.forEach((t, j) => {
+            t.style.width = t.getBoundingClientRect().width + "px";
+            if (isFlex(t, j)) t.style.minWidth = "0px";
+          });
         }
         const startX = e.clientX, startW = th.getBoundingClientRect().width;
         try { handle.setPointerCapture(e.pointerId); } catch (err) {}
@@ -715,7 +802,7 @@ function wireResizableTables() {
           handle.removeEventListener("pointermove", move);
           handle.removeEventListener("pointerup", up);
           try {
-            localStorage.setItem("bp.cols.v2." + key,
+            localStorage.setItem("bp.cols.v3." + key,
               JSON.stringify(ths.map((t) => Math.round(t.getBoundingClientRect().width))));
           } catch (err) {}
         };
@@ -3964,6 +4051,13 @@ function dateLabel(v) {
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))
     .toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 }
+// The ledger's phone layout has room for "28 Oct 26", not the full ISO date.
+function shortDateLabel(v) {
+  const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return v || "";
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))
+    .toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit", timeZone: "UTC" });
+}
 function renderAssetView() {
   const id = window.bpState?.assetView || "";
   renderAssetViewAsync(document.getElementById("view"), id);
@@ -4536,8 +4630,8 @@ function renderAccount() {
       <td class="pick"><input type="checkbox" class="fact-pick" data-id="${f.id}"
         ${window.bpFactSel?.has(f.id) ? "checked" : ""}
         onchange="bpFactPick(${f.id}, this.checked)" aria-label="Select this transaction"></td>
-      <td>${f.txn_date || "—"}${br ? ` <span class="break-flag">check</span>` : ""}</td>
-      <td>${esc((f.narration || "").slice(0, 76))}</td>
+      <td class="ledger-date" title="${esc(f.txn_date || "")}"><span class="date-text date-full">${f.txn_date || "—"}</span><span class="date-text date-short">${esc(shortDateLabel(f.txn_date))}</span>${br ? ` <span class="break-flag">check</span>` : ""}</td>
+      <td class="ledger-desc" title="${esc(f.narration || "")}"><span class="desc-clamp">${esc(f.narration || "")}</span></td>
       <td class="n ${f.amount_paise < 0 ? "neg" : f.amount_paise > 0 ? "pos" : ""}">${amountInr(f.amount_paise)}</td>
       <td class="n">${amountInr(f.balance_paise)}${br ? `<div class="break-expected">should be
         ${amountInr(br.expected)}</div>${dupDays.has(br.date) ? `<div class="break-dup">${dupDays.get(br.date)}
@@ -4633,11 +4727,15 @@ function renderAccount() {
       ${checkOnly ? `<div class="muted" style="font-size:12.5px;margin-bottom:8px">Showing
         ${shownFacts.length} row${shownFacts.length === 1 ? "" : "s"} whose balance does not follow
         from the row above.</div>` : ""}
-      ${shownFacts.length ? `<div id="fact-bar" style="display:${window.bpFactSel?.size ? "" : "none"};
-          align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px">
-        <b id="fact-bar-count">${window.bpFactSel?.size || 0} selected</b>
-        <button class="btn" onclick="bpFactDeleteSelected()">Delete selected</button>
-        <button class="btn" onclick="bpFactPickAll(false)">Clear selection</button>
+      ${shownFacts.length ? `<div class="fact-toolbar">
+        <div id="fact-bar" class="fact-bar" style="display:${window.bpFactSel?.size ? "" : "none"}">
+          <b id="fact-bar-count">${window.bpFactSel?.size || 0} selected</b>
+          <button class="btn" onclick="bpFactDeleteSelected()">Delete selected</button>
+          <button class="btn" onclick="bpFactPickAll(false)">Clear selection</button>
+        </div>
+        <button class="mini-btn danger fact-delete-all" onclick="bpFactDeleteAll(${jsArg(account.id)})"
+          title="Remove every transaction in this account; the account stays">Delete all
+          ${totals.n || 0} transactions</button>
       </div>
       <div class="card"><table data-table="account">
         <tr><th class="pick"><input type="checkbox" aria-label="Select every row shown"
@@ -4648,12 +4746,7 @@ function renderAccount() {
         <th class="n sort" title="Running balance after this transaction; rows are newest first"
           onclick="bpAcctSort('balance')">Balance after (${currency()})${sort === "balance" ? `<span class="arrow">${dir < 0 ? "▼" : "▲"}</span>` : ""}</th>
         <th></th></tr>
-        ${rows}</table>
-        <div style="display:flex;justify-content:flex-end;padding:8px 4px 2px">
-          <button class="mini-btn danger" onclick="bpFactDeleteAll(${jsArg(account.id)})"
-            title="Remove every transaction in this account; the account stays">Delete all
-            ${totals.n || 0} transactions</button>
-        </div></div>` : `<div class="card pad">${checkOnly
+        ${rows}</table></div>` : `<div class="card pad">${checkOnly
           ? "No rows need checking in this account." : "No transactions match these filters."}</div>`}
       ${checkOnly ? "" : pager("bpAcct", totals.n || 0, page, limit)}
       </div>`;
