@@ -19,7 +19,20 @@ test("Delete all sits in the toolbar before the ledger table", () => {
   assert.ok(bar > toolbar, "the selection group is inside the toolbar");
   assert.ok(all > bar, "Delete all follows the selection group");
   assert.ok(table > all, "Delete all is above the ledger table");
-  assert.match(html, /Delete all\s+\$\{totals\.n \|\| 0\} transactions/);
+  assert.match(html, /Delete all\s+\$\{factTotal \|\| 0\} transactions/);
+});
+
+test("Delete all is hidden until the whole account is selected", () => {
+  assert.match(html, /class="mini-btn danger fact-delete-all" style="display:none"/,
+    "the button starts hidden");
+  assert.match(html, /id="fact-bar" class="fact-bar"[\s\S]{0,400}data-total="\$\{esc\(String\(factTotal\)\)\}"/,
+    "the bar carries the account total");
+  assert.match(html, /data-matched="\$\{esc\(String\(totals\.n \|\| 0\)\)\}"/,
+    "the bar carries the filtered match count");
+  assert.match(html, /aria-label="Select every matching transaction"/,
+    "the header checkbox says it selects every match");
+  assert.match(html, /onclick="bpFactPickAll\(false\)"/,
+    "Clear selection still uses the shared handler");
 });
 
 test("the ledger date has a phone form and the description keeps the full narration", () => {

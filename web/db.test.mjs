@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
-import { makeStore } from "./db.js";
+import { makeStore, showDeleteAll } from "./db.js";
 
 const require = createRequire(import.meta.url);
 const initSqlJs = require("./vendor/sql-wasm.js");
@@ -421,6 +421,40 @@ test("searchFacts can sort by amount ascending and descending", async () => {
   assert.deepEqual(asc.rows.map((r) => r.amount), [-100, 200, 300]);
   const desc = store.searchFacts({ sort: "amount", dir: -1 });
   assert.deepEqual(desc.rows.map((r) => r.amount), [300, 200, -100]);
+});
+
+test("factIds lists every match, not just the rendered page", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "bulk-a", label: "Bulk", bank: "B" });
+  const many = Array.from({ length: 450 }, (_, i) => ({
+    date: `2024-05-${String((i % 28) + 1).padStart(2, "0")}`,
+    amount: i + 1, balance: i + 1,
+    description: `ROW ${i + 1} ${i % 2 ? "SHOP" : "SALARY"}`,
+  }));
+  store.importRows("bulk-a", many);
+  const ids = store.factIds({ account: "bulk-a" });
+  assert.equal(ids.length, 450);
+  assert.equal(new Set(ids).size, 450, "no duplicate ids");
+  const firstPage = store.searchFacts({ account: "bulk-a" });
+  assert.equal(firstPage.rows.length, 200, "the ledger itself still pages");
+  assert.ok(ids.length > firstPage.rows.length, "the selection is not the page");
+
+  const salary = store.factIds({ account: "bulk-a", q: "SALARY" });
+  assert.equal(salary.length, 225);
+  assert.ok(salary.every((id) => ids.includes(id)), "filtered ids stay in the account");
+  const ranged = store.factIds({ account: "bulk-a", from: "2024-05-01", to: "2024-05-05" });
+  assert.ok(ranged.length > 0 && ranged.length < ids.length);
+  assert.deepEqual(store.factIds({ account: "bulk-a", q: "NO SUCH ROW" }), []);
+});
+
+test("Delete all is offered only for a whole-account selection", () => {
+  assert.equal(showDeleteAll(0, 0), false, "an empty ledger has nothing to delete");
+  assert.equal(showDeleteAll(0, 1046), false, "nothing selected");
+  assert.equal(showDeleteAll(200, 1046), false, "one page is not the account");
+  assert.equal(showDeleteAll(1046, 1046), true, "the whole account is selected");
+  assert.equal(showDeleteAll(1047, 1046), false, "more than the account is not safe");
+  assert.equal(showDeleteAll("1046", "1046"), true, "data attributes arrive as strings");
 });
 
 test("locker records stay with their account", async () => {
