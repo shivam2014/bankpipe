@@ -380,6 +380,20 @@ export function makeStore(SQLlib, save) {
       + " FROM fact f" + where, params)[0] || {};
     return { rows, totals, limit, offset };
   };
+  // Every id matching the same filters as searchFacts, with no page limit.
+  // The account page's header checkbox means "select every matching row", not
+  // just the rows currently rendered, so it needs the full id list.
+  store.factIds = (opts = {}) => {
+    const f = factFilter(opts);
+    let where = f.clauses.length ? " WHERE " + f.clauses.join(" AND ") : "";
+    const params = f.params.slice();
+    if (opts.account) {
+      where = (where ? where + " AND" : " WHERE") + " f.account_id=?";
+      params.push(opts.account);
+    }
+    return all("SELECT f.id FROM fact f" + where + " ORDER BY f.id", params)
+      .map((r) => r.id);
+  };
   store.appAudit = () => {
     const accounts = all(
       "SELECT f.account_id, COALESCE(a.category,'bank') AS category, COUNT(*) AS n,"
@@ -942,6 +956,21 @@ export async function accountDetail(id, opts = {}) {
 export async function searchFacts(opts = {}) {
   if (!browserStore) await openDb();
   return browserStore.searchFacts(opts);
+}
+
+// The ledger is filtered and paginated, but Delete all removes the whole
+// account. Offer it only when the selection is exactly that whole account:
+// a partial page (200 of 1046) must never look like "all". An over-count
+// (stale ids from another render) is refused too.
+export function showDeleteAll(selected, total) {
+  const n = Number(selected) || 0;
+  const t = Number(total) || 0;
+  return t > 0 && n === t;
+}
+
+export async function factIds(opts = {}) {
+  if (!browserStore) await openDb();
+  return browserStore.factIds(opts);
 }
 
 export async function recentTransactions(limit = 200) {

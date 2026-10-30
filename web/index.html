@@ -844,6 +844,7 @@ import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } 
 import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
 import { VAULT_SETTING, emptyVault, sealVault, openVault, safeUrl, upsertEntry, removeEntry } from "./secrets.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
+import { showDeleteAll } from "./db.js";
 import { SSOT_KEYS, manualSnapshot, manualUpdates } from "./ssot.js";
 import { restoreAnchor } from "./scroll-anchor.js";
 
@@ -4391,6 +4392,10 @@ function renderAccount() {
       return;
     }
     const asset = assets.find((a) => a.id === id) || account;
+    // The account's whole ledger, before any filter or page. Delete all removes
+    // this many rows, so the toolbar compares the selection against it rather
+    // than against the filtered count (totals.n).
+    const factTotal = Number(asset.facts) || 0;
     const cur = account.currency || currency();
     const latest = asset.balance === null || asset.balance === undefined
       ? null : asset.balance;
@@ -4728,18 +4733,22 @@ function renderAccount() {
         ${shownFacts.length} row${shownFacts.length === 1 ? "" : "s"} whose balance does not follow
         from the row above.</div>` : ""}
       ${shownFacts.length ? `<div class="fact-toolbar">
-        <div id="fact-bar" class="fact-bar" style="display:${window.bpFactSel?.size ? "" : "none"}">
+        <div id="fact-bar" class="fact-bar" style="display:${window.bpFactSel?.size ? "" : "none"}"
+          data-total="${esc(String(factTotal))}" data-matched="${esc(String(totals.n || 0))}"
+          data-account="${esc(account.id)}">
           <b id="fact-bar-count">${window.bpFactSel?.size || 0} selected</b>
           <button class="btn" onclick="bpFactDeleteSelected()">Delete selected</button>
           <button class="btn" onclick="bpFactPickAll(false)">Clear selection</button>
         </div>
-        <button class="mini-btn danger fact-delete-all" onclick="bpFactDeleteAll(${jsArg(account.id)})"
+        <button class="mini-btn danger fact-delete-all" style="display:none"
+          onclick="bpFactDeleteAll(${jsArg(account.id)})"
           title="Remove every transaction in this account; the account stays">Delete all
-          ${totals.n || 0} transactions</button>
+          ${factTotal || 0} transactions</button>
       </div>
       <div class="card"><table data-table="account">
-        <tr><th class="pick"><input type="checkbox" aria-label="Select every row shown"
-          onchange="bpFactPickAll(this.checked)"></th>
+        <tr><th class="pick"><input type="checkbox" aria-label="Select every matching transaction"
+          title="Selects all ${totals.n || 0} transactions matching these filters, not just this page"
+          onchange="bpFactPickAll(this.checked, ${jsArg(account.id)})"></th>
         <th class="sort" onclick="bpAcctSort('date')">Date${sort === "date" ? `<span class="arrow">${dir < 0 ? "▼" : "▲"}</span>` : ""}</th>
         <th class="sort" onclick="bpAcctSort('description')">Description${sort === "description" ? `<span class="arrow">${dir < 0 ? "▼" : "▲"}</span>` : ""}</th>
         <th class="n sort" onclick="bpAcctSort('amount')">Amount (${currency()})${sort === "amount" ? `<span class="arrow">${dir < 0 ? "▼" : "▲"}</span>` : ""}</th>
@@ -7747,22 +7756,58 @@ window.bpFactBar = () => {
   const bar = document.getElementById("fact-bar");
   if (!bar) return;
   const n = window.bpFactSel.size;
+  const total = Number(bar.dataset.total) || 0;
+  const matched = Number(bar.dataset.matched) || 0;
   bar.style.display = n ? "" : "none";
   const label = document.getElementById("fact-bar-count");
   if (label) label.textContent = `${n} selected`;
+  // Delete all clears the account, not the filtered page. The rule lives in
+  // db.js (showDeleteAll) so "200 of 1046" can never offer it. The header
+  // checkbox mirrors "every matching row", so a partial pick is indeterminate.
+  const all = document.querySelector(".fact-delete-all");
+  if (all) all.style.display = showDeleteAll(n, total) ? "" : "none";
+  const head = document.querySelector('table[data-table="account"] th.pick input');
+  if (head) {
+    head.checked = n > 0 && n === matched;
+    head.indeterminate = n > 0 && n < matched;
+  }
 };
 window.bpFactPick = (id, on) => {
   if (on) window.bpFactSel.add(id);
   else window.bpFactSel.delete(id);
   window.bpFactBar();
 };
-window.bpFactPickAll = (on) => {
-  for (const box of document.querySelectorAll(".fact-pick")) {
-    box.checked = on;
-    const id = Number(box.dataset.id);
-    if (on) window.bpFactSel.add(id);
-    else window.bpFactSel.delete(id);
+// Ticking the header means every row matching the current filter, including
+// rows on other pages. The check-only view shows a client-side subset, so it
+// keeps selecting just the flagged rows on screen.
+window.bpFactPickAll = async (on, accountId) => {
+  const boxes = [...document.querySelectorAll(".fact-pick")];
+  if (!on) {
+    window.bpFactSel = new Set();
+    for (const box of boxes) box.checked = false;
+    window.bpFactBar();
+    return;
   }
+  const f = window.bpAcctFilter || {};
+  const bar = document.getElementById("fact-bar");
+  let ids;
+  if (!f.check) {
+    try {
+      const store = await import("./db.js");
+      ids = await store.factIds({ account: accountId || bar?.dataset.account || "",
+        q: f.q, from: f.from, to: f.to, min: paiseOrNull(f.min), max: paiseOrNull(f.max),
+        gap: f.gap });
+    } catch (e) {}
+  }
+  // A clear or a visit to another account while the ids were loading must win
+  // over the earlier tick.
+  const head = document.querySelector('table[data-table="account"] th.pick input');
+  if (document.getElementById("fact-bar") !== bar) return;
+  if (head && !head.checked) return;
+  // Falling back to the rendered rows is still guarded by the bar's count
+  // check, so a partial page can never offer Delete all.
+  window.bpFactSel = new Set(ids || boxes.map((box) => Number(box.dataset.id)));
+  for (const box of boxes) box.checked = window.bpFactSel.has(Number(box.dataset.id));
   window.bpFactBar();
 };
 window.bpFactDeleteSelected = async () => {
