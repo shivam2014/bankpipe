@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildFdGroups, fdMatured, fdHistoryValue } from "./fd-view.js";
+import { buildFdGroups, fdMatured, fdHistoryValue, orderAccountsByFdTotal } from "./fd-view.js";
 
 const TODAY = "2026-10-30";
 const account = (id, label, extra = {}) =>
@@ -149,4 +149,31 @@ test("the account header carries the label, bank and masked number", () => {
   });
   assert.equal(groups[0].title, "Salary account");
   assert.equal(groups[0].subtitle, "HDFC Bank · …7890");
+});
+
+test("the FD-only order puts the largest active subtotal first, ties by label", () => {
+  const accounts = [account("small", "Alpha"), account("big", "Zeta"), account("tie", "Beta")];
+  const fds = [fd("f1", 100000, { maturity_date: "2027-01-01" }),
+    fd("f2", 900000, { maturity_date: "2027-01-01" }),
+    fd("f3", 900000, { maturity_date: "2027-01-01" })];
+  const ordered = orderAccountsByFdTotal(accounts, fds,
+    new Map([["f1", "small"], ["f2", "big"], ["f3", "tie"]]), TODAY);
+  assert.deepEqual(ordered.map((a) => a.id), ["tie", "big", "small"]);
+  assert.deepEqual(accounts.map((a) => a.id), ["small", "big", "tie"]);
+});
+
+test("matured FDs do not count towards the FD-only order", () => {
+  const accounts = [account("old", "Old"), account("live", "Live")];
+  const fds = [fd("done", 900000, { maturity_date: "2025-01-01" }),
+    fd("now", 100000, { maturity_date: "2027-01-01" })];
+  const ordered = orderAccountsByFdTotal(accounts, fds,
+    new Map([["done", "old"], ["now", "live"]]), TODAY);
+  assert.deepEqual(ordered.map((a) => a.id), ["live", "old"]);
+});
+
+test("an account with no FDs sorts after the accounts that have them", () => {
+  const accounts = [account("empty", "Aardvark"), account("has", "Zebra")];
+  const ordered = orderAccountsByFdTotal(accounts,
+    [fd("f1", 1, { maturity_date: "2027-01-01" })], { f1: "has" }, TODAY);
+  assert.deepEqual(ordered.map((a) => a.id), ["has", "empty"]);
 });
