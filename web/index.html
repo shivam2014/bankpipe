@@ -758,6 +758,7 @@ import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetP
 import { VAULT_SETTING, emptyVault, sealVault, openVault, safeUrl, upsertEntry, removeEntry } from "./secrets.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
 import { SSOT_KEYS, manualSnapshot, manualUpdates } from "./ssot.js";
+import { restoreAnchor } from "./scroll-anchor.js";
 
 const KEY = "bankpipe.txns.v1";
 const loadTxns = () => JSON.parse(localStorage.getItem(KEY) || "[]");
@@ -2892,19 +2893,55 @@ window.bpBankPieClick = (event) => {
     }
   }
 };
+// Sort and Show rebuild the whole Assets view. The hero and the net-worth card
+// above the bank section only exist in the Everything mode, so a pixel offset
+// saved before the swap lands on different content, and the browser clamps
+// scrollY while the shorter FD-only page is briefly live. Remember where the
+// section header sat on screen and put it back there, after the new DOM is in.
+const ASSET_ANCHOR_ID = "bank-fds";
+const assetAnchorTop = () => {
+  const el = document.getElementById(ASSET_ANCHOR_ID);
+  return el ? el.getBoundingClientRect().top : null;
+};
+// The clicked button is replaced by the re-render, so focus would fall back to
+// <body>. Match the rebuilt button by the handler it carries and return focus
+// without letting the browser scroll it into view.
+const restoreButtonFocus = (host, onclick) => {
+  if (!onclick || !host) return;
+  const again = Array.from(host.querySelectorAll("button"))
+    .find((b) => b.getAttribute("onclick") === onclick);
+  if (again) again.focus({ preventScroll: true });
+};
+const rerenderAssetsAnchored = () => {
+  const y = window.scrollY;
+  const beforeTop = assetAnchorTop();
+  const active = document.activeElement;
+  const onclick = active && active.getAttribute ? active.getAttribute("onclick") : null;
+  const host = document.getElementById("view");
+  Promise.resolve(renderRealAssets(host)).then(() => {
+    restoreButtonFocus(host, onclick);
+    const delta = restoreAnchor({
+      beforeTop,
+      measure: assetAnchorTop,
+      // scrollBy's one-argument form is the ScrollToOptions dictionary, which
+      // a bare number does not satisfy: window.scrollBy(300) is a no-op. Bind
+      // the vertical delta explicitly.
+      scrollBy: (dy) => window.scrollBy(0, dy),
+    });
+    // Other views and the empty portfolio have no section header to hold, so
+    // they keep the old pixel restore.
+    if (delta === null) window.scrollTo(0, y);
+  });
+};
 window.bpSortAcct = (key) => {
   const cur = window.bpAssetSort || { key: "balance", dir: -1 };
   const text = key === "name";
   window.bpAssetSort = { key, dir: cur.key === key ? -cur.dir : (text ? 1 : -1) };
-  const y = window.scrollY;
-  const host = document.getElementById("view");
-  Promise.resolve(renderRealAssets(host)).then(() => window.scrollTo(0, y));
+  rerenderAssetsAnchored();
 };
 window.bpAssetShow = (key) => {
   window.bpAssetFilterKey = key || "";
-  const y = window.scrollY;
-  const host = document.getElementById("view");
-  Promise.resolve(renderRealAssets(host)).then(() => window.scrollTo(0, y));
+  rerenderAssetsAnchored();
 };
 window.bpAlloc = (id) => {
   if ((localStorage.getItem("bp.mode") || "demo") === "demo") {
@@ -6069,7 +6106,7 @@ async function renderRealAssets(host) {
     const bankSection = bankGroup || (showFdsOnly && fdGroups.length)
       ? `<div style="display:flex;justify-content:space-between;
         align-items:baseline;gap:12px;flex-wrap:wrap;margin-top:22px">
-        <h2 style="margin:0">Bank accounts &amp; FDs</h2>
+        <h2 id="bank-fds" style="margin:0">Bank accounts &amp; FDs</h2>
         <div class="muted" style="font-size:13px">${money(
           showFdsOnly ? activeFdTotal : bankTotal)}</div></div>
       <div class="stat-chips">
