@@ -1,6 +1,8 @@
 // The "Only FDs" view keeps each deposit under the bank account that funded
 // it. The caller passes accounts already in display order, so this module owns
 // the grouping and the totals but never reads the page's sort state.
+// orderAccountsByFdTotal is the one exception: the FD-only view asks for that
+// order explicitly, and the Everything view keeps using the sort bar's.
 
 import { assetMetrics } from "./finance.js";
 
@@ -46,6 +48,38 @@ const rowOf = (fd, matured, asOf) => ({
 const totalOf = (rows, key) =>
   rows.reduce((total, r) => total + (r[key] ?? 0), 0);
 
+const linkOf = (fd, links) =>
+  links instanceof Map ? links.get(fd.id) : links?.[fd.id];
+
+const accountLabel = (acc) => String(acc.label || acc.number || acc.id);
+
+// The FD-only view puts the account with the biggest active deposit book
+// first: the bar's Balance sort counts savings plus FDs, which is not the same
+// question. Matured deposits are history and never move an account up.
+export function orderAccountsByFdTotal(accounts, fds, links, today) {
+  const asOf = asOfDate(today);
+  const todayIso = asOf.toISOString().slice(0, 10);
+  const list = (accounts || []).filter((acc) => acc && acc.id);
+  const totals = new Map(list.map((acc) => [acc.id, { paise: 0, count: 0 }]));
+  for (const fd of (fds || [])) {
+    if (!fd || fdMatured(fd, todayIso)) continue;
+    const linked = linkOf(fd, links);
+    const slot = linked ? totals.get(linked) : null;
+    // A link to an account outside this list is not in the FD-only view.
+    if (!slot) continue;
+    slot.paise += assetMetrics(fd, "fd", asOf).value ?? 0;
+    slot.count += 1;
+  }
+  return list.slice().sort((a, b) => {
+    const ta = totals.get(a.id);
+    const tb = totals.get(b.id);
+    // An account with deposits outranks one without, even if the deposits have
+    // no value recorded yet.
+    if (!!ta.count !== !!tb.count) return ta.count ? -1 : 1;
+    return (tb.paise - ta.paise) || accountLabel(a).localeCompare(accountLabel(b));
+  });
+}
+
 export function buildFdGroups({ accounts, fds, links, today } = {}) {
   const asOf = asOfDate(today);
   const todayIso = asOf.toISOString().slice(0, 10);
@@ -56,7 +90,7 @@ export function buildFdGroups({ accounts, fds, links, today } = {}) {
   for (const fd of (fds || [])) {
     if (!fd) continue;
     if (fdMatured(fd, todayIso)) { matured.push(fd); continue; }
-    const linked = links instanceof Map ? links.get(fd.id) : links?.[fd.id];
+    const linked = linkOf(fd, links);
     // A link to an account that no longer exists is not a group: the deposit
     // stays visible under "without a linked account".
     if (linked && byAccount.has(linked)) byAccount.get(linked).push(fd);

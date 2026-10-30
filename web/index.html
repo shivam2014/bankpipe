@@ -743,7 +743,7 @@ function nav() {
 import { parseStatement, chronological, auditStatement, rowsFromCsv, mapHeader, findHeader, parseDate, parseMoney, scanPreamble, guessAccount, sameAccountNumber } from "./parse.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
 import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, allocationGroups, importFillPlan } from "./assets.js";
-import { buildFdGroups, fdHistoryValue, fdMatured } from "./fd-view.js";
+import { buildFdGroups, fdHistoryValue, fdMatured, orderAccountsByFdTotal } from "./fd-view.js";
 import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
@@ -5957,12 +5957,16 @@ async function renderRealAssets(host) {
       else unlinkedFds.push(fd);
     }
     const unlinkedTotal = unlinkedFds.reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
-    const sort = window.bpAssetSort || { key: "balance", dir: -1 };
+    const savedSort = window.bpAssetSort || {};
+    // "Linked FD value" is gone. A stale in-memory key must not leave the bar
+    // with no active button, so it reads as Balance.
+    const sort = !["name", "balance"].includes(savedSort.key)
+      ? { key: "balance", dir: -1 }
+      : { key: savedSort.key, dir: savedSort.dir === 1 ? 1 : -1 };
     const fdValueOf = (acc) => (fdByAccount.get(acc.id) || [])
       .reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
     const sortKey = (acc) => sort.key === "name"
       ? String(acc.label || acc.number || acc.id).toLowerCase()
-      : sort.key === "fds" ? fdValueOf(acc)
       : (assetValue(acc).paise || 0) + fdValueOf(acc);
     const accountRows = (bankGroup?.rows || []).slice().sort((a, b) => {
       const va = sortKey(a), vb = sortKey(b);
@@ -5971,9 +5975,15 @@ async function renderRealAssets(host) {
         || String(a.label || a.id).localeCompare(String(b.label || b.id));
     });
     // One grouping feeds the FD-only view and the matured rows in the
-    // Everything view, so the two cannot disagree about what is active.
+    // Everything view, so the two cannot disagree about what is active. The
+    // FD-only view has its own account order: largest active FD subtotal first,
+    // then accounts without FDs by label; matured FDs stay in their own group.
     const fdGroups = buildFdGroups({
-      accounts: accountRows, fds: fdGroup?.rows || [], links: fdLinks, today: todayIso,
+      accounts: orderAccountsByFdTotal(bankGroup?.rows || [], fdGroup?.rows || [],
+        fdLinks, todayIso),
+      fds: fdGroup?.rows || [],
+      links: fdLinks,
+      today: todayIso,
     });
     const maturedGroup = fdGroups.find((g) => g.kind === "matured") || null;
     const activeFdGroups = fdGroups.filter((g) => g.kind !== "matured");
@@ -5988,9 +5998,7 @@ async function renderRealAssets(host) {
         ? ` <span class="ar">${sort.dir > 0 ? "▲" : "▼"}</span>` : ""}</button>`;
     const sortBar = `<div class="sortbar"><span class="lbl">Sort</span>
       ${sortBtn("name", "Account", "Sort accounts by name, A to Z on the first click")}
-      ${sortBtn("balance", "Balance", "Sort accounts by balance, largest first on the first click")}
-      ${sortBtn("fds", "Linked FD value", "Sort accounts by the total value of the "
-        + "active fixed deposits linked to each account, largest first on the first click")}</div>`;
+      ${sortBtn("balance", "Balance", "Sort accounts by balance, largest first on the first click")}</div>`;
     // "FDs" used to be a sort key, which reads like a filter. It is now one.
     const showFdsOnly = window.bpAssetFilterKey === "fds";
     const filterBtn = (key, label, hint) => `<button class="sortbtn ${
@@ -6033,11 +6041,13 @@ async function renderRealAssets(host) {
       const total = g.totalPaise ? money(g.totalPaise) : "—";
       if (g.kind === "account") {
         const acc = (bankGroup?.rows || []).find((a) => a.id === g.id);
+        const logo = acc ? bankLogo(acc) : "";
         const open = acc && acc.facts > 0
           ? `bpAccount(${jsArg(g.id)})` : `bpAsset(${jsArg(g.id)})`;
         return `<div class="bank-group">
           <a class="srow" href="#" onclick="${open};return false">
-            <div class="chip">BA</div>
+            ${logo ? `<img class="bank-logo" src="${logo}" alt="${esc(acc.bank || "Bank")} logo">`
+              : `<div class="chip">BA</div>`}
             <div><div class="nm">${esc(g.title)}</div>
               <div class="sub">${esc(g.subtitle || "no details yet")}</div></div>
             <div class="vl">${total}<div class="sub" style="text-align:right">${count}</div></div>
