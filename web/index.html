@@ -237,12 +237,16 @@ label.field textarea{resize:vertical;min-height:58px}
 .flow-month .fn.neg{color:var(--red)}
 .flow-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:7px}
 .flow-foot .muted{font-size:11px}
-.sortbar .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-right:3px}
+.sortbar .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink);
+  font-weight:680;margin-right:5px}
 .sortbtn{appearance:none;border:1px solid transparent;background:none;font:inherit;font-size:12px;
   color:var(--muted);padding:5px 9px;border-radius:8px;cursor:pointer}
 .sortbtn:hover{background:var(--hair);color:var(--ink)}
 .sortbtn.on{background:var(--hair);border-color:var(--line);color:var(--ink);font-weight:620}
 .sortbtn .ar{font-size:8.5px;margin-left:3px;color:var(--green)}
+.fdrow .nm{white-space:normal;overflow:visible}
+.fdrow .nm > span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fdrow .fdrow-sub{font-size:11px;color:var(--muted)}
 .snap-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:8px;align-items:center;
   padding:9px 0;border-top:1px solid var(--hair)}
 .snap-row:first-child{border-top:0}
@@ -739,6 +743,7 @@ function nav() {
 import { parseStatement, chronological, auditStatement, rowsFromCsv, mapHeader, findHeader, parseDate, parseMoney, scanPreamble, guessAccount, sameAccountNumber } from "./parse.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
 import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, allocationGroups, importFillPlan } from "./assets.js";
+import { buildFdGroups, fdHistoryValue, fdMatured } from "./fd-view.js";
 import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
@@ -5943,19 +5948,14 @@ async function renderRealAssets(host) {
     const otherGroups = groups.filter((g) => g.id !== "bank" && g.id !== "fd");
     const fdLinks = await linkFds(store, bankGroups(assets));
     const todayIso = new Date().toISOString().slice(0, 10);
-    const isMaturedFd = (fd) => !!(fd.maturity_date && fd.maturity_date < todayIso);
     const fdByAccount = new Map((bankGroup?.rows || []).map((a) => [a.id, []]));
     const unlinkedFds = [];
-    const maturedFds = [];
     for (const fd of (fdGroup?.rows || [])) {
-      if (isMaturedFd(fd)) { maturedFds.push(fd); continue; }
+      if (fdMatured(fd, todayIso)) continue;
       const linked = fdLinks.get(fd.id);
       if (linked && fdByAccount.has(linked)) fdByAccount.get(linked).push(fd);
       else unlinkedFds.push(fd);
     }
-    const activeFdTotal = (fdGroup?.rows || []).filter((fd) => !isMaturedFd(fd))
-      .reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
-    const maturedTotal = maturedFds.reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
     const unlinkedTotal = unlinkedFds.reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
     const sort = window.bpAssetSort || { key: "balance", dir: -1 };
     const fdValueOf = (acc) => (fdByAccount.get(acc.id) || [])
@@ -5970,22 +5970,40 @@ async function renderRealAssets(host) {
       return (cmp * sort.dir)
         || String(a.label || a.id).localeCompare(String(b.label || b.id));
     });
-    const sortBtn = (key, label) => `<button class="sortbtn ${sort.key === key ? "on" : ""}"
-      onclick="bpSortAcct('${key}')">${label}${sort.key === key
+    // One grouping feeds the FD-only view and the matured rows in the
+    // Everything view, so the two cannot disagree about what is active.
+    const fdGroups = buildFdGroups({
+      accounts: accountRows, fds: fdGroup?.rows || [], links: fdLinks, today: todayIso,
+    });
+    const maturedGroup = fdGroups.find((g) => g.kind === "matured") || null;
+    const activeFdGroups = fdGroups.filter((g) => g.kind !== "matured");
+    const maturedFds = maturedGroup ? maturedGroup.rows.map((r) => r.fd) : [];
+    const maturedTotal = maturedGroup ? maturedGroup.totalPaise : 0;
+    const activeFdTotal = activeFdGroups.reduce((t, g) => t + g.totalPaise, 0);
+    const activeFdCount = activeFdGroups.reduce((n, g) => n + g.rows.length, 0);
+    const pressed = (on) => (on ? "true" : "false");
+    const sortBtn = (key, label, hint) => `<button class="sortbtn ${sort.key === key ? "on" : ""}"
+      onclick="bpSortAcct('${key}')" aria-pressed="${pressed(sort.key === key)}"
+      title="${esc(hint)}">${label}${sort.key === key
         ? ` <span class="ar">${sort.dir > 0 ? "▲" : "▼"}</span>` : ""}</button>`;
     const sortBar = `<div class="sortbar"><span class="lbl">Sort</span>
-      ${sortBtn("name", "Account")}
-      ${sortBtn("balance", "Balance")}${sortBtn("fds", "FD total")}</div>`;
+      ${sortBtn("name", "Account", "Sort accounts by name, A to Z on the first click")}
+      ${sortBtn("balance", "Balance", "Sort accounts by balance, largest first on the first click")}
+      ${sortBtn("fds", "Linked FD value", "Sort accounts by the total value of the "
+        + "active fixed deposits linked to each account, largest first on the first click")}</div>`;
     // "FDs" used to be a sort key, which reads like a filter. It is now one.
     const showFdsOnly = window.bpAssetFilterKey === "fds";
-    const filterBtn = (key, label) => `<button class="sortbtn ${
+    const filterBtn = (key, label, hint) => `<button class="sortbtn ${
       (window.bpAssetFilterKey || "") === key ? "on" : ""}"
-      onclick="bpAssetShow('${key}')">${label}</button>`;
+      onclick="bpAssetShow('${key}')"
+      aria-pressed="${pressed((window.bpAssetFilterKey || "") === key)}"
+      title="${esc(hint)}">${label}</button>`;
     const filterBar = `<div class="sortbar"><span class="lbl">Show</span>
-      ${filterBtn("", "Everything")}${filterBtn("fds", "Only FDs")}</div>`;
-    const fdSubRow = (fd) => {
-      const value = assetValue(fd).paise;
-      const matured = !!(fd.maturity_date && fd.maturity_date < todayIso);
+      ${filterBtn("", "Everything", "Show every asset, with FDs under their bank account")}
+      ${filterBtn("fds", "Only FDs", "Show only fixed deposits, grouped under their bank account")}</div>`;
+    const fdSubRow = (fd, history) => {
+      const value = history ? fdHistoryValue(fd) : assetValue(fd).paise;
+      const matured = fdMatured(fd, todayIso);
       return `<a class="subrow" href="#" onclick="bpAssetView(${jsArg(fd.id)});return false">
         <span class="nm">${esc(fd.label || fd.number || "Fixed deposit")}${matured
           ? ` <span class="muted" style="font-size:10.5px">(matured)</span>` : ""}</span>
@@ -5993,40 +6011,68 @@ async function renderRealAssets(host) {
         <span class="pc">›</span></a>`;
     };
     const bankTotal = (bankGroup?.total || 0) + activeFdTotal;
-    // The FD-only view is a flat list: the account rows and the savings sub-rows
-    // are exactly what someone asking for "only FDs" does not want.
-    const fdOnly = [
-      ...(bankGroup?.rows || []).flatMap((acc) =>
-        (fdByAccount.get(acc.id) || []).map((fd) => ({ fd, acc }))),
-      ...unlinkedFds.map((fd) => ({ fd, acc: null })),
-    ].sort((a, b) => String(a.fd.maturity_date || "9999")
-      .localeCompare(String(b.fd.maturity_date || "9999")));
-    const fdOnlyRows = fdOnly.map(({ fd, acc }) => {
-      const value = assetValue(fd).paise;
-      const matured = !!(fd.maturity_date && fd.maturity_date < todayIso);
-      const sub = [acc?.label || acc?.bank || "no account",
-        fd.maturity_date ? `matures ${dateLabel(fd.maturity_date)}` : "no maturity date",
-        matured ? "matured" : ""].filter(Boolean).join(" · ");
-      return `<a class="srow" href="#" onclick="bpAssetView(${jsArg(fd.id)});return false">
-        <div class="chip">FD</div>
-        <div><div class="nm">${esc(fd.label || fd.number || "Fixed deposit")}</div>
-          <div class="sub">${esc(sub)}</div></div>
-        <div class="vl">${value === null ? "—" : money(value)}</div>
-        <div class="pc">›</div></a>`;
-    }).join("");
-    const fdOnlyTotal = fdOnly.reduce((t, x) => t + (assetValue(x.fd).paise || 0), 0);
-    const bankSection = bankGroup ? `<div style="display:flex;justify-content:space-between;
+    // The FD-only view keeps each deposit under the bank account that holds
+    // it, so the account and its FDs still read as one thing.
+    const fdOnlyRow = (r) => {
+      const fd = r.fd;
+      const when = fd.maturity_date
+        ? `${r.matured ? "matured" : "matures"} ${dateLabel(fd.maturity_date)}`
+        : "no maturity date";
+      const label = fd.label || fd.number || "Fixed deposit";
+      return `<a class="subrow fdrow${r.matured ? " muted" : ""}" href="#"
+        onclick="bpAssetView(${jsArg(fd.id)});return false"
+        title="${esc(`${label} · ${when}`)}">
+        <span class="nm"><span>${esc(label)}</span>
+          <span class="fdrow-sub">${esc(when)}</span></span>
+        <span class="amt">${r.paise === null ? "—" : money(r.paise)}</span>
+        <span class="pc">›</span></a>`;
+    };
+    const fdGroupCard = (g) => {
+      const rows = g.rows.map(fdOnlyRow).join("");
+      const count = `${g.rows.length} deposit${g.rows.length === 1 ? "" : "s"}`;
+      const total = g.totalPaise ? money(g.totalPaise) : "—";
+      if (g.kind === "account") {
+        const acc = (bankGroup?.rows || []).find((a) => a.id === g.id);
+        const open = acc && acc.facts > 0
+          ? `bpAccount(${jsArg(g.id)})` : `bpAsset(${jsArg(g.id)})`;
+        return `<div class="bank-group">
+          <a class="srow" href="#" onclick="${open};return false">
+            <div class="chip">BA</div>
+            <div><div class="nm">${esc(g.title)}</div>
+              <div class="sub">${esc(g.subtitle || "no details yet")}</div></div>
+            <div class="vl">${total}<div class="sub" style="text-align:right">${count}</div></div>
+            <div class="pc">›</div></a>
+          <div class="bank-subs">${rows}</div></div>`;
+      }
+      const muted = g.kind === "matured";
+      return `<div class="bank-group${muted ? " muted" : ""}">
+        <div class="srow">
+          <div class="chip"${muted
+            ? ` style="background:var(--hair);color:var(--muted)"` : ""}>FD</div>
+          <div><div class="nm">${esc(g.title)}</div>
+            <div class="sub">${esc(g.subtitle)}</div></div>
+          <div class="vl">${total}<div class="sub" style="text-align:right">${count}</div></div>
+          <div class="pc"></div>
+        </div>
+        <div class="bank-subs">${rows}</div></div>`;
+    };
+    const bankSection = bankGroup || (showFdsOnly && fdGroups.length)
+      ? `<div style="display:flex;justify-content:space-between;
         align-items:baseline;gap:12px;flex-wrap:wrap;margin-top:22px">
         <h2 style="margin:0">Bank accounts &amp; FDs</h2>
-        <div class="muted" style="font-size:13px">${money(bankTotal)}</div></div>
+        <div class="muted" style="font-size:13px">${money(
+          showFdsOnly ? activeFdTotal : bankTotal)}</div></div>
       <div class="stat-chips">
-        <span class="stat-chip">Savings <b>₹${compact(bankGroup.total || 0)}</b></span>
+        ${showFdsOnly ? "" : `<span class="stat-chip">Savings
+          <b>₹${compact(bankGroup?.total || 0)}</b></span>`}
         <span class="stat-chip">FDs <b>₹${compact(activeFdTotal)}</b></span>
       </div>
       ${showFdsOnly ? "" : sortBar}${filterBar}
       ${showFdsOnly
-        ? `<div class="card" style="margin-top:8px">${fdOnlyRows || `<div class="muted"
-            style="font-size:13px;padding:10px">No fixed deposits recorded yet.</div>`}</div>`
+        ? `<div class="card" style="margin-top:8px">${activeFdGroups.length
+            ? activeFdGroups.map(fdGroupCard).join("")
+            : `<div class="muted" style="font-size:13px;padding:10px">No fixed deposits
+              recorded yet.</div>`}${maturedGroup ? fdGroupCard(maturedGroup) : ""}</div>`
         : `<div class="card" style="margin-top:8px">${accountRows.map((acc) => {
         const fds = fdByAccount.get(acc.id) || [];
         const open = acc.facts > 0 ? `bpAccount(${jsArg(acc.id)})` : `bpAsset(${jsArg(acc.id)})`;
@@ -6040,7 +6086,7 @@ async function renderRealAssets(host) {
               <span class="nm">Savings</span>
               <span class="amt">${savings === null ? "—" : money(savings, acc.currency)}</span>
               <span class="pc">›</span></a>
-            ${fds.map(fdSubRow).join("")}</div>` : ""}</div>`;
+            ${fds.map((fd) => fdSubRow(fd)).join("")}</div>` : ""}</div>`;
       }).join("")}
       ${unlinkedFds.length ? `<div class="bank-group">
         <div class="srow">
@@ -6051,7 +6097,19 @@ async function renderRealAssets(host) {
             ${unlinkedFds.length} deposit${unlinkedFds.length === 1 ? "" : "s"}</div></div>
           <div class="pc"></div>
         </div>
-        <div class="bank-subs">${unlinkedFds.map(fdSubRow).join("")}</div>
+        <div class="bank-subs">${unlinkedFds.map((fd) => fdSubRow(fd)).join("")}</div>
+      </div>` : ""}
+      ${maturedGroup ? `<div class="bank-group muted">
+        <div class="srow">
+          <div class="chip" style="background:var(--hair);color:var(--muted)">FD</div>
+          <div><div class="nm">Matured FDs</div>
+            <div class="sub">History · not in the total above</div></div>
+          <div class="vl">${maturedTotal ? money(maturedTotal) : "—"}
+            <div class="sub" style="text-align:right">${maturedFds.length}
+            deposit${maturedFds.length === 1 ? "" : "s"}</div></div>
+          <div class="pc"></div>
+        </div>
+        <div class="bank-subs">${maturedFds.map((fd) => fdSubRow(fd, true)).join("")}</div>
       </div>` : ""}
       </div>`}
       ` : "";
@@ -6071,10 +6129,10 @@ async function renderRealAssets(host) {
     host.innerHTML = `<h1>Assets</h1>${actions}
       ${stale ? staleImportCard() : ""}
       ${showFdsOnly ? `<div class="hero"><div class="lbl">Fixed deposits</div>
-        <div class="num">${fdOnlyTotal ? money(fdOnlyTotal) : "—"}</div>
-        <div class="chips"><span>${fdOnly.length} deposit${fdOnly.length === 1 ? "" : "s"}</span>
-        <span>${fdOnly.filter((x) => x.fd.maturity_date && x.fd.maturity_date < todayIso).length}
-        matured</span></div></div>`
+        <div class="num">${activeFdTotal ? money(activeFdTotal) : "—"}</div>
+        <div class="chips"><span>${activeFdCount} active
+        deposit${activeFdCount === 1 ? "" : "s"}</span>
+        <span>${maturedFds.length} matured</span></div></div>`
       : `<div class="hero"><div class="lbl">Across ${assets.length} asset${assets.length === 1 ? "" : "s"}</div>
         <div class="num">${valued ? money(total) : "—"}</div>
         <div class="chips"><span>${valued} of ${assets.length} valued</span>
