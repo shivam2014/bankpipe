@@ -1,0 +1,30 @@
+flowchart TD
+  subgraph MAN["Manual snapshot: one immutable file"]
+    M1["export SQLite"] --> M2["gzip"] --> M3["encrypt with the data key"] --> M4["bankpipe-date-id.bpdb"]
+  end
+
+  subgraph AUTO["Automatic copy: refreshed after changes"]
+    A1["export SQLite"] --> A2["split into 64 KiB blocks"]
+    A2 --> A3["name each block<br/>HMAC-SHA256 of the data key over its bytes"]
+    A3 --> A4{"name already<br/>in the folder?"}
+    A4 -->|"yes"| A5["reuse it<br/>upload nothing"]
+    A4 -->|"no"| A6["encrypt and upload the block"]
+    A6 --> A7["verify every new block<br/>read back, check its name"]
+    A5 --> A8["write the manifest<br/>block order, size, SHA-256"]
+    A7 --> A8
+    A8 --> A9["read the manifest back"]
+    A9 --> A10["delete blocks<br/>the new manifest omits"]
+  end
+
+  FAIL["Old manifest stays<br/>previous copy still restorable"]
+  ROLL["Put the previous manifest back"]
+
+  A7 -.->|"verify fails"| FAIL
+  A9 -.->|"verify fails"| ROLL
+
+  class M1,M2,M3,M4,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10 dev
+  class FAIL,ROLL stop
+  style MAN fill:#fbf7ec,stroke:#cecdc3,stroke-width:1px
+  style AUTO fill:#f4f8fc,stroke:#b7cde4,stroke-width:1px
+  classDef dev fill:#e8f0f8,stroke:#205ea6,color:#100f0f,stroke-width:1.5px
+  classDef stop fill:#f8ded9,stroke:#b3261e,color:#100f0f,stroke-width:1.5px

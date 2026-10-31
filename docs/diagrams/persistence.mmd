@@ -1,0 +1,35 @@
+flowchart TD
+  subgraph RAM["In memory: plaintext"]
+    DB[("sql.js SQLite<br/>the working ledger")]
+    W["A write lands<br/>fact, account, holding, issue"]
+  end
+
+  subgraph DISK["At rest: ciphertext"]
+    IDB[("IndexedDB<br/>one sealed blob")]
+    SNAP[("Local snapshots<br/>last 12 sealed blobs")]
+  end
+
+  PASS["Passphrase<br/>typed, never stored"]
+  KDF["PBKDF2-HMAC-SHA256<br/>600,000 iterations<br/>fresh random salt"]
+  GCM["AES-256-GCM<br/>whole SQLite file"]
+  OPEN["Unlock<br/>decrypt back into memory"]
+  LOST["Lost passphrase<br/>no reset, no recovery"]
+
+  W --> DB
+  DB -->|"export() bytes"| GCM
+  PASS --> KDF --> GCM
+  GCM -->|"BPK1 envelope"| IDB
+  IDB --> SNAP
+  IDB -->|"next session"| OPEN
+  PASS --> OPEN
+  OPEN -->|"plaintext again"| DB
+  PASS -.->|"lost"| LOST
+
+  class DB,W,PASS,KDF,GCM,OPEN dev
+  class IDB,SNAP secret
+  class LOST stop
+  style RAM fill:#f4f8fc,stroke:#b7cde4,stroke-width:1px
+  style DISK fill:#e9f4f1,stroke:#a9d6cc,stroke-width:1px
+  classDef dev fill:#e8f0f8,stroke:#205ea6,color:#100f0f,stroke-width:1.5px
+  classDef secret fill:#e2efec,stroke:#24837b,color:#100f0f,stroke-width:1.5px
+  classDef stop fill:#f8ded9,stroke:#b3261e,color:#100f0f,stroke-width:1.5px

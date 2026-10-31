@@ -1,0 +1,40 @@
+erDiagram
+  ACCOUNT ||--o{ FACT : holds
+  ACCOUNT ||--o{ IMPORT_RUN : for
+  ACCOUNT ||--o{ ISSUE : about
+  FACT ||--o{ ISSUE : raises
+  IMPORT_RUN ||--o{ FACT : produced
+
+  ACCOUNT {
+    text id PK
+    text number
+    text category
+    integer value_paise
+    text state
+  }
+
+  FACT {
+    integer id PK
+    text account_id
+    text txn_date
+    integer amount_paise
+    integer balance_paise
+    text txn_key UK
+    integer run_id
+  }
+
+  IMPORT_RUN {
+    integer id PK
+    text account_id
+    text file
+    integer rows_read
+    integer rows_kept
+  }
+
+  ISSUE {
+    integer id PK
+    integer fact_id
+    text account_id
+    text kind
+    text state
+  }

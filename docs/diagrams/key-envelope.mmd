@@ -1,0 +1,24 @@
+flowchart TD
+  PASS["Passphrase<br/>typed, never stored"]
+  SALT["Random 16-byte salt"]
+  KDF["PBKDF2-HMAC-SHA256<br/>600,000 iterations"]
+  KEK["Key-encrypting key"]
+  DEK["Random 32-byte data key<br/>made once per vault"]
+  WRAP["AES-256-GCM wrap"]
+  KEYFILE["vault-key-0001.bpk<br/>the data key, sealed"]
+  DATA["Every snapshot and every block<br/>encrypted with the same data key"]
+  CHANGE["Passphrase change"]
+
+  PASS --> KDF
+  SALT --> KDF
+  KDF --> KEK --> WRAP
+  DEK --> WRAP
+  WRAP --> KEYFILE
+  DEK -->|"encrypts"| DATA
+  PASS -.->|"new passphrase"| CHANGE
+  CHANGE -->|"rewrites one small file"| KEYFILE
+
+  class PASS,SALT,KDF,KEK,WRAP,KEYFILE,CHANGE dev
+  class DEK,DATA secret
+  classDef dev fill:#e8f0f8,stroke:#205ea6,color:#100f0f,stroke-width:1.5px
+  classDef secret fill:#e2efec,stroke:#24837b,color:#100f0f,stroke-width:1.5px

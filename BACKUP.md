@@ -91,8 +91,10 @@ monthly. A backup that has never been restored is a rumour.
 - **One writer at a time.** Nothing is ever overwritten, so two devices cannot destroy
   each other's data — but they can produce two lineages. The page warns when it sees
   another device's snapshot newer than yours.
-- **The local database is not encrypted at rest.** The vault covers the backup, not the
-  working copy. Use full-disk encryption (FileVault, BitLocker, device passcode).
+- **The working copy is sealed only when a database passphrase is set.** Real mode asks
+  for one at setup, and the IndexedDB blob is AES-256-GCM ciphertext. Without a passphrase
+  the blob is plain SQLite, so use full-disk encryption (FileVault, BitLocker, device
+  passcode) either way.
 - **Credentials are not in the snapshot's protection model yet.** Vault entries are
   sealed with a separate device key. Decide deliberately whether they should ride inside
   the encrypted database instead.

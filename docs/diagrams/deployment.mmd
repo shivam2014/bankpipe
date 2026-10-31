@@ -1,0 +1,40 @@
+flowchart TD
+  subgraph DEV["Your device: plaintext lives here"]
+    EXP["Bank, broker and DigiFInn exports<br/>CSV, XLSX or text-layer PDF"]
+    subgraph APP["Browser tab, served as static files"]
+      UI["UI shell<br/>home, accounts, assets, review"]
+      ING["Import and parsers"]
+      GATE["Arithmetic gate"]
+      SQL[("SQLite in memory<br/>sql.js, WebAssembly")]
+      VAULT["Vault<br/>seal and open"]
+    end
+    IDB[("IndexedDB<br/>sealed database and snapshots")]
+    SRV["Local Node server<br/>static files and two price routes"]
+  end
+
+  BROKER["Cloudflare Worker<br/>OAuth broker only"]
+  GD["Google Drive<br/>ciphertext only"]
+  MKT["BSE and SMEST"]
+  IFSC["IFSC lookup"]
+
+  EXP --> ING
+  UI --> ING --> GATE --> SQL
+  SQL -->|"export bytes"| VAULT
+  VAULT -->|"ciphertext"| IDB
+  UI -->|"price and bond routes"| SRV
+  SRV --> MKT
+  UI -.->|"branch lookup"| IFSC
+  VAULT -.->|"encrypted backup"| GD
+  GD -.->|"restore"| VAULT
+  UI -.->|"OAuth handshake, see the Drive chart"| BROKER
+
+  class EXP,UI,ING,GATE,SQL,VAULT,IDB,SRV dev
+  class BROKER edge
+  class GD,MKT,IFSC ext
+  class SQL,VAULT secret
+  style DEV fill:#fbf7ec,stroke:#cecdc3,stroke-width:1px
+  style APP fill:#f4f8fc,stroke:#b7cde4,stroke-width:1px
+  classDef dev fill:#e8f0f8,stroke:#205ea6,color:#100f0f,stroke-width:1.5px
+  classDef edge fill:#f6e9d6,stroke:#a35a00,color:#100f0f,stroke-width:1.5px
+  classDef ext fill:#efe9f7,stroke:#6b4ea3,color:#100f0f,stroke-width:1.5px
+  classDef secret fill:#e2efec,stroke:#24837b,color:#100f0f,stroke-width:1.5px
