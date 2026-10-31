@@ -179,15 +179,30 @@ export function rowsFromCsv(text) {
     out.push(cur); return out;
   });
 }
+// A statement can end with a summary block after the transactions: a
+// "Statement Summary" line, a column of totals labels, then the totals row.
+// The totals carry printable numbers, so the money test alone keeps them as a
+// transaction. Only a row that has no date *and* says it is a summary is a
+// footer; a narration that mentions "closing balance" still has its date.
+const FOOTER_MARKER = /statement summary|summary of|brought forward|opening balance|closing balance|grand total/i;
+
 export function parseStatement(rows) {
   rows = stripRows(rows);
   const { idx, map } = findHeader(rows);
   if (idx < 0) return { rows: [], error: "no recognisable header row" };
-  const out = []; let skipped = 0;
+  const out = []; let skipped = 0; let footerRow = null;
   for (let r = idx + 1; r < rows.length; r++) {
     const row = rows[r];
     const get = k => (map[k] !== undefined && row[map[k]] !== undefined) ? row[map[k]] : "";
     const date = parseDate(get("date"));
+    // The "one row already read" guard keeps a leading opening-balance row
+    // from ending the file before it starts, and the date-column guard keeps a
+    // headerless sheet (no date column at all) on the normal path.
+    if (!date && map.date !== undefined && out.length
+        && FOOTER_MARKER.test(row.join(" ").replace(/\s+/g, " "))) {
+      footerRow = r + 1;
+      break;
+    }
     const debit = parseMoney(get("debit")), credit = parseMoney(get("credit"));
     const single = parseMoney(get("amount"));
     let amount = null;
@@ -220,7 +235,8 @@ export function parseStatement(rows) {
       Math.abs(datedRows[i + 1].balance - (r.balance - r.amount)) <= 1);
     if (newestFirst) order = "desc";
   }
-  return { rows: out, skipped, header: idx + 1, mapping: Object.keys(map), order };
+  return { rows: out, skipped, header: idx + 1, mapping: Object.keys(map), order,
+           footer_row: footerRow };
 }
 
 export function chronological(parsed) {
