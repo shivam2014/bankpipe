@@ -28,6 +28,17 @@ const inverted = [
   { date: "2024-04-07", amount: 3000, balance: 1085000, description: "F", source_row: 7 },
 ];
 
+// A held account with one balance break, one undated row and one inversion.
+// Re-check must derive all three from these rows alone, without an import.
+const reviewRows = [
+  { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 2 },
+  { date: "2024-04-03", amount: -20000, balance: 1079000, description: "B", source_row: 3 },
+  { date: "", amount: -1000, balance: 1078000, description: "C", source_row: 4 },
+  { date: "2024-04-05", amount: 5000, balance: 1083000, description: "D", source_row: 5 },
+  { date: "2024-04-04", amount: -2000, balance: 1081000, description: "E", source_row: 6 },
+  { date: "2024-04-06", amount: 1000, balance: 1082000, description: "F", source_row: 7 },
+];
+
 test("a fresh import inserts every row", async () => {
   const store = makeStore(SQL, null);
   await store.open();
@@ -550,7 +561,7 @@ test("a back-dated second import joins in run-block order", async () => {
   assert.equal(store.balanceBreaks("pnb").length, 0);
 });
 
-test("re-check clears only open balance breaks and recomputes them", async () => {
+test("re-check leaves an accepted balance break accepted", async () => {
   const store = makeStore(SQL, null);
   await store.open();
   store.importRows("pnb", [
@@ -561,20 +572,82 @@ test("re-check clears only open balance breaks and recomputes them", async () =>
   assert.equal(open.kind, "balance_break");
   store.resolveIssue(open.id, "accepted");
   store.raw().run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
-    [null, "pnb", "balance_break", "stale break"]);
-  store.raw().run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
     [null, "pnb", "no_date", "row 9 has no date; amount and balance imported as printed"]);
 
   const res = store.recheckAccount("pnb");
-  assert.equal(res.cleared, 1);
-  assert.equal(res.added, 1);
+  assert.equal(res.cleared, 1, "the stale open item is cleared");
+  assert.equal(res.added, 0, "the same break is already accepted");
   const states = store.query("SELECT kind, state, COUNT(*) AS n FROM issue"
     + " GROUP BY kind, state ORDER BY kind, state");
   assert.deepEqual(Object.fromEntries(states.map((r) => [`${r.kind}:${r.state}`, r.n])), {
     "balance_break:accepted": 1,
-    "balance_break:open": 1,
-    "no_date:open": 1,
   });
+});
+
+test("re-check derives all three review kinds from rows already held", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", reviewRows);
+  // These rows were imported before Re-check learned the two oddity kinds.
+  store.raw().run("DELETE FROM issue");
+
+  const res = store.recheckAccount("pnb");
+  assert.deepEqual(res, { cleared: 0, added: 3 });
+  const open = store.listIssues();
+  assert.equal(open.length, 3);
+  assert.deepEqual(open.map((i) => i.kind).sort(),
+    ["balance_break", "no_date", "out_of_order"]);
+  const undated = open.find((i) => i.kind === "no_date");
+  assert.equal(undated.detail,
+    "row 4 has no date; amount and balance imported as printed");
+  const odd = open.find((i) => i.kind === "out_of_order");
+  assert.equal(odd.detail, "printed after 2024-04-05, before 2024-04-04, row 6");
+});
+
+test("a second re-check replaces the same items without duplicating them", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", reviewRows);
+  const first = store.recheckAccount("pnb");
+  assert.equal(first.added, 3);
+  const before = store.listIssues().length;
+
+  const second = store.recheckAccount("pnb");
+  assert.equal(second.cleared, first.added);
+  assert.equal(second.added, first.added);
+  assert.equal(store.listIssues().length, before);
+  const duplicates = store.query("SELECT fact_id, kind, COUNT(*) AS n FROM issue"
+    + " WHERE state='open' GROUP BY fact_id, kind HAVING n > 1");
+  assert.deepEqual(duplicates, []);
+});
+
+test("an accepted no-date item survives Re-check and is not reopened", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", reviewRows);
+  const fact = store.query("SELECT id FROM fact WHERE txn_date IS NULL OR txn_date=''")[0];
+  store.raw().run("DELETE FROM issue");
+  store.raw().run("INSERT INTO issue(fact_id,account_id,kind,detail,state) VALUES(?,?,?,?,?)",
+    [fact.id, "pnb", "no_date",
+     "row 4 has no date; amount and balance imported as printed", "accepted"]);
+
+  const res = store.recheckAccount("pnb");
+  assert.equal(res.cleared, 0);
+  assert.equal(res.added, 2, "the break and the inversion, not the accepted item");
+  const accepted = store.query("SELECT COUNT(*) AS n FROM issue"
+    + " WHERE kind='no_date' AND state='accepted'")[0].n;
+  assert.equal(accepted, 1);
+  const openNoDate = store.query("SELECT COUNT(*) AS n FROM issue"
+    + " WHERE kind='no_date' AND state='open'")[0].n;
+  assert.equal(openNoDate, 0);
+});
+
+test("a clean account has nothing to re-check", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("hdfc", rows);
+  assert.deepEqual(store.recheckAccount("hdfc"), { cleared: 0, added: 0 });
+  assert.deepEqual(store.listIssues(), []);
 });
 
 test("re-importing a file with an inversion adds no rows or items", async () => {

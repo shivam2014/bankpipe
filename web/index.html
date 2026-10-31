@@ -3146,8 +3146,8 @@ window.bpRecheckAccount = async (accountId) => {
   try {
     const store = await import("./db.js");
     const res = await store.recheckAccount(accountId);
-    alert(`Cleared ${res.cleared} old balance break${res.cleared === 1 ? "" : "s"};`
-      + ` ${res.added} still open.`);
+    alert(`Cleared ${res.cleared} old review item${res.cleared === 1 ? "" : "s"};`
+      + ` ${res.added} open now.`);
     go("gaps");
   } catch (e) {
     alert("Could not re-check: " + (e.message || e));
@@ -5444,7 +5444,7 @@ async function renderGaps() {
         ${a.missing_balance ? `<button class="btn" onclick="bpGap(${jsArg(a.account_id)},'balance')">Balances</button>` : ""}
         ${a.breaks ? `<button class="btn" onclick="go('issues')">Breaks</button>` : ""}
         ${a.items ? `<button class="btn" onclick="go('issues')">Review ${a.items}</button>` : ""}
-        <button class="btn" title="Recompute this account's balance breaks from the rows already held"
+        <button class="btn" title="Recompute this account's review items from the rows already held"
           onclick="bpRecheckAccount(${jsArg(a.account_id)})">Re-check</button>
       </td></tr>`).join("");
     const registerRows = regRows.map((r) => {
