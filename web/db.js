@@ -2,7 +2,7 @@
 // The dedupe and reconciliation rules come from ledger.js, so the browser and
 // the Python reference agree on what a duplicate is.
 
-import { dedupePlan, duplicateIds, reconcileChain, normNarration } from "./ledger.js";
+import { dedupePlan, duplicateIds, reconcileChain, orderForChain, normNarration } from "./ledger.js";
 import { isSealed, sealBytes, openBytes } from "./dbatrest.js";
 
 const DB_KEY = "bankpipe.db.v1";
@@ -259,6 +259,21 @@ export function makeStore(SQLlib, save) {
     return values.map((v) => Object.fromEntries(v.map((x, i) => [columns[i], x])));
   };
   store.query = all;
+  // The bank's printed order is the truth. Runs are placed by their earliest
+  // transaction date, so a back-dated second import sits before the run it
+  // precedes. Within a run the file's own row order (source_row) is kept.
+  // Display sorting is separate and unchanged.
+  const printedRows = (accountId) => all(
+    "SELECT f.id, f.txn_date AS date, f.amount_paise AS amount,"
+    + " f.balance_paise AS balance, f.source_row, f.run_id, 0 AS excluded"
+    + " FROM fact f LEFT JOIN (SELECT run_id, MIN(txn_date) AS first_date FROM fact"
+    + "   WHERE account_id=? GROUP BY run_id) r ON r.run_id=f.run_id"
+    + " WHERE f.account_id=?"
+    + " ORDER BY (r.first_date IS NULL), r.first_date, (f.run_id IS NULL),"
+    + " f.run_id, f.source_row, f.id", [accountId, accountId]);
+  // A day printed newest-first inside an otherwise chronological file is the
+  // one case the chain may flip. Everything else stays where the file put it.
+  const chainRows = (accountId) => orderForChain(printedRows(accountId)).rows;
   store.heldRows = (account) => all(
     "SELECT id, txn_date AS date, amount_paise AS amount, balance_paise AS balance, "
     + "narration FROM fact WHERE account_id=? ORDER BY id", [account]);
@@ -411,8 +426,14 @@ export function makeStore(SQLlib, save) {
       + " FROM fact f LEFT JOIN account a ON a.id=f.account_id"
       + " GROUP BY f.account_id ORDER BY f.account_id");
     const issues = new Map(all("SELECT account_id, COUNT(*) AS n FROM issue"
+      + " WHERE state='open' AND kind='balance_break' GROUP BY account_id")
+      .map((r) => [r.account_id, r.n]));
+    const review = new Map(all("SELECT account_id, COUNT(*) AS n FROM issue"
       + " WHERE state='open' GROUP BY account_id").map((r) => [r.account_id, r.n]));
-    for (const a of accounts) a.breaks = issues.get(a.account_id) || 0;
+    for (const a of accounts) {
+      a.breaks = issues.get(a.account_id) || 0;
+      a.items = review.get(a.account_id) || 0;
+    }
     const holdings = all("SELECT COUNT(*) AS lots, COUNT(DISTINCT asset_id) AS assets,"
       + " SUM(cost_paise) AS cost, SUM(value_paise) AS value,"
       + " SUM(CASE WHEN value_paise IS NULL THEN 1 ELSE 0 END) AS missing_value"
@@ -543,10 +564,23 @@ export function makeStore(SQLlib, save) {
   store.duplicateFacts = (accountId) => duplicateIds(all(
     "SELECT id, txn_date AS date, amount_paise AS amount, balance_paise AS balance,"
     + " narration FROM fact WHERE account_id=? ORDER BY id", [accountId]));
-  // Live check: which rows do not follow from the row above them.
-  store.balanceBreaks = (accountId) => reconcileChain(all(
-    "SELECT id, txn_date AS date, amount_paise AS amount, balance_paise AS balance,"
-    + " 0 AS excluded FROM fact WHERE account_id=? ORDER BY txn_date, id", [accountId])).issues;
+  // Live check: which rows do not follow from the row above them, in the order
+  // the bank printed them.
+  store.balanceBreaks = (accountId) => reconcileChain(chainRows(accountId)).issues;
+  // Clear this account's stale open balance breaks and recompute them from the
+  // rows already held. Accepted/ignored decisions and other review kinds stay.
+  store.recheckAccount = (accountId) => {
+    const cleared = all("SELECT COUNT(*) AS n FROM issue WHERE account_id=?"
+      + " AND kind='balance_break' AND state='open'", [accountId])[0]?.n || 0;
+    conn.run("DELETE FROM issue WHERE account_id=? AND kind='balance_break' AND state='open'",
+      [accountId]);
+    const chain = reconcileChain(chainRows(accountId));
+    chain.issues.forEach((is) => {
+      conn.run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
+        [is.id, accountId, "balance_break", `balance ${is.actual} expected ${is.expected}`]);
+    });
+    return { cleared, added: chain.issues.length };
+  };
   // A statement exported newest-first puts a day's rows in reverse. The importer
   // reads the direction now, but rows imported before that stay reversed; this
   // rewrites one day in the order its own balances show. It refuses when
@@ -720,17 +754,36 @@ export function makeStore(SQLlib, save) {
     // add the same issues again or reopen ones the user already accepted.
     let breaks = 0;
     if (inserted > 0) {
-      // A statement can arrive after newer ones; the chain follows dates, not
-      // insertion order, or a back-dated import would invent breaks.
-      const chain = reconcileChain(all(
-        "SELECT id, txn_date AS date, amount_paise AS amount, balance_paise AS balance,"
-        + " 0 AS excluded FROM fact WHERE account_id=? ORDER BY txn_date, id", [account]));
+      // A statement can arrive after newer ones; the chain follows the printed
+      // run blocks, not the calendar, or a back-dated import would invent breaks.
+      const chain = reconcileChain(chainRows(account));
       chain.issues.forEach((is) => {
         conn.run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
           [is.id, account, "balance_break", `balance ${is.actual} expected ${is.expected}`]);
       });
       breaks = chain.issues.length;
     }
+    // The file's own oddities are review items, not balance breaks: a date that
+    // goes backwards, and a row the bank printed without a date. Both stay in
+    // printed order and keep their money.
+    const landed = all("SELECT id, txn_date AS date, source_row AS sourceRow FROM fact"
+      + " WHERE run_id=? ORDER BY source_row, id", [runId]);
+    let previousDate = "";
+    landed.forEach((r, index) => {
+      const rowNo = r.sourceRow || index + 2;
+      if (!r.date) {
+        conn.run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
+          [r.id, account, "no_date",
+           `row ${rowNo} has no date; amount and balance imported as printed`]);
+        return;
+      }
+      if (previousDate && r.date < previousDate) {
+        conn.run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
+          [r.id, account, "out_of_order",
+           `printed after ${previousDate}, before ${r.date}, row ${rowNo}`]);
+      }
+      previousDate = r.date;
+    });
     return { inserted, duplicates: plan.duplicates, corrected, runId, breaks };
   };
   store.listLockers = (accountId) => all(
@@ -1143,6 +1196,13 @@ export async function updateFact(id, fields) {
 export async function balanceBreaks(accountId) {
   if (!browserStore) await openDb();
   return browserStore.balanceBreaks(accountId);
+}
+
+export async function recheckAccount(accountId) {
+  if (!browserStore) await openDb();
+  const res = browserStore.recheckAccount(accountId);
+  await browserStore.save();
+  return res;
 }
 
 export async function duplicateGroups(accountId) {
