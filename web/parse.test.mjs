@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { parseStatement, chronological, rowsFromCsv, parseDate, parseDateInText } from "./parse.js";
+import { parseStatement, chronological, rowsFromCsv, parseDate, parseDateInText,
+  mapHeader } from "./parse.js";
 import { makeStore } from "./db.js";
 
 const require = createRequire(import.meta.url);
@@ -349,4 +350,77 @@ test("a helpline number is not read as the account number", () => {
 test("a labelled account number is still read", () => {
   const pre = scanPreamble([["Account No: 1234 5678 9012", ""]], 0);
   assert.equal(pre.accountNumber, "123456789012");
+});
+
+// ---------------------------------------------------------------------------
+// Money columns: "Dr Amount" / "Cr Amount" are separate words, and a header
+// that names no money column must refuse the file instead of importing rows
+// with amount null.
+// ---------------------------------------------------------------------------
+
+test("Dr Amount and Cr Amount columns are mapped and signed", () => {
+  const matrix = [
+    ["Txn No.", "Txn Date", "Description", "Branch Name", "Cheque No.",
+      "Dr Amount", "Cr Amount", "Balance"],
+    ["S1", "28/10/2026", "IMPS-OUT", "-", "", "11.80", "", "2,59,703.10 Cr."],
+    ["S2", "28/10/2026", "IMPS-IN", "-", "", "", "1,50,000.00", "4,09,714.90 Cr."],
+  ];
+  const p = parseStatement(matrix);
+  assert.ok(!p.error, p.error);
+  assert.ok(p.mapping.includes("debit"), p.mapping.join(", "));
+  assert.ok(p.mapping.includes("credit"), p.mapping.join(", "));
+  assert.equal(p.rows[0].amount, -1180);
+  assert.equal(p.rows[1].amount, 15000000);
+  assert.equal(p.rows[0].balance, 25970310);
+});
+
+test("Debit/Credit Amount and Withdrawal/Deposit Amt headers also map", () => {
+  for (const [dr, cr] of [["Debit Amount", "Credit Amount"],
+    ["Withdrawal Amt", "Deposit Amt"]]) {
+    const p = parseStatement([
+      ["Date", "Description", dr, cr, "Balance"],
+      ["01/05/2026", "OUT", "1,000.00", "", "9,000.00"],
+      ["02/05/2026", "IN", "", "500.00", "9,500.00"],
+    ]);
+    assert.ok(!p.error, `${dr}: ${p.error}`);
+    assert.ok(p.mapping.includes("debit"), dr);
+    assert.ok(p.mapping.includes("credit"), cr);
+    assert.equal(p.rows[0].amount, -100000, dr);
+    assert.equal(p.rows[1].amount, 50000, cr);
+  }
+});
+
+test("a bare Dr or Cr header maps, but Dr inside a word does not", () => {
+  const bare = mapHeader(["Date", "Description", "Dr", "Cr", "Balance"]);
+  assert.equal(bare.debit, 2);
+  assert.equal(bare.credit, 3);
+  const dotted = mapHeader(["Date", "Description", "DR.", "CR.", "Balance"]);
+  assert.equal(dotted.debit, 2);
+  assert.equal(dotted.credit, 3);
+  assert.equal(mapHeader(["Address"]).debit, undefined);
+  assert.equal(mapHeader(["Dr Name"]).debit, undefined);
+  assert.equal(mapHeader(["Dr Amount"]).debit, 0);
+  assert.equal(mapHeader(["Cr Amount"]).credit, 0);
+});
+
+test("a header with a balance but no money column is refused", () => {
+  const p = parseStatement([
+    ["Date", "Description", "Balance"],
+    ["01/05/2026", "OPENING", "1,000.00"],
+    ["02/05/2026", "SOMETHING", "900.00"],
+  ]);
+  assert.equal(p.error, "no amount column");
+  assert.deepEqual(p.rows, []);
+});
+
+test("a dated row with a balance and no amount refuses the whole file", () => {
+  const p = parseStatement([
+    ["Date", "Description", "Debit", "Credit", "Balance"],
+    ["01/05/2026", "NO MONEY", "", "", "1,000.00"],
+    ["02/05/2026", "ALSO NONE", "", "", "900.00"],
+    ["03/05/2026", "MONEY", "100.00", "", "800.00"],
+    ["", "note in the footer", "", "", ""],
+  ]);
+  assert.equal(p.error, "2 rows have no amount");
+  assert.deepEqual(p.rows, []);
 });

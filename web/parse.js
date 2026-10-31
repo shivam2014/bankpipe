@@ -2,8 +2,11 @@ const SYN = [
   ["value_date", /value\s*date|value\s*dt/i],
   ["date", /txn\s*date|tran\s*date|transaction\s*date|post(ing)?\s*date|^date$|date$/i],
   ["ref", /chq|cheque|ref(erence)?\s*(no|num|number)?$|instrument|utr/i],
-  ["debit", /debit|withdrawal|paid\s*out|\bdr$/i],
-  ["credit", /credit|deposit|paid\s*in|\bcr$/i],
+  // "Dr Amount" / "Cr Amount" are two words, and some exports print only the
+  // bare "Dr" / "Cr". The word boundary keeps "Address" and "Dr Name" out of
+  // the debit column.
+  ["debit", /debit|withdrawal|paid\s*out|\bdr\.?(?:\s*(?:amount|amt))?$/i],
+  ["credit", /credit|deposit|paid\s*in|\bcr\.?(?:\s*(?:amount|amt))?$/i],
   ["balance", /balance/i],
   ["amount", /^amount$|transaction\s*amount/i],
   ["description", /description|narration|particulars|details|remarks|transaction(?!\s*date)/i],
@@ -190,6 +193,13 @@ export function parseStatement(rows) {
   rows = stripRows(rows);
   const { idx, map } = findHeader(rows);
   if (idx < 0) return { rows: [], error: "no recognisable header row" };
+  // A statement whose header names a balance but no money column would import
+  // every row with amount null and still look successful. Refuse the file
+  // instead: no amount column means the money columns were not recognised.
+  if (map.balance !== undefined
+      && map.debit === undefined && map.credit === undefined && map.amount === undefined) {
+    return { rows: [], error: "no amount column" };
+  }
   const out = []; let skipped = 0; let footerRow = null;
   for (let r = idx + 1; r < rows.length; r++) {
     const row = rows[r];
@@ -216,6 +226,12 @@ export function parseStatement(rows) {
     out.push({ date, description: desc, ref: String(get("ref") || "").trim(),
                amount, balance, source_row: r + 1 });
   }
+  // A row that has a date and a balance was clearly a transaction; an amount of
+  // null means the money column was empty or unreadable. Importing the file
+  // anyway would store the balance trail with no money in it, so refuse all of
+  // it rather than land a partial ledger. Footers have no date and do not count.
+  const noAmount = out.filter((r) => r.date && r.balance !== null && r.amount === null).length;
+  if (noAmount) return { rows: [], error: `${noAmount} rows have no amount` };
   // Statement exports arrive either oldest-first or newest-first. The order
   // decides which row holds the closing balance, so report it and let the
   // import put rows in date order.
