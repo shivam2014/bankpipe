@@ -100,6 +100,68 @@ export function dedupePlan(existing = [], incoming = []) {
   return { insert, duplicates, updates };
 }
 
+// The bank's printed order is the truth. A statement exported newest-first can
+// leave one day's rows reversed inside an otherwise chronological file; that is
+// the only case worth fixing. Walk adjacent groups of the same date, flip a
+// group only when it chains in reverse and not forward, and leave everything
+// else exactly where the file put it. No global search, no sort by balance.
+export function orderForChain(rows = [], { previousBalance = null } = {}) {
+  const out = rows.slice();
+  const reversed = [];
+  const unresolved = [];
+  let balance = previousBalance ?? null;
+
+  let i = 0;
+  while (i < out.length) {
+    const date = out[i].date ?? null;
+    let j = i;
+    while (j + 1 < out.length && (out[j + 1].date ?? null) === date) j += 1;
+    const group = out.slice(i, j + 1);
+    const judged = group.filter((r) => !r.excluded
+      && r.amount !== null && r.amount !== undefined
+      && r.balance !== null && r.balance !== undefined);
+    // Some statements repeat the end-of-day balance on every row of that day.
+    // There is no intra-day chain to judge, so never call that reversed.
+    const repeated = judged.length > 1 && judged.every((r) => r.balance === judged[0].balance);
+    let ordered = group;
+
+    if (date !== null && group.length > 1 && judged.length > 1 && !repeated) {
+      if (!chainsFrom(group, balance)) {
+        const flipped = group.slice().reverse();
+        if (chainsFrom(flipped, balance)) {
+          ordered = flipped;
+          reversed.push({ date, ids: flipped.map((r) => r.id) });
+        } else {
+          unresolved.push({ date, ids: group.map((r) => r.id) });
+        }
+      }
+    }
+
+    if (ordered !== group) out.splice(i, group.length, ...ordered);
+    const closing = ordered.filter((r) => !r.excluded
+      && r.balance !== null && r.balance !== undefined).pop();
+    if (closing) balance = closing.balance;
+    i = j + 1;
+  }
+
+  return { rows: out, reversed, unresolved };
+}
+
+// True when each visible row with an amount and a balance follows from the
+// running balance. A null start means the group's first balance is the baseline,
+// so a single-row group is never called broken.
+function chainsFrom(rows, start) {
+  let balance = start ?? null;
+  for (const row of rows) {
+    if (row.excluded) continue;
+    if (row.amount === null || row.amount === undefined) continue;
+    if (row.balance === null || row.balance === undefined) continue;
+    if (balance !== null && row.balance !== balance + row.amount) return false;
+    balance = row.balance;
+  }
+  return true;
+}
+
 export function reconcileChain(rows = []) {
   // Some statements repeat the end-of-day balance on every row of that day.
   // Checking those rows one by one invents a break before every multi-row day.

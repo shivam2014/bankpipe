@@ -1409,26 +1409,29 @@ function renderIssues() {
     const rows = await store.listIssues();
     if (!rows.length) {
       host.innerHTML = `<h1>Review</h1><div class="card pad"><b>Nothing to review.</b>
-        <p class="muted" style="font-size:13px;margin-bottom:0">Every statement's balance
-        chain is consistent. New breaks appear here after an import.</p></div>`;
+        <p class="muted" style="font-size:13px;margin-bottom:0">Every check passed on the
+        rows already loaded. New items appear here after an import.</p></div>`;
       return;
     }
+    const kindLabel = (kind) => ({ balance_break: "Balance break", no_date: "No date",
+      out_of_order: "Out of order" })[kind] || "Check";
     const body = rows.map((r) => `<tr><td>${esc(r.date || "—")}</td>
       <td>${esc(r.account || "")}</td>
       <td class="n ${r.amount < 0 ? "neg" : r.amount > 0 ? "pos" : ""}">${amountInr(r.amount)}</td>
       <td class="n">${amountInr(r.balance)}</td>
-      <td class="muted" style="font-size:12px">${esc(r.detail || "")}</td>
+      <td><b>${esc(kindLabel(r.kind))}</b>
+        <div class="muted" style="font-size:12px">${esc(r.detail || "")}</div></td>
       <td style="white-space:nowrap">
         <button class="btn" onclick="bpResolveIssue(${r.id},'accepted')">Accept</button>
         <button class="btn" onclick="bpResolveIssue(${r.id},'ignored')">Ignore</button>
       </td></tr>`).join("");
     host.innerHTML = `<h1>Review</h1>
       <div class="card pad" style="margin-bottom:14px">
-        <b>${rows.length} balance break${rows.length === 1 ? "" : "s"}</b>
-        <div class="muted" style="font-size:12.5px;margin-top:4px">A break means the
-        statement's balance does not follow from the previous row. Accept it if the bank's
-        figure is correct. Ignore only dismisses the warning; it does not remove the row
-        from the ledger.</div></div>
+        <b>${rows.length} item${rows.length === 1 ? "" : "s"} to review</b>
+        <div class="muted" style="font-size:12.5px;margin-top:4px">Each item is one check on
+        the imported rows: a balance that does not follow, a row the bank printed without a
+        date, or a date that goes backwards. Accept it if the bank's figure is correct. Ignore
+        only dismisses the warning; it does not remove the row from the ledger.</div></div>
       <div class="card"><table data-table="issues"><tr><th>Date</th><th>Asset</th>
       <th class="n">Amount (${currency()})</th>
       <th class="n">Balance (${currency()})</th><th>Check</th><th></th></tr>${body}</table></div>
@@ -1441,7 +1444,7 @@ function renderIssues() {
 }
 window.bpResolveAll = async (state) => {
   const what = state === "accepted" ? "accept" : "ignore";
-  if (!confirm(`Mark every open balance break as ${what}?`)) return;
+  if (!confirm(`Mark every open review item as ${what}?`)) return;
   const store = await import("./db.js");
   await store.resolveAllIssues(state);
   go("issues");
@@ -3135,6 +3138,20 @@ window.bpGap = (account, gap) => {
   window.bpAcctFilter = { q: "", from: "", to: "", min: "", max: "",
     page: 0, limit: 200, gap };
   go("account");
+};
+// After the importer changed how it reads printed order, the breaks stored on
+// an existing account can be stale. Recompute them from the rows already held;
+// no statement is re-imported and accepted/ignored decisions are untouched.
+window.bpRecheckAccount = async (accountId) => {
+  try {
+    const store = await import("./db.js");
+    const res = await store.recheckAccount(accountId);
+    alert(`Cleared ${res.cleared} old balance break${res.cleared === 1 ? "" : "s"};`
+      + ` ${res.added} still open.`);
+    go("gaps");
+  } catch (e) {
+    alert("Could not re-check: " + (e.message || e));
+  }
 };
 function allHoldings() {
   return Object.entries(DATA.holdings || {}).flatMap(([cls, h]) =>
@@ -5302,7 +5319,7 @@ async function renderRealHome() {
     const issues = [];
     if (unvalued.length) issues.push(`${unvalued.length} asset${unvalued.length === 1 ? "" : "s"}
       without a value`);
-    if (sum.issues) issues.push(`${sum.issues} balance ${sum.issues === 1 ? "break" : "breaks"}
+    if (sum.issues) issues.push(`${sum.issues} item${sum.issues === 1 ? "" : "s"}
       to review`);
     if (ratingDrift.length) issues.push(`${ratingDrift.length} bond rating
       ${ratingDrift.length === 1 ? "has" : "have"} moved since purchase`);
@@ -5349,7 +5366,7 @@ async function renderRealHome() {
         <ul class="muted" style="font-size:13px;margin:6px 0 0;padding-left:20px">
           ${issues.map((i) => `<li>${i}</li>`).join("")}</ul>
         ${sum.issues ? `<div style="margin-top:10px"><button class="btn"
-          onclick="go('issues')">Review balance breaks</button></div>` : ""}</div>` : ""}
+          onclick="go('issues')">Review items</button></div>` : ""}</div>` : ""}
 
       <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="go('assets')">Manage assets</button>
@@ -5426,6 +5443,9 @@ async function renderGaps() {
         ${a.missing_date ? `<button class="btn" onclick="bpGap(${jsArg(a.account_id)},'date')">Dates</button>` : ""}
         ${a.missing_balance ? `<button class="btn" onclick="bpGap(${jsArg(a.account_id)},'balance')">Balances</button>` : ""}
         ${a.breaks ? `<button class="btn" onclick="go('issues')">Breaks</button>` : ""}
+        ${a.items ? `<button class="btn" onclick="go('issues')">Review ${a.items}</button>` : ""}
+        <button class="btn" title="Recompute this account's balance breaks from the rows already held"
+          onclick="bpRecheckAccount(${jsArg(a.account_id)})">Re-check</button>
       </td></tr>`).join("");
     const registerRows = regRows.map((r) => {
       const principal = ["fd", "bonds"].includes(r.category) ? (r.no_principal || 0) : "—";

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { dedupePlan, duplicateIds, reconcileChain, statementChain } from "./ledger.js";
+import { dedupePlan, duplicateIds, reconcileChain, orderForChain, statementChain } from "./ledger.js";
 
 const row = (date, amount, balance, extra = {}) => ({ date, amount, balance, ...extra });
 
@@ -143,6 +143,67 @@ test("excluded rows are invisible to the balance chain", () => {
     { id: 3, amount: -400, balance: 600 },
   ];
   assert.deepEqual(reconcileChain(chain), { issues: [], suppressed: [] });
+});
+
+test("printed order is kept when every day chains forward", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 1_000, balance: 1_000 },
+    { id: 2, date: "2024-04-02", amount: -100, balance: 900 },
+    { id: 3, date: "2024-04-02", amount: -50, balance: 850 },
+    { id: 4, date: "2024-04-03", amount: 25, balance: 875 },
+  ];
+  const res = orderForChain(rows, { previousBalance: 0 });
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 2, 3, 4]);
+  assert.deepEqual(res.reversed, []);
+  assert.deepEqual(res.unresolved, []);
+});
+
+test("a day printed in reverse is flipped and reported", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 1_000, balance: 1_000 },
+    { id: 2, date: "2024-04-02", amount: -50, balance: 850 },
+    { id: 3, date: "2024-04-02", amount: -100, balance: 900 },
+    { id: 4, date: "2024-04-03", amount: 25, balance: 875 },
+  ];
+  const res = orderForChain(rows, { previousBalance: 0 });
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 3, 2, 4]);
+  assert.deepEqual(res.reversed, [{ date: "2024-04-02", ids: [3, 2] }]);
+  assert.deepEqual(res.unresolved, []);
+});
+
+test("a day that chains neither way is left alone and reported", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 1_000, balance: 1_000 },
+    { id: 2, date: "2024-04-02", amount: -50, balance: 700 },
+    { id: 3, date: "2024-04-02", amount: -100, balance: 900 },
+  ];
+  const res = orderForChain(rows, { previousBalance: 0 });
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 2, 3]);
+  assert.deepEqual(res.reversed, []);
+  assert.deepEqual(res.unresolved, [{ date: "2024-04-02", ids: [2, 3] }]);
+});
+
+test("a single-row day is never reordered", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 1_000, balance: 1_000 },
+    { id: 2, date: "2024-04-02", amount: -50, balance: 1 },
+  ];
+  const res = orderForChain(rows, { previousBalance: 0 });
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 2]);
+  assert.deepEqual(res.reversed, []);
+  assert.deepEqual(res.unresolved, []);
+});
+
+test("a repeated end-of-day balance is not treated as reversed", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 1_000, balance: 1_000 },
+    { id: 2, date: "2024-04-02", amount: -100, balance: 1_200 },
+    { id: 3, date: "2024-04-02", amount: 300, balance: 1_200 },
+  ];
+  const res = orderForChain(rows, { previousBalance: 0 });
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 2, 3]);
+  assert.deepEqual(res.reversed, []);
+  assert.deepEqual(res.unresolved, []);
 });
 
 test("a 5-day overlap is reported and a 1-day boundary overlap is not", () => {

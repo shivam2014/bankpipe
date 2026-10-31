@@ -17,6 +17,17 @@ const rows = [
   { date: "2024-04-04", amount: -50000, balance: 11979525, description: "ATM" },
 ];
 
+// One date inversion (04-04 printed after 04-05) inside an otherwise
+// chronological file. The running balance still follows the printed order.
+const inverted = [
+  { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 2 },
+  { date: "2024-04-03", amount: -20000, balance: 1080000, description: "B", source_row: 3 },
+  { date: "2024-04-05", amount: 5000, balance: 1085000, description: "C", source_row: 4 },
+  { date: "2024-04-04", amount: -1000, balance: 1084000, description: "D", source_row: 5 },
+  { date: "2024-04-06", amount: -2000, balance: 1082000, description: "E", source_row: 6 },
+  { date: "2024-04-07", amount: 3000, balance: 1085000, description: "F", source_row: 7 },
+];
+
 test("a fresh import inserts every row", async () => {
   const store = makeStore(SQL, null);
   await store.open();
@@ -484,4 +495,96 @@ test("locker rent payments are found from the account's narrations", async () =>
   const rows = store.lockerPayments("bob-dad");
   assert.equal(rows.length, 1);
   assert.equal(rows[0].amount_paise, -295000);
+});
+
+test("a date inversion is one review item, not a balance break", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const res = store.importRows("pnb", inverted);
+  assert.equal(res.inserted, 6);
+  assert.equal(res.breaks, 0);
+  const issues = store.listIssues();
+  assert.equal(issues.filter((i) => i.kind === "balance_break").length, 0);
+  const odd = issues.filter((i) => i.kind === "out_of_order");
+  assert.equal(odd.length, 1);
+  assert.equal(odd[0].detail, "printed after 2024-04-05, before 2024-04-04, row 5");
+  assert.equal(odd[0].account_id, "pnb");
+});
+
+test("a blank date stays in printed order and is flagged, not dropped", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const res = store.importRows("pnb", [
+    { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 150 },
+    { date: "", amount: -20000, balance: 1080000, description: "NO DATE", source_row: 153 },
+    { date: "2024-04-03", amount: -1000, balance: 1079000, description: "B", source_row: 154 },
+  ]);
+  assert.equal(res.inserted, 3);
+  assert.equal(res.breaks, 0);
+  assert.equal(store.summary().facts, 3);
+  const issues = store.listIssues();
+  assert.equal(issues.filter((i) => i.kind === "balance_break").length, 0);
+  const undated = issues.filter((i) => i.kind === "no_date");
+  assert.equal(undated.length, 1);
+  assert.equal(undated[0].detail,
+    "row 153 has no date; amount and balance imported as printed");
+});
+
+test("a back-dated second import joins in run-block order", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const first = [
+    { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A" },
+    { date: "2024-04-03", amount: -20000, balance: 1080000, description: "B" },
+  ];
+  // The March file arrives second but belongs before April. Ordering by date
+  // would still work here; ordering by import run would invent a break.
+  const second = [
+    { date: "2024-03-01", amount: 400000, balance: 400000, description: "C" },
+    { date: "2024-03-02", amount: 600000, balance: 1000000, description: "D" },
+  ];
+  store.importRows("pnb", first);
+  const res = store.importRows("pnb", second);
+  assert.equal(res.inserted, 2);
+  assert.equal(res.breaks, 0);
+  assert.equal(store.balanceBreaks("pnb").length, 0);
+});
+
+test("re-check clears only open balance breaks and recomputes them", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", [
+    { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A" },
+    { date: "2024-04-03", amount: -20000, balance: 1079000, description: "B" },
+  ]);
+  const [open] = store.listIssues();
+  assert.equal(open.kind, "balance_break");
+  store.resolveIssue(open.id, "accepted");
+  store.raw().run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
+    [null, "pnb", "balance_break", "stale break"]);
+  store.raw().run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
+    [null, "pnb", "no_date", "row 9 has no date; amount and balance imported as printed"]);
+
+  const res = store.recheckAccount("pnb");
+  assert.equal(res.cleared, 1);
+  assert.equal(res.added, 1);
+  const states = store.query("SELECT kind, state, COUNT(*) AS n FROM issue"
+    + " GROUP BY kind, state ORDER BY kind, state");
+  assert.deepEqual(Object.fromEntries(states.map((r) => [`${r.kind}:${r.state}`, r.n])), {
+    "balance_break:accepted": 1,
+    "balance_break:open": 1,
+    "no_date:open": 1,
+  });
+});
+
+test("re-importing a file with an inversion adds no rows or items", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const first = store.importRows("pnb", inverted);
+  assert.equal(first.inserted, 6);
+  const again = store.importRows("pnb", inverted);
+  assert.equal(again.inserted, 0);
+  assert.equal(again.duplicates, 6);
+  assert.equal(store.summary().facts, 6);
+  assert.equal(store.summary().issues, 1);
 });
