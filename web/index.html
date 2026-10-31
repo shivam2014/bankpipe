@@ -907,17 +907,18 @@ const GUIDES = {
     CSV here. The same file is your ongoing bond snapshot; the workbook is only the initial
     history.</div>
     <div class="danger"><b>Never enter your broker password, TOTP, or PIN here.</b> The export is enough. The app does not need a login.</div>`,
-  bank: `<h3>Bank statement — CSV or XLSX</h3>
-    <p>Use the bank’s own export. CSV or XLSX is best; PDF is not supported in this build.</p>
+  bank: `<h3>Bank statement — CSV, XLSX or PDF</h3>
+    <p>Use the bank’s own export. CSV or XLSX is best; a text-layer PDF is read here in the browser.</p>
     <ol>
       <li>Open net banking → <b>Accounts</b> → <b>Statement</b>.</li>
-      <li>Choose the period, then <b>Download CSV / XLSX</b>.</li>
+      <li>Choose the period, then <b>Download CSV / XLSX</b>, or save the text-layer PDF.</li>
       <li>Keep the original file. Do not screenshot or retype it.</li>
       <li>Upload it here. The app checks <code>opening + credits − debits = closing</code>, duplicate rows and balance continuity.</li>
     </ol>
     <div class="note">If the bank locked the file with a password, choose it anyway. The app asks
     for that password, opens the file on this device, and does not save the password.</div>
-    <div class="note">If the bank only offers PDF, download the text-layer PDF and wait for PDF import. A scanned or photographed statement cannot be verified.</div>`,
+    <div class="note">A PDF is read from its text layer, one account block at a time. A scanned
+    or photographed statement has no text layer and is refused; this build has no OCR.</div>`,
   safety: `<h3>Before you upload</h3>
     <ul>
       <li><b>The file stays in this browser.</b> Nothing is uploaded to a server.</li>
@@ -935,8 +936,8 @@ function uploadPanel(mode) {
     return `<div style="margin-top:12px">
       <label class="dropzone">
         <span class="dz-title">Choose a statement file</span>
-        <span class="dz-sub">CSV or XLSX from the bank — locked files are fine</span>
-        <input type="file" id="f" accept=".csv,.xlsx,.xlsm,.xls" style="display:none">
+        <span class="dz-sub">CSV, XLSX or PDF — locked files are fine</span>
+        <input type="file" id="f" accept=".csv,.xlsx,.xlsm,.xls,.pdf" style="display:none">
       </label>
       <div id="acctwrap" style="margin-top:10px"></div>
       <div id="res" style="margin-top:10px"></div>
@@ -982,7 +983,23 @@ function uploadPanel(mode) {
   </div>`;
 }
 
+async function bpBankKnownAccounts() {
+  let accounts = [];
+  try {
+    accounts = (await (await import("./db.js")).listAccounts())
+      .filter((a) => ["bank", "cash"].includes(categoryOf(a)));
+  } catch (e) {}
+  // In the sample portfolio there is no encrypted database to read, so match
+  // against the sample accounts. Nothing is written until the user imports.
+  if (!accounts.length && (localStorage.getItem("bp.mode") || "demo") === "demo"
+      && Array.isArray(DATA?.accounts)) {
+    accounts = DATA.accounts.filter((a) => ["bank", "cash"].includes(categoryOf(a)));
+  }
+  return accounts;
+}
+
 async function bpBankReadFile(name, bytes, meta) {
+  if (/\.pdf$/i.test(name)) return bpBankReadPdf(name, bytes, meta);
   let rows;
   if (/\.(xlsx|xlsm|xls)$/i.test(name)) {
     const wb = XLSX.read(bytes, { type: "array" });
@@ -998,17 +1015,7 @@ async function bpBankReadFile(name, bytes, meta) {
     return;
   }
   const pre = scanPreamble(rows, Math.max(0, (parsed.header || 1) - 1));
-  let accounts = [];
-  try {
-    accounts = (await (await import("./db.js")).listAccounts())
-      .filter((a) => ["bank", "cash"].includes(categoryOf(a)));
-  } catch (e) {}
-  // In the sample portfolio there is no encrypted database to read, so match
-  // against the sample accounts. Nothing is written until the user imports.
-  if (!accounts.length && (localStorage.getItem("bp.mode") || "demo") === "demo"
-      && Array.isArray(DATA?.accounts)) {
-    accounts = DATA.accounts.filter((a) => ["bank", "cash"].includes(categoryOf(a)));
-  }
+  const accounts = await bpBankKnownAccounts();
   const dated = parsed.rows.filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date)
     && r.amount !== null);
   const audit = auditStatement(rows, parsed);
@@ -1021,12 +1028,163 @@ async function bpBankReadFile(name, bytes, meta) {
   window.bpBankShowPreview();
 }
 
-// Banks often lock the workbook with a password (PAN, date of birth, customer
-// id). Ask for it here, open the file on this device, and never store it.
+// A PDF is read from its text layer. pdf.js asks for a password through
+// bpPdfPasswordPrompt, which reuses the unlock card below and returns the typed
+// value to the reader; the reader retries once after a wrong password.
+async function bpBankReadPdf(name, bytes, meta) {
+  const res = document.getElementById("res");
+  window.bpBankPending = null;
+  window.bpBankPdfPending = null;
+  if (res) res.innerHTML = `<div class="muted" style="font-size:13px">Reading the PDF text layer…</div>`;
+  let extracted, statement;
+  try {
+    const { extractPdf, pdfToStatement } = await import("./pdf-statement.js");
+    extracted = await extractPdf(bytes, {
+      onPassword: (attempt) => bpPdfPasswordPrompt(name, meta, attempt),
+    });
+    statement = pdfToStatement(extracted.pages);
+  } catch (e) {
+    if (e && e.cancelled) { if (res) res.innerHTML = ""; return; }
+    if (res) res.innerHTML = `<div class="card pad" style="border-color:var(--amber)">
+      <b>This PDF could not be opened</b>
+      <p class="muted" style="font-size:13px;margin:6px 0 0">${esc(String((e && e.message) || e))}</p>
+      <div style="margin-top:10px"><button class="btn" onclick="bpPickAnotherFile()">Choose the file again</button></div>
+    </div>`;
+    return;
+  }
+  const pages = extracted.numPages;
+  const blocks = statement.blockCount;
+  const line = `PDF text layer · ${pages} page${pages === 1 ? "" : "s"} · ${blocks} account block${blocks === 1 ? "" : "s"}`;
+  if (statement.scanned) {
+    if (res) res.innerHTML = `<div class="card pad" style="border-color:var(--amber)">
+      <b>This PDF has no text layer</b>
+      <p class="muted" style="font-size:13px;margin:6px 0 0">It looks scanned or photographed.
+      BankPipe cannot read it without OCR, and it never uploads the file.</p>
+      <div class="muted" style="font-size:12px;margin-top:8px">${esc(line)}</div>
+      <div style="margin-top:10px"><button class="btn" onclick="bpPickAnotherFile()">Choose another file</button></div>
+    </div>`;
+    return;
+  }
+  const accounts = await bpBankKnownAccounts();
+  const usable = statement.accounts || [];
+  if (!usable.length) {
+    const warning = statement.warnings.length ? statement.warnings[0] : "No transactions were found.";
+    if (res) res.innerHTML = `<div class="card pad" style="border-color:var(--amber)">
+      <b>No transactions found in this PDF</b>
+      <p class="muted" style="font-size:13px;margin:6px 0 0">${esc(warning)}</p>
+      <div class="muted" style="font-size:12px;margin-top:8px">${esc(line)}</div>
+      <div style="margin-top:10px"><button class="btn" onclick="bpPickAnotherFile()">Choose another file</button></div>
+    </div>`;
+    return;
+  }
+  window.bpBankPdfPending = { fileName: name, meta, extracted, statement, blocks: usable,
+    accounts, line };
+  if (usable.length === 1) {
+    window.bpBankPdfUseBlock(usable[0]);
+    return;
+  }
+  window.bpBankShowBlockPicker();
+}
+
+window.bpPickAnotherFile = () => {
+  window.bpLockedFile = null;
+  const f = document.getElementById("f");
+  if (f) { f.value = ""; f.click(); }
+};
+
+window.bpBankShowBlockPicker = () => {
+  const pdf = window.bpBankPdfPending;
+  const res = document.getElementById("res");
+  if (!pdf || !res) return;
+  const wrap = document.getElementById("acctwrap"); if (wrap) wrap.innerHTML = "";
+  const target = pdf.accounts.find((account) => account.id === window.bpImportTarget);
+  const matchedTarget = target
+    ? pdf.blocks.findIndex((block) => sameAccountNumber(block.number, target.number))
+    : -1;
+  const selected = matchedTarget >= 0 ? matchedTarget
+    : pdf.blocks.findIndex((block) => pdf.accounts.some((account) => sameAccountNumber(block.number, account.number)));
+  const preselect = selected >= 0 ? selected : 0;
+  const skipped = Math.max(0, pdf.statement.blockCount - pdf.blocks.length);
+  res.innerHTML = `<div style="border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--hair)">
+    <b>${pdf.blocks.length} account block${pdf.blocks.length === 1 ? "" : "s"} with transactions</b>
+    <div class="muted" style="font-size:12px;margin-top:4px">${esc(pdf.line)}</div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px">Choose the block to import. Nothing is
+    written until you press Import.</div>
+    <div style="display:flex;flex-direction:column;gap:7px;margin-top:10px">
+      ${pdf.blocks.map((block, i) => `<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px">
+        <input type="radio" name="bp-pdf-block" value="${i}" ${i === preselect ? "checked" : ""}>
+        <span><b>${esc(block.number || "no number")}</b> · ${block.rows.length} transaction${block.rows.length === 1 ? "" : "s"}${
+          block.opening !== null || block.closing !== null
+            ? ` · ${block.opening !== null ? "opening balance" : ""}${block.opening !== null && block.closing !== null ? " and " : ""}${block.closing !== null ? "closing balance" : ""}`
+            : ""}</span></label>`).join("")}
+    </div>
+    ${skipped ? `<div class="muted" style="font-size:11.5px;margin-top:8px">${skipped}
+      block${skipped === 1 ? "" : "s"} with no transactions ${skipped === 1 ? "was" : "were"} skipped.</div>` : ""}
+    ${pdf.statement.warnings.length ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${pdf.statement.warnings.map(esc).join(" ")}</div>` : ""}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn" onclick="bpBankPdfUseSelected()">Use this block</button>
+      <button class="btn" onclick="bpBankImportCancel()">Cancel</button>
+    </div>
+  </div>`;
+};
+
+window.bpBankPdfUseSelected = () => {
+  const pdf = window.bpBankPdfPending; if (!pdf) return;
+  const input = document.querySelector('input[name="bp-pdf-block"]:checked');
+  const index = input ? Number(input.value) : 0;
+  const block = pdf.blocks[index] || pdf.blocks[0];
+  if (block) window.bpBankPdfUseBlock(block);
+};
+
+window.bpBankPdfUseBlock = (block) => {
+  const pdf = window.bpBankPdfPending; if (!pdf || !block) return;
+  const parsed = { rows: block.rows, header: 1, order: block.order || "desc", mapping: [] };
+  const audit = auditStatement([], parsed);
+  const chrono = chronological(parsed);
+  const latest = chrono[chrono.length - 1] || null;
+  audit.closing = block.closing ?? null;
+  audit.rows = chrono.filter((row) => row.date && row.amount !== null && row.balance !== null).length;
+  audit.latestBalance = latest ? latest.balance : null;
+  audit.closingMatches = audit.closing !== null && audit.latestBalance !== null
+    && Math.abs(audit.closing - audit.latestBalance) <= 1;
+  const dates = block.rows.map((row) => row.date).filter(Boolean).sort();
+  const pre = { accountNumber: block.number || "", numbers: [block.number].filter(Boolean),
+    ifsc: "", text: "" };
+  window.bpBankPending = {
+    fileName: pdf.fileName, meta: pdf.meta, rows: [], parsed, pre,
+    guess: guessAccount(pre, pdf.accounts), accounts: pdf.accounts,
+    count: block.rows.length, first: dates[0] || "", last: dates[dates.length - 1] || "",
+    order: block.order || "desc", audit, forcePick: false,
+    pdf: {
+      pages: pdf.extracted.numPages,
+      blocks: pdf.statement.blockCount,
+      usable: pdf.blocks.length,
+      layout: block.layout,
+      warnings: pdf.statement.warnings,
+      line: pdf.line,
+    },
+  };
+  window.bpBankShowPreview();
+};
+
+
+// Banks often lock the workbook or PDF with a password (PAN, date of birth,
+// customer id). Ask for it here, open the file on this device, and never store
+// it. For a PDF the answer is handed back to pdf.js as a promise; the input is
+// cleared before the value leaves this function.
+function bpPdfPasswordPrompt(name, meta, attempt) {
+  return new Promise((resolve, reject) => {
+    window.bpLockedFile = { kind: "pdf", name, meta, resolve, reject,
+      wrong: Boolean(attempt && attempt.wrong) };
+    bpShowUnlock();
+  });
+}
+
 function bpShowUnlock() {
   const locked = window.bpLockedFile;
   const res = document.getElementById("res");
   if (!locked || !res) return;
+  const pdf = locked.kind === "pdf";
   res.innerHTML = `<div class="card pad" style="border-color:var(--amber)">
     <b>This file is locked</b>
     <p class="muted" style="font-size:13px;margin:6px 0 0">
@@ -1040,12 +1198,16 @@ function bpShowUnlock() {
       <button class="btn" id="bp-unlock-btn" onclick="bpUnlockFile()">Unlock</button>
       <button class="btn" onclick="bpUnlockCancel()">Cancel</button>
     </div>
-    <div id="bp-unlock-msg" class="muted" style="font-size:12.5px;margin-top:8px"></div>
+    <div id="bp-unlock-msg" class="muted" style="font-size:12.5px;margin-top:8px">${
+      locked.wrong
+        ? `<span style="color:var(--red)">That password did not open the ${pdf ? "PDF" : "file"}. Check the
+           password the bank sent and try again. One more try is allowed.</span>`
+        : ""}</div>
     <div class="muted" style="font-size:11.5px;margin-top:8px">The password is used here and
     nowhere else. It is not saved, and the file never leaves this device.</div>
   </div>`;
   const input = document.getElementById("bp-file-pw");
-  if (input) input.focus();
+  if (input) { input.focus(); if (locked.wrong) input.select(); }
 }
 
 window.bpUnlockFile = async () => {
@@ -1057,6 +1219,15 @@ window.bpUnlockFile = async () => {
   const password = input ? input.value : "";
   if (!password) {
     if (msg) msg.textContent = "Type the file password first.";
+    return;
+  }
+  // The PDF reader owns the retry. Hand back the value and clear the field, so
+  // the password is never left in the DOM or in window.bpLockedFile.
+  if (locked.kind === "pdf") {
+    const resolve = locked.resolve;
+    window.bpLockedFile = null;
+    if (input) input.value = "";
+    if (resolve) resolve(password);
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = "Opening…"; }
@@ -1082,7 +1253,9 @@ window.bpUnlockFile = async () => {
 };
 
 window.bpUnlockCancel = () => {
+  const locked = window.bpLockedFile;
   window.bpLockedFile = null;
+  if (locked && locked.reject) locked.reject(new Error("cancelled"));
   const f = document.getElementById("f"); if (f) f.value = "";
   const res = document.getElementById("res"); if (res) res.innerHTML = "";
 };
@@ -1188,6 +1361,7 @@ function bpBankFileOnlyCard(p) {
     <b>${p.count} transaction${p.count === 1 ? "" : "s"} in the file</b>
     <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(p.fileName)}${
       p.first ? ` · ${dateLabel(p.first)} to ${dateLabel(p.last)}` : ""}</div>
+    ${p.pdf ? `<div class="muted" style="font-size:12px;margin-top:2px">${esc(p.pdf.line)}</div>` : ""}
     <div class="muted" style="font-size:12.5px;margin-top:8px">Choose the account to see the merged check.</div>
     ${bpBankFileCheckHtml(p)}
   </div>`;
@@ -1201,6 +1375,8 @@ function bpBankPreviewHtml(p, chosen, check) {
     <b>${p.count} transaction${p.count === 1 ? "" : "s"} in the file</b>
     <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(p.fileName)}${
       p.first ? ` · ${dateLabel(p.first)} to ${dateLabel(p.last)}` : ""}</div>
+    ${p.pdf ? `<div class="muted" style="font-size:12px;margin-top:2px">${esc(p.pdf.line)}${
+      p.pdf.layout ? ` · ${esc(p.pdf.layout)} layout` : ""}</div>` : ""}
     ${check ? `<div class="muted" style="font-size:12.5px;margin-top:2px">
       <b style="color:var(--ink)">${check.inserted} new</b> · ${check.duplicates} already in this account${
       correct ? ` · ${correct} balance correction${correct === 1 ? "" : "s"}` : ""}${
@@ -1210,14 +1386,20 @@ function bpBankPreviewHtml(p, chosen, check) {
         ? `<button class="btn" disabled title="Every row in this file is already in the account">Nothing to add</button>`
         : `<button class="btn" onclick="bpBankImportApply()">Import ${todo} ${noun}${todo === 1 ? "" : "s"}
           into ${esc(chosen.label || "this account")}</button>`}
+      ${p.pdf && p.pdf.usable > 1
+        ? `<button class="btn" onclick="bpBankShowBlockPicker()">Choose another block</button>` : ""}
       <button class="btn" onclick="bpBankImportCancel()">Cancel</button>
     </div>
     <div class="muted" style="font-size:11.5px;margin-top:8px">Nothing is saved until you press
     Import. Rows already held are skipped, so importing the same file twice is safe.</div>
-    <div class="muted" style="font-size:11.5px;margin-top:6px">Rows are listed newest first;
-    the app stores them oldest first, so the running balance reads in order.</div>
+    <div class="muted" style="font-size:11.5px;margin-top:6px">${p.order === "desc"
+      ? "Rows are listed newest first; the app stores them oldest first, so the running balance reads in order."
+      : "Rows are listed oldest first and stored in that order, so the running balance reads in order."}</div>
     ${check ? bpBankMergedCheckHtml(check) : bpBankFileCheckHtml(p)}
     ${p.gapNote ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${p.gapNote}</div>` : ""}
+    ${p.pdf && p.pdf.warnings && p.pdf.warnings.length
+      ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${p.pdf.warnings.map(esc).join(" ")}</div>`
+      : ""}
   </div>`;
 }
 
@@ -1358,6 +1540,7 @@ window.bpBankCreateAndImport = async () => {
 
 window.bpBankImportCancel = () => {
   window.bpBankPending = null;
+  window.bpBankPdfPending = null;
   const f = document.getElementById("f"); if (f) f.value = "";
   const wrap = document.getElementById("acctwrap"); if (wrap) wrap.innerHTML = "";
   const res = document.getElementById("res"); if (res) res.innerHTML = "";
@@ -1435,6 +1618,7 @@ window.bpBankImportApply = async () => {
     </details></div>`;
   const wrap = document.getElementById("acctwrap"); if (wrap) wrap.innerHTML = "";
   window.bpBankPending = null;
+  window.bpBankPdfPending = null;
   window.bpImportTarget = "";
   const f = document.getElementById("f"); if (f) f.value = "";
 };
