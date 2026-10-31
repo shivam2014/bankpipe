@@ -416,7 +416,7 @@ textarea.inline-input{resize:vertical;min-height:48px}
   #view table[data-table="account"] th:nth-child(4),
   #view table[data-table="account"] td:nth-child(4){width:100px!important}
   .fact-toolbar .fact-bar{gap:8px}
-  .fact-bar .btn{padding:7px 10px;font-size:12.5px}
+  .fact-toolbar .btn{padding:7px 10px;font-size:12.5px}
   .srow{grid-template-columns:28px minmax(0,1fr) 108px;gap:10px}
   .srow .pc{display:none}
   .srow .vl{font-size:13.5px}
@@ -510,9 +510,14 @@ table.resizable{table-layout:fixed;width:100%}
   #view table[data-table="account"] th:nth-child(4){width:116px}
   #view table[data-table="account"] th:nth-child(5){width:164px}
 }
-.fact-toolbar{display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin:0 0 8px}
+.fact-toolbar{display:flex;align-items:center;justify-content:space-between;
+ gap:6px 16px;flex-wrap:wrap;margin:0 0 8px}
 .fact-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.fact-delete-all{margin-left:auto}
+/* Delete all is a .btn like its neighbours; only the colour marks it danger. */
+.fact-toolbar .btn.danger{color:var(--red);
+ border-color:color-mix(in srgb,var(--red) 35%,transparent)}
+.fact-toolbar .btn.danger:hover{color:var(--red);
+ border-color:color-mix(in srgb,var(--red) 60%,transparent)}
 @media (max-width:420px){
   #view table[data-table="account"] th:first-child,
   #view table[data-table="account"] td:first-child{width:32px!important;min-width:32px;
@@ -4754,10 +4759,12 @@ function renderAccount() {
           data-total="${esc(String(factTotal))}" data-matched="${esc(String(totals.n || 0))}"
           data-account="${esc(account.id)}">
           <b id="fact-bar-count">${window.bpFactSel?.size || 0} selected</b>
-          <button class="btn" onclick="bpFactDeleteSelected()">Delete selected</button>
+          <button class="btn" id="fact-delete-selected"
+            style="display:${showDeleteAll(window.bpFactSel?.size || 0, factTotal) ? "none" : ""}"
+            onclick="bpFactDeleteSelected()">Delete selected</button>
           <button class="btn" onclick="bpFactPickAll(false)">Clear selection</button>
         </div>
-        <button class="mini-btn danger fact-delete-all" style="display:none"
+        <button class="btn danger fact-delete-all" style="display:none"
           onclick="bpFactDeleteAll(${jsArg(account.id)})"
           title="Remove every transaction in this account; the account stays">Delete all
           ${factTotal || 0} transactions</button>
@@ -7785,7 +7792,12 @@ window.bpFactBar = () => {
   // db.js (showDeleteAll) so "200 of 1046" can never offer it. The header
   // checkbox mirrors "every matching row", so a partial pick is indeterminate.
   const all = document.querySelector(".fact-delete-all");
-  if (all) all.style.display = showDeleteAll(n, total) ? "" : "none";
+  const whole = showDeleteAll(n, total);
+  if (all) all.style.display = whole ? "" : "none";
+  // Delete all already covers every row when the whole account is picked, so
+  // Delete selected hides rather than offering the same delete twice.
+  const one = document.getElementById("fact-delete-selected");
+  if (one) one.style.display = whole ? "none" : "";
   const head = document.querySelector('table[data-table="account"] th.pick input');
   if (head) {
     head.checked = n > 0 && n === matched;
