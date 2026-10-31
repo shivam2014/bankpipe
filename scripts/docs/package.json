@@ -1,0 +1,13 @@
+{
+  "name": "bankpipe-docs",
+  "private": true,
+  "type": "module",
+  "description": "Documentation generator and Mermaid renderer. The app has no dependencies; only this tooling does.",
+  "scripts": {
+    "generate": "node generate.mjs --write",
+    "check": "node generate.mjs --check && node render.mjs --check"
+  },
+  "dependencies": {
+    "pele": "1.13.0"
+  }
+}

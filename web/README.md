@@ -33,8 +33,9 @@ Deep links:
 
 ## What works today
 
-- **Bank statement CSV/XLSX** import with header detection, duplicate-safe merging,
-  balance-chain checks and SQLite persistence. Password-protected XLSX is read on-device.
+- **Bank statement CSV, XLSX and PDF** import with header detection, duplicate-safe
+  merging, balance-chain checks and SQLite persistence. Password-protected XLSX is read
+  on-device, and a PDF is read from its text layer.
 - **Holdings** CSV/XLSX import for equities.
 - **Bonds** from DigiFInn reports, a ratings CSV, or manual lots; BSE prices and SMEST
   details on the local server.
@@ -44,7 +45,8 @@ Deep links:
 ## What is not built
 
 - **Demat CAS PDF** — no file input yet; the next reader.
-- **PDF bank statements** — text-layer PDF is planned. Scanned statements need OCR.
+- **Scanned PDF statements** — a PDF with no text layer needs OCR; BankPipe refuses it
+  rather than guessing at the figures.
 
 ## Tests
 
@@ -52,11 +54,16 @@ Deep links:
 cd web && node --test
 ```
 
+Current counts are generated on every commit:
+[../docs/generated/facts.md](../docs/generated/facts.md). The runtime shape is in
+[../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
+
 ## Storage
 
 - Transactions shown by the demo: `localStorage` (`bankpipe.txns.v1`).
-- Ledger: `sql.js` + IndexedDB (`bankpipe.db.v1`), sealed with the database passphrase
-  (AES-256-GCM, PBKDF2-HMAC-SHA256 600,000 iterations) before it reaches IndexedDB.
+- Ledger: `sql.js` + IndexedDB (`bankpipe.db.v1`). When a database passphrase is set, the
+  blob is sealed with AES-256-GCM (PBKDF2-HMAC-SHA256 600,000 iterations) before it
+  reaches IndexedDB.
 - Nothing is uploaded. Google Drive backup is opt-in and receives only encrypted data:
   gzip-compressed manual snapshots, and the 64 KiB blocks that make up the automatic copy.
 

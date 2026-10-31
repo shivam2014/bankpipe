@@ -1,0 +1,49 @@
+flowchart TD
+  F["Statement file chosen<br/>CSV, XLSX or text-layer PDF"]
+
+  subgraph S1["1 Read"]
+    ROWS["Rows, or text rebuilt from the PDF"]
+  end
+  subgraph S2["2 Find the shape"]
+    HDR["Locate the header<br/>map each column"]
+    PRE["Scan the preamble<br/>account number and IFSC"]
+    ORD["Detect file order<br/>oldest-first or newest-first"]
+  end
+  subgraph S3["3 Verify the arithmetic"]
+    MONEY["Money to integer paise<br/>null stays null, never zero"]
+    CHAIN["Running-balance chain<br/>row by row, or day by day"]
+    CLOSE["opening + credits - debits = closing<br/>read as the chain plus the printed closing"]
+    DUP["Duplicate identity<br/>date, amount, balance, narration"]
+  end
+  subgraph S4["4 Preview: write nothing"]
+    PLAN["One merge plan<br/>new, held, corrected, breaks<br/>nothing new means no write"]
+  end
+  subgraph S5["5 Commit"]
+    RUN["import_run row"]
+    FACT["fact rows with a unique txn_key"]
+    ISSUE["issue row for every break"]
+  end
+  subgraph S6["6 Review"]
+    REV["Review page<br/>expected against actual"]
+  end
+
+  REF["Refused<br/>no header, no amount column,<br/>or a dated row with no amount"]
+
+  F --> ROWS --> HDR --> PRE --> ORD --> MONEY --> CHAIN --> CLOSE --> DUP --> PLAN
+  PLAN -->|"user presses Import"| RUN --> FACT --> ISSUE --> REV
+  HDR -.->|"cannot read the file"| REF
+  MONEY -.->|"amountless rows"| REF
+  CHAIN -.->|"break"| ISSUE
+
+  class F,ROWS,HDR,PRE,ORD,MONEY,CHAIN,CLOSE,DUP,PLAN,RUN,FACT dev
+  class ISSUE,REV warn
+  class REF stop
+  style S1 fill:#fbf7ec,stroke:#cecdc3,stroke-width:1px
+  style S2 fill:#fbf7ec,stroke:#cecdc3,stroke-width:1px
+  style S3 fill:#f4f8fc,stroke:#b7cde4,stroke-width:1px
+  style S4 fill:#f4f8fc,stroke:#b7cde4,stroke-width:1px
+  style S5 fill:#e9f4f1,stroke:#a9d6cc,stroke-width:1px
+  style S6 fill:#fbf1e2,stroke:#e6cfa8,stroke-width:1px
+  classDef dev fill:#e8f0f8,stroke:#205ea6,color:#100f0f,stroke-width:1.5px
+  classDef warn fill:#faedd8,stroke:#a35a00,color:#100f0f,stroke-width:1.5px
+  classDef stop fill:#f8ded9,stroke:#b3261e,color:#100f0f,stroke-width:1.5px

@@ -1,0 +1,25 @@
+flowchart LR
+  autobackup["autobackup.js<br/>automatic schedule"] --> backup["backup.js<br/>manual snapshots"]
+  autobackup["autobackup.js<br/>automatic schedule"] --> blockbackup["blockbackup.js<br/>64 KiB automatic copy"]
+  autobackup["autobackup.js<br/>automatic schedule"] --> crypto["crypto.js<br/>AES-GCM and PBKDF2"]
+  autobackup["autobackup.js<br/>automatic schedule"] --> db["db.js<br/>SQLite store"]
+  autobackup["autobackup.js<br/>automatic schedule"] --> drive["drive.js<br/>Google Drive API"]
+  autobackup["autobackup.js<br/>automatic schedule"] --> storage["storage.js<br/>storage adapter"]
+  autobackup["autobackup.js<br/>automatic schedule"] --> vault["vault.js<br/>key envelope"]
+  backup["backup.js<br/>manual snapshots"] --> crypto["crypto.js<br/>AES-GCM and PBKDF2"]
+  backup["backup.js<br/>manual snapshots"] --> vault["vault.js<br/>key envelope"]
+  blockbackup["blockbackup.js<br/>64 KiB automatic copy"] --> crypto["crypto.js<br/>AES-GCM and PBKDF2"]
+  db["db.js<br/>SQLite store"] --> dbatrest["dbatrest.js<br/>seal the database"]
+  db["db.js<br/>SQLite store"] --> ledger["ledger.js<br/>reconciliation rules"]
+  dbatrest["dbatrest.js<br/>seal the database"] --> crypto["crypto.js<br/>AES-GCM and PBKDF2"]
+  storage["storage.js<br/>storage adapter"] --> drive["drive.js<br/>Google Drive API"]
+  vault["vault.js<br/>key envelope"] --> crypto["crypto.js<br/>AES-GCM and PBKDF2"]
+
+  class db,ledger data
+  class dbatrest,crypto,vault crypto
+  class backup,blockbackup,autobackup backup
+  class storage,drive io
+  classDef data fill:#e2efec,stroke:#24837b,color:#100f0f,stroke-width:1.5px
+  classDef crypto fill:#f7e6cc,stroke:#a35a00,color:#100f0f,stroke-width:1.5px
+  classDef backup fill:#e8f0f8,stroke:#205ea6,color:#100f0f,stroke-width:1.5px
+  classDef io fill:#efe9f7,stroke:#6b4ea3,color:#100f0f,stroke-width:1.5px

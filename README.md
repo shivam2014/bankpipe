@@ -6,7 +6,8 @@
 <p align="center">
   <b>A family finance ledger that can prove its own arithmetic.</b><br>
   Import the statement your bank already gave you. The preview checks the running balance.<br>
-  Nothing is uploaded to us. The ledger is encrypted at rest.
+  Nothing is uploaded to us. The ledger is encrypted at rest when you set a database
+  passphrase.
 </p>
 
 <p>
@@ -102,6 +103,14 @@ separately. Insurance counts premiums paid, not the cover. Liabilities sit outsi
 the figure on purpose: this is a ledger of what the family owns, not an accounting
 system.
 
+## Architecture and diagrams
+
+The runtime shape, import gate, ledger schema, OAuth flow and backup protocol are in
+[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md). The diagrams are SVG rendered from
+checked Mermaid sources. The schema, module graph, route table and project facts are
+generated from the code on every commit; the pipeline is documented in
+[docs/README.md](./docs/README.md).
+
 ## What stays on your machine
 
 BankPipe is a static page. There is no BankPipe server, no account, no telemetry and
@@ -141,17 +150,18 @@ node web/server.mjs
 # http://127.0.0.1:8801/
 ```
 
-There is no build step to run the app, no npm install and no package manifest; Node.js
-is the only requirement. The two browser libraries the app uses, sql.js and SheetJS,
-are vendored in `web/vendor/`.
+There is no build step to run the app and no npm install. Node.js is the only
+requirement. The browser libraries (sql.js, SheetJS and pdf.js) are vendored in
+`web/vendor/`. The docs pipeline has its own pinned tooling in `scripts/docs/`; it is
+not needed to run the app.
 
 Open **`/?demo=1`** for the sample portfolio shown in the screenshots. Every name,
 account number and amount in it is invented.
 
 ### Your first import
 
-1. Download the statement as CSV or XLSX from net banking (**Accounts → Statement**).
-   Keep the original file; do not screenshot or retype it.
+1. Download the statement as CSV, XLSX or a text-layer PDF from net banking
+   (**Accounts → Statement**). Keep the original file; do not screenshot or retype it.
 2. Open **Import → Bank statement** and choose it. The account number in the preamble
    picks the destination; if it does not match, the app shows both numbers and asks.
 3. Read the preview: date range, rows ready, rows already held, and the running-balance
@@ -165,9 +175,10 @@ account number and amount in it is invented.
 cd web && node --test
 ```
 
-391 tests cover statement parsing, date and amount formats, reconciliation, duplicate
+The suite covers statement parsing, date and amount formats, reconciliation, duplicate
 detection, encryption, backup and restore, bond maths, holdings import, and the local
-server's refusal to serve private files.
+server's refusal to serve private files. Current counts are generated from the test runs
+on every commit: [docs/generated/facts.md](./docs/generated/facts.md).
 
 Some fixtures began as real export shapes. Account numbers, names, addresses, phone
 numbers and ID numbers were replaced with made-up values; amounts and layouts were
@@ -177,9 +188,8 @@ The optional Drive broker in `worker/` has its own suite: `cd worker && node --t
 
 ## Limits
 
-- **PDF bank statements are not supported yet.** CSV and XLSX are the reliable path; a
-  text-layer PDF reader is the next import. Scanned statements need OCR before a parser
-  can trust them.
+- **PDF support reads the text layer only.** CSV, XLSX and text-layer PDFs import; a
+  scanned or photographed statement needs OCR and is refused rather than guessed at.
 - **Demat CAS is not built.** The bond and equity importers cover the current workflow;
   the design for CAS import is in [DEMAT_INTEGRATION.md](./DEMAT_INTEGRATION.md).
 - **The hosted build cannot fetch bond prices.** BSE and SMEST lookups need the local
@@ -196,6 +206,11 @@ The optional Drive broker in `worker/` has its own suite: `cd worker && node --t
 | `web/` | the app: UI, storage, parsers, crypto and their tests ([notes](./web/README.md)) |
 | `web/server.mjs` | zero-dependency static server and local price routes |
 | `web/fixtures/` | scrubbed statement fixtures used by the tests |
+| `docs/ARCHITECTURE.md` | runtime shape, import gate, schema, OAuth and backup, with diagrams |
+| `docs/generated/` | generated route table and project facts |
+| `docs/diagrams/` | Mermaid sources and their rendered SVGs |
+| `scripts/docs/` | docs generator and renderer, with their own pinned tooling |
+| `.github/workflows/docs.yml` | checks generated docs and updates them on `main` |
 | `docs/UI-REVIEW.md` | running UI issue log |
 | `BACKUP.md` | backup format, restore path and failure modes |
 | `DEMAT_INTEGRATION.md` | proposal for CAS import, not built |
@@ -206,6 +221,14 @@ The optional Drive broker in `worker/` has its own suite: `cd worker && node --t
 
 Issues and pull requests are welcome. Run `cd web && node --test` before opening a PR.
 If you are changing a parser, add a fixture and a test that fails on the old code first.
+Run the docs check when you change a table, a route, a core module or a diagram:
+
+```bash
+npm ci --prefix scripts/docs
+node scripts/docs/generate.mjs --check
+node scripts/docs/render.mjs --check
+```
+
 `./check-no-data.sh` is the gate against real data: it fails on a data file anywhere
 in the tree, or on a real identifier in a fixture, test or doc. Do not commit
 statements, account numbers or personal data.

@@ -1,0 +1,22 @@
+sequenceDiagram
+  autonumber
+  participant B as Browser app
+  participant W as Broker on Cloudflare
+  participant G as Google OAuth
+  participant D as Google Drive
+
+  B->>W: GET /oauth/start
+  W->>W: make PKCE verifier and state, seal both in an HttpOnly cookie
+  W-->>B: redirect to Google consent, scope drive.file
+  B->>G: user signs in and approves
+  G-->>W: redirect back with a one-time code
+  W->>G: code, client secret, PKCE verifier
+  G-->>W: refresh token and access token
+  W-->>B: sealed refresh-token cookie, back to the app
+  B->>W: POST /token
+  W->>G: refresh token
+  G-->>W: short-lived access token
+  W-->>B: access token as JSON
+  B->>D: create folder, list files, upload ciphertext
+  D-->>B: file ids and metadata
+  Note over B,D: The broker never sees ledger bytes.<br/>Google never sees plaintext.

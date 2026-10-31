@@ -1,0 +1,35 @@
+erDiagram
+  ACCOUNT ||--o{ HOLDING : owns
+  ACCOUNT ||--o{ LOCKER : has
+
+  ACCOUNT {
+    text id PK
+    text number
+    text category
+    integer value_paise
+    text state
+  }
+
+  HOLDING {
+    integer id PK
+    text asset_id
+    text security_id
+    text category
+    real quantity
+    integer cost_paise
+    integer value_paise
+    text txn_key UK
+  }
+
+  SETTING {
+    text key PK
+    text value
+  }
+
+  LOCKER {
+    text id PK
+    text account_id
+    text number
+    integer rent_paise
+    integer value_paise
+  }
