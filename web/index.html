@@ -1443,7 +1443,9 @@ function renderIssues() {
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
         <button class="btn" onclick="bpResolveAll('accepted')">Accept all</button>
         <button class="btn" onclick="bpResolveAll('ignored')">Ignore all</button>
-        <button class="btn" onclick="go('gaps')">Data health</button></div>`;
+        <button class="btn" onclick="go('gaps')">Data health</button>
+        <button class="btn" title="Recompute every account's review items from the rows already held"
+          onclick="bpRecheckAll(this)">Re-check all accounts</button></div>`;
   })();
   return "";
 }
@@ -3156,6 +3158,32 @@ window.bpRecheckAccount = async (accountId) => {
     go("gaps");
   } catch (e) {
     alert("Could not re-check: " + (e.message || e));
+  }
+};
+// One click for a whole ledger: the per-account Re-check repeated over every
+// account that holds facts, with a single save at the end. Accounts with no
+// rows are skipped, so the count is the same set the Data health table lists.
+window.bpRecheckAllBusy = false;
+window.bpRecheckAll = async (btn) => {
+  if (window.bpRecheckAllBusy) return;
+  try {
+    const store = await import("./db.js");
+    const v = await store.validation();
+    const accounts = v.accounts.filter((a) => a.account_id && (a.n || 0) > 0).length;
+    if (!confirm(`Re-check ${accounts} accounts? This recomputes review items from the`
+      + " rows already held; no statement is re-imported and accepted/ignored decisions"
+      + " are kept.")) return;
+    window.bpRecheckAllBusy = true;
+    if (btn) { btn.disabled = true; btn.textContent = "Re-checking…"; }
+    const res = await store.recheckAll();
+    window.bpHealthFlash = `Re-checked ${res.accounts} accounts: cleared ${res.cleared},`
+      + ` added ${res.added} items.`;
+    go("gaps");
+  } catch (e) {
+    alert("Could not re-check: " + (e.message || e));
+  } finally {
+    window.bpRecheckAllBusy = false;
+    if (btn) btn.disabled = false;
   }
 };
 function allHoldings() {
@@ -5393,6 +5421,8 @@ async function renderGaps() {
   host.innerHTML = `<h1>Data health</h1><div class="card pad">checking…</div>`;
   try {
     const store = await import("./db.js");
+    const flash = window.bpHealthFlash || "";
+    window.bpHealthFlash = "";
     const [v, assets, sheetMapRaw] = await Promise.all([
       store.validation(), store.listAccounts(), store.getSetting("bp.sheetmap")]);
     let sheetMap = [];
@@ -5466,6 +5496,7 @@ async function renderGaps() {
       assetRow(a, assetOpen(a))).join("")}</div>`
       : `<div class="card pad">Every asset has a value.</div>`;
     host.innerHTML = `<h1>Data health</h1>
+      ${flash ? `<div class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px">${esc(flash)}</div>` : ""}
       <div class="hero"><div class="lbl">Checks on the data that is already loaded</div>
         <div class="num">${v.totals.facts || 0} transactions</div>
         <div class="chips"><span>${v.totals.accounts || 0} accounts</span>
@@ -5481,7 +5512,11 @@ async function renderGaps() {
         ${checks.map(([name, state, value]) => `<tr><td>${name}</td><td>${pill(state)}</td>
           <td class="muted">${value}</td></tr>`).join("")}</table></div>
 
-      <h2>Statements</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;
+        margin:26px 0 10px">
+        <h2 style="margin:0">Statements</h2>
+        <button class="btn" title="Recompute every account's review items from the rows already held"
+          onclick="bpRecheckAll(this)">Re-check all accounts</button></div>
       <div class="card"><table data-table="health-statements"><tr><th>Account</th><th class="n">Rows</th>
         <th class="n">No date</th><th class="n">No balance</th><th class="n">Breaks</th>
         <th class="n">Delta</th><th></th></tr>

@@ -630,6 +630,21 @@ export function makeStore(SQLlib, save) {
     const { cleared, added } = syncReviewIssues(accountId, { replace: true });
     return { cleared, added };
   };
+  // One pass for the whole ledger: the same Re-check, once per account that
+  // actually holds rows. A bare asset has nothing to derive from, so it is
+  // skipped rather than counted as clean. The wrapper below saves once.
+  store.recheckAll = () => {
+    const accounts = all("SELECT DISTINCT account_id AS id FROM fact"
+      + " WHERE account_id IS NOT NULL ORDER BY account_id").map((r) => r.id);
+    let cleared = 0;
+    let added = 0;
+    for (const accountId of accounts) {
+      const res = syncReviewIssues(accountId, { replace: true });
+      cleared += res.cleared;
+      added += res.added;
+    }
+    return { accounts: accounts.length, cleared, added };
+  };
   // A statement exported newest-first puts a day's rows in reverse. The importer
   // reads the direction now, but rows imported before that stay reversed; this
   // rewrites one day in the order its own balances show. It refuses when
@@ -1229,6 +1244,13 @@ export async function balanceBreaks(accountId) {
 export async function recheckAccount(accountId) {
   if (!browserStore) await openDb();
   const res = browserStore.recheckAccount(accountId);
+  await browserStore.save();
+  return res;
+}
+
+export async function recheckAll() {
+  if (!browserStore) await openDb();
+  const res = browserStore.recheckAll();
   await browserStore.save();
   return res;
 }
