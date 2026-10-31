@@ -1133,21 +1133,80 @@ window.bpBankPickAnyway = () => {
   window.bpBankShowPreview();
 };
 
-function bpBankPreviewHtml(p, chosen, plan) {
+// The file on its own, before an account is known. Kept apart from the merged
+// check so the two never share a number that means something else.
+function bpBankFileCheckHtml(p) {
   const audit = p.audit || { rows: 0, breaks: [] };
-  const correct = plan ? (plan.correct || 0) : 0;
-  const todo = plan ? plan.missing + correct : p.count;
-  const noun = plan && !plan.missing && correct ? "correction" : "transaction";
+  if (!audit.breaks.length) {
+    return `<div style="font-size:11.5px;margin-top:8px">✓ Running balance checks out across
+      ${audit.rows} rows${audit.closingMatches ? ", and the last row equals the closing balance printed in the file" : ""}.</div>`;
+  }
+  return `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${audit.breaks.length}
+    balance break${audit.breaks.length === 1 ? "" : "s"}. The bank's running balance does not
+    follow from the row above:</div>
+    <div class="muted" style="font-size:11.5px;margin-top:4px">${audit.breaks.slice(0, 3)
+      .map((b) => `${dateLabel(b.date)} · statement says ${money(b.actual)}, the previous row
+        plus this amount gives ${money(b.expected)}`).join("<br>")}
+      ${audit.breaks.length > 3 ? `<br>and ${audit.breaks.length - 3} more` : ""}</div>`;
+}
+
+// The merged check: held rows plus this file, in the order the ledger will
+// store them. These are the numbers importRows will report.
+function bpBankMergedCheckHtml(check) {
+  const byId = new Map((check.merged || []).map((r) => [r.id, r]));
+  const detail = (check.breakRows || []).slice(0, 2).map((b) => {
+    const date = b.date || byId.get(b.id)?.date || "";
+    return `${date ? `${dateLabel(date)} · ` : ""}statement says ${money(b.actual)},
+      the rows above give ${money(b.expected)}`;
+  }).join("<br>");
+  const breakBlock = check.breaks
+    ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${check.breaks}
+      balance break${check.breaks === 1 ? "" : "s"} after the merge. The bank's running balance
+      does not follow from the day above:</div>
+      <div class="muted" style="font-size:11.5px;margin-top:4px">${detail}${
+      check.breaks > 2 ? `<br>and ${check.breaks - 2} more` : ""}</div>`
+    : `<div style="font-size:11.5px;margin-top:8px">✓ Running balance checks out after the
+      merge across ${check.merged.length} rows.</div>`;
+  const noDateText = `${check.noDate} row${check.noDate === 1 ? "" : "s"} without a date`;
+  const orderText = `${check.outOfOrder} row${check.outOfOrder === 1 ? "" : "s"} out of printed order`;
+  const oddBlock = `<div style="font-size:11.5px;margin-top:6px${
+    check.noDate || check.outOfOrder ? ";color:var(--amber)" : ""}">${
+    check.noDate || check.outOfOrder ? "⚠ " : "✓ "}${noDateText} · ${orderText}</div>`;
+  const closing = check.closing;
+  const closingBlock = !closing ? "" : closing.matches
+    ? `<div class="muted" style="font-size:11.5px;margin-top:6px">✓ The merged ledger ends at
+      ${money(closing.printed)}, the same as the closing balance printed in the file.</div>`
+    : `<div style="font-size:11.5px;margin-top:6px;color:var(--amber)">⚠ The file prints a
+      closing balance of ${money(closing.printed)}; the merged ledger ends at
+      ${money(closing.actual)}.</div>`;
+  return breakBlock + oddBlock + closingBlock;
+}
+
+function bpBankFileOnlyCard(p) {
+  return `<div style="border:1px solid var(--line);border-radius:12px;padding:14px;
+      background:var(--hair);margin-top:12px">
+    <b>${p.count} transaction${p.count === 1 ? "" : "s"} in the file</b>
+    <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(p.fileName)}${
+      p.first ? ` · ${dateLabel(p.first)} to ${dateLabel(p.last)}` : ""}</div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px">Choose the account to see the merged check.</div>
+    ${bpBankFileCheckHtml(p)}
+  </div>`;
+}
+
+function bpBankPreviewHtml(p, chosen, check) {
+  const correct = check ? (check.corrected || 0) : 0;
+  const todo = check ? check.inserted + correct : p.count;
+  const noun = check && !check.inserted && correct ? "correction" : "transaction";
   return `<div style="border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--hair)">
     <b>${p.count} transaction${p.count === 1 ? "" : "s"} in the file</b>
     <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(p.fileName)}${
       p.first ? ` · ${dateLabel(p.first)} to ${dateLabel(p.last)}` : ""}</div>
-    ${plan ? `<div class="muted" style="font-size:12.5px;margin-top:2px">
-      <b style="color:var(--ink)">${plan.missing} new</b> · ${plan.held} already in this account${
+    ${check ? `<div class="muted" style="font-size:12.5px;margin-top:2px">
+      <b style="color:var(--ink)">${check.inserted} new</b> · ${check.duplicates} already in this account${
       correct ? ` · ${correct} balance correction${correct === 1 ? "" : "s"}` : ""}${
       todo ? "" : " — nothing to add"}</div>` : ""}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-      ${plan && todo === 0
+      ${check && todo === 0
         ? `<button class="btn" disabled title="Every row in this file is already in the account">Nothing to add</button>`
         : `<button class="btn" onclick="bpBankImportApply()">Import ${todo} ${noun}${todo === 1 ? "" : "s"}
           into ${esc(chosen.label || "this account")}</button>`}
@@ -1157,16 +1216,7 @@ function bpBankPreviewHtml(p, chosen, plan) {
     Import. Rows already held are skipped, so importing the same file twice is safe.</div>
     <div class="muted" style="font-size:11.5px;margin-top:6px">Rows are listed newest first;
     the app stores them oldest first, so the running balance reads in order.</div>
-    ${audit.breaks.length
-      ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${audit.breaks.length}
-        balance break${audit.breaks.length === 1 ? "" : "s"}. The bank's running balance does not
-        follow from the row above:</div>
-        <div class="muted" style="font-size:11.5px;margin-top:4px">${audit.breaks.slice(0, 3)
-          .map((b) => `${dateLabel(b.date)} · statement says ${money(b.actual)}, the previous row
-            plus this amount gives ${money(b.expected)}`).join("<br>")}
-          ${audit.breaks.length > 3 ? `<br>and ${audit.breaks.length - 3} more` : ""}</div>`
-      : `<div style="font-size:11.5px;margin-top:8px">✓ Running balance checks out across
-        ${audit.rows} rows${audit.closingMatches ? ", and the last row equals the closing balance printed in the file" : ""}.</div>`}
+    ${check ? bpBankMergedCheckHtml(check) : bpBankFileCheckHtml(p)}
     ${p.gapNote ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${p.gapNote}</div>` : ""}
   </div>`;
 }
@@ -1215,7 +1265,7 @@ window.bpBankShowPreview = async () => {
         <button class="btn" onclick="bpBankCreateAndImport()">Create a bank account for it</button>
         <button class="btn" onclick="bpBankPickAnyway()">Choose an account myself</button>
         <button class="btn" onclick="bpBankImportCancel()">Cancel</button>
-      </div></div>`;
+      </div>${bpBankFileOnlyCard(p)}</div>`;
     return;
   }
 
@@ -1241,6 +1291,7 @@ window.bpBankShowPreview = async () => {
         </div>`
         : `<div class="muted" style="margin-top:10px">No bank account exists yet. Add one first,
            then import again.</div>`}
+      ${bpBankFileOnlyCard(p)}
     </div>`;
     return;
   }
@@ -1248,13 +1299,13 @@ window.bpBankShowPreview = async () => {
   const chosen = target || matched;
   if (!chosen) return;
   window.bpBankAccount = chosen.id;
-  // What will actually change: the file may be mostly rows the account already
-  // holds, and after a delete-all it is entirely new.
-  let plan = null;
+  // The merged check: the account's held rows plus this file, through the same
+  // planner the Import button runs. Nothing is written here.
+  let check = null;
   try {
     const store = await import("./db.js");
-    plan = await store.planImport(chosen.id, (p.parsed?.rows || [])
-      .filter((r) => r.date && r.amount !== null));
+    check = await store.previewImport(chosen.id, chronological(p.parsed),
+      { closing: p.audit?.closing ?? null });
   } catch (e) {}
   const dayBefore = (iso) => {
     const d = new Date(String(iso) + "T00:00:00Z");
@@ -1281,7 +1332,7 @@ window.bpBankShowPreview = async () => {
   wrap.innerHTML = `<label class="field">Which bank asset?
       <select id="acct" onchange="bpBankChoose(this.value)">${opts}</select></label>
     <div class="muted" style="font-size:12px;margin-top:-4px">${numberNote}</div>`;
-  res.innerHTML = bpBankPreviewHtml(p, chosen, plan);
+  res.innerHTML = bpBankPreviewHtml(p, chosen, check);
 };
 
 window.bpBankCreateAndImport = async () => {
@@ -1338,11 +1389,13 @@ window.bpBankImportApply = async () => {
     const timeout = (promise, ms, label) => Promise.race([promise, new Promise((_, rej) =>
       setTimeout(() => rej(new Error("timeout: " + label)), ms))]);
     await timeout(store.openDb(), 8000, "openDb");
-    dbStats = await store.importRows(account, incoming);
+    dbStats = await store.importRows(account, incoming,
+      { closing: p.audit?.closing ?? null });
   } catch (e) { dbError = String(e.message || e).slice(0, 90); }
   const newCount = dbStats ? dbStats.inserted : kept;
   const heldCount = dbStats ? dbStats.duplicates : dup;
   const corrected = dbStats ? dbStats.corrected || 0 : 0;
+  const closing = dbStats ? dbStats.closing || null : null;
   const label = assetLabel || account;
   res.innerHTML = `<div style="border:1px solid var(--line);border-radius:12px;padding:14px">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1363,10 +1416,11 @@ window.bpBankImportApply = async () => {
     <div class="muted" style="font-size:11.5px;margin-top:4px">Nothing else changed. Open the
       account to see the new balance, or import another file.</div>
     ${(() => {
-      if (!dbStats || p.audit?.closing === null || p.audit?.closing === undefined) return "";
-      return `<div class="muted" style="font-size:11.5px;margin-top:6px">${p.audit.closingMatches
-        ? `✓ ${esc(label)} now ends at ${money(p.audit.closing)}, the same as the file.`
-        : `⚠ The file's closing balance is ${money(p.audit.closing)}; open the account and check the latest row.`}</div>`;
+      if (!closing) return "";
+      return `<div class="muted" style="font-size:11.5px;margin-top:6px">${closing.matches
+        ? `✓ ${esc(label)} now ends at ${money(closing.printed)}, the same as the file.`
+        : `⚠ The file's closing balance is ${money(closing.printed)}; the merged ledger ends at
+           ${money(closing.actual)}. Open the account and check the latest row.`}</div>`;
     })()}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <button class="btn" onclick="bpAccount(${jsArg(account)})">Open ${esc(label)}</button>

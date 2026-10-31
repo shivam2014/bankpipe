@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { dedupePlan, duplicateIds, reconcileChain, orderForChain, statementChain } from "./ledger.js";
+import { dedupePlan, duplicateIds, reconcileChain, orderForChain, statementChain,
+  planImport } from "./ledger.js";
 
 const row = (date, amount, balance, extra = {}) => ({ date, amount, balance, ...extra });
 
@@ -279,4 +280,48 @@ test("a row without a balance matches by description on re-import", () => {
   const plan = dedupePlan(existing, incoming);
   assert.deepEqual(plan.insert, [false]);
   assert.equal(plan.duplicates, 1);
+});
+
+test("planImport checks the held rows and the file as one chain", () => {
+  const held = [
+    { id: 1, date: "2024-04-02", amount: 100000, balance: 1100000,
+      run_id: 1, run_first_date: "2024-04-02" },
+    { id: 2, date: "2024-04-03", amount: -20000, balance: 1080000,
+      run_id: 1, run_first_date: "2024-04-02" },
+  ];
+  const incoming = [{ date: "2024-04-04", amount: -10000, balance: 1060000 }];
+  const plan = planImport({ held, incoming });
+  assert.deepEqual(plan.insert, [true]);
+  assert.equal(plan.duplicates, 0);
+  assert.equal(plan.corrected, 0);
+  assert.equal(plan.breaks.length, 1, "the file alone chains from its own first row");
+  assert.deepEqual(plan.merged.map((r) => r.date),
+    ["2024-04-02", "2024-04-03", "2024-04-04"]);
+});
+
+test("planImport puts a back-dated run before the held run", () => {
+  const held = [{ id: 7, date: "2024-04-02", amount: 100000, balance: 1200000,
+    run_id: 3, run_first_date: "2024-04-02" }];
+  const incoming = [
+    { date: "2024-03-01", amount: 400000, balance: 400000 },
+    { date: "2024-03-02", amount: 700000, balance: 1100000 },
+  ];
+  const plan = planImport({ held, incoming });
+  assert.deepEqual(plan.merged.map((r) => r.date),
+    ["2024-03-01", "2024-03-02", "2024-04-02"]);
+  assert.equal(plan.breaks.length, 0);
+});
+
+test("planImport counts undated and out-of-order rows and the closing match", () => {
+  const incoming = [
+    { date: "2024-04-02", amount: 100000, balance: 1100000 },
+    { date: "", amount: -20000, balance: 1080000 },
+    { date: "2024-04-04", amount: -20000, balance: 1060000 },
+    { date: "2024-04-03", amount: -10000, balance: 1070000 },
+  ];
+  const plan = planImport({ incoming, closing: 1070000 });
+  assert.equal(plan.noDate, 1);
+  assert.equal(plan.outOfOrder, 1);
+  assert.deepEqual(plan.closing,
+    { printed: 1070000, actual: 1070000, matches: true });
 });

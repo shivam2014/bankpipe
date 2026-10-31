@@ -2,7 +2,8 @@
 // The dedupe and reconciliation rules come from ledger.js, so the browser and
 // the Python reference agree on what a duplicate is.
 
-import { dedupePlan, duplicateIds, reconcileChain, orderForChain, normNarration } from "./ledger.js";
+import { dedupePlan, duplicateIds, reconcileChain, orderForChain, normNarration,
+  planImport as planMergedImport } from "./ledger.js";
 import { isSealed, sealBytes, openBytes } from "./dbatrest.js";
 
 const DB_KEY = "bankpipe.db.v1";
@@ -278,7 +279,8 @@ export function makeStore(SQLlib, save) {
   // and unchanged.
   const printedRows = (accountId) => all(
     "SELECT f.id, f.txn_date AS date, f.amount_paise AS amount,"
-    + " f.balance_paise AS balance, f.source_row, f.run_id, 0 AS excluded"
+    + " f.balance_paise AS balance, f.narration, f.source_row, f.chain_seq, f.run_id,"
+    + " r.first_date AS run_first_date, 0 AS excluded"
     + " FROM fact f LEFT JOIN (SELECT run_id, MIN(txn_date) AS first_date FROM fact"
     + "   WHERE account_id=? GROUP BY run_id) r ON r.run_id=f.run_id"
     + " WHERE f.account_id=?"
@@ -440,6 +442,27 @@ export function makeStore(SQLlib, save) {
         .map((r) => r.source_row || null).filter(Boolean),
       suspectRows: usable.filter((r) => !r.date || r.amount === null)
         .map((r) => r.source_row || null).filter(Boolean) };
+  };
+  // The merged check: the account's held rows plus this file, through the same
+  // planner importRows runs. Nothing is written. `breaks` is the count the
+  // import will report; `breakRows` carries the day-level detail for the
+  // preview. `closing` is the file's printed closing balance, when it has one.
+  store.previewImport = (account, rows, opts = {}) => {
+    const usable = (rows || []).filter((r) => r.date || r.amount !== null);
+    const plan = planMergedImport({ held: printedRows(account), incoming: usable,
+      today: opts.today, closing: opts.closing });
+    return {
+      inserted: plan.insert.filter(Boolean).length,
+      duplicates: plan.duplicates,
+      corrected: plan.corrected,
+      breaks: plan.breaks.length,
+      breakRows: plan.breaks,
+      insert: plan.insert,
+      merged: plan.merged,
+      noDate: plan.noDate,
+      outOfOrder: plan.outOfOrder,
+      closing: plan.closing,
+    };
   };
   store.searchFacts = (opts = {}) => {
     const f = factFilter(opts);
@@ -814,10 +837,13 @@ export function makeStore(SQLlib, save) {
     accounts: all("SELECT COUNT(*) n FROM account")[0]?.n || 0,
     issues: all("SELECT COUNT(*) n FROM issue WHERE state='open'")[0]?.n || 0,
   });
-  store.importRows = (account, rows) => {
+  store.importRows = (account, rows, opts = {}) => {
     const usable = rows.filter((r) => r.date || r.amount !== null);
-    const existing = store.heldRows(account);
-    const plan = dedupePlan(existing, usable);
+    // The same planner the preview runs, on the same held rows and file rows.
+    // The write loop below only applies its decisions.
+    const plan = planMergedImport({ held: printedRows(account), incoming: usable,
+      today: opts.today, closing: opts.closing });
+    const updates = plan.updates || [];
     const now = new Date().toISOString();
     conn.run("INSERT OR IGNORE INTO account(id,label,category,type) VALUES(?,?,?,?)",
       [account, account, "bank", "savings"]);
@@ -827,7 +853,7 @@ export function makeStore(SQLlib, save) {
     let inserted = 0, corrected = 0;
     const occurrence = new Map();
     usable.forEach((r, i) => {
-      const fix = plan.updates ? plan.updates[i] : null;
+      const fix = updates[i] || null;
       if (fix) {
         // Replace the row rather than editing it in place: the statement's row
         // order is part of the truth, and a new id puts it back in file order
@@ -855,20 +881,21 @@ export function makeStore(SQLlib, save) {
       }
     });
     conn.run("UPDATE import_run SET rows_kept=? WHERE id=?", [inserted, runId]);
-    // Reconcile only when new rows landed. A re-import of held rows must not
-    // add the same issues again or reopen ones the user already accepted.
-    // Corrections still re-derive the file's oddities for the rows they replace.
+    // Reconcile only when the stored rows changed. A re-import of held rows must
+    // not add the same issues again or reopen ones the user already accepted.
+    // Corrections change the chain, so they re-derive the breaks as well.
     const landed = all("SELECT id FROM fact WHERE run_id=? ORDER BY source_row, id", [runId])
       .map((r) => r.id);
-    let breaks = 0;
     if (inserted > 0 || landed.length) {
-      const review = syncReviewIssues(account, {
+      syncReviewIssues(account, {
         factIds: landed,
-        balanceBreaks: inserted > 0,
+        balanceBreaks: inserted > 0 || corrected > 0,
       });
-      breaks = review.breaks;
     }
-    return { inserted, duplicates: plan.duplicates, corrected, runId, breaks };
+    // Report the merged check the preview showed, not only the items this run
+    // happened to add: the account holds them either way.
+    return { inserted, duplicates: plan.duplicates, corrected, runId,
+      breaks: plan.breaks.length, closing: plan.closing };
   };
   store.listLockers = (accountId) => all(
     "SELECT * FROM locker WHERE account_id=? ORDER BY number", [accountId]);
@@ -1218,6 +1245,11 @@ export async function planImport(account, rows) {
   return browserStore.planImport(account, rows);
 }
 
+export async function previewImport(account, rows, opts = {}) {
+  if (!browserStore) await openDb();
+  return browserStore.previewImport(account, rows, opts);
+}
+
 export async function replaceHoldings(assetId, rows, asOf) {
   if (!browserStore) await openDb();
   const res = browserStore.replaceHoldings(assetId, rows, asOf);
@@ -1339,9 +1371,9 @@ export async function clearAll() {
   return true;
 }
 
-export async function importRows(account, rows) {
+export async function importRows(account, rows, opts = {}) {
   if (!browserStore) await openDb();
-  const res = await browserStore.importRows(account, rows);
+  const res = await browserStore.importRows(account, rows, opts);
   await browserStore.save();
   if (res && (res.inserted > 0 || res.corrected > 0)) noteData(true);
   return res;

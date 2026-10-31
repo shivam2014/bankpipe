@@ -156,13 +156,15 @@ function chainsFrom(rows, start) {
     if (row.excluded) continue;
     if (row.amount === null || row.amount === undefined) continue;
     if (row.balance === null || row.balance === undefined) continue;
-    if (balance !== null && row.balance !== balance + row.amount) return false;
+    if (balance !== null && Math.abs(row.balance - (balance + row.amount)) > 1) return false;
     balance = row.balance;
   }
   return true;
 }
 
 export function reconcileChain(rows = []) {
+  // A break is more than one paise, the same tolerance the file audit uses, so
+  // a one-paise rounding difference does not invent an error.
   // Some statements repeat the end-of-day balance on every row of that day.
   // Checking those rows one by one invents a break before every multi-row day.
   // When the rows carry a date, check the day's total against its closing
@@ -176,7 +178,8 @@ export function reconcileChain(rows = []) {
     if (row.excluded) return; // excluded rows are invisible to the chain
     const balance = row.balance ?? null;
     const amount = row.amount ?? null;
-    if (balance !== null && previousBalance !== null && amount !== null && balance !== previousBalance + amount) {
+    if (balance !== null && previousBalance !== null && amount !== null
+        && Math.abs(balance - (previousBalance + amount)) > 1) {
       breaks.push({ id: row.id, expected: previousBalance + amount, actual: balance, index });
     }
     if (balance !== null) previousBalance = balance;
@@ -216,7 +219,7 @@ function reconcileByDay(rows = []) {
     const last = withBalance[withBalance.length - 1];
     if (amountsKnown && withBalance.length && previousBalance !== null) {
       const expected = previousBalance + net;
-      if (last.balance !== expected) {
+      if (Math.abs(last.balance - expected) > 1) {
         issues.push({ id: last.id, expected, actual: last.balance,
           delta: last.balance - expected, date, previous: previousBalance,
           dayNet: net });
@@ -235,7 +238,7 @@ function reconcileByDay(rows = []) {
       if (!repeated) {
         const forward = first.balance - first.amount + net;
         const backward = last.balance - last.amount + net;
-        if (last.balance !== forward && first.balance !== backward) {
+        if (Math.abs(last.balance - forward) > 1 && Math.abs(first.balance - backward) > 1) {
           issues.push({ id: last.id, expected: forward, actual: last.balance,
             delta: last.balance - forward, date, previous: null, dayNet: net });
         }
@@ -253,6 +256,85 @@ function reconcileByDay(rows = []) {
   }
   return { issues: issues.filter((_, k) => !suppressed.has(k)),
     suppressed: issues.filter((_, k) => suppressed.has(k)).map((x) => x.id) };
+}
+
+// Where the new run lands in the stored order. The store prints runs by their
+// earliest transaction date; a run with no date follows every dated run. A new
+// run has the highest run id, so it follows an older run that starts on the
+// same day. Without run metadata the held rows are treated as one run.
+function insertAt(held, start) {
+  const carriesRuns = held.some((row) => "run_first_date" in row || "run_id" in row);
+  if (!carriesRuns) {
+    if (start === null) return held.length;
+    const first = held.map((row) => row.date).filter(Boolean).sort()[0] || null;
+    return first !== null && start < first ? 0 : held.length;
+  }
+  if (start === null) {
+    const legacy = held.findIndex((row) => row.run_id === null || row.run_id === undefined);
+    return legacy < 0 ? held.length : legacy;
+  }
+  const at = held.findIndex((row) => {
+    const first = row.run_first_date ?? null;
+    return first === null || first > start;
+  });
+  return at < 0 ? held.length : at;
+}
+
+function mergeRuns(held, incoming) {
+  if (!incoming.length) return held.slice();
+  const first = incoming.map((row) => row.date).filter(Boolean).sort()[0] || null;
+  const at = insertAt(held, first);
+  return [...held.slice(0, at), ...incoming, ...held.slice(at)];
+}
+
+// One plan for the preview and the write. `held` is the account's rows in the
+// order the ledger prints them; `incoming` is the file's rows oldest-first, the
+// same list importRows stores. The returned `insert` has one flag per incoming
+// row, and `updates` the correction for the rows that replace a held balance.
+// `today` is carried for the caller's report; it does not change the rules.
+export function planImport({ held = [], incoming = [], today = null, closing = null } = {}) {
+  const dedupe = dedupePlan(held, incoming);
+  const updates = dedupe.updates || [];
+  const correctedIds = new Set(updates.filter(Boolean).map((fix) => fix.id));
+  const kept = held.filter((row) => row.id === null || row.id === undefined
+    || !correctedIds.has(row.id));
+  // A correction deletes the held row and stores the file's row in the new run,
+  // so it joins the chain at the file's position, not the old one.
+  const landed = incoming.filter((_, i) => dedupe.insert[i] || updates[i]);
+  const chain = orderForChain(mergeRuns(kept, landed)).rows;
+  const breaks = reconcileChain(chain).issues;
+
+  let previousDate = "";
+  let noDate = 0;
+  let outOfOrder = 0;
+  for (const row of chain) {
+    if (!row.date) {
+      noDate += 1;
+      continue;
+    }
+    if (previousDate && row.date < previousDate) outOfOrder += 1;
+    previousDate = row.date;
+  }
+
+  const latest = chain.reduce((found, row) => (!row.excluded
+    && row.balance !== null && row.balance !== undefined ? row : found), null);
+  const printed = closing ?? null;
+  return {
+    insert: dedupe.insert,
+    duplicates: dedupe.duplicates,
+    corrected: updates.filter(Boolean).length,
+    updates,
+    merged: chain,
+    breaks,
+    noDate,
+    outOfOrder,
+    closing: printed === null ? null : {
+      printed,
+      actual: latest ? latest.balance : null,
+      matches: latest !== null && Math.abs(printed - latest.balance) <= 1,
+    },
+    today,
+  };
 }
 
 const DAY_MS = 86_400_000;

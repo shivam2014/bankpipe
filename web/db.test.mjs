@@ -896,3 +896,145 @@ test("reordering a day flips the chain slots it occupies", async () => {
   assert.deepEqual(day.map((r) => r.narration), ["C", "D"]);
   assert.equal(store.balanceBreaks("pnb").length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// The preview runs the same merged check the import runs. Each test compares
+// the two in one store: preview first, then the write.
+// ---------------------------------------------------------------------------
+
+const agreed = [
+  { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 2 },
+  { date: "2024-04-03", amount: -20000, balance: 1080000, description: "B", source_row: 3 },
+  { date: "2024-04-04", amount: 5000, balance: 1085000, description: "C", source_row: 4 },
+];
+
+function checkAgreement(store, account, incoming, opts = {}) {
+  const before = store.summary();
+  const preview = store.previewImport(account, incoming, opts);
+  assert.deepEqual(store.summary(), before, "the preview writes nothing");
+  const result = store.importRows(account, incoming, opts);
+  assert.equal(preview.inserted, result.inserted, "the preview's inserts match");
+  assert.equal(preview.duplicates, result.duplicates, "the preview's duplicates match");
+  assert.equal(preview.corrected, result.corrected, "the preview's corrections match");
+  assert.equal(preview.breaks, result.breaks, "the preview's breaks match");
+  return { preview, result };
+}
+
+test("a clean file previews and imports the same counts", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "agree-clean", label: "Clean", category: "bank" });
+  const { preview } = checkAgreement(store, "agree-clean", agreed);
+  assert.deepEqual({ inserted: preview.inserted, duplicates: preview.duplicates,
+    corrected: preview.corrected, breaks: preview.breaks },
+  { inserted: 3, duplicates: 0, corrected: 0, breaks: 0 });
+  assert.equal(store.summary().facts, 3);
+});
+
+test("an overlapping re-import previews the rows it will skip", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "agree-overlap", label: "Overlap", category: "bank" });
+  store.importRows("agree-overlap", agreed);
+  const second = [
+    agreed[1],
+    agreed[2],
+    { date: "2024-04-05", amount: -25000, balance: 1060000, description: "D", source_row: 2 },
+  ];
+  const { preview } = checkAgreement(store, "agree-overlap", second);
+  assert.deepEqual({ inserted: preview.inserted, duplicates: preview.duplicates,
+    corrected: preview.corrected, breaks: preview.breaks },
+  { inserted: 1, duplicates: 2, corrected: 0, breaks: 0 });
+  assert.equal(store.summary().facts, 4);
+});
+
+test("a newest-first file previews and imports the same chain", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "agree-desc", label: "Newest first", category: "bank" });
+  const { preview, result } = checkAgreement(store, "agree-desc", descChrono);
+  assert.equal(preview.inserted, 4);
+  assert.equal(preview.breaks, 0);
+  assert.equal(result.breaks, 0);
+  assert.equal(store.balanceBreaks("agree-desc").length, 0);
+});
+
+test("one genuine break previews as one and imports as one", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "agree-break", label: "Broken", category: "bank" });
+  const broken = [
+    { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A" },
+    { date: "2024-04-03", amount: -20000, balance: 1079000, description: "B" },
+    { date: "2024-04-04", amount: -10000, balance: 1069000, description: "C" },
+  ];
+  const { preview } = checkAgreement(store, "agree-break", broken);
+  assert.equal(preview.breaks, 1);
+  assert.equal(store.balanceBreaks("agree-break").length, 1);
+  assert.equal(store.listIssues().filter((i) => i.kind === "balance_break").length, 1);
+});
+
+test("the preview finds a break that only appears after the merge", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "agree-merge", label: "Merged", category: "bank" });
+  store.importRows("agree-merge", [
+    { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A" },
+    { date: "2024-04-03", amount: -20000, balance: 1080000, description: "B" },
+  ]);
+  // On its own the file chains from its first row. Placed after the held
+  // ledger, its first balance is 10,000 short, so the merged day breaks.
+  const incoming = [
+    { date: "2024-04-04", amount: -10000, balance: 1060000, description: "C" },
+    { date: "2024-04-05", amount: 5000, balance: 1065000, description: "D" },
+  ];
+  const { preview } = checkAgreement(store, "agree-merge", incoming);
+  assert.equal(preview.breaks, 1);
+  assert.equal(store.balanceBreaks("agree-merge").length, 1);
+});
+
+test("a duplicate and a correction are both reported and both applied", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "agree-correct", label: "Correct", category: "bank" });
+  const held = { date: "2026-08-14", amount: -283384, balance: 8296611,
+    description: "IN3OT NOSTRO" };
+  store.importRows("agree-correct", [held]);
+  const incoming = [{ ...held }, { ...held, balance: 31000018 }];
+  const { preview } = checkAgreement(store, "agree-correct", incoming);
+  assert.deepEqual({ inserted: preview.inserted, duplicates: preview.duplicates,
+    corrected: preview.corrected, breaks: preview.breaks },
+  { inserted: 0, duplicates: 1, corrected: 1, breaks: 0 });
+  const kept = store.heldRows("agree-correct");
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].balance, 31000018);
+});
+
+test("an undated row previews noDate and imports one no_date issue", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "agree-nodate", label: "No date", category: "bank" });
+  const incoming = [
+    { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 2 },
+    { date: "", amount: -20000, balance: 1080000, description: "NO DATE", source_row: 3 },
+    { date: "2024-04-03", amount: -1000, balance: 1079000, description: "B", source_row: 4 },
+  ];
+  const { preview } = checkAgreement(store, "agree-nodate", incoming);
+  assert.equal(preview.noDate, 1);
+  assert.equal(preview.outOfOrder, 0);
+  assert.equal(preview.inserted, 3);
+  const open = store.listIssues().filter((i) => i.kind === "no_date");
+  assert.equal(open.length, 1);
+  assert.equal(open[0].detail, "row 3 has no date; amount and balance imported as printed");
+});
+
+test("the preview returns the file's closing balance match without writing", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "agree-closing", label: "Closing", category: "bank" });
+  const before = store.summary();
+  const preview = store.previewImport("agree-closing", agreed,
+    { closing: agreed[agreed.length - 1].balance });
+  assert.deepEqual(store.summary(), before);
+  assert.deepEqual(preview.closing, { printed: 1085000, actual: 1085000, matches: true });
+});
