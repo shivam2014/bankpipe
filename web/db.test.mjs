@@ -1038,3 +1038,46 @@ test("the preview returns the file's closing balance match without writing", asy
   assert.deepEqual(store.summary(), before);
   assert.deepEqual(preview.closing, { printed: 1085000, actual: 1085000, matches: true });
 });
+
+test("a PDF-derived row set previews and imports with the same count", async () => {
+  const { pdfToStatement } = await import("./pdf-statement.js");
+  const item = (str, x, y, width = str.length * 5) => ({ str, x, y, width });
+  const right = (str, edge, y) => item(str, edge - str.length * 5, y, str.length * 5);
+  const items = [
+    item("Branch Details", 40, 430, 70),
+    item("Customer Name: ALICE", 40, 415, 120),
+    item("Statement of Account:1234567890 For Period: 01-04-2024 to 30-04-2024", 40, 400, 400),
+    item("Date", 40, 370, 20),
+    item("Instrument ID", 110, 370, 65),
+    item("Amount(INR)", 180, 370, 55),
+    item("Type", 240, 370, 20),
+    item("Balance", 280, 370, 35),
+    item("Remarks", 370, 370, 35),
+  ];
+  const rows = [
+    { date: "04/04/2024", amount: "50.00", type: "DR", balance: "3,700.00", remark: "ATM" },
+    { date: "03/04/2024", amount: "250.00", type: "DR", balance: "3,750.00", remark: "UPI" },
+    { date: "02/04/2024", amount: "1,000.00", type: "CR", balance: "4,000.00", remark: "SALARY" },
+  ];
+  rows.forEach((row, i) => {
+    const y = 340 - i * 20;
+    items.push(item(row.date, 40, y, 45));
+    items.push(right(row.amount, 235, y));
+    items.push(item(row.type, 240, y, 14));
+    items.push(right(row.balance, 315, y));
+    items.push(item(row.remark, 370, y, row.remark.length * 5));
+  });
+
+  const statement = pdfToStatement([{ items }]);
+  const pdfRows = statement.accounts[0].rows;
+  assert.equal(pdfRows.length, 3);
+
+  const store = makeStore(SQL, null);
+  await store.open();
+  const preview = store.previewImport("pnb-pdf", pdfRows);
+  const imported = store.importRows("pnb-pdf", pdfRows);
+  assert.equal(preview.inserted, imported.inserted);
+  assert.equal(imported.inserted, pdfRows.length);
+  assert.equal(imported.duplicates, 0);
+  assert.equal(store.summary().facts, pdfRows.length);
+});
