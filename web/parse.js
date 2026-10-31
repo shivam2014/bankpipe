@@ -151,21 +151,116 @@ export function parseDateInText(v) {
   }
   return "";
 }
+// A currency token between two digits is not a prefix or a suffix: removing it
+// would fuse two numbers, so "1INR234" is refused rather than read as 1234.
+const CURRENCY_BETWEEN_DIGITS = /\d\s*(?:[₹₨$€£¥]|INR|Rs\.?|USD|EUR|GBP|JPY)\s*\d/i;
+
+// True for both western 1,234,567 and Indian 1,23,456 grouping. The first
+// group holds one to three digits; later groups are three digits (western) or
+// two digits with a final three-digit group (Indian).
+function groupedThousands(parts) {
+  if (parts.length < 2 || !/^\d{1,3}$/.test(parts[0])) return false;
+  const rest = parts.slice(1);
+  if (!rest.every((p) => /^\d+$/.test(p))) return false;
+  const western = rest.every((p) => p.length === 3);
+  const indian = rest.every((p, i) =>
+    i === rest.length - 1 ? p.length === 3 : p.length === 2);
+  return western || indian;
+}
+
+// The integer half may still carry grouping separators after the decimal
+// separator has been chosen. Reject mixed separators ("1.234,567.89").
+function plainInteger(part) {
+  if (/^\d+$/.test(part)) return part;
+  const seps = part.match(/[.,]/g) || [];
+  if (!seps.length) return null;
+  const sep = seps[0];
+  if (seps.some((c) => c !== sep)) return null;
+  const parts = part.split(sep);
+  return groupedThousands(parts) ? parts.join("") : null;
+}
+
+// Return a canonical "1234.56" string, or null when the separators do not
+// describe exactly one unambiguous number.
+function normaliseNumber(s) {
+  const dots = (s.match(/\./g) || []).length;
+  const commas = (s.match(/,/g) || []).length;
+  if (!dots && !commas) return /^\d+$/.test(s) ? s : null;
+  if (dots && commas) {
+    const dec = s.lastIndexOf(".") > s.lastIndexOf(",") ? "." : ",";
+    const at = s.lastIndexOf(dec);
+    const intPart = s.slice(0, at), frac = s.slice(at + 1);
+    if (!/^\d+$/.test(frac)) return null;
+    const int = plainInteger(intPart);
+    return int === null ? null : `${int}.${frac}`;
+  }
+  if (dots) {
+    if (dots > 1) return null;
+    const [int, frac] = s.split(".");
+    return /^\d+$/.test(int) && /^\d+$/.test(frac) ? `${int}.${frac}` : null;
+  }
+  const parts = s.split(",");
+  if (!parts.every((p) => /^\d+$/.test(p))) return null;
+  const last = parts[parts.length - 1];
+  // A comma before one or two trailing digits is a decimal comma: "1234,56".
+  if (parts.length === 2 && last.length <= 2) return `${parts[0]}.${last}`;
+  return groupedThousands(parts) ? parts.join("") : null;
+}
+
+function toPaise(num) {
+  const [int, frac = ""] = num.split(".");
+  if (!/^\d+$/.test(int) || (frac && !/^\d+$/.test(frac))) return null;
+  let paise = BigInt(int) * 100n + BigInt((frac + "00").slice(0, 2));
+  if (frac.length > 2 && Number(frac[2]) >= 5) paise += 1n;
+  return paise <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(paise) : null;
+}
+
 export function parseMoney(v) {
-  let s = String(v || "").trim(); if (!s) return null;
-  s = s.replace(/[₹$]|INR|Rs\.?/gi, "").trim();
-  let neg = false;
-  // "1,23,456.78 DR" and "123456.78DR" both occur. The suffix may be attached
-  // or separated by a space, so anchor on the last digit, not on the last
-  // three characters.
-  if (/[\d)]\s*dr\.?$/i.test(s)) { neg = true; s = s.replace(/\s*dr\.?$/i, ""); }
-  s = s.replace(/\s*cr\.?$/i, "");
-  if (s.startsWith("(") && s.endsWith(")")) { neg = true; s = s.slice(1, -1); }
-  if (s.startsWith("-")) { neg = true; s = s.slice(1); }
-  s = s.replace(/,/g, "").trim();
-  if (!/^\d+(\.\d+)?$/.test(s)) return null;
-  const paise = Math.round(parseFloat(s) * 100);
-  return neg ? -paise : paise;
+  let s = String(v ?? "").trim();
+  if (!s || /^(?:nil|n\/?a|-{1,2}|[—–])$/i.test(s)) return null;
+  if (CURRENCY_BETWEEN_DIGITS.test(s)) return null;
+
+  // Dr/Cr may lead or trail, with an optional dot, spaces or parentheses:
+  // "Dr. 1,234", "1,234Cr." and "1,000.00 (Dr)" all occur. Two different
+  // markers on one cell contradict each other.
+  let marker = "";
+  const lead = s.match(/^(?:\(\s*)?(dr|cr)\.?(?![a-z])(?:\s*\))?\s*/i);
+  if (lead) { marker = lead[1].toLowerCase(); s = s.slice(lead[0].length); }
+  const tail = s.match(/(?<![a-z])(?:\(\s*)?(dr|cr)\.?(?:\s*\))?\s*$/i);
+  if (tail) {
+    const m = tail[1].toLowerCase();
+    if (marker && marker !== m) return null;
+    marker = m;
+    s = s.slice(0, tail.index);
+  }
+  let neg = marker === "dr";
+  const positiveMarker = marker === "cr";
+
+  s = s.replace(/[₹₨$€£¥]/g, "")
+    .replace(/(?<![A-Za-z])(?:INR|Rs\.?|USD|EUR|GBP|JPY)(?![A-Za-z])/gi, "")
+    .replace(/\s*\/-\s*$/, "")
+    .trim();
+  if (!s) return null;
+
+  // Parentheses around the value mean negative, even with a symbol inside.
+  if (s.startsWith("(") && s.endsWith(")")) {
+    neg = true;
+    s = s.slice(1, -1).trim();
+  }
+  // The sign may lead or trail; banks print both "-" and the unicode minus.
+  if (/^[-−]/.test(s)) { neg = true; s = s.replace(/^[-−]\s*/, ""); }
+  if (/[-−]$/.test(s)) { neg = true; s = s.replace(/\s*[-−]$/, ""); }
+  if (!s) return null;
+
+  // Grouping spaces and apostrophes count only between digits.
+  s = s.replace(/(?<=\d)[\s\u00A0\u2007\u2009\u202F'’‘]+(?=\d)/g, "");
+
+  const num = normaliseNumber(s);
+  if (num === null || !/^\d+(\.\d+)?$/.test(num)) return null;
+  if (positiveMarker && neg) return null;
+  const paise = toPaise(num);
+  if (paise === null) return null;
+  return paise === 0 ? 0 : (neg ? -paise : paise);
 }
 export function stripRows(rows) {
   return rows.map(r => (r || []).map(v => (v === null || v === undefined) ? "" : String(v)));

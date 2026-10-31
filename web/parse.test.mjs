@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseStatement, chronological, rowsFromCsv, parseDate, parseDateInText,
-  mapHeader } from "./parse.js";
+  mapHeader, parseMoney } from "./parse.js";
 import { makeStore } from "./db.js";
 
 const require = createRequire(import.meta.url);
@@ -423,4 +423,59 @@ test("a dated row with a balance and no amount refuses the whole file", () => {
   ]);
   assert.equal(p.error, "2 rows have no amount");
   assert.deepEqual(p.rows, []);
+});
+
+// ---------------------------------------------------------------------------
+// Money cells: currency marks may lead or trail, Dr/Cr may sit on either side,
+// and the last separator decides the decimal. A value that cannot be read
+// exactly is null, never a plausible-looking guess.
+// ---------------------------------------------------------------------------
+
+const MONEY_CASES = [
+  ["259703.1 Cr.", 25970310],
+  ["259703.1Cr.", 25970310],
+  ["Cr. 259703.1", 25970310],
+  ["259703.1 Dr.", -25970310],
+  ["Dr. 259703.1", -25970310],
+  ["11.8", 1180],
+  ["1,23,456.78", 12345678],
+  ["₹2,59,703.10", 25970310],
+  ["Rs. 2,59,703.10", 25970310],
+  ["INR 1,234.56", 123456],
+  ["1,234.56 INR", 123456],
+  ["$1,234.56", 123456],
+  ["€1,234.56", 123456],
+  ["£1,234.56", 123456],
+  ["¥1,234", 123400],
+  ["(1,234.56)", -123456],
+  ["(₹1,234.56)", -123456],
+  ["-1,234.56", -123456],
+  ["−1,234.56", -123456],
+  ["1,234.56-", -123456],
+  ["1 234.56", 123456],
+  ["1'234.56", 123456],
+  ["1.234,56", 123456],
+  ["Nil", null],
+  ["-", null],
+  ["", null],
+  ["1.23.456", null],
+  ["12,34,567.89", 123456789],
+  ["1,234", 123400],
+  ["0.00", 0],
+  ["0.00 Dr.", 0],
+  ["Rs.1,000/-", 100000],
+  ["1,000.00 (Dr)", -100000],
+  ["₹ 1,23,456", 12345600],
+];
+
+test("money cells are read with their currency, sign and separator rules", () => {
+  for (const [input, want] of MONEY_CASES) {
+    assert.equal(parseMoney(input), want, input);
+  }
+});
+
+test("ambiguous money is refused instead of guessed", () => {
+  for (const input of ["Dr. 100 Cr.", "1,2345", "12,34,56.78", "NA", "N/A", "--"]) {
+    assert.equal(parseMoney(input), null, input);
+  }
 });
