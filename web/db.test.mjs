@@ -661,3 +661,76 @@ test("re-importing a file with an inversion adds no rows or items", async () => 
   assert.equal(store.summary().facts, 6);
   assert.equal(store.summary().issues, 1);
 });
+
+test("a bulk re-check derives every open item from held rows in one pass", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", reviewRows);
+  store.importRows("hdfc", rows);
+  // The break was derived before the importer learned the two oddity kinds.
+  store.raw().run("DELETE FROM issue WHERE kind<>'balance_break'");
+
+  const res = store.recheckAll();
+  assert.deepEqual(res, { accounts: 2, cleared: 1, added: 3 });
+  const open = store.listIssues();
+  assert.deepEqual(open.map((i) => `${i.account_id}:${i.kind}`).sort(),
+    ["pnb:balance_break", "pnb:no_date", "pnb:out_of_order"]);
+  assert.deepEqual(store.listIssues().filter((i) => i.account_id === "hdfc"), []);
+});
+
+test("a second bulk re-check replaces the same items and duplicates nothing", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", reviewRows);
+  store.importRows("hdfc", rows);
+  const first = store.recheckAll();
+  const before = store.query("SELECT COUNT(*) AS n FROM issue")[0].n;
+
+  const second = store.recheckAll();
+  assert.equal(second.accounts, 2);
+  assert.equal(second.cleared, first.added);
+  assert.equal(second.added, first.added);
+  assert.equal(store.query("SELECT COUNT(*) AS n FROM issue")[0].n, before);
+  assert.deepEqual(store.query("SELECT fact_id, kind, COUNT(*) AS n FROM issue"
+    + " GROUP BY fact_id, kind HAVING n > 1"), []);
+});
+
+test("an account without facts is neither re-checked nor counted", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", reviewRows);
+  store.createAccount({ id: "empty-asset", label: "Empty asset" });
+  const res = store.recheckAll();
+  assert.deepEqual(res, { accounts: 1, cleared: 3, added: 3 });
+  assert.equal(store.query("SELECT COUNT(*) AS n FROM issue"
+    + " WHERE account_id='empty-asset'")[0].n, 0);
+});
+
+test("a bulk re-check on an empty store returns zeros", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  assert.deepEqual(store.recheckAll(), { accounts: 0, cleared: 0, added: 0 });
+});
+
+test("a bulk re-check keeps accepted and ignored decisions", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", reviewRows);
+  const open = store.listIssues();
+  const noDate = open.find((i) => i.kind === "no_date");
+  const odd = open.find((i) => i.kind === "out_of_order");
+  store.resolveIssue(noDate.id, "accepted");
+  store.resolveIssue(odd.id, "ignored");
+
+  const res = store.recheckAll();
+  assert.equal(res.accounts, 1);
+  assert.equal(res.cleared, 1, "only the open balance break is cleared");
+  assert.equal(res.added, 1, "the accepted and ignored items are not reopened");
+  const counts = store.query("SELECT kind, state, COUNT(*) AS n FROM issue"
+    + " GROUP BY kind, state ORDER BY kind, state");
+  assert.deepEqual(Object.fromEntries(counts.map((r) => [`${r.kind}:${r.state}`, r.n])), {
+    "balance_break:open": 1,
+    "no_date:accepted": 1,
+    "out_of_order:ignored": 1,
+  });
+});
