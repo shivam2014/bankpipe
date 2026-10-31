@@ -734,3 +734,165 @@ test("a bulk re-check keeps accepted and ignored decisions", async () => {
     "out_of_order:ignored": 1,
   });
 });
+
+// ---------------------------------------------------------------------------
+// Chain order: the printed direction is stored per row, not inferred from
+// the physical line. source_row stays the line for review messages.
+// ---------------------------------------------------------------------------
+
+// A newest-first export after chronological(): oldest row first, with
+// source_row still the physical line (line 2 is the newest row).
+const descChrono = [
+  { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 5 },
+  { date: "2024-04-03", amount: -20000, balance: 1080000, description: "B", source_row: 4 },
+  { date: "2024-04-04", amount: 5000, balance: 1085000, description: "C", source_row: 3 },
+  { date: "2024-04-05", amount: -1000, balance: 1084000, description: "D", source_row: 2 },
+];
+
+// The same statement printed oldest-first.
+const ascChrono = [
+  { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 2 },
+  { date: "2024-04-03", amount: -20000, balance: 1080000, description: "B", source_row: 3 },
+  { date: "2024-04-04", amount: 5000, balance: 1085000, description: "C", source_row: 4 },
+  { date: "2024-04-05", amount: -1000, balance: 1084000, description: "D", source_row: 5 },
+];
+
+// Seed a stored run without going through importRows, the way an older build
+// left it behind. `seqs` overrides chain_seq; otherwise it follows source_row.
+function seedRun(store, account, printed, seqs = null) {
+  store.raw().run("INSERT INTO import_run(account_id,file,started_at,rows_read,rows_kept)"
+    + " VALUES(?,?,?,?,?)", [account, "export.csv", "2026-01-01T00:00:00Z",
+    printed.length, printed.length]);
+  const runId = store.raw().exec("SELECT last_insert_rowid() AS id")[0].values[0][0];
+  printed.forEach((r, i) => {
+    store.raw().run("INSERT INTO fact(account_id,txn_date,amount_paise,balance_paise,"
+      + "narration,source_row,chain_seq,txn_key,run_id) VALUES(?,?,?,?,?,?,?,?,?)",
+      [account, r.date, r.amount, r.balance, r.description || "X", r.source_row,
+       seqs ? seqs[i] : r.source_row, `${account}-${i}`, runId]);
+  });
+  return runId;
+}
+
+test("a newest-first file stores its chain oldest-first", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const res = store.importRows("scb", descChrono);
+  assert.equal(res.inserted, 4);
+  assert.equal(res.breaks, 0);
+  assert.equal(store.balanceBreaks("scb").length, 0);
+  assert.deepEqual(store.listIssues(), []);
+  const kept = store.query("SELECT source_row, chain_seq, txn_date FROM fact"
+    + " ORDER BY chain_seq");
+  assert.deepEqual(kept.map((r) => r.chain_seq), [1, 2, 3, 4]);
+  assert.deepEqual(kept.map((r) => r.source_row), [5, 4, 3, 2],
+    "source_row still points at the physical line");
+  assert.deepEqual(kept.map((r) => r.txn_date),
+    ["2024-04-02", "2024-04-03", "2024-04-04", "2024-04-05"]);
+});
+
+test("re-importing a newest-first file inserts nothing and reports every row", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("scb", descChrono);
+  const again = store.importRows("scb", descChrono);
+  assert.equal(again.inserted, 0);
+  assert.equal(again.duplicates, 4);
+  assert.equal(store.summary().facts, 4);
+  assert.equal(store.balanceBreaks("scb").length, 0);
+  assert.deepEqual(store.listIssues(), []);
+});
+
+test("an oldest-first file reconciles with chain_seq following source_row", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const res = store.importRows("icici", ascChrono);
+  assert.equal(res.inserted, 4);
+  assert.equal(res.breaks, 0);
+  assert.equal(store.balanceBreaks("icici").length, 0);
+  const kept = store.query("SELECT source_row, chain_seq FROM fact ORDER BY chain_seq");
+  assert.deepEqual(kept.map((r) => r.chain_seq), [1, 2, 3, 4]);
+  assert.deepEqual(kept.map((r) => r.source_row), [2, 3, 4, 5]);
+});
+
+test("a back-dated newest-first import joins without a break", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const march = [
+    { date: "2024-03-01", amount: 400000, balance: 400000, description: "C", source_row: 3 },
+    { date: "2024-03-02", amount: 600000, balance: 1000000, description: "D", source_row: 2 },
+  ];
+  const first = store.importRows("pnb", descChrono);
+  assert.equal(first.breaks, 0);
+  const second = store.importRows("pnb", march);
+  assert.equal(second.inserted, 2);
+  assert.equal(second.breaks, 0);
+  assert.equal(store.balanceBreaks("pnb").length, 0);
+  assert.deepEqual(store.listIssues(), []);
+});
+
+test("an older database gains chain_seq seeded from source_row", async () => {
+  const old = new SQL.Database();
+  old.run("CREATE TABLE fact(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL,"
+    + " txn_date TEXT, amount_paise INTEGER, balance_paise INTEGER, narration TEXT, ref TEXT,"
+    + " source_row INTEGER, txn_key TEXT UNIQUE, run_id INTEGER)");
+  old.run("INSERT INTO fact(account_id,txn_date,amount_paise,balance_paise,narration,"
+    + "source_row,txn_key,run_id) VALUES('legacy','2024-04-02',100000,1100000,'A',7,'k1',1)");
+  old.run("INSERT INTO fact(account_id,txn_date,amount_paise,balance_paise,narration,"
+    + "source_row,txn_key,run_id) VALUES('legacy','2024-04-03',-20000,1080000,'B',0,'k2',1)");
+  const store = makeStore(SQL, null);
+  await store.open(old.export());
+  const kept = store.query("SELECT id, source_row, chain_seq FROM fact ORDER BY id");
+  assert.equal(kept[0].chain_seq, 7, "a printed line keeps its current order");
+  assert.equal(kept[1].chain_seq, kept[1].id, "a row with no line falls back to its id");
+});
+
+test("re-check reverses a run stored newest-first, once", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const printed = descChrono.slice().reverse();
+  seedRun(store, "legacy", printed);
+  assert.ok(store.balanceBreaks("legacy").length > 0, "the stored order breaks");
+
+  const res = store.recheckAccount("legacy");
+  assert.deepEqual(res, { cleared: 0, added: 0 });
+  assert.equal(store.balanceBreaks("legacy").length, 0);
+  const kept = store.query("SELECT chain_seq, txn_date FROM fact WHERE account_id='legacy'"
+    + " ORDER BY chain_seq");
+  assert.deepEqual(kept.map((r) => r.txn_date),
+    ["2024-04-02", "2024-04-03", "2024-04-04", "2024-04-05"]);
+
+  const before = store.query("SELECT id, chain_seq FROM fact ORDER BY id");
+  assert.deepEqual(store.recheckAccount("legacy"), { cleared: 0, added: 0 });
+  assert.deepEqual(store.query("SELECT id, chain_seq FROM fact ORDER BY id"), before,
+    "a second re-check is a no-op");
+});
+
+test("re-check leaves a run that already reconciles alone", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const printed = descChrono.slice().reverse();
+  seedRun(store, "good", printed, [4, 3, 2, 1]);
+  const before = store.query("SELECT id, chain_seq FROM fact ORDER BY id");
+  assert.equal(store.balanceBreaks("good").length, 0);
+
+  assert.deepEqual(store.recheckAccount("good"), { cleared: 0, added: 0 });
+  assert.deepEqual(store.query("SELECT id, chain_seq FROM fact ORDER BY id"), before,
+    "a reconciling run keeps its chain");
+});
+
+test("reordering a day flips the chain slots it occupies", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", [
+    { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 2 },
+    { date: "2024-04-03", amount: -20000, balance: 1080000, description: "B", source_row: 3 },
+    { date: "2024-04-04", amount: -2000, balance: 1077000, description: "D", source_row: 4 },
+    { date: "2024-04-04", amount: -1000, balance: 1079000, description: "C", source_row: 5 },
+    { date: "2024-04-05", amount: 5000, balance: 1082000, description: "E", source_row: 6 },
+  ]);
+  assert.equal(store.reorderDay("pnb", "2024-04-04").fixed, true);
+  const day = store.query("SELECT narration FROM fact WHERE txn_date='2024-04-04'"
+    + " ORDER BY chain_seq");
+  assert.deepEqual(day.map((r) => r.narration), ["C", "D"]);
+  assert.equal(store.balanceBreaks("pnb").length, 0);
+});

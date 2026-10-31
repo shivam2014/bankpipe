@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS fact(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   account_id TEXT NOT NULL, txn_date TEXT, amount_paise INTEGER,
   balance_paise INTEGER, narration TEXT, ref TEXT, source_row INTEGER,
-  txn_key TEXT UNIQUE, run_id INTEGER);
+  chain_seq INTEGER, txn_key TEXT UNIQUE, run_id INTEGER);
 CREATE INDEX IF NOT EXISTS fact_acct ON fact(account_id, txn_date);
 CREATE TABLE IF NOT EXISTS holding(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,6 +117,18 @@ function migrate(conn) {
   conn.run("UPDATE holding SET rating_at_purchase = rating"
     + " WHERE (rating_at_purchase IS NULL OR rating_at_purchase = '')"
     + " AND rating IS NOT NULL AND rating <> ''");
+
+  // The reconciliation chain used to be read in source_row order, which is the
+  // physical line. A newest-first file therefore reconciled backwards once it
+  // was stored in date order. chain_seq separates the two: source_row stays the
+  // line for review messages, and the chain reads chain_seq. Old rows keep the
+  // order they already had by seeding it from source_row (or the row id when a
+  // file carried no line numbers).
+  const finfo = conn.exec("PRAGMA table_info(fact)");
+  const fhave = new Set(finfo.length ? finfo[0].values.map((v) => v[1]) : []);
+  if (!fhave.has("chain_seq")) conn.run("ALTER TABLE fact ADD COLUMN chain_seq INTEGER");
+  conn.run("UPDATE fact SET chain_seq = CASE"
+    + " WHEN source_row > 0 THEN source_row ELSE id END WHERE chain_seq IS NULL");
 }
 
 function idb() {
@@ -261,8 +273,9 @@ export function makeStore(SQLlib, save) {
   store.query = all;
   // The bank's printed order is the truth. Runs are placed by their earliest
   // transaction date, so a back-dated second import sits before the run it
-  // precedes. Within a run the file's own row order (source_row) is kept.
-  // Display sorting is separate and unchanged.
+  // precedes. Within a run the chain order (chain_seq) is kept; source_row
+  // stays the physical line for review messages. Display sorting is separate
+  // and unchanged.
   const printedRows = (accountId) => all(
     "SELECT f.id, f.txn_date AS date, f.amount_paise AS amount,"
     + " f.balance_paise AS balance, f.source_row, f.run_id, 0 AS excluded"
@@ -270,7 +283,7 @@ export function makeStore(SQLlib, save) {
     + "   WHERE account_id=? GROUP BY run_id) r ON r.run_id=f.run_id"
     + " WHERE f.account_id=?"
     + " ORDER BY (r.first_date IS NULL), r.first_date, (f.run_id IS NULL),"
-    + " f.run_id, f.source_row, f.id", [accountId, accountId]);
+    + " f.run_id, COALESCE(f.chain_seq, f.source_row, f.id), f.id", [accountId, accountId]);
   // A day printed newest-first inside an otherwise chronological file is the
   // one case the chain may flip. Everything else stays where the file put it.
   const chainRows = (accountId) => orderForChain(printedRows(accountId)).rows;
@@ -624,9 +637,32 @@ export function makeStore(SQLlib, save) {
   // Live check: which rows do not follow from the row above them, in the order
   // the bank printed them.
   store.balanceBreaks = (accountId) => reconcileChain(chainRows(accountId)).issues;
+  // A run stored before the importer read the file's direction has its chain in
+  // printed (newest-first) order. When that order does not reconcile but its
+  // reverse does, flip the run's chain_seq. A run that already reconciles, or
+  // whose reverse still leaves a break, is left alone for the existing issues.
+  const repairChainOrder = (accountId) => {
+    const runs = all("SELECT DISTINCT run_id FROM fact WHERE account_id=?"
+      + " AND run_id IS NOT NULL ORDER BY run_id", [accountId]).map((r) => r.run_id);
+    let repaired = 0;
+    for (const runId of runs) {
+      const rows = all("SELECT id, txn_date AS date, amount_paise AS amount,"
+        + " balance_paise AS balance FROM fact WHERE account_id=? AND run_id=?"
+        + " ORDER BY COALESCE(chain_seq, source_row, id), id", [accountId, runId]);
+      if (rows.length < 2) continue;
+      if (reconcileChain(rows).issues.length === 0) continue;
+      const reversed = rows.slice().reverse();
+      if (reconcileChain(reversed).issues.length !== 0) continue;
+      reversed.forEach((row, i) => conn.run("UPDATE fact SET chain_seq=? WHERE id=?",
+        [i + 1, row.id]));
+      repaired += 1;
+    }
+    return repaired;
+  };
   // Clear this account's stale open items and derive all three kinds again from
   // the rows already held. Accepted/ignored decisions and other kinds stay.
   store.recheckAccount = (accountId) => {
+    repairChainOrder(accountId);
     const { cleared, added } = syncReviewIssues(accountId, { replace: true });
     return { cleared, added };
   };
@@ -639,6 +675,7 @@ export function makeStore(SQLlib, save) {
     let cleared = 0;
     let added = 0;
     for (const accountId of accounts) {
+      repairChainOrder(accountId);
       const res = syncReviewIssues(accountId, { replace: true });
       cleared += res.cleared;
       added += res.added;
@@ -651,8 +688,8 @@ export function makeStore(SQLlib, save) {
   // reversing does not settle the chain, so a real error is never hidden.
   store.reorderDay = (accountId, date) => {
     const rows = all("SELECT id, txn_date, amount_paise, balance_paise, narration, ref,"
-      + " source_row, txn_key, run_id FROM fact WHERE account_id=? AND txn_date=?"
-      + " ORDER BY id", [accountId, date]);
+      + " source_row, chain_seq, txn_key, run_id FROM fact WHERE account_id=? AND txn_date=?"
+      + " ORDER BY COALESCE(chain_seq, source_row, id), id", [accountId, date]);
     if (rows.length < 2) return { fixed: false, reason: "only one row on this day" };
     const before = all("SELECT balance_paise FROM fact WHERE account_id=? AND txn_date<?"
       + " ORDER BY txn_date DESC, id DESC LIMIT 1", [accountId, date]);
@@ -671,13 +708,16 @@ export function makeStore(SQLlib, save) {
     if (!chains(reversed)) {
       return { fixed: false, reason: "reversing does not settle this day; a row's balance is wrong" };
     }
+    // The chain reads chain_seq, so the day's rows swap the sequence slots they
+    // already hold; the inserted ids are fresh and do not decide the order.
+    const slots = rows.map((r) => r.chain_seq ?? r.source_row ?? r.id).sort((a, b) => a - b);
     for (const r of rows) conn.run("DELETE FROM fact WHERE id=?", [r.id]);
-    for (const r of reversed) {
+    reversed.forEach((r, i) => {
       conn.run("INSERT INTO fact(account_id,txn_date,amount_paise,balance_paise,narration,ref,"
-        + " source_row,txn_key,run_id) VALUES(?,?,?,?,?,?,?,?,?)",
+        + " source_row,chain_seq,txn_key,run_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
         [accountId, r.txn_date, r.amount_paise, r.balance_paise, r.narration, r.ref,
-         r.source_row, r.txn_key, r.run_id]);
-    }
+         r.source_row, slots[i], r.txn_key, r.run_id]);
+    });
     return { fixed: true, rows: reversed.length };
   };
   store.duplicateGroups = (accountId) => {
@@ -805,9 +845,10 @@ export function makeStore(SQLlib, save) {
       const key = `${stem}|${n}`;
       try {
         conn.run("INSERT INTO fact(account_id,txn_date,amount_paise,balance_paise,"
-          + "narration,ref,source_row,txn_key,run_id) VALUES(?,?,?,?,?,?,?,?,?)",
+          + "narration,ref,source_row,chain_seq,txn_key,run_id)"
+          + " VALUES(?,?,?,?,?,?,?,?,?,?)",
           [account, r.date || null, r.amount, r.balance, r.description || r.narration || "",
-           r.ref || "", r.source_row || 0, key, runId]);
+           r.ref || "", r.source_row || 0, i + 1, key, runId]);
         if (!fix) inserted++;
       } catch (e) {
         if (!/UNIQUE/.test(String(e))) throw e;
