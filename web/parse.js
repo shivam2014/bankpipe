@@ -220,6 +220,15 @@ export function parseMoney(v) {
   if (!s || /^(?:nil|n\/?a|-{1,2}|[—–])$/i.test(s)) return null;
   if (CURRENCY_BETWEEN_DIGITS.test(s)) return null;
 
+  // Currency comes out first. A cell can end "Cr. ₹" or start "₹ Cr.", and
+  // stripping the marker first would leave the symbol in place and hide the
+  // sign. Removing the symbol first leaves Dr/Cr at one end where it belongs.
+  s = s.replace(/[₹₨$€£¥]/g, "")
+    .replace(/(?<![A-Za-z])(?:INR|Rs\.?|USD|EUR|GBP|JPY)(?![A-Za-z])/gi, "")
+    .replace(/\s*\/-\s*$/, "")
+    .trim();
+  if (!s) return null;
+
   // Dr/Cr may lead or trail, with an optional dot, spaces or parentheses:
   // "Dr. 1,234", "1,234Cr." and "1,000.00 (Dr)" all occur. Two different
   // markers on one cell contradict each other.
@@ -235,11 +244,8 @@ export function parseMoney(v) {
   }
   let neg = marker === "dr";
   const positiveMarker = marker === "cr";
-
-  s = s.replace(/[₹₨$€£¥]/g, "")
-    .replace(/(?<![A-Za-z])(?:INR|Rs\.?|USD|EUR|GBP|JPY)(?![A-Za-z])/gi, "")
-    .replace(/\s*\/-\s*$/, "")
-    .trim();
+  // Stripping the marker can leave the space that separated it.
+  s = s.trim();
   if (!s) return null;
 
   // Parentheses around the value mean negative, even with a symbol inside.
