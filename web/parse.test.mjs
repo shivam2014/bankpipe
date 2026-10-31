@@ -260,6 +260,63 @@ test("a single-date file in oldest-first order is left alone", () => {
   assert.deepEqual(chronological(parsed).map((r) => r.amount), [-20100000, -45000000]);
 });
 
+test("a statement summary footer after the transactions is not a transaction", () => {
+  const matrix = [
+    ["Date", "Narration", "Debit", "Credit", "Balance"],
+    ["01/05/2026", "FIRST", "", "2,406.00", "11,57,181.41"],
+    ["02/05/2026", "SECOND", "1,000.00", "", "11,56,181.41"],
+    ["03/05/2026", "THIRD", "500.00", "", "11,55,681.41"],
+    ["04/05/2026", "FOURTH", "", "100.00", "11,55,781.41"],
+    ["", "", "", "", ""],
+    ["Statement Summary : 01-05-2026  To  31-07-2026", "", "", "", ""],
+    ["Brought Forward (₹)", "Dr Count", "Cr Count", "Total Debits (₹)",
+      "Total Credits (₹)", "Closing Balance (₹)"],
+    ["11,57,181.41CR", "3", "1", "10,69,062.99", "2,406.00", "90,524.42CR"],
+  ];
+  const p = parseStatement(matrix);
+  assert.equal(p.rows.length, 4);
+  assert.deepEqual(p.rows.map((r) => r.source_row), [2, 3, 4, 5]);
+  assert.equal(p.skipped, 1, "only the blank line is skipped");
+  assert.equal(p.footer_row, 7);
+  assert.ok(p.rows.every((r) => r.date), "no dateless footer row");
+});
+
+test("a transaction that mentions a closing balance is still a transaction", () => {
+  const matrix = [
+    ["Date", "Narration", "Debit", "Credit", "Balance"],
+    ["01/05/2026", "TRANSFER TO CLOSING BALANCE ACCOUNT", "500.00", "", "1,000.00"],
+  ];
+  const p = parseStatement(matrix);
+  assert.equal(p.rows.length, 1);
+  assert.equal(p.rows[0].date, "2026-05-01");
+  assert.equal(p.footer_row, null);
+});
+
+test("a repeated header mid-file does not end the statement", () => {
+  const matrix = [
+    ["Date", "Narration", "Debit", "Credit", "Balance"],
+    ["01/05/2026", "BEFORE THE BREAK", "100.00", "", "900.00"],
+    ["Date", "Narration", "Debit", "Credit", "Balance"],
+    ["02/05/2026", "AFTER THE BREAK", "", "50.00", "950.00"],
+  ];
+  const p = parseStatement(matrix);
+  assert.equal(p.rows.filter((r) => r.date).length, 2);
+  const after = p.rows.find((r) => r.description === "AFTER THE BREAK");
+  assert.ok(after, "the row after the repeated header was parsed");
+  assert.equal(after.date, "2026-05-02");
+  assert.equal(p.footer_row, null);
+});
+
+test("a footer with no transactions before it yields no rows and does not throw", () => {
+  const matrix = [
+    ["Date", "Narration", "Debit", "Credit", "Balance"],
+    ["Statement Summary : 01-05-2026  To  31-07-2026", "", "", "", ""],
+  ];
+  const p = parseStatement(matrix);
+  assert.deepEqual(p.rows, []);
+  assert.equal(p.footer_row, null);
+});
+
 test("a passbook sheet that labels only Debits and Credits is read", () => {
   const matrix = [
     ["Punjab national bank", "", "", "", ""],
