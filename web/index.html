@@ -185,6 +185,8 @@ label.field textarea{resize:vertical;min-height:58px}
 .subrow .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .subrow .amt{font-variant-numeric:tabular-nums;text-align:right}
 .subrow .pc{color:var(--muted);text-align:right}
+.unlinked-fds summary{list-style:none}
+.unlinked-fds summary::-webkit-details-marker{display:none}
 .donut{width:190px;height:190px;border-radius:50%;position:relative;display:grid;place-items:center;flex-shrink:0;box-shadow:inset 0 0 0 1px var(--line);transition:filter .15s ease}
 .donut:hover{filter:brightness(1.04)}
 .donut-hole{width:122px;height:122px;border-radius:50%;background:var(--card);display:grid;place-content:center;text-align:center;padding:8px}
@@ -4097,11 +4099,33 @@ function bankRow(g, total, fdLinks) {
       ${fds ? `<div class="fd-subs">${fds}</div>` : ""}
     </div>`;
   }).join("");
+  const unlinkedValue = unlinked.reduce((t, fd) => {
+    const matured = !!(fd.maturity_date && fd.maturity_date < today);
+    if (matured) {
+      const m = assetMetrics(fd, "fd");
+      return t + (m.expectedAtMaturity ?? m.value ?? m.invested ?? 0);
+    }
+    return t + (assetValue(fd).paise || 0);
+  }, 0);
+  const unlinkedRow = (fd) => {
+    const matured = !!(fd.maturity_date && fd.maturity_date < today);
+    const m = matured ? assetMetrics(fd, "fd") : null;
+    const value = matured
+      ? (m.expectedAtMaturity ?? m.value ?? m.invested) : assetValue(fd).paise;
+    return `<a class="subrow" href="#" onclick="bpAssetView(${jsArg(fd.id)});return false">
+      <span class="nm">${esc(fd.label || fd.number || "Fixed deposit")}${matured
+        ? ` <span class="muted" style="font-size:10.5px">(matured · history)</span>` : ""}</span>
+      <span class="amt">${value === null ? "—" : money(value)}</span>
+      <span class="pc">›</span></a>`;
+  };
   const unlinkedHtml = unlinked.length ? `<div class="acct-sub">
-    <a class="subrow fd-sub" href="#" onclick="${openBank};return false">
-      <span class="nm">Unlinked fixed deposits (${unlinked.length})</span>
-      <span class="amt">${money(totalAssets(unlinked))}</span>
-      <span class="pc">›</span></a></div>` : "";
+    <details class="unlinked-fds">
+      <summary class="subrow fd-sub" style="cursor:pointer">
+        <span class="nm">Unlinked fixed deposits (${unlinked.length})</span>
+        <span class="amt">${money(unlinkedValue)}</span>
+        <span class="pc">▾</span></summary>
+      <div class="bank-subs">${unlinked.map(unlinkedRow).join("")}</div>
+    </details></div>` : "";
   const subs = accountSubs + unlinkedHtml;
   const logo = bankLogo(g.accounts[0] || { bank: g.bank });
   return `<div class="bank-group">
