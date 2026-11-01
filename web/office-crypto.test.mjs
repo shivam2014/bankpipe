@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
-  aesCbcDecrypt, isEncryptedOffice, readCfb, parseEncryptionInfo, decryptOffice,
+  aesCbcDecrypt, isEncryptedOffice, hasEncryptionStreams, readCfb, parseEncryptionInfo, decryptOffice,
 } from "./office-crypto.js";
 
 const FILE = new URL("./fixtures/encrypted/example_password.xlsx", import.meta.url).pathname;
@@ -34,6 +34,16 @@ test("the OLE2 container exposes both encryption streams", () => {
   // The two salts are different and must not be swapped: the password salt is
   // on <p:encryptedKey>, the package salt on <keyData>.
   assert.notEqual(info.keyData.saltValue, info.encryptedKey.saltValue);
+});
+
+test("a legacy .xls container is not an encrypted package", () => {
+  // Every .xls is OLE2. Only the two OOXML encryption streams mean a password
+  // is needed; a plain .xls holds a Workbook stream instead.
+  assert.equal(hasEncryptionStreams({ Workbook: new Uint8Array(4) }), false);
+  assert.equal(hasEncryptionStreams({}), false);
+  assert.equal(hasEncryptionStreams({
+    EncryptionInfo: new Uint8Array(1), EncryptedPackage: new Uint8Array(1),
+  }), true);
 });
 
 test("a password-protected workbook opens with its password", async () => {
