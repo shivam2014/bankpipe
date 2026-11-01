@@ -43,7 +43,7 @@ test("the disclosure sits left of the section label", () => {
   assert.ok(helper.indexOf('class="acct-sec-toggle"') < helper.indexOf('class="subrow acct-sec-link"'),
     "the toggle is the left control, the link starts after it");
   assert.match(html, /acct-sec-spacer/);
-  assert.match(html, /\.acct-sec-body\{padding:0 0 6px 30px\}/);
+  assert.match(html, /\.acct-sec-body\{padding:0 0 6px 28px\}/);
 });
 
 test("the bank page does not double-indent the account sections", () => {
@@ -51,4 +51,11 @@ test("the bank page does not double-indent the account sections", () => {
   assert.match(html, /variant === "bank" \? " in-bank" : ""/);
   assert.match(html,
     /\.acct-sections\.in-bank\{margin-left:0;border-left:0;padding-left:0;padding-right:0\}/);
+});
+
+test("the bank account row aligns with the section labels", () => {
+  assert.match(html, /class="subrow acct-bank-row"/);
+  assert.match(html, /\.acct-bank-row\{padding-left:28px\}/);
+  assert.match(html, /\.acct-bank-row \.nm\{white-space:normal;overflow:visible;text-overflow:clip;line-height:1\.35\}/);
+  assert.match(html, /\.acct-sec-body\{padding:0 0 6px 28px\}/);
 });

@@ -189,6 +189,8 @@ label.field textarea{resize:vertical;min-height:58px}
 .unlinked-fds summary::-webkit-details-marker{display:none}
 .acct-sections{margin:0 0 4px 14px;border-left:1px dashed var(--line);padding-left:8px;padding-right:14px;box-sizing:border-box}
 .acct-sections.in-bank{margin-left:0;border-left:0;padding-left:0;padding-right:0}
+.acct-bank-row{padding-left:28px}
+.acct-bank-row .nm{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35}
 .acct-sec + .acct-sec{border-top:1px solid var(--hair)}
 .acct-sec-head{display:grid;grid-template-columns:28px minmax(0,1fr);gap:2px;align-items:center}
 .acct-sec-head.no-toggle{grid-template-columns:28px minmax(0,1fr)}
@@ -197,7 +199,7 @@ label.field textarea{resize:vertical;min-height:58px}
 .acct-sec-toggle:hover{background:var(--hair);color:var(--ink)}
 .acct-sec-toggle span{display:block;transition:transform .15s}
 .acct-sec-toggle[aria-expanded="false"] span{transform:rotate(-90deg)}
-.acct-sec-body{padding:0 0 6px 30px}
+.acct-sec-body{padding:0 0 6px 28px}
 .acct-sec-body[hidden]{display:none}
 .acct-sec-body .subrow{font-size:12px}
 .acct-sec-empty{padding:2px 0 6px;line-height:1.45;font-size:12px}
@@ -4170,7 +4172,7 @@ function bankRow(g, total, fdLinks, lockerMap = new Map()) {
     const active = accFds.filter((fd) => !fd.maturity_date || fd.maturity_date >= today);
     const number = String(acc.number || "").replace(/^[,\s]+/, "");
     return `<div class="acct-sub">
-      <a class="subrow" href="#" onclick="${open};return false">
+      <a class="subrow acct-bank-row" href="#" onclick="${open};return false">
         <span class="nm">${esc(acc.label || acc.number || acc.id)}${number
           ? ` <span class="muted" style="font-size:11px">· <span class="bp-sensitive">${esc(number)}</span></span>`
           : ""}</span>
