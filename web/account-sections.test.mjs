@@ -36,3 +36,12 @@ test("the account helper clears a previous scroll target", () => {
   assert.match(html, /const target = window\.bpAccountSection === "fds" \? "account-fds" : "lockers"/);
   assert.match(html, /document\.getElementById\(target\)/);
 });
+
+test("the disclosure sits left of the section label", () => {
+  const helper = html.slice(html.indexOf("function accountSectionsHtml"),
+    html.indexOf("function bankRow"));
+  assert.ok(helper.indexOf('class="acct-sec-toggle"') < helper.indexOf('class="subrow acct-sec-link"'),
+    "the toggle is the left control, the link starts after it");
+  assert.match(html, /acct-sec-spacer/);
+  assert.match(html, /\.acct-sec-body\{padding:0 0 6px 30px\}/);
+});
