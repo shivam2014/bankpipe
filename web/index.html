@@ -846,6 +846,7 @@ import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker } from "./brokers.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
 import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
+import { matchDemat } from "./portfolio-match.js";
 import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
 import { VAULT_SETTING, emptyVault, sealVault, openVault, safeUrl, upsertEntry, removeEntry } from "./secrets.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
@@ -2150,7 +2151,7 @@ window.bpDigiFinnReport = async (slot, file) => {
       files: {}, fileSizes: {} });
   const host = document.getElementById("digifinn-preview");
   const sig = `${file.size}|${file.lastModified}`;
-  const slotName = slot === "portfolio" ? "Portfolio" : slot === "investment" ? "Investment" : "Upcoming Payouts";
+  const slotName = slot === "portfolio" ? "Portfolio" : slot === "investment" ? "Investment" : "Cashflow Future";
   const duplicate = Object.entries(state.fileSizes || {})
     .find(([k, v]) => k !== slot && v === sig);
   if (duplicate) {
@@ -2176,17 +2177,24 @@ window.bpDigiFinnReport = async (slot, file) => {
     if (parsed.kind === "unknown") {
       if (host) host.innerHTML = `<div class="card pad" style="color:var(--red);font-size:13px">
         This is not a recognised DigiFInn report. Use the Portfolio Report, Investment Report,
-        and Upcoming Payouts (or Cashflow Future).</div>`;
+        and Cashflow Future.</div>`;
+      return;
+    }
+    // The old Upcoming Payouts export still parses (its tests stay), but it only
+    // carries the first payment, so the import does not accept it any more.
+    if (parsed.kind === "payouts" && parsed.source !== "cashflow") {
+      if (host) host.innerHTML = `<div class="card pad" style="color:var(--red);font-size:13px">
+        ${esc("That is the Upcoming Payouts report. In DigiFInn, switch Reports & Documents to Cashflow Future and download that; it carries the whole schedule and any part redemptions.")}</div>`;
       return;
     }
     if (parsed.kind !== expected) {
       const which = parsed.kind === "portfolio" ? "Portfolio Report"
         : parsed.kind === "investment" ? "Investment Report"
-        : parsed.kind === "payouts" ? "Upcoming Payouts / Cashflow"
+        : parsed.kind === "payouts" ? "Cashflow Future"
         : "an unknown report";
       if (host) host.innerHTML = `<div class="card pad" style="color:var(--red);font-size:13px">
         That file looks like ${esc(which)}, not ${esc(slot === "portfolio" ? "the Portfolio Report"
-          : slot === "investment" ? "the Investment Report" : "Upcoming Payouts")}.
+          : slot === "investment" ? "the Investment Report" : "the Cashflow Future report")}.
         Put it in the matching slot.</div>`;
       return;
     }
@@ -2199,6 +2207,9 @@ window.bpDigiFinnReport = async (slot, file) => {
     state[slot] = parsed;
     state.files[slot] = file.name;
     state.fileSizes[slot] = sig;
+    // New reports mean the old "import anyway" consent no longer applies.
+    window.bpDigiFinnOverride = false;
+    window.bpDigiFinnSyncTarget = "";
     if (host) host.innerHTML = "";
     window.bpDigiFinnRenderStatus();
     if (state.portfolio && state.investment && state.payouts) await window.bpDigiFinnReview();
@@ -2219,18 +2230,73 @@ window.bpDigiFinnRenderStatus = () => {
   };
   set("df-status-portfolio", state?.portfolio, "Portfolio Report", state?.files?.portfolio);
   set("df-status-investment", state?.investment, "Investment Report", state?.files?.investment);
-  set("df-status-payouts", state?.payouts,
-    state?.payouts?.source === "cashflow" ? "Cashflow Future" : "Upcoming Payouts",
-    state?.files?.payouts);
+  set("df-status-payouts", state?.payouts, "Cashflow Future", state?.files?.payouts);
   const status = document.getElementById("digifinn-status");
   if (!status) return;
   const missing = [];
   if (!state?.portfolio) missing.push("Portfolio Report");
   if (!state?.investment) missing.push("Investment Report");
-  if (!state?.payouts) missing.push("Upcoming Payouts");
+  if (!state?.payouts) missing.push("Cashflow Future");
   status.innerHTML = missing.length
     ? `Waiting for: ${missing.map(esc).join(", ")}.`
     : "All three reports loaded. Review the portfolio match below.";
+};
+// Last four digits of a Demat, digits only, for the "…1234" labels.
+function dematLast4(value) {
+  return String(value ?? "").replace(/\D+/g, "").slice(-4);
+}
+
+// The Demat a portfolio is already known by: the number a previous sync mapped
+// to it, else the portfolio's own field.
+async function digiFinnTargetDemat(asset) {
+  if (!asset) return "";
+  try {
+    const store = await import("./db.js");
+    const raw = await store.getSetting("bp.digifinn.demat");
+    const map = raw ? JSON.parse(raw) : {};
+    for (const [demat, id] of Object.entries(map)) if (id === asset.id) return demat;
+  } catch (e) {}
+  return asset.number || "";
+}
+
+// The red card above the sync detail. Empty when the Demats agree, or when
+// either side is unknown: a portfolio with no Demat yet is being linked for the
+// first time, and that import is allowed.
+function digiFinnDematCardHtml(target, targetDemat) {
+  const data = window.bpDigiFinnReviewData;
+  if (!data || !target || target === "__new__") return "";
+  const reportDemat = data.state.portfolio.demat || "";
+  if (matchDemat(reportDemat, targetDemat) !== "mismatch") return "";
+  const mapped = data.mapped || "";
+  const mappedAsset = data.mappedEntry?.asset || null;
+  const bestId = data.recommendedId || "";
+  const bestAsset = bestId
+    ? (data.scored.find((x) => x.asset.id === bestId)?.asset || null) : null;
+  const actions = [];
+  if (mapped && mapped !== target) {
+    actions.push(`<button class="btn" onclick="bpDigiFinnSyncPreview(${jsArg(mapped)})">Import into ${esc(mappedAsset?.label || mapped)}</button>`);
+  }
+  if (bestAsset && data.clearBest && bestId !== target && bestId !== mapped) {
+    actions.push(`<button class="btn" onclick="bpDigiFinnSyncPreview(${jsArg(bestId)})">Use ${esc(bestAsset.label || bestId)}</button>`);
+  }
+  actions.push(`<button class="btn" onclick="bpDigiFinnSyncPreview('__new__')">Create a portfolio for …${esc(dematLast4(reportDemat))}</button>`);
+  actions.push(`<button class="btn" onclick="bpDigiFinnKeepPortfolio()">Keep this portfolio</button>`);
+  return `<div class="card pad" style="border:1px solid var(--red);margin-bottom:10px">
+    <b style="color:var(--red);font-size:13.5px">These reports are for Demat
+      …${esc(dematLast4(reportDemat))}, not this portfolio (…${esc(dematLast4(targetDemat))}).</b>
+    <div class="muted" style="font-size:12px;margin-top:5px">Choose where this snapshot belongs.
+      Nothing is written until you apply.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${actions.join("")}</div>
+  </div>`;
+}
+
+window.bpDigiFinnKeepPortfolio = async () => {
+  // Keep the page's portfolio even though its Demat disagrees. The preview
+  // resets the consent when the destination changes, so pin it first.
+  const target = window.bpDigiFinnPinned || window.bpDigiFinnTarget || "";
+  window.bpDigiFinnOverride = true;
+  window.bpDigiFinnSyncTarget = target;
+  await window.bpDigiFinnSyncPreview(target);
 };
 window.bpDigiFinnReview = async () => {
   const state = window.bpDigiFinnReports;
@@ -2267,7 +2333,7 @@ window.bpDigiFinnReview = async () => {
   window.bpDigiFinnMapped = mapped;
   window.bpDigiFinnMappedLabel = mappedEntry?.asset.label || "";
   window.bpDigiFinnReviewData = { state, scored, currentPortfolio, mapped,
-    mappedEntry, bestEntry, recommendedId };
+    mappedEntry, bestEntry, clearBest, recommendedId };
   const demat = state.portfolio.demat || "";
   const linked = mappedEntry ? `This Demat is linked to ${mappedEntry.asset.label}.` : "";
   // Rendered from a bond portfolio: the destination is already chosen, so skip the
@@ -2275,7 +2341,13 @@ window.bpDigiFinnReview = async () => {
   const pinnedId = window.bpDigiFinnPinned || "";
   const pinnedAsset = pinnedId ? bonds.find((a) => a.id === pinnedId) : null;
   if (pinnedAsset) {
-    host.innerHTML = `<div class="card pad" style="background:var(--hair)">
+    // The reports carry their own Demat; the portfolio the page was opened on may
+    // belong to somebody else's account. Warn before anything is written.
+    const targetDemat = await digiFinnTargetDemat(pinnedAsset);
+    const mismatch = matchDemat(demat, targetDemat) === "mismatch";
+    window.bpDigiFinnDemat = { target: pinnedAsset.id, reportDemat: demat, targetDemat, mismatch };
+    host.innerHTML = `<div id="df-demat-warning">${digiFinnDematCardHtml(pinnedAsset.id, targetDemat)}</div>
+      <div class="card pad" style="background:var(--hair)">
       <b>Syncing into ${esc(pinnedAsset.label || pinnedAsset.bank || pinnedAsset.id)}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">Reports are for
         <b>Demat ${esc(demat || "not found")}</b>. ${esc(linked)} Nothing is written until you
@@ -2355,9 +2427,18 @@ window.bpDigiFinnSyncPreview = async (target) => {
   const state = window.bpDigiFinnReports;
   const detail = document.getElementById("df-detail");
   if (!detail || !state?.portfolio || !state?.investment || !state?.payouts) return;
+  // A new destination cancels an earlier "import anyway" consent; the reports
+  // changing does too, and bpDigiFinnReport clears it at that point.
+  if (window.bpDigiFinnSyncTarget !== target) {
+    window.bpDigiFinnOverride = false;
+    window.bpDigiFinnSyncTarget = target;
+  }
+  const dematCard = document.getElementById("df-demat-warning");
   if (!target) {
     window.bpDigiFinnSync = null;
     window.bpDigiFinnTarget = "";
+    window.bpDigiFinnDemat = null;
+    if (dematCard) dematCard.innerHTML = "";
     detail.innerHTML = `<div class="muted" style="font-size:12px">Choose a portfolio above
       before importing. Nothing will be written until you apply.</div>`;
     return;
@@ -2370,7 +2451,14 @@ window.bpDigiFinnSyncPreview = async (target) => {
   const existing = allExisting.filter((h) => h.source !== "manual");
   const sync = buildBondSync({ portfolio: state.portfolio, investment: state.investment,
     payouts: state.payouts, existing });
+  const reportDemat = state.portfolio.demat || "";
+  const targetDemat = await digiFinnTargetDemat(asset);
+  const mismatch = !!asset && matchDemat(reportDemat, targetDemat) === "mismatch";
+  window.bpDigiFinnDemat = { target, reportDemat, targetDemat, mismatch };
+  if (dematCard) dematCard.innerHTML = asset ? digiFinnDematCardHtml(target, targetDemat) : "";
   const warnings = [...sync.warnings];
+  const mismatchLine = `These reports belong to Demat …${dematLast4(reportDemat)}, not this portfolio.`;
+  if (mismatch) warnings.unshift(mismatchLine);
   const mapped = window.bpDigiFinnMapped || "";
   const mappedLabel = window.bpDigiFinnMappedLabel || mapped;
   if (target === "__new__" && mapped) {
@@ -2390,8 +2478,9 @@ window.bpDigiFinnSyncPreview = async (target) => {
   window.bpDigiFinnTarget = target;
   window.bpDigiFinnWarnings = warnings;
   const name = target === "__new__" ? `<label class="field">Portfolio name
-    <input id="df-new-name" value="Bonds · DigiFInn ${esc((state.portfolio.demat || "").slice(-4))}"
+    <input id="df-new-name" value="Bonds · DigiFInn ${esc(dematLast4(state.portfolio.demat))}"
       autocomplete="off"></label>` : "";
+  const blocked = mismatch && window.bpDigiFinnOverride !== true;
   detail.innerHTML = `<div class="stats">
       <div><div class="k">Current</div><div class="v">${sync.current}</div></div>
       <div><div class="k">Matured</div><div class="v">${sync.matured.length}</div></div>
@@ -2400,6 +2489,7 @@ window.bpDigiFinnSyncPreview = async (target) => {
       <div><div class="k">Removed</div><div class="v">${sync.removed}</div></div>
     </div>
     ${name}
+    ${mismatch ? `<div style="color:var(--red);font-size:12.5px;font-weight:600;margin-top:8px">${esc(mismatchLine)}</div>` : ""}
     ${warnings.map((w) => `<div class="muted" style="font-size:11.5px;margin-top:6px">${esc(w)}</div>`).join("")}
     <div class="muted" style="font-size:11.5px;margin-top:7px">${sync.matched} of ${sync.current}
       current lots match this portfolio. ${sync.matured.length} matured lots are excluded.
@@ -2407,15 +2497,36 @@ window.bpDigiFinnSyncPreview = async (target) => {
       ${manualLots.length ? `${manualLots.length} holding${manualLots.length === 1 ? "" : "s"}
       added by hand stay untouched.` : ""}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button class="btn" onclick="bpDigiFinnSyncApply()">Apply sync</button>
-      <button class="btn" onclick="document.getElementById('digifinn-preview').innerHTML=''">Cancel</button>
+      <button class="btn" onclick="bpDigiFinnSyncApply()"${blocked ? " disabled" : ""}>Apply sync</button>
+      ${blocked ? `<button class="btn" onclick="bpDigiFinnImportAnyway()">Import anyway into this portfolio</button>` : ""}
+      <button class="btn" onclick="bpDigiFinnCancel()">Cancel</button>
     </div>`;
+};
+window.bpDigiFinnImportAnyway = async () => {
+  window.bpDigiFinnOverride = true;
+  await window.bpDigiFinnSyncPreview(window.bpDigiFinnTarget);
+};
+window.bpDigiFinnCancel = () => {
+  window.bpDigiFinnSync = null;
+  window.bpDigiFinnTarget = "";
+  window.bpDigiFinnSyncTarget = "";
+  window.bpDigiFinnOverride = false;
+  window.bpDigiFinnDemat = null;
+  const host = document.getElementById("digifinn-preview");
+  if (host) host.innerHTML = "";
 };
 window.bpDigiFinnSyncApply = async () => {
   const state = window.bpDigiFinnReports;
   const sync = window.bpDigiFinnSync;
   const target = window.bpDigiFinnTarget;
   if (!state || !sync || !target) return;
+  // Reports for another Demat are refused until the person says "Import anyway".
+  const dematState = window.bpDigiFinnDemat || {};
+  if (dematState.target === target && dematState.mismatch
+    && window.bpDigiFinnOverride !== true) {
+    alert("These reports belong to a different Demat. Use 'Import anyway' if you are sure.");
+    return;
+  }
   const store = await import("./db.js");
   let targetId = target;
   const warningText = (window.bpDigiFinnWarnings || []).length
@@ -2480,6 +2591,9 @@ window.bpDigiFinnSyncApply = async () => {
     }
     window.bpDigiFinnReports = null;
     window.bpDigiFinnSync = null;
+    window.bpDigiFinnSyncTarget = "";
+    window.bpDigiFinnOverride = false;
+    window.bpDigiFinnDemat = null;
     window.bpAsset(targetId);
   } catch (e) {
     alert("Could not apply the DigiFInn sync: " + (e.message || e));
@@ -2493,6 +2607,10 @@ function digiFinnCardHtml(target, brokerId = "digifinn") {
   if (window.bpDigiFinnReportsFor !== (target ? target.id : "")
     && window.bpDigiFinnReports?.portfolio) {
     window.bpDigiFinnReports = null;
+    // A new portfolio is a new destination: forget the old Demat consent too.
+    window.bpDigiFinnOverride = false;
+    window.bpDigiFinnSyncTarget = "";
+    window.bpDigiFinnDemat = null;
   }
   window.bpDigiFinnReportsFor = target ? target.id : "";
   if (!window.bpDigiFinnReports) {
@@ -2522,10 +2640,8 @@ function digiFinnCardHtml(target, brokerId = "digifinn") {
     </div>
     <div id="digifinn-status" class="muted" style="font-size:12px;margin-top:9px">
       All three reports are required before the import unlocks.</div>
-    <div class="muted" style="font-size:11.5px;margin-top:6px">If DigiFInn offers both, attach the
-      <b>Cashflow Future</b> file: it carries the whole month-by-month schedule and any part
-      redemptions, which Upcoming Payouts does not. Attach the one for this portfolio — a lot is
-      matched to its own block by what was invested.</div>
+    <div class="muted" style="font-size:11.5px;margin-top:6px">Attach the Cashflow Future
+      export: it carries the next payout, the full schedule and any part redemptions.</div>
     <div id="digifinn-preview" style="margin-top:12px"></div>
     <div class="muted" style="font-size:11.5px;margin-top:8px">A repeat sync replaces the current
       holdings with the report snapshot. Ratings and market values on matched rows are kept;

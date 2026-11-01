@@ -18,9 +18,9 @@ export const BOND_BROKERS = [
       { slot: "investment", title: "Investment Report",
         detail: "Issuer, coupon, maturity, yield",
         files: ["investment-report-*.csv"] },
-      { slot: "payouts", title: "Upcoming Payouts or Cashflow Future",
-        detail: "Next payout, the full schedule, part redemptions",
-        files: ["upcoming-payouts.csv", "portfolio-cashflow-future*.csv"] },
+      { slot: "payouts", title: "Cashflow Future",
+        detail: "Next payout, the full month-by-month schedule, part redemptions",
+        files: ["portfolio-cashflow-future*.csv"] },
     ],
   },
 ];

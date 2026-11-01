@@ -40,6 +40,32 @@ const payoutCsv = `Date,Issuer,ISIN,Amount,Frequency,Units
 2027-02-28,"10.00% TEST 31 DEC 2030",INE000000001,1000.00,Quarterly Payout,2
 `;
 
+// The Cashflow Future export: one column group per bond (name row, header row,
+// values row, investment row), then one row per future month.
+function cashflowCsv() {
+  const blank = Array(8).fill("");
+  const names = [...blank];
+  names[1] = "10.25% NAVI FINSERV LIMITED 31 DEC 2026 INE342T07429";
+  const header = [...blank];
+  header[1] = "Yield"; header[2] = "Frequency"; header[3] = "Maturity";
+  header[4] = "*All indicative values";
+  const values = [...blank];
+  values[1] = "0.1025"; values[2] = "Monthly Payout"; values[3] = "2030-12-31";
+  const invest = [...blank];
+  invest[2] = "199000"; invest[4] = "2024-02-15";
+  const totals = [...blank];
+  totals[1] = "Interest"; totals[2] = "Interest Post TDS";
+  totals[3] = "Principal"; totals[4] = "Total";
+  const rows = [
+    ["2030-01-31", "1708", "1537", "0", "1537"],
+    ["2030-06-30", "1708", "1537", "0", "1537"],
+    ["2030-12-31", "1708", "1537", "200000", "201708"],
+  ];
+  const lines = [["Note: indicative"], [], names, header, values, invest, totals, ...rows]
+    .map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","));
+  return lines.join("\n");
+}
+
 test("the transactions report is recognised and parsed", () => {
   const p = parseReportFile(transactionCsv, "transaction-report.csv");
   assert.equal(p.kind, "transactions");
@@ -147,6 +173,30 @@ test("the cashflow schedule reaches the holding, pre-tax", () => {
   assert.equal(h.future_interest_paise, 4100000);
   assert.equal(h.future_principal_paise, 20000000);
   assert.equal(h.principal_dates, "2028-02-27,2028-11-27");
+});
+
+test("the Cashflow Future sheet is accepted as the payouts slot and reaches the sync", () => {
+  const parsed = parseReportFile(cashflowCsv(), "portfolio-cashflow-future.csv");
+  assert.equal(parsed.kind, "payouts");
+  assert.equal(parsed.source, "cashflow");
+  assert.equal(parsed.groups.length, 1);
+  assert.equal(parsed.groups[0].future_interest_paise, 512400);
+  const portfolio = { kind: "portfolio", demat: "1201000000001234", rows: [{
+    isin: "INE342T07429", label: "10.25% NAVI FINSERV LIMITED 31 DEC 2026",
+    quantity: 2, cost_paise: 19900000, purchase_date: "2024-02-15" }] };
+  const out = buildBondSync({ portfolio, payouts: parsed, today: "2026-10-29" });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].payout_paise, 170800);
+  assert.equal(out.holdings[0].interest_date, "2030-01-31");
+  assert.equal(out.holdings[0].future_interest_paise, 512400);
+  assert.equal(out.holdings[0].future_principal_paise, 20000000);
+  assert.equal(out.holdings[0].principal_dates, "2030-12-31");
+});
+
+test("the old Upcoming Payouts export still parses, so the page can name it", () => {
+  const p = parseReportFile(payoutCsv, "upcoming-payouts.csv");
+  assert.equal(p.kind, "payouts");
+  assert.equal(p.source, "payouts");
 });
 
 test("two lots of one ISIN get their own cashflow block, not the first one", () => {
