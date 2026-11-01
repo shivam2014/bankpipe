@@ -4086,9 +4086,12 @@ function bankRow(g, total, fdLinks) {
     const open = categoryOf(acc) === "bank" && acc.facts > 0
       ? `bpAccount(${jsArg(acc.id)})` : `bpAsset(${jsArg(acc.id)})`;
     const fds = fdSummary(byAccount.get(acc.id) || [], open);
+    const number = String(acc.number || "").replace(/^[,\s]+/, "");
     return `<div class="acct-sub">
       <a class="subrow" href="#" onclick="${open};return false">
-        <span class="nm">${esc(acc.label || acc.number || acc.id)}</span>
+        <span class="nm">${esc(acc.label || acc.number || acc.id)}${number
+          ? ` <span class="muted" style="font-size:11px">· <span class="bp-sensitive">${esc(number)}</span></span>`
+          : ""}</span>
         <span class="amt">${value === null ? "—" : money(value)}</span>
         <span class="pc">›</span></a>
       ${fds ? `<div class="fd-subs">${fds}</div>` : ""}
@@ -4100,9 +4103,11 @@ function bankRow(g, total, fdLinks) {
       <span class="amt">${money(totalAssets(unlinked))}</span>
       <span class="pc">›</span></a></div>` : "";
   const subs = accountSubs + unlinkedHtml;
+  const logo = bankLogo(g.accounts[0] || { bank: g.bank });
   return `<div class="bank-group">
     <a class="srow" href="#" onclick="${openBank};return false">
-      <div class="chip">BA</div>
+      ${logo ? `<img class="bank-logo" src="${logo}" alt="${esc(g.bank)} logo">`
+        : `<div class="chip">BA</div>`}
       <div><div class="nm">${esc(g.bank)}</div>
         <div class="sub">${g.accounts.length} account${g.accounts.length === 1 ? "" : "s"} · ${activeFds.length} FD${activeFds.length === 1 ? "" : "s"}</div>
         <div class="bar-track" style="margin-top:6px;max-width:220px">
