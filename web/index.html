@@ -187,6 +187,18 @@ label.field textarea{resize:vertical;min-height:58px}
 .subrow .pc{color:var(--muted);text-align:right}
 .unlinked-fds summary{list-style:none}
 .unlinked-fds summary::-webkit-details-marker{display:none}
+.acct-sections{margin:0 0 4px 14px;border-left:1px dashed var(--line);padding-left:8px;padding-right:14px;box-sizing:border-box}
+.acct-sec + .acct-sec{border-top:1px solid var(--hair)}
+.acct-sec-head{display:grid;grid-template-columns:minmax(0,1fr) 32px;gap:2px;align-items:center}
+.acct-sec-head.no-toggle{grid-template-columns:minmax(0,1fr)}
+.acct-sec-toggle{width:32px;height:32px;border:0;background:none;color:var(--muted);cursor:pointer;border-radius:8px;display:grid;place-items:center;font-size:13px;line-height:1;flex-shrink:0}
+.acct-sec-toggle:hover{background:var(--hair);color:var(--ink)}
+.acct-sec-toggle span{display:block;transition:transform .15s}
+.acct-sec-toggle[aria-expanded="false"] span{transform:rotate(-90deg)}
+.acct-sec-body{padding:0 0 6px}
+.acct-sec-body[hidden]{display:none}
+.acct-sec-body .subrow{font-size:12px}
+.acct-sec-empty{padding:2px 0 6px;line-height:1.45;font-size:12px}
 .donut{width:190px;height:190px;border-radius:50%;position:relative;display:grid;place-items:center;flex-shrink:0;box-shadow:inset 0 0 0 1px var(--line);transition:filter .15s ease}
 .donut:hover{filter:brightness(1.04)}
 .donut-hole{width:122px;height:122px;border-radius:50%;background:var(--card);display:grid;place-content:center;text-align:center;padding:8px}
@@ -3291,10 +3303,19 @@ async function accountData(id, opts) {
   const store = await import("./db.js");
   return store.accountDetail(id, opts);
 }
-window.bpAccount = (id) => { window.bpState = { ...(window.bpState || {}), account: id };
+window.bpAccount = (id, section = "") => { window.bpState = { ...(window.bpState || {}), account: id };
+  window.bpAccountSection = section || "";
   ACCOUNT_CACHE = null;
   window.bpAcctFilter = { q: "", from: "", to: "", min: "", max: "", page: 0, limit: 200 };
   go("account"); };
+window.bpSectionToggle = (button) => {
+  const body = document.getElementById(button.getAttribute("aria-controls"));
+  const open = button.getAttribute("aria-expanded") !== "false";
+  button.setAttribute("aria-expanded", open ? "false" : "true");
+  const label = button.dataset.label || "section";
+  button.setAttribute("aria-label", `${open ? "Expand" : "Collapse"} ${label}`);
+  if (body) body.hidden = open;
+};
 window.bpCategory = (id) => { window.bpState = { ...(window.bpState || {}), category: id };
   go("category"); };
 window.bpBankGroup = () => { window.bpState = { ...(window.bpState || {}), bankgroup: true };
@@ -4062,7 +4083,60 @@ function bankGroups(assets) {
   }
   return [...map.values()].sort((a, b) => b.total - a.total);
 }
-function bankRow(g, total, fdLinks) {
+function lockerRowHtml(acc, locker) {
+  const bits = [locker.branch, locker.size].filter(Boolean).join(" · ");
+  const rent = Number(locker.rent_paise) > 0 ? `${money(locker.rent_paise)}/yr` : "—";
+  return `<a class="subrow" href="#" onclick="bpAccount(${jsArg(acc.id)},'lockers');return false">
+    <span class="nm">🔒 Locker ${esc(locker.number || "—")}${bits
+      ? ` <span class="muted" style="font-size:10.5px">· ${esc(bits)}</span>` : ""}</span>
+    <span class="amt">${rent}</span>
+    <span class="pc">›</span></a>`;
+}
+function accountSectionsHtml({
+  acc, open, openFds = open, openLockers = open, savings,
+  fds = [], activeFds = [], lockers = [], fdRow, currency = "",
+}) {
+  const slug = String(acc.id).replace(/[^A-Za-z0-9_-]/g, "-");
+  const section = ({ kind, label, amount, body = "", toggle = false, href = open }) => {
+    const id = `acct-${slug}-${kind}`;
+    return `<div class="acct-sec">
+      <div class="acct-sec-head${toggle ? "" : " no-toggle"}">
+        <a class="subrow acct-sec-link" href="#" onclick="${href};return false">
+          <span class="nm">${label}</span>
+          <span class="amt">${amount}</span>
+          <span class="pc">›</span></a>
+        ${toggle ? `<button class="acct-sec-toggle" type="button" aria-expanded="true"
+          aria-controls="${id}" aria-label="Collapse ${label}" data-label="${label}"
+          onclick="bpSectionToggle(this)"><span aria-hidden="true">▾</span></button>` : ""}
+      </div>
+      ${body ? `<div class="acct-sec-body" id="${id}">${body}</div>` : ""}
+    </div>`;
+  };
+  const activeTotal = activeFds.reduce((sum, fd) => sum + (assetValue(fd).paise || 0), 0);
+  const lockerTotal = lockers.reduce((sum, l) => sum + (Number(l.value_paise) || 0), 0);
+  const parts = [
+    section({
+      kind: "savings", label: "Savings",
+      amount: savings === null ? "—" : money(savings, currency),
+    }),
+    section({
+      kind: "fds", label: `Fixed deposits (${fds.length})`,
+      amount: activeFds.length ? money(activeTotal, currency) : "—",
+      toggle: true, href: openFds,
+      body: fds.length ? fds.map(fdRow).join("")
+        : `<div class="muted acct-sec-empty">No fixed deposits recorded. Use Add FD on the account page.</div>`,
+    }),
+    section({
+      kind: "lockers", label: `Lockers (${lockers.length})`,
+      amount: lockerTotal ? money(lockerTotal) : "—",
+      toggle: true, href: openLockers,
+      body: lockers.length ? lockers.map((l) => lockerRowHtml(acc, l)).join("")
+        : `<div class="muted acct-sec-empty">No lockers recorded. Use Add locker on the account page.</div>`,
+    }),
+  ];
+  return `<div class="acct-sections">${parts.join("")}</div>`;
+}
+function bankRow(g, total, fdLinks, lockerMap = new Map()) {
   const savingsPct = g.total ? (g.savings * 100) / g.total : 0;
   const fdPct = g.total ? (g.fdTotal * 100) / g.total : 0;
   const share = total ? (g.total * 100) / total : 0;
@@ -4076,18 +4150,21 @@ function bankRow(g, total, fdLinks) {
     if (linked && byAccount.has(linked)) byAccount.get(linked).push(fd);
     else unlinked.push(fd);
   }
-  const fdSummary = (fds, open) => {
-    const active = fds.filter((a) => !a.maturity_date || a.maturity_date >= today);
-    return active.length ? `<a class="subrow fd-sub" href="#" onclick="${open};return false">
-        <span class="nm">Fixed deposits (${active.length})</span>
-        <span class="amt">${money(totalAssets(active))}</span>
-        <span class="pc">›</span></a>` : "";
+  const fdRow = (fd) => {
+    const matured = !!(fd.maturity_date && fd.maturity_date < today);
+    const value = assetValue(fd).paise;
+    return `<a class="subrow" href="#" onclick="bpAssetView(${jsArg(fd.id)});return false">
+      <span class="nm">${esc(fd.label || fd.number || "Fixed deposit")}${matured
+        ? ` <span class="muted" style="font-size:10.5px">(matured)</span>` : ""}</span>
+      <span class="amt">${value === null ? "—" : money(value)}</span>
+      <span class="pc">›</span></a>`;
   };
   const accountSubs = g.accounts.map((acc) => {
     const value = assetValue(acc).paise;
     const open = categoryOf(acc) === "bank" && acc.facts > 0
       ? `bpAccount(${jsArg(acc.id)})` : `bpAsset(${jsArg(acc.id)})`;
-    const fds = fdSummary(byAccount.get(acc.id) || [], open);
+    const accFds = byAccount.get(acc.id) || [];
+    const active = accFds.filter((fd) => !fd.maturity_date || fd.maturity_date >= today);
     const number = String(acc.number || "").replace(/^[,\s]+/, "");
     return `<div class="acct-sub">
       <a class="subrow" href="#" onclick="${open};return false">
@@ -4096,7 +4173,13 @@ function bankRow(g, total, fdLinks) {
           : ""}</span>
         <span class="amt">${value === null ? "—" : money(value)}</span>
         <span class="pc">›</span></a>
-      ${fds ? `<div class="fd-subs">${fds}</div>` : ""}
+      ${accountSectionsHtml({
+        acc, open,
+        openFds: `bpAccount(${jsArg(acc.id)},'fds')`,
+        openLockers: `bpAccount(${jsArg(acc.id)},'lockers')`,
+        savings: value, fds: accFds, activeFds: active,
+        lockers: lockerMap.get(acc.id) || [], fdRow, currency: acc.currency,
+      })}
     </div>`;
   }).join("");
   const unlinkedValue = unlinked.reduce((t, fd) => {
@@ -4218,6 +4301,9 @@ async function renderBankGroupAsync(host) {
   const assets = await store.listAccounts();
   const groups = bankGroupsActive(assets);
   const fdLinks = await linkFds(store, bankGroups(assets));
+  const lockerMap = new Map(await Promise.all(
+    groups.flatMap((g) => g.accounts.map(async (acc) =>
+      [acc.id, await store.listLockers(acc.id)]))));
   const total = groups.reduce((t, g) => t + g.totalActive, 0);
   const savings = groups.reduce((t, g) => t + g.savings, 0);
   const fds = groups.reduce((t, g) => t + g.fdTotalActive, 0);
@@ -4285,7 +4371,7 @@ async function renderBankGroupAsync(host) {
       </div>
     </div>
     <div class="card" style="margin-top:14px">${groups.length
-      ? groups.map((g) => bankRow(g, total, fdLinks)).join("")
+      ? groups.map((g) => bankRow(g, total, fdLinks, lockerMap)).join("")
       : `<div class="card pad">No bank accounts or fixed deposits.</div>`}</div>
     <div style="margin-top:14px"><button class="btn" onclick="go('home')">Back to home</button></div>`;
 }
@@ -4309,8 +4395,11 @@ async function renderBankViewAsync(host, bank) {
   // Locker contents are a memo: they are either counted elsewhere or are not
   // money, so they never enter the hero total or net worth.
   let lockerValue = 0;
+  const lockerMap = new Map();
   for (const acc of g.accounts) {
-    for (const l of await store.listLockers(acc.id)) lockerValue += Number(l.value_paise) || 0;
+    const list = await store.listLockers(acc.id);
+    lockerMap.set(acc.id, list);
+    for (const l of list) lockerValue += Number(l.value_paise) || 0;
   }
   const primary = primaryBankAccount(g);
   const isMatured = (fd) => !!(fd.maturity_date && fd.maturity_date < today);
@@ -4358,13 +4447,14 @@ async function renderBankViewAsync(host, bank) {
         <div class="vl">${total === null ? '<span class="muted">no value</span>'
           : money(total, acc.currency)}<div class="sub" style="text-align:right">account total</div></div>
         <div class="pc">›</div></a>
-      <div class="bank-subs">
-        <a class="subrow" href="#" onclick="${open};return false">
-          <span class="nm">Savings</span>
-          <span class="amt">${savings === null ? "—" : money(savings, acc.currency)}</span>
-          <span class="pc">›</span></a>
-        ${fds.map(fdSub).join("")}
-      </div></div>`;
+      ${accountSectionsHtml({
+        acc, open,
+        openFds: `bpAccount(${jsArg(acc.id)},'fds')`,
+        openLockers: `bpAccount(${jsArg(acc.id)},'lockers')`,
+        savings, fds, activeFds: fds.filter((fd) => !isMatured(fd)),
+        lockers: lockerMap.get(acc.id) || [], fdRow: fdSub, currency: acc.currency,
+      })}
+    </div>`;
   }).join("");
 
   // One donut: the selected bank's slice is split into savings and fixed
@@ -4985,7 +5075,7 @@ function renderAccount() {
           </span>
         </div>
       </div>`;
-    const lockersSection = isBank ? `<div class="card pad" style="margin-bottom:14px">
+    const lockersSection = isBank ? `<div class="card pad" id="lockers" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
         <h2 style="margin:0">Lockers${lockerTotal ? ` <span class="muted"
           style="font-weight:400;font-size:12px;text-transform:none;letter-spacing:0">${money(lockerTotal)}
@@ -5192,6 +5282,12 @@ function renderAccount() {
           ? "No rows need checking in this account." : "No transactions match these filters."}</div>`}
       ${checkOnly ? "" : pager("bpAcct", totals.n || 0, page, limit)}
       </div>`;
+    if (window.bpAccountSection === "fds" || window.bpAccountSection === "lockers") {
+      const target = window.bpAccountSection === "fds" ? "account-fds" : "lockers";
+      window.bpAccountSection = "";
+      setTimeout(() => document.getElementById(target)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    }
   })();
   return "";
 }
@@ -6529,6 +6625,9 @@ async function renderRealAssets(host) {
     const fdGroup = groups.find((g) => g.id === "fd") || null;
     const otherGroups = groups.filter((g) => g.id !== "bank" && g.id !== "fd");
     const fdLinks = await linkFds(store, bankGroups(assets));
+    const lockerMap = new Map(await Promise.all(
+      (bankGroup?.rows || []).map(async (acc) =>
+        [acc.id, await store.listLockers(acc.id)])));
     const todayIso = new Date().toISOString().slice(0, 10);
     const fdByAccount = new Map((bankGroup?.rows || []).map((a) => [a.id, []]));
     const unlinkedFds = [];
@@ -6673,12 +6772,13 @@ async function renderRealAssets(host) {
         const total = savings === null ? (fdValue || null) : savings + fdValue;
         const shown = fds.length && total !== null ? { paise: total, source: "account total" } : null;
         return `<div class="bank-group">${assetRow(acc, open, shown)}
-          ${fds.length ? `<div class="bank-subs">
-            <a class="subrow" href="#" onclick="${open};return false">
-              <span class="nm">Savings</span>
-              <span class="amt">${savings === null ? "—" : money(savings, acc.currency)}</span>
-              <span class="pc">›</span></a>
-            ${fds.map((fd) => fdSubRow(fd)).join("")}</div>` : ""}</div>`;
+          ${accountSectionsHtml({
+            acc, open,
+            openFds: `bpAccount(${jsArg(acc.id)},'fds')`,
+            openLockers: `bpAccount(${jsArg(acc.id)},'lockers')`,
+            savings, fds, activeFds: fds,
+            lockers: lockerMap.get(acc.id) || [], fdRow: fdSubRow, currency: acc.currency,
+          })}</div>`;
       }).join("")}
       ${unlinkedFds.length ? `<div class="bank-group">
         <div class="srow">
