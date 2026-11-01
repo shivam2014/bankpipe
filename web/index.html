@@ -106,6 +106,7 @@ a.link:hover{border-bottom-color:var(--green);color:var(--green)}
 .acct-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;
  flex-wrap:wrap;margin:14px 0}
 .acct-actions-main,.acct-actions-side{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.health-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
 .fact-edit td{background:var(--hair);padding:10px 12px}
 .fe-grid{display:grid;grid-template-columns:140px minmax(0,1fr) 130px 140px auto;gap:8px;
  align-items:end}
@@ -494,6 +495,23 @@ textarea.inline-input{resize:vertical;min-height:48px}
   table[data-table="issues"] td:nth-child(4){text-align:left}
   table[data-table="issues"] td:nth-child(6){display:flex;gap:8px}
   table[data-table="issues"] td:nth-child(6) .btn{flex:1}
+  table[data-table^="health-"]{display:block;min-width:0!important}
+  table[data-table^="health-"] tr:first-child{display:none}
+  table[data-table^="health-"] tr{display:grid;grid-template-columns:1fr 1fr;
+    gap:6px 12px;padding:12px 0;border-top:1px solid var(--line)}
+  table[data-table^="health-"] tr:nth-child(2){border-top:0}
+  table[data-table^="health-"] td{display:block;padding:0;border:0;min-width:0;font-size:12.5px}
+  table[data-table^="health-"] td.n{text-align:left;white-space:normal}
+  table[data-table^="health-"] td:nth-child(1){grid-column:1/-1;font-size:14px;line-height:1.35}
+  table[data-table^="health-"] td[data-label]::before{content:attr(data-label);
+    display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
+    color:var(--muted);margin-bottom:2px}
+  table[data-table^="health-"] td:nth-child(1)::before{content:none}
+  table[data-table="health-statements"] td:nth-child(7){grid-column:1/-1}
+  table[data-table="health-statements"] .health-actions{justify-content:flex-start}
+  table[data-table="health-statements"] .health-actions .btn{flex:1 1 auto}
+  table[data-table="health-sheets"] td:nth-child(3),
+  table[data-table="health-bond-ratings"] td:nth-child(2){grid-column:1/-1}
 }
 th.sort{cursor:pointer;user-select:none;white-space:nowrap}
 th.sort:hover{color:var(--ink)}
@@ -511,7 +529,7 @@ th.sort .arrow{opacity:.45;font-size:9px;margin-left:4px}
  background:#fff;padding:2px;box-shadow:inset 0 0 0 1px var(--line)}
 .bank-logo.lg{width:34px;height:34px;border-radius:9px;padding:3px}
 .bank-logo.xs{width:22px;height:22px;border-radius:6px;padding:2px;vertical-align:-5px;margin-right:6px}
-.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:620}
+.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:620;white-space:nowrap}
 .ok{background:#e7f2ec;color:#0b6b4f}.warn{background:#fbf0df;color:#9a5b12}
 .bad{background:#fbeeec;color:#a32b22}
 .guide-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
@@ -6081,30 +6099,30 @@ async function renderGaps() {
         ratingDrift.length ? `${ratingDrift.length} lot${ratingDrift.length === 1 ? "" : "s"}` : "none"],
     ];
     const accountRows = v.accounts.map((a) => `<tr>
-      <td>${esc(a.label || a.account_id)}<div class="muted" style="font-size:11.5px">${esc(a.number || a.account_id)}</div></td>
-      <td class="n">${a.n || 0}</td>
-      <td class="n ${a.missing_date ? "neg" : ""}">${a.missing_date || 0}</td>
-      <td class="n ${a.missing_balance ? "neg" : ""}">${a.missing_balance || 0}</td>
-      <td class="n ${a.breaks ? "neg" : ""}">${a.breaks || 0}</td>
+      <td data-label="Account">${esc(a.label || a.account_id)}<div class="muted" style="font-size:11.5px">${esc(a.number || a.account_id)}</div></td>
+      <td class="n" data-label="Rows">${a.n || 0}</td>
+      <td class="n ${a.missing_date ? "neg" : ""}" data-label="No date">${a.missing_date || 0}</td>
+      <td class="n ${a.missing_balance ? "neg" : ""}" data-label="No balance">${a.missing_balance || 0}</td>
+      <td class="n ${a.breaks ? "neg" : ""}" data-label="Breaks">${a.breaks || 0}</td>
       <td class="n ${a.delta !== null && a.delta !== 0 && !a.missing_date
-        && !a.missing_balance && !a.missing_amount ? "neg" : ""}">${
+        && !a.missing_balance && !a.missing_amount ? "neg" : ""}" data-label="Delta">${
         a.delta === null || a.missing_date || a.missing_balance || a.missing_amount
           ? "—" : amountInr(a.delta)}</td>
-      <td style="white-space:nowrap">
+      <td><div class="health-actions">
         ${a.missing_date ? `<button class="btn" onclick="bpGap(${jsArg(a.account_id)},'date')">Dates</button>` : ""}
         ${a.missing_balance ? `<button class="btn" onclick="bpGap(${jsArg(a.account_id)},'balance')">Balances</button>` : ""}
         ${a.breaks ? `<button class="btn" onclick="bpIssuesFor(${jsArg(a.account_id)},'balance_break',${jsArg(a.label || a.account_id)})">Breaks</button>` : ""}
         ${a.items ? `<button class="btn" onclick="bpIssuesFor(${jsArg(a.account_id)},'',${jsArg(a.label || a.account_id)})">Review ${a.items}</button>` : ""}
         <button class="btn" title="Recompute this account's review items from the rows already held"
           onclick="bpRecheckAccount(${jsArg(a.account_id)})">Re-check</button>
-      </td></tr>`).join("");
+      </div></td></tr>`).join("");
     const registerRows = regRows.map((r) => {
       const principal = ["fd", "bonds"].includes(r.category) ? (r.no_principal || 0) : "—";
       const maturity = ["fd", "insurance", "bonds"].includes(r.category) ? (r.no_maturity || 0) : "—";
-      return `<tr><td>${esc(r.category)}</td><td class="n">${r.n}</td>
-        <td class="n ${principal ? "neg" : ""}">${principal}</td>
-        <td class="n ${maturity ? "neg" : ""}">${maturity}</td>
-        <td class="n">${r.no_number || 0}</td></tr>`;
+      return `<tr><td data-label="Category">${esc(r.category)}</td><td class="n" data-label="Assets">${r.n}</td>
+        <td class="n ${principal ? "neg" : ""}" data-label="No principal">${principal}</td>
+        <td class="n ${maturity ? "neg" : ""}" data-label="No maturity">${maturity}</td>
+        <td class="n" data-label="No number">${r.no_number || 0}</td></tr>`;
     }).join("");
     const noValueHtml = noValue.length ? `<div class="card">${noValue.map((a) =>
       assetRow(a, assetOpen(a))).join("")}</div>`
@@ -6122,12 +6140,13 @@ async function renderGaps() {
           ${lastImport?.file ? ` · ${esc(lastImport.file)}` : ""}</div></div>
 
       <h2>Checks</h2>
-      <div class="card"><table><tr><th>Check</th><th>Status</th><th>Value</th></tr>
-        ${checks.map(([name, state, value]) => `<tr><td>${name}</td><td>${pill(state)}</td>
-          <td class="muted">${value}</td></tr>`).join("")}</table></div>
+      <div class="card"><table data-table="health-checks"><tr><th>Check</th><th>Status</th><th>Value</th></tr>
+        ${checks.map(([name, state, value]) => `<tr><td data-label="Check">${name}</td>
+          <td data-label="Status">${pill(state)}</td>
+          <td class="muted" data-label="Value">${value}</td></tr>`).join("")}</table></div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;
-        margin:26px 0 10px">
+        flex-wrap:wrap;margin:26px 0 10px">
         <h2 style="margin:0">Statements</h2>
         <button class="btn" title="Recompute every account's review items from the rows already held"
           onclick="bpRecheckAll(this)">Re-check all accounts</button></div>
@@ -6139,9 +6158,9 @@ async function renderGaps() {
       <h2>Sheets</h2>
       <div class="card"><table data-table="health-sheets"><tr><th>Sheet</th><th>Status</th>
         <th>Asset</th><th class="n">Rows</th></tr>
-        ${sheetMap.length ? sheetMap.map((x) => `<tr><td>${x.sheet_index + 1}. ${esc(x.sheet)}</td>
-          <td>${esc(x.status)}</td><td>${esc(x.asset || "—")}</td>
-          <td class="n">${x.rows || 0}</td></tr>`).join("")
+        ${sheetMap.length ? sheetMap.map((x) => `<tr><td data-label="Sheet">${x.sheet_index + 1}. ${esc(x.sheet)}</td>
+          <td data-label="Status">${esc(x.status)}</td><td data-label="Asset">${esc(x.asset || "—")}</td>
+          <td class="n" data-label="Rows">${x.rows || 0}</td></tr>`).join("")
           : `<tr><td colspan="4" class="muted">Re-import once to record which asset each sheet went to.</td></tr>`}
       </table></div>
 
@@ -6151,12 +6170,12 @@ async function renderGaps() {
         ${registerRows || `<tr><td colspan="5" class="muted">No register assets.</td></tr>`}</table></div>
 
       <h2>Bond ratings that moved</h2>
-      ${ratingDrift.length ? `<div class="card"><table><tr><th>Bond</th><th>Rating</th></tr>
+      ${ratingDrift.length ? `<div class="card"><table data-table="health-bond-ratings"><tr><th>Bond</th><th>Rating</th></tr>
         ${ratingDrift.map(({ asset, h, change }) => `<tr>
-          <td><div>${esc(h.label || h.security_id || "—")}</div>
+          <td data-label="Bond"><div>${esc(h.label || h.security_id || "—")}</div>
             <div class="muted" style="font-size:11.5px">${esc(asset.label || "")}
               ${h.security_id ? ` · ${esc(h.security_id)}` : ""}</div></td>
-          <td><span class="pill ${change.down ? "bad" : "ok"}">${change.down ? "downgraded" : "upgraded"}</span>
+          <td data-label="Rating"><span class="pill ${change.down ? "bad" : "ok"}">${change.down ? "downgraded" : "upgraded"}</span>
             <b>${esc(change.from)} → ${esc(change.to)}</b></td></tr>`).join("")}
       </table></div>` : `<div class="card pad muted" style="font-size:13px">No bond rating has
         moved since it was recorded.</div>`}
