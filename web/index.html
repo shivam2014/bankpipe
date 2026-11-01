@@ -832,7 +832,8 @@ function nav() {
     `<button data-v="${k}" onclick="go('${k}')">${short[k] || k}</button>`).join("");
   requestAnimationFrame(() => window.bpNavArrows && window.bpNavArrows());
 }
-import { parseStatement, chronological, auditStatement, rowsFromCsv, mapHeader, findHeader, parseDate, parseMoney, scanPreamble, guessAccount, sameAccountNumber } from "./parse.js";
+import { parseStatement, chronological, auditStatement, rowsFromCsv, scanPreamble, guessAccount, parseMoney } from "./parse.js";
+import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
 import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, allocationGroups, importFillPlan } from "./assets.js";
 import { buildFdGroups, fdHistoryValue, fdMatured, orderAccountsByFdTotal } from "./fd-view.js";
@@ -908,18 +909,16 @@ const GUIDES = {
     CSV here. The same file is your ongoing bond snapshot; the workbook is only the initial
     history.</div>
     <div class="danger"><b>Never enter your broker password, TOTP, or PIN here.</b> The export is enough. The app does not need a login.</div>`,
-  bank: `<h3>Bank statement — CSV, XLSX or PDF</h3>
-    <p>Use the bank’s own export. CSV or XLSX is best; a text-layer PDF is read here in the browser.</p>
-    <ol>
-      <li>Open net banking → <b>Accounts</b> → <b>Statement</b>.</li>
-      <li>Choose the period, then <b>Download CSV / XLSX</b>, or save the text-layer PDF.</li>
-      <li>Keep the original file. Do not screenshot or retype it.</li>
-      <li>Upload it here. The app checks <code>opening + credits − debits = closing</code>, duplicate rows and balance continuity.</li>
-    </ol>
-    <div class="note">If the bank locked the file with a password, choose it anyway. The app asks
-    for that password, opens the file on this device, and does not save the password.</div>
-    <div class="note">A PDF is read from its text layer, one account block at a time. A scanned
-    or photographed statement has no text layer and is refused; this build has no OCR.</div>`,
+  bank: `<p>Use the bank’s own export — CSV, XLSX or a text-layer PDF — and check the account each file will go to before anything is saved.</p>
+    <details>
+      <summary style="cursor:pointer;font-size:12.5px">Where to download it</summary>
+      <ol>
+        <li>Open net banking → <b>Accounts</b> → <b>Statement</b>.</li>
+        <li>Choose the period, then <b>Download CSV / XLSX</b>, or save the text-layer PDF.</li>
+        <li>Keep the original file. Do not screenshot or retype it.</li>
+        <li>Download one file per account, then add them all below.</li>
+      </ol>
+    </details>`,
   safety: `<h3>Before you upload</h3>
     <ul>
       <li><b>The file stays in this browser.</b> Nothing is uploaded to a server.</li>
@@ -933,15 +932,14 @@ const GUIDES = {
 
 function uploadPanel(mode) {
   if (mode === "bank") {
-    // The guide above already explains the file; this is only the control.
     return `<div style="margin-top:12px">
       <label class="dropzone">
-        <span class="dz-title">Choose a statement file</span>
-        <span class="dz-sub">CSV, XLSX or PDF — locked files are fine</span>
-        <input type="file" id="f" accept=".csv,.xlsx,.xlsm,.xls,.pdf" style="display:none">
+        <span class="dz-title">Choose statement files</span>
+        <span class="dz-sub">CSV, XLSX or PDF — several at once is fine</span>
+        <input type="file" id="f" accept=".csv,.xlsx,.xlsm,.xls,.pdf" multiple style="display:none">
       </label>
-      <div id="acctwrap" style="margin-top:10px"></div>
-      <div id="res" style="margin-top:10px"></div>
+      <div id="bp-batch-queue" style="margin-top:12px"></div>
+      <div id="bp-unlock-host"></div>
     </div>`;
   }
   if (mode === "cas") {
@@ -999,194 +997,403 @@ async function bpBankKnownAccounts() {
   return accounts;
 }
 
-async function bpBankReadFile(name, bytes, meta) {
-  if (/\.pdf$/i.test(name)) return bpBankReadPdf(name, bytes, meta);
+// --- multi-file statement queue -------------------------------------------
+// Every file is read and its account is detected before anything is written.
+// One file maps to one account: a CSV/XLSX carries one preamble, and a PDF is
+// accepted only when exactly one account block has transactions. The rows are
+// imported one file at a time in queue order, through the same store.importRows
+// the single-file flow used, so its dedupe applies between files too.
+
+const BP_BATCH_BANKS = [
+  ["punjab national", "PNB"], ["pnb", "PNB"], ["hdfc", "HDFC"],
+  ["icici", "ICICI"], ["state bank", "SBI"], ["sbi", "SBI"],
+  ["axis", "Axis"], ["kotak", "Kotak"], ["baroda", "Bank of Baroda"],
+  ["standard chartered", "Standard Chartered"], ["yes bank", "Yes Bank"],
+  ["idfc", "IDFC First"], ["indusind", "IndusInd"],
+];
+
+function bpBatchBankOf(text) {
+  const hay = String(text || "").toLowerCase();
+  const hit = BP_BATCH_BANKS.find(([word]) => hay.includes(word));
+  return hit ? hit[1] : "";
+}
+
+function bpBatchDigits(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function bpBatchLast4(entry) {
+  return bpBatchDigits(entry.number).slice(-4);
+}
+
+// The name offered for a new account. It is only a suggestion: the user can
+// change it in the row before the import creates anything.
+function bpBatchSuggestedName(entry) {
+  const bank = entry.bank || "";
+  const last4 = bpBatchLast4(entry);
+  if (bank && last4) return `${bank} ${last4}`;
+  if (bank) return bank;
+  if (last4) return `Bank account ${last4}`;
+  return String(entry.name || "Statement").replace(/\.[^.]+$/, "");
+}
+
+function bpBatchCreateName(entry) {
+  const bank = entry.bank || "";
+  const last4 = bpBatchLast4(entry);
+  if (bank && last4) return `${bank} …${last4}`;
+  if (bank) return bank;
+  if (last4) return `Account …${last4}`;
+  return String(entry.name || "account").replace(/\.[^.]+$/, "");
+}
+
+function bpBatchState() {
+  if (!window.bpBatch || !Array.isArray(window.bpBatch.entries)) {
+    window.bpBatch = { entries: [], nextId: 1, accounts: [], busy: false,
+      preparing: false, prepareAgain: false };
+  }
+  return window.bpBatch;
+}
+
+function bpBatchClearUnlock() {
+  const host = document.getElementById("bp-unlock-host");
+  if (host) host.innerHTML = "";
+}
+
+function bpBatchDetected(entry) {
+  const why = entry.guess?.why || "";
+  const method = /account number/i.test(why) ? "account number"
+    : /last four/i.test(why) ? "last four"
+    : /bank name/i.test(why) ? "bank name"
+    : "not found";
+  return { method, number: entry.number || "", last4: bpBatchLast4(entry),
+    bank: entry.bank || "" };
+}
+
+function bpBatchDetectedHtml(entry) {
+  if (!entry.parsed && entry.status !== "done") return `<span class="muted">—</span>`;
+  const detected = bpBatchDetected(entry);
+  if (detected.method === "not found") {
+    return `<span>not found</span>${detected.number
+      ? `<div class="muted" style="font-size:11.5px">${esc(detected.number)}</div>` : ""}`;
+  }
+  const detail = detected.method === "account number" ? detected.number
+    : detected.method === "last four" ? (detected.last4 ? `…${detected.last4}` : detected.number)
+    : detected.bank || detected.number;
+  return `<b>${esc(detected.method)}</b><div class="muted" style="font-size:11.5px">${esc(detail || "—")}${
+    detected.bank && detected.method !== "bank name" ? ` · ${esc(detected.bank)}` : ""}</div>`;
+}
+
+function bpBatchFileNote(entry) {
+  if (entry.duplicateOf) return "Same bytes as the earlier file; it is skipped by default.";
+  if (entry.status === "locked") return "Locked by the bank. Unlock it to read the rows.";
+  if (entry.pdf && entry.status !== "error") return entry.pdf.line || "";
+  return "";
+}
+
+function bpBatchStatusHtml(entry) {
+  if (entry.duplicateOf) {
+    return `<span class="pill">Same file as #${entry.duplicateOf}</span>`;
+  }
+  if (entry.status === "queued" || entry.status === "preparing") {
+    return `<span class="muted" style="font-size:12px">Reading…</span>`;
+  }
+  if (entry.status === "locked") {
+    return `<span class="pill warn">Password needed</span>
+      <div style="margin-top:6px"><button class="btn" style="padding:3px 9px;font-size:12px"
+        onclick="bpBatchUnlock(${entry.id})">Unlock</button></div>`;
+  }
+  if (entry.status === "needs-account") {
+    return `<span class="pill warn">Needs an account</span>`;
+  }
+  if (entry.status === "ready") return `<span class="pill ok">Ready</span>`;
+  if (entry.status === "importing") return `<span class="pill warn">Importing…</span>`;
+  if (entry.status === "done") {
+    const result = entry.result || {};
+    const counts = `${result.inserted || 0} new · ${result.duplicates || 0} already held · ${result.breaks || 0} breaks`;
+    const extra = [
+      result.corrected ? `${result.corrected} corrected` : "",
+      result.browserOnly ? `browser only${result.dbError ? ` (${result.dbError})` : ""}` : "",
+      result.closing && !result.closing.matches ? "closing balance differs" : "",
+    ].filter(Boolean).join(" · ");
+    return `<span class="pill ok">Imported</span>
+      <div class="muted" style="font-size:11.5px;margin-top:3px">${esc(counts)}</div>
+      ${extra ? `<div class="muted" style="font-size:11px;margin-top:2px">${esc(extra)}</div>` : ""}`;
+  }
+  return `<span class="pill bad">Error</span>
+    <div class="muted" style="font-size:11.5px;margin-top:3px;color:var(--red)">${
+      esc(entry.message || "This file could not be read.")}</div>`;
+}
+
+function bpBatchAccountOptions(entry, accounts) {
+  const options = accounts.map((account) => {
+    const label = accountLabel({ accountId: account.id }, accounts)
+      || account.label || account.bank || account.id;
+    return `<option value="${esc(account.id)}" ${
+      account.id === entry.accountId ? "selected" : ""}>${esc(label)}</option>`;
+  }).join("");
+  const chooser = `<option value="" ${
+    entry.accountId ? "" : "selected"}>Choose an account…</option>`;
+  const create = `<option value="__new__" ${
+    entry.accountId === "__new__" ? "selected" : ""}>${
+    esc(`Create “${bpBatchCreateName(entry)}”`)}</option>`;
+  return chooser + options + create;
+}
+
+function bpBatchRowHtml(entry, accounts) {
+  const editable = ["ready", "needs-account"].includes(entry.status);
+  const doneLabel = entry.status === "done"
+    ? (accountLabel(entry, accounts) || entry.accountId || "") : "";
+  let destination = `<span class="muted">—</span>`;
+  if (editable) {
+    destination = `<select class="mini-select" style="width:100%"
+        onchange="bpBatchSetAccount(${entry.id}, this.value)">
+        ${bpBatchAccountOptions(entry, accounts)}</select>`;
+    if (entry.accountId === "__new__") {
+      destination += `<input class="mini-select" style="width:100%;margin-top:6px"
+        value="${esc(entry.createName || bpBatchSuggestedName(entry))}"
+        placeholder="Name for the new account" aria-label="Name for the new account"
+        oninput="bpBatchSetName(${entry.id}, this.value)">`;
+    }
+  } else if (doneLabel) {
+    destination = `<b>${esc(doneLabel)}</b>`;
+  }
+  const note = bpBatchFileNote(entry);
+  const busy = bpBatchState().busy ? " disabled" : "";
+  return `<tr>
+    <td><b>${esc(entry.name)}</b>${note
+      ? `<div class="muted" style="font-size:11.5px;margin-top:3px">${esc(note)}</div>` : ""}</td>
+    <td>${destination}</td>
+    <td>${bpBatchDetectedHtml(entry)}</td>
+    <td class="n">${entry.parsed ? entry.count : "—"}</td>
+    <td>${bpBatchStatusHtml(entry)}</td>
+    <td style="white-space:nowrap"><button class="btn" style="padding:3px 9px;font-size:12px"${busy}
+      onclick="bpBatchRemove(${entry.id})">Remove</button></td>
+  </tr>`;
+}
+
+function bpBatchRender() {
+  const host = document.getElementById("bp-batch-queue");
+  if (!host) return;
+  const state = bpBatchState();
+  if (!state.entries.length) { host.innerHTML = ""; return; }
+  const ready = state.entries.filter((entry) =>
+    entry.status === "ready" && !entry.duplicateOf).length;
+  host.innerHTML = `<div style="overflow-x:auto">
+    <table style="width:100%;min-width:760px" data-table="bank-batch">
+      <tr><th>File</th><th>Destination</th><th>Detected</th><th class="n">Rows</th>
+        <th>Status</th><th></th></tr>
+      ${state.entries.map((entry) => bpBatchRowHtml(entry, state.accounts || [])).join("")}
+    </table></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn" id="bp-batch-import" onclick="bpBatchImport()"${
+        ready && !state.busy ? "" : " disabled"}>Import ready files</button>
+      <button class="btn" onclick="bpBatchClear()"${state.busy ? " disabled" : ""}>Clear queue</button>
+    </div>`;
+}
+
+async function bpBatchAddFiles(files) {
+  const state = bpBatchState();
+  for (const file of files) {
+    try {
+      const buf = await file.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      const ext = (file.name.match(/\.([^.]+)$/) || [, ""])[1].toLowerCase();
+      const sha256 = await sha256Hex(buf);
+      state.entries.push({
+        id: state.nextId++, name: file.name, bytes,
+        meta: { ext, bytes: buf.byteLength, sha256 }, sha256,
+        status: "queued", message: "", accountId: "", createName: "",
+        count: 0, number: "", bank: "", parsed: null, pre: null, pdf: null,
+        result: null,
+      });
+    } catch (e) {
+      state.entries.push({
+        id: state.nextId++, name: file.name, bytes: null,
+        meta: { ext: "", bytes: 0, sha256: "" }, sha256: "",
+        status: "error", message: `This file could not be read: ${String((e && e.message) || e)}`,
+        accountId: "", createName: "", count: 0, number: "", bank: "",
+        parsed: null, pre: null, pdf: null, result: null,
+      });
+    }
+  }
+  duplicateFile(state.entries);
+  bpBatchRender();
+  await bpBatchPrepareQueued();
+}
+
+async function bpBatchPrepareQueued() {
+  const state = bpBatchState();
+  if (state.preparing) { state.prepareAgain = true; return; }
+  state.preparing = true;
+  try {
+    state.accounts = await bpBankKnownAccounts();
+    for (;;) {
+      const next = state.entries.find((entry) =>
+        entry.status === "queued" && !entry.duplicateOf);
+      if (!next) break;
+      await bpBatchPrepare(next);
+    }
+  } finally {
+    state.preparing = false;
+    bpBatchRender();
+    if (state.prepareAgain) {
+      state.prepareAgain = false;
+      bpBatchPrepareQueued();
+    }
+  }
+}
+
+async function bpBatchPrepare(entry) {
+  entry.status = "preparing";
+  entry.message = "";
+  entry.result = null;
+  bpBatchRender();
+  try {
+    const { isEncryptedOffice } = await import("./office-crypto.js");
+    if (isEncryptedOffice(entry.bytes)) {
+      entry.status = "locked";
+      entry.message = "Locked by the bank. Unlock it to read the rows.";
+      return;
+    }
+    if (/\.pdf$/i.test(entry.name)) {
+      await bpBatchPreparePdf(entry);
+      return;
+    }
+    bpBatchPrepareSheet(entry);
+  } catch (e) {
+    if (e && (e.cancelled || e.wrong)) {
+      entry.status = "locked";
+      entry.message = e.wrong
+        ? "That password did not open this PDF. Unlock to try again."
+        : "Password needed.";
+    } else {
+      entry.status = "error";
+      entry.message = String((e && e.message) || e).slice(0, 180);
+    }
+  } finally {
+    bpBatchRender();
+  }
+}
+
+function bpBatchPrepareSheet(entry) {
   let rows;
-  if (/\.(xlsx|xlsm|xls)$/i.test(name)) {
-    const wb = XLSX.read(bytes, { type: "array" });
+  if (/\.(xlsx|xlsm|xls)$/i.test(entry.name)) {
+    const wb = XLSX.read(entry.bytes, { type: "array" });
     rows = sheetRows(wb.Sheets[wb.SheetNames[0]]);
   } else {
-    rows = rowsFromCsv(new TextDecoder().decode(bytes));
+    rows = rowsFromCsv(new TextDecoder().decode(entry.bytes));
   }
   const parsed = parseStatement(rows);
-  const res = document.getElementById("res");
+  entry.rows = rows;
   if (parsed.error) {
-    res.innerHTML = `<span class="pill bad">${parsed.error}</span>`
-      + diagnosticsBlock(buildReport(meta, [sheetReport("statement", rows, parsed)]));
+    entry.status = "error";
+    entry.message = parsed.error;
     return;
   }
-  const pre = scanPreamble(rows, Math.max(0, (parsed.header || 1) - 1));
-  const accounts = await bpBankKnownAccounts();
-  const dated = parsed.rows.filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date)
-    && r.amount !== null);
-  const audit = auditStatement(rows, parsed);
-  // The file may be newest-first or oldest-first; the range is min to max.
-  const dates = dated.map((r) => r.date).sort();
-  window.bpBankPending = { fileName: name, meta, rows, parsed, pre,
-    guess: guessAccount(pre, accounts), accounts, count: dated.length,
-    first: dates[0] || "", last: dates[dates.length - 1] || "",
-    order: parsed.order, audit, forcePick: false };
-  window.bpBankShowPreview();
+  entry.parsed = parsed;
+  entry.pre = scanPreamble(rows, Math.max(0, (parsed.header || 1) - 1));
+  const dated = parsed.rows.filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.date)
+    && row.amount !== null);
+  const dates = dated.map((row) => row.date).sort();
+  bpBatchFinishDetect(entry, {
+    number: entry.pre.accountNumber,
+    bank: bpBatchBankOf(entry.pre.text),
+    closing: auditStatement(rows, parsed).closing,
+    count: dated.length,
+    first: dates[0] || "",
+    last: dates[dates.length - 1] || "",
+  });
 }
 
-// A PDF is read from its text layer. pdf.js asks for a password through
-// bpPdfPasswordPrompt, which reuses the unlock card below and returns the typed
-// value to the reader; the reader retries once after a wrong password.
-async function bpBankReadPdf(name, bytes, meta) {
-  const res = document.getElementById("res");
-  window.bpBankPending = null;
-  window.bpBankPdfPending = null;
-  if (res) res.innerHTML = `<div class="muted" style="font-size:13px">Reading the PDF text layer…</div>`;
-  let extracted, statement;
-  try {
-    const { extractPdf, pdfToStatement } = await import("./pdf-statement.js");
-    extracted = await extractPdf(bytes, {
-      onPassword: (attempt) => bpPdfPasswordPrompt(name, meta, attempt),
-    });
-    statement = pdfToStatement(extracted.pages);
-  } catch (e) {
-    if (e && e.cancelled) { if (res) res.innerHTML = ""; return; }
-    if (res) res.innerHTML = `<div class="card pad" style="border-color:var(--amber)">
-      <b>This PDF could not be opened</b>
-      <p class="muted" style="font-size:13px;margin:6px 0 0">${esc(String((e && e.message) || e))}</p>
-      <div style="margin-top:10px"><button class="btn" onclick="bpPickAnotherFile()">Choose the file again</button></div>
-    </div>`;
-    return;
-  }
-  const pages = extracted.numPages;
-  const blocks = statement.blockCount;
-  const line = `PDF text layer · ${pages} page${pages === 1 ? "" : "s"} · ${blocks} account block${blocks === 1 ? "" : "s"}`;
-  if (statement.scanned) {
-    if (res) res.innerHTML = `<div class="card pad" style="border-color:var(--amber)">
-      <b>This PDF has no text layer</b>
-      <p class="muted" style="font-size:13px;margin:6px 0 0">It looks scanned or photographed.
-      BankPipe cannot read it without OCR, and it never uploads the file.</p>
-      <div class="muted" style="font-size:12px;margin-top:8px">${esc(line)}</div>
-      <div style="margin-top:10px"><button class="btn" onclick="bpPickAnotherFile()">Choose another file</button></div>
-    </div>`;
-    return;
-  }
-  const accounts = await bpBankKnownAccounts();
-  const usable = statement.accounts || [];
-  if (!usable.length) {
-    const warning = statement.warnings.length ? statement.warnings[0] : "No transactions were found.";
-    if (res) res.innerHTML = `<div class="card pad" style="border-color:var(--amber)">
-      <b>No transactions found in this PDF</b>
-      <p class="muted" style="font-size:13px;margin:6px 0 0">${esc(warning)}</p>
-      <div class="muted" style="font-size:12px;margin-top:8px">${esc(line)}</div>
-      <div style="margin-top:10px"><button class="btn" onclick="bpPickAnotherFile()">Choose another file</button></div>
-    </div>`;
-    return;
-  }
-  window.bpBankPdfPending = { fileName: name, meta, extracted, statement, blocks: usable,
-    accounts, line };
-  if (usable.length === 1) {
-    window.bpBankPdfUseBlock(usable[0]);
-    return;
-  }
-  window.bpBankShowBlockPicker();
-}
-
-window.bpPickAnotherFile = () => {
-  window.bpLockedFile = null;
-  const f = document.getElementById("f");
-  if (f) { f.value = ""; f.click(); }
-};
-
-window.bpBankShowBlockPicker = () => {
-  const pdf = window.bpBankPdfPending;
-  const res = document.getElementById("res");
-  if (!pdf || !res) return;
-  const wrap = document.getElementById("acctwrap"); if (wrap) wrap.innerHTML = "";
-  const target = pdf.accounts.find((account) => account.id === window.bpImportTarget);
-  const matchedTarget = target
-    ? pdf.blocks.findIndex((block) => sameAccountNumber(block.number, target.number))
-    : -1;
-  const selected = matchedTarget >= 0 ? matchedTarget
-    : pdf.blocks.findIndex((block) => pdf.accounts.some((account) => sameAccountNumber(block.number, account.number)));
-  const preselect = selected >= 0 ? selected : 0;
-  const skipped = Math.max(0, pdf.statement.blockCount - pdf.blocks.length);
-  res.innerHTML = `<div style="border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--hair)">
-    <b>${pdf.blocks.length} account block${pdf.blocks.length === 1 ? "" : "s"} with transactions</b>
-    <div class="muted" style="font-size:12px;margin-top:4px">${esc(pdf.line)}</div>
-    <div class="muted" style="font-size:12.5px;margin-top:8px">Choose the block to import. Nothing is
-    written until you press Import.</div>
-    <div style="display:flex;flex-direction:column;gap:7px;margin-top:10px">
-      ${pdf.blocks.map((block, i) => `<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px">
-        <input type="radio" name="bp-pdf-block" value="${i}" ${i === preselect ? "checked" : ""}>
-        <span><b>${esc(block.number || "no number")}</b> · ${block.rows.length} transaction${block.rows.length === 1 ? "" : "s"}${
-          block.opening !== null || block.closing !== null
-            ? ` · ${block.opening !== null ? "opening balance" : ""}${block.opening !== null && block.closing !== null ? " and " : ""}${block.closing !== null ? "closing balance" : ""}`
-            : ""}</span></label>`).join("")}
-    </div>
-    ${skipped ? `<div class="muted" style="font-size:11.5px;margin-top:8px">${skipped}
-      block${skipped === 1 ? "" : "s"} with no transactions ${skipped === 1 ? "was" : "were"} skipped.</div>` : ""}
-    ${pdf.statement.warnings.length ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${pdf.statement.warnings.map(esc).join(" ")}</div>` : ""}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-      <button class="btn" onclick="bpBankPdfUseSelected()">Use this block</button>
-      <button class="btn" onclick="bpBankImportCancel()">Cancel</button>
-    </div>
-  </div>`;
-};
-
-window.bpBankPdfUseSelected = () => {
-  const pdf = window.bpBankPdfPending; if (!pdf) return;
-  const input = document.querySelector('input[name="bp-pdf-block"]:checked');
-  const index = input ? Number(input.value) : 0;
-  const block = pdf.blocks[index] || pdf.blocks[0];
-  if (block) window.bpBankPdfUseBlock(block);
-};
-
-window.bpBankPdfUseBlock = (block) => {
-  const pdf = window.bpBankPdfPending; if (!pdf || !block) return;
-  const parsed = { rows: block.rows, header: 1, order: block.order || "desc", mapping: [] };
-  const audit = auditStatement([], parsed);
-  const chrono = chronological(parsed);
-  const latest = chrono[chrono.length - 1] || null;
-  audit.closing = block.closing ?? null;
-  audit.rows = chrono.filter((row) => row.date && row.amount !== null && row.balance !== null).length;
-  audit.latestBalance = latest ? latest.balance : null;
-  audit.closingMatches = audit.closing !== null && audit.latestBalance !== null
-    && Math.abs(audit.closing - audit.latestBalance) <= 1;
-  const dates = block.rows.map((row) => row.date).filter(Boolean).sort();
-  const pre = { accountNumber: block.number || "", numbers: [block.number].filter(Boolean),
-    ifsc: "", text: "" };
-  window.bpBankPending = {
-    fileName: pdf.fileName, meta: pdf.meta, rows: [], parsed, pre,
-    guess: guessAccount(pre, pdf.accounts), accounts: pdf.accounts,
-    count: block.rows.length, first: dates[0] || "", last: dates[dates.length - 1] || "",
-    order: block.order || "desc", audit, forcePick: false,
-    pdf: {
-      pages: pdf.extracted.numPages,
-      blocks: pdf.statement.blockCount,
-      usable: pdf.blocks.length,
-      layout: block.layout,
-      warnings: pdf.statement.warnings,
-      line: pdf.line,
-    },
+async function bpBatchPreparePdf(entry) {
+  const { extractPdf, pdfToStatement } = await import("./pdf-statement.js");
+  const extracted = await extractPdf(entry.bytes, {
+    onPassword: (attempt) => bpPdfPasswordPrompt(entry, attempt),
+  });
+  const statement = pdfToStatement(extracted.pages);
+  const pages = extracted.numPages || 0;
+  const blocks = statement.blockCount || 0;
+  entry.pdf = {
+    pages, blocks, warnings: statement.warnings || [], layout: "",
+    line: `PDF text layer · ${pages} page${pages === 1 ? "" : "s"} · ${blocks} account block${blocks === 1 ? "" : "s"}`,
   };
-  window.bpBankShowPreview();
-};
+  if (statement.scanned) {
+    entry.status = "error";
+    entry.message = "This PDF looks scanned or photographed. It has no text layer, and BankPipe has no OCR; the file was not read.";
+    return;
+  }
+  const choice = choosePdfBlock(statement.accounts || []);
+  if (choice.error) {
+    entry.status = "error";
+    entry.message = choice.error;
+    return;
+  }
+  const block = choice.block;
+  const dates = block.rows.map((row) => row.date).filter(Boolean).sort();
+  const pre = { accountNumber: block.number || "",
+    numbers: [block.number].filter(Boolean), ifsc: "", text: "" };
+  const pageText = (extracted.pages || [])
+    .map((page) => (page.items || []).map((item) => item.str).join(" ")).join(" ");
+  entry.pdf.layout = block.layout || "";
+  entry.parsed = { rows: block.rows, header: 1, order: block.order || "desc",
+    mapping: [] };
+  entry.pre = pre;
+  bpBatchFinishDetect(entry, {
+    number: block.number || "",
+    bank: bpBatchBankOf(`${block.name || ""} ${pageText}`),
+    closing: block.closing ?? null,
+    count: block.rows.length,
+    first: dates[0] || "",
+    last: dates[dates.length - 1] || "",
+  });
+}
 
+function bpBatchFinishDetect(entry, info) {
+  entry.number = info.number || "";
+  entry.bank = info.bank || "";
+  entry.count = info.count || 0;
+  entry.first = info.first || "";
+  entry.last = info.last || "";
+  entry.closing = info.closing === undefined ? null : info.closing;
+  const state = bpBatchState();
+  const accounts = state.accounts || [];
+  entry.guess = guessAccount(entry.pre || { numbers: [], text: "" }, accounts);
+  if (!entry.accountId) {
+    const matched = entry.guess
+      ? accounts.find((account) => account.id === entry.guess.id) : null;
+    const target = window.bpImportTarget
+      ? accounts.find((account) => account.id === window.bpImportTarget) : null;
+    entry.accountId = matched ? matched.id : target ? target.id : "";
+    entry.createName = bpBatchSuggestedName(entry);
+  }
+  if (entry.accountId && entry.accountId !== "__new__"
+      && !accounts.some((account) => account.id === entry.accountId)) {
+    entry.accountId = "";
+  }
+  entry.status = entry.accountId ? "ready" : "needs-account";
+}
 
 // Banks often lock the workbook or PDF with a password (PAN, date of birth,
 // customer id). Ask for it here, open the file on this device, and never store
 // it. For a PDF the answer is handed back to pdf.js as a promise; the input is
 // cleared before the value leaves this function.
-function bpPdfPasswordPrompt(name, meta, attempt) {
+function bpPdfPasswordPrompt(entry, attempt) {
   return new Promise((resolve, reject) => {
-    window.bpLockedFile = { kind: "pdf", name, meta, resolve, reject,
+    window.bpLockedFile = { kind: "pdf", entry, name: entry.name, resolve, reject,
       wrong: Boolean(attempt && attempt.wrong) };
+    entry.status = "locked";
+    entry.message = "Password needed.";
+    bpBatchRender();
     bpShowUnlock();
   });
 }
 
 function bpShowUnlock() {
   const locked = window.bpLockedFile;
-  const res = document.getElementById("res");
-  if (!locked || !res) return;
+  const host = document.getElementById("bp-unlock-host") || document.getElementById("res");
+  if (!locked || !host) return;
   const pdf = locked.kind === "pdf";
-  res.innerHTML = `<div class="card pad" style="border-color:var(--amber)">
+  host.innerHTML = `<div class="card pad" style="border-color:var(--amber);margin-top:12px">
     <b>This file is locked</b>
     <p class="muted" style="font-size:13px;margin:6px 0 0">
       ${esc(locked.name)} was protected by the bank with a password. Type that password to open it.
@@ -1211,6 +1418,12 @@ function bpShowUnlock() {
   if (input) { input.focus(); if (locked.wrong) input.select(); }
 }
 
+async function bpBatchPrepareBytes(entry, bytes) {
+  entry.bytes = bytes;
+  entry.meta = { ...(entry.meta || {}), bytes: bytes.byteLength };
+  await bpBatchPrepare(entry);
+}
+
 window.bpUnlockFile = async () => {
   const locked = window.bpLockedFile;
   if (!locked) return;
@@ -1228,6 +1441,7 @@ window.bpUnlockFile = async () => {
     const resolve = locked.resolve;
     window.bpLockedFile = null;
     if (input) input.value = "";
+    bpBatchClearUnlock();
     if (resolve) resolve(password);
     return;
   }
@@ -1236,9 +1450,10 @@ window.bpUnlockFile = async () => {
   try {
     const { decryptOffice } = await import("./office-crypto.js");
     const bytes = await decryptOffice(locked.bytes, password);
+    const entry = locked.entry;
     window.bpLockedFile = null;
-    const f = document.getElementById("f"); if (f) f.value = "";
-    await bpBankReadFile(locked.name, bytes, locked.meta);
+    bpBatchClearUnlock();
+    if (entry) await bpBatchPrepareBytes(entry, bytes);
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = "Unlock"; }
     const wrong = /wrong password/i.test(String(e && e.message));
@@ -1256,373 +1471,157 @@ window.bpUnlockFile = async () => {
 window.bpUnlockCancel = () => {
   const locked = window.bpLockedFile;
   window.bpLockedFile = null;
+  bpBatchClearUnlock();
   if (locked && locked.reject) locked.reject(new Error("cancelled"));
-  const f = document.getElementById("f"); if (f) f.value = "";
-  const res = document.getElementById("res"); if (res) res.innerHTML = "";
+  bpBatchRender();
 };
 
 function wireBankUpload() {
-  const f = document.getElementById("f"); if (!f) return;
-  f.onchange = async () => {
-    const file = f.files[0]; if (!file) return;
-    const buf = await file.arrayBuffer();
-    const ext = (file.name.match(/\.([^.]+)$/) || [, ""])[1].toLowerCase();
-    const meta = { ext, bytes: buf.byteLength, sha256: await sha256Hex(buf) };
-    const bytes = new Uint8Array(buf);
-    const { isEncryptedOffice } = await import("./office-crypto.js");
-    if (isEncryptedOffice(bytes)) {
-      window.bpLockedFile = { name: file.name, bytes, meta };
-      bpShowUnlock();
-      return;
-    }
-    await bpBankReadFile(file.name, bytes, meta);
-  };
-  const targetId = window.bpImportTarget || "";
-  const slot = document.getElementById("import-target");
-  if (targetId && slot) {
-    (async () => {
-      try {
-        const store = await import("./db.js");
-        const acc = (await store.listAccounts()).find((a) => a.id === targetId);
-        if (!acc || !slot.isConnected) return;
-        slot.innerHTML = `<div class="muted" style="font-size:12.5px;margin-top:10px">Importing into
-          <b>${esc(acc.label || acc.id)}</b> · ${esc(acc.number || "no number")}
-          <button class="btn" style="padding:2px 8px;font-size:11px;margin-left:4px"
-            onclick="bpImportClearTarget()">Change</button></div>`;
-      } catch (e) {}
-    })();
+  const state = bpBatchState();
+  const f = document.getElementById("f");
+  if (f) {
+    f.onchange = async () => {
+      const files = [...(f.files || [])];
+      f.value = "";
+      if (files.length) await bpBatchAddFiles(files);
+    };
   }
+  bpBatchRender();
+  if (window.bpLockedFile) bpShowUnlock();
+  (async () => {
+    state.accounts = await bpBankKnownAccounts();
+    bpBatchRender();
+    await bpBatchPrepareQueued();
+  })();
 }
 window.bpImportClearTarget = () => { window.bpImportTarget = ""; go("import"); };
-window.bpBankUseAccount = (id) => { window.bpImportTarget = id; window.bpBankShowPreview(); };
-window.bpBankChoose = (id) => { window.bpBankAccount = id; window.bpBankShowPreview(); };
-window.bpBankPickApply = () => {
-  const sel = document.getElementById("bp-pick-account");
-  if (!sel || !sel.value) return;
-  window.bpImportTarget = sel.value;
-  window.bpBankShowPreview();
-};
-window.bpBankPickAnyway = () => {
-  if (window.bpBankPending) window.bpBankPending.forcePick = true;
-  window.bpBankShowPreview();
-};
 
-// The file on its own, before an account is known. Kept apart from the merged
-// check so the two never share a number that means something else.
-function bpBankFileCheckHtml(p) {
-  const audit = p.audit || { rows: 0, breaks: [] };
-  if (!audit.breaks.length) {
-    return `<div style="font-size:11.5px;margin-top:8px">✓ Running balance checks out across
-      ${audit.rows} rows${audit.closingMatches ? ", and the last row equals the closing balance printed in the file" : ""}.</div>`;
-  }
-  return `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${audit.breaks.length}
-    balance break${audit.breaks.length === 1 ? "" : "s"}. The bank's running balance does not
-    follow from the row above:</div>
-    <div class="muted" style="font-size:11.5px;margin-top:4px">${audit.breaks.slice(0, 3)
-      .map((b) => `${dateLabel(b.date)} · statement says ${money(b.actual)}, the previous row
-        plus this amount gives ${money(b.expected)}`).join("<br>")}
-      ${audit.breaks.length > 3 ? `<br>and ${audit.breaks.length - 3} more` : ""}</div>`;
-}
-
-// The merged check: held rows plus this file, in the order the ledger will
-// store them. These are the numbers importRows will report.
-function bpBankMergedCheckHtml(check) {
-  const byId = new Map((check.merged || []).map((r) => [r.id, r]));
-  const detail = (check.breakRows || []).slice(0, 2).map((b) => {
-    const date = b.date || byId.get(b.id)?.date || "";
-    return `${date ? `${dateLabel(date)} · ` : ""}statement says ${money(b.actual)},
-      the rows above give ${money(b.expected)}`;
-  }).join("<br>");
-  const breakBlock = check.breaks
-    ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${check.breaks}
-      balance break${check.breaks === 1 ? "" : "s"} after the merge. The bank's running balance
-      does not follow from the day above:</div>
-      <div class="muted" style="font-size:11.5px;margin-top:4px">${detail}${
-      check.breaks > 2 ? `<br>and ${check.breaks - 2} more` : ""}</div>`
-    : `<div style="font-size:11.5px;margin-top:8px">✓ Running balance checks out after the
-      merge across ${check.merged.length} rows.</div>`;
-  const noDateText = `${check.noDate} row${check.noDate === 1 ? "" : "s"} without a date`;
-  const orderText = `${check.outOfOrder} row${check.outOfOrder === 1 ? "" : "s"} out of printed order`;
-  const oddBlock = `<div style="font-size:11.5px;margin-top:6px${
-    check.noDate || check.outOfOrder ? ";color:var(--amber)" : ""}">${
-    check.noDate || check.outOfOrder ? "⚠ " : "✓ "}${noDateText} · ${orderText}</div>`;
-  const closing = check.closing;
-  const closingBlock = !closing ? "" : closing.matches
-    ? `<div class="muted" style="font-size:11.5px;margin-top:6px">✓ The merged ledger ends at
-      ${money(closing.printed)}, the same as the closing balance printed in the file.</div>`
-    : `<div style="font-size:11.5px;margin-top:6px;color:var(--amber)">⚠ The file prints a
-      closing balance of ${money(closing.printed)}; the merged ledger ends at
-      ${money(closing.actual)}.</div>`;
-  return breakBlock + oddBlock + closingBlock;
-}
-
-function bpBankFileOnlyCard(p) {
-  return `<div style="border:1px solid var(--line);border-radius:12px;padding:14px;
-      background:var(--hair);margin-top:12px">
-    <b>${p.count} transaction${p.count === 1 ? "" : "s"} in the file</b>
-    <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(p.fileName)}${
-      p.first ? ` · ${dateLabel(p.first)} to ${dateLabel(p.last)}` : ""}</div>
-    ${p.pdf ? `<div class="muted" style="font-size:12px;margin-top:2px">${esc(p.pdf.line)}</div>` : ""}
-    <div class="muted" style="font-size:12.5px;margin-top:8px">Choose the account to see the merged check.</div>
-    ${bpBankFileCheckHtml(p)}
-  </div>`;
-}
-
-function bpBankPreviewHtml(p, chosen, check) {
-  const correct = check ? (check.corrected || 0) : 0;
-  const todo = check ? check.inserted + correct : p.count;
-  const noun = check && !check.inserted && correct ? "correction" : "transaction";
-  return `<div style="border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--hair)">
-    <b>${p.count} transaction${p.count === 1 ? "" : "s"} in the file</b>
-    <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(p.fileName)}${
-      p.first ? ` · ${dateLabel(p.first)} to ${dateLabel(p.last)}` : ""}</div>
-    ${p.pdf ? `<div class="muted" style="font-size:12px;margin-top:2px">${esc(p.pdf.line)}${
-      p.pdf.layout ? ` · ${esc(p.pdf.layout)} layout` : ""}</div>` : ""}
-    ${check ? `<div class="muted" style="font-size:12.5px;margin-top:2px">
-      <b style="color:var(--ink)">${check.inserted} new</b> · ${check.duplicates} already in this account${
-      correct ? ` · ${correct} balance correction${correct === 1 ? "" : "s"}` : ""}${
-      todo ? "" : " — nothing to add"}</div>` : ""}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-      ${check && todo === 0
-        ? `<button class="btn" disabled title="Every row in this file is already in the account">Nothing to add</button>`
-        : `<button class="btn" onclick="bpBankImportApply()">Import ${todo} ${noun}${todo === 1 ? "" : "s"}
-          into ${esc(chosen.label || "this account")}</button>`}
-      ${p.pdf && p.pdf.usable > 1
-        ? `<button class="btn" onclick="bpBankShowBlockPicker()">Choose another block</button>` : ""}
-      <button class="btn" onclick="bpBankImportCancel()">Cancel</button>
-    </div>
-    <div class="muted" style="font-size:11.5px;margin-top:8px">Nothing is saved until you press
-    Import. Rows already held are skipped, so importing the same file twice is safe.</div>
-    <div class="muted" style="font-size:11.5px;margin-top:6px">${p.order === "desc"
-      ? "Rows are listed newest first; the app stores them oldest first, so the running balance reads in order."
-      : "Rows are listed oldest first and stored in that order, so the running balance reads in order."}</div>
-    ${check ? bpBankMergedCheckHtml(check) : bpBankFileCheckHtml(p)}
-    ${p.gapNote ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${p.gapNote}</div>` : ""}
-    ${p.pdf && p.pdf.warnings && p.pdf.warnings.length
-      ? `<div style="font-size:12px;margin-top:8px;color:var(--amber)">⚠ ${p.pdf.warnings.map(esc).join(" ")}</div>`
-      : ""}
-  </div>`;
-}
-
-window.bpBankShowPreview = async () => {
-  const p = window.bpBankPending;
-  if (!p) return;
-  const res = document.getElementById("res");
-  const wrap = document.getElementById("acctwrap");
-  if (!res || !wrap) return;
-  const digits = (x) => String(x || "").replace(/\D/g, "");
-  const fileNo = digits(p.pre.accountNumber);
-  const target = p.accounts.find((a) => a.id === window.bpImportTarget) || null;
-  const matched = p.guess ? p.accounts.find((a) => a.id === p.guess.id) || null : null;
-
-  // A statement for a different account than the one the user came from.
-  if (target && matched && matched.id !== target.id) {
-    wrap.innerHTML = "";
-    res.innerHTML = `<div style="border:1px solid var(--amber);border-radius:12px;padding:14px;
-        background:color-mix(in srgb,var(--amber) 7%,var(--card))">
-      <b style="color:var(--amber)">Those account numbers do not match</b>
-      <div class="muted" style="font-size:13px;margin-top:4px">This statement belongs to a
-        different account, so it has not been imported.</div>
-      <div class="kv" style="margin-top:10px">
-        <div class="kv-row"><div class="k">In the statement</div>
-          <div class="v">${esc(matched.label)}<br><b>${esc(matched.number || fileNo || "no number")}</b></div></div>
-        <div class="kv-row"><div class="k">You opened</div>
-          <div class="v">${esc(target.label)}<br><b>${esc(target.number || "no number")}</b></div></div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn" onclick="bpBankUseAccount(${jsArg(matched.id)})">Import into ${esc(matched.label)} instead</button>
-        <button class="btn" onclick="bpBankImportCancel()">Cancel</button>
-      </div></div>`;
+window.bpBatchUnlock = (id) => {
+  const entry = bpBatchState().entries.find((item) => item.id === id);
+  if (!entry) return;
+  if (/\.pdf$/i.test(entry.name)) {
+    if (!entry.bytes) return;
+    bpBatchPrepare(entry);
     return;
   }
-
-  // Nothing in the app matches the statement's account number.
-  if (!matched && !p.forcePick) {
-    wrap.innerHTML = "";
-    res.innerHTML = `<div style="border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--hair)">
-      <b>No account here matches this statement</b>
-      <div class="muted" style="font-size:13px;margin-top:4px">The statement is for account
-        <b>${esc(fileNo || "unknown")}</b>, and no bank asset has that number. Nothing has been
-        imported.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn" onclick="bpBankCreateAndImport()">Create a bank account for it</button>
-        <button class="btn" onclick="bpBankPickAnyway()">Choose an account myself</button>
-        <button class="btn" onclick="bpBankImportCancel()">Cancel</button>
-      </div>${bpBankFileOnlyCard(p)}</div>`;
-    return;
-  }
-
-  // The user asked to choose; show every bank account.
-  if (!matched && p.forcePick && !target) {
-    wrap.innerHTML = "";
-    const banks = (p.accounts || []).filter((a) => categoryOf(a) === "bank");
-    res.innerHTML = `<div style="border:1px solid var(--line);border-radius:12px;padding:14px;
-        background:var(--hair)">
-      <b>Choose the account this statement belongs to</b>
-      <div class="muted" style="font-size:13px;margin-top:4px">The statement says
-        <b>${esc(fileNo || "no account number")}</b>. Pick where these rows should go; nothing is
-        imported until you press Import.</div>
-      ${banks.length ? `<label class="field" style="margin-top:10px;display:block">Account
-          <select id="bp-pick-account" style="width:100%;margin-top:4px">
-            <option value="">Choose an account…</option>
-            ${banks.map((a) => `<option value="${esc(a.id)}">${esc(a.label || a.bank || a.id)}${
-              a.number ? ` · …${esc(String(a.number).slice(-4))}` : ""}</option>`).join("")}
-          </select></label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-          <button class="btn" onclick="bpBankPickApply()">Use this account</button>
-          <button class="btn" onclick="bpBankImportCancel()">Cancel</button>
-        </div>`
-        : `<div class="muted" style="margin-top:10px">No bank account exists yet. Add one first,
-           then import again.</div>`}
-      ${bpBankFileOnlyCard(p)}
-    </div>`;
-    return;
-  }
-
-  const chosen = target || matched;
-  if (!chosen) return;
-  window.bpBankAccount = chosen.id;
-  // The merged check: the account's held rows plus this file, through the same
-  // planner the Import button runs. Nothing is written here.
-  let check = null;
-  try {
-    const store = await import("./db.js");
-    check = await store.previewImport(chosen.id, chronological(p.parsed),
-      { closing: p.audit?.closing ?? null });
-  } catch (e) {}
-  const dayBefore = (iso) => {
-    const d = new Date(String(iso) + "T00:00:00Z");
-    if (isNaN(d.getTime())) return "";
-    d.setUTCDate(d.getUTCDate() - 1);
-    return d.toISOString().slice(0, 10);
-  };
-  p.gapNote = "";
-  if (chosen.last_date && p.first && p.first > chosen.last_date) {
-    p.gapNote = `This statement starts on ${dateLabel(p.first)}, but the last transaction here is
-      ${dateLabel(chosen.last_date)}. A statement covering the days in between may be missing.`;
-  } else if (chosen.last_date && p.last && p.last < chosen.last_date) {
-    p.gapNote = `This statement ends on ${dateLabel(p.last)}. The ledger already has rows up to
-      ${dateLabel(chosen.last_date)}, so the days in between are not covered by this file.`;
-  }
-  const opts = p.accounts.map((a) => `<option value="${esc(a.id)}" ${a.id === chosen.id ? "selected" : ""}>${esc(a.label)} · ${esc(a.number || "no number")}</option>`).join("");
-  // A guess can come from the bank name alone, which says nothing about the
-  // account number. Only claim a match when the digits actually agree.
-  const numberNote = sameAccountNumber(fileNo, chosen.number)
-    ? `✓ Account numbers match: the statement is for ${esc(fileNo)}, the same as ${esc(chosen.label)}.`
-    : p.guess
-      ? `Matched by bank name — check the account number before importing.`
-      : `⚠ No number match. Check that this is the right account before importing.`;
-  wrap.innerHTML = `<label class="field">Which bank asset?
-      <select id="acct" onchange="bpBankChoose(this.value)">${opts}</select></label>
-    <div class="muted" style="font-size:12px;margin-top:-4px">${numberNote}</div>`;
-  res.innerHTML = bpBankPreviewHtml(p, chosen, check);
+  window.bpLockedFile = { kind: "office", entry, name: entry.name,
+    bytes: entry.bytes, meta: entry.meta };
+  bpShowUnlock();
 };
 
-window.bpBankCreateAndImport = async () => {
-  const p = window.bpBankPending;
-  if (!p) return;
-  const fileNo = String(p.pre.accountNumber || "").replace(/\D/g, "");
-  const suggested = `Bank account ${fileNo.slice(-4) || ""}`.trim();
-  const name = (prompt("Name for the new bank account", suggested) || "").trim();
-  if (!name) return;
+window.bpBatchRemove = (id) => {
+  const state = bpBatchState();
+  if (state.busy) return;
+  state.entries = state.entries.filter((entry) => entry.id !== id);
+  duplicateFile(state.entries);
+  bpBatchRender();
+  bpBatchPrepareQueued();
+};
+
+window.bpBatchClear = () => {
+  const state = bpBatchState();
+  if (state.busy) return;
+  state.entries = [];
+  state.prepareAgain = false;
+  bpBatchClearUnlock();
+  bpBatchRender();
+};
+
+window.bpBatchSetAccount = (id, value) => {
+  const entry = bpBatchState().entries.find((item) => item.id === id);
+  if (!entry) return;
+  entry.accountId = value;
+  if (value === "__new__" && !entry.createName) {
+    entry.createName = bpBatchSuggestedName(entry);
+  }
+  entry.status = value ? "ready" : "needs-account";
+  bpBatchRender();
+};
+
+window.bpBatchSetName = (id, value) => {
+  const entry = bpBatchState().entries.find((item) => item.id === id);
+  if (!entry) return;
+  entry.createName = value;
+};
+
+async function bpBatchCreateAccount(entry) {
+  const name = String(entry.createName || bpBatchSuggestedName(entry)).trim();
+  if (!name) throw new Error("Type a name for the new account.");
   const store = await import("./db.js");
   const all = await store.listAccounts();
-  const base = slug(name);
+  const base = slug(name) || "bank-account";
   let id = base, n = 2;
-  while (all.some((a) => a.id === id)) id = `${base}-${n++}`;
-  await store.createAccount({ id, label: name, bank: name, number: fileNo,
+  while (all.some((account) => account.id === id)) id = `${base}-${n++}`;
+  const number = bpBatchDigits(entry.number);
+  await store.createAccount({ id, label: name, bank: entry.bank || name, number,
     category: "bank", type: "savings", subtype: "savings" });
-  window.bpImportTarget = id;
-  p.accounts = (await store.listAccounts())
-    .filter((a) => ["bank", "cash"].includes(categoryOf(a)));
-  p.guess = { id, why: "created for this statement", confidence: "high" };
-  window.bpBankShowPreview();
-};
-
-window.bpBankImportCancel = () => {
-  window.bpBankPending = null;
-  window.bpBankPdfPending = null;
-  const f = document.getElementById("f"); if (f) f.value = "";
-  const wrap = document.getElementById("acctwrap"); if (wrap) wrap.innerHTML = "";
-  const res = document.getElementById("res"); if (res) res.innerHTML = "";
-};
-
-window.bpBankImportApply = async () => {
-  const p = window.bpBankPending;
-  if (!p) return;
-  const res = document.getElementById("res");
-  const select = document.getElementById("acct");
-  let account = window.bpBankAccount || select?.value || p.guess?.id || "";
-  let assetLabel = p.accounts.find((a) => a.id === account)?.label || "";
-  if (account === "__new__" || !account) {
-    const name = (prompt("Name for the new asset", p.fileName.replace(/\..*/, "")) || "new").trim();
-    const store = await import("./db.js");
-    const all = await store.listAccounts();
-    const base = slug(name);
-    let id = base, n = 2;
-    while (all.some((a) => a.id === id)) id = `${base}-${n++}`;
-    await store.createAccount({ id, label: name, bank: name, category: "bank",
-      type: "savings", subtype: "savings" });
-    account = id; assetLabel = name;
+  const state = bpBatchState();
+  if (!state.accounts.some((account) => account.id === id)) {
+    state.accounts = [...state.accounts, { id, label: name, bank: entry.bank || name,
+      number }];
   }
-  const incoming = chronological(p.parsed).map((r) => ({ ...r, account }));
-  const { kept, dup } = saveTxns(incoming);
+  entry.accountId = id;
+  return id;
+}
+
+async function bpBatchImportOne(entry) {
+  if (entry.accountId === "__new__") await bpBatchCreateAccount(entry);
+  const account = entry.accountId;
+  const incoming = chronological(entry.parsed).map((row) => ({ ...row, account }));
+  const browser = saveTxns(incoming);
   let dbStats = null, dbError = "";
   try {
     const store = await import("./db.js");
-    const timeout = (promise, ms, label) => Promise.race([promise, new Promise((_, rej) =>
-      setTimeout(() => rej(new Error("timeout: " + label)), ms))]);
+    const timeout = (promise, ms, label) => Promise.race([promise, new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("timeout: " + label)), ms))]);
     await timeout(store.openDb(), 8000, "openDb");
     dbStats = await store.importRows(account, incoming,
-      { closing: p.audit?.closing ?? null });
-  } catch (e) { dbError = String(e.message || e).slice(0, 90); }
-  const newCount = dbStats ? dbStats.inserted : kept;
-  const heldCount = dbStats ? dbStats.duplicates : dup;
-  const corrected = dbStats ? dbStats.corrected || 0 : 0;
-  const closing = dbStats ? dbStats.closing || null : null;
-  const label = assetLabel || account;
-  res.innerHTML = `<div style="border:1px solid var(--line);border-radius:12px;padding:14px">
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <span class="pill ok">${newCount} new</span>
-      ${heldCount ? `<span class="pill warn">${heldCount} already held</span>` : ""}
-      ${corrected ? `<span class="pill warn">${corrected} balance${corrected === 1 ? "" : "s"} corrected</span>` : ""}
-      <span class="muted" style="font-size:12px">${dbStats ? "saved to the database"
-        : dbError ? `browser only (${esc(dbError)})` : "browser only"}</span></div>
-    <div class="muted" style="font-size:13px;margin-top:6px">${esc(label)} ·
-      ${p.count} transactions in the file${p.first ? `, ${dateLabel(p.first)} to ${dateLabel(p.last)}` : ""}${
-      p.order === "desc" ? " · stored oldest first" : ""}</div>
-    ${dbStats && dbStats.breaks > 0 ? `<div style="font-size:11.5px;margin-top:4px;color:var(--amber)">
-      ⚠ ${dbStats.breaks} balance break${dbStats.breaks === 1 ? "" : "s"} recorded on this account.
-      Open Health to review them.</div>` : ""}
-    ${corrected ? `<div class="muted" style="font-size:11.5px;margin-top:4px">Rows already here
-      with the same date, amount and description took this statement's running balance instead of
-      being added again.</div>` : ""}
-    <div class="muted" style="font-size:11.5px;margin-top:4px">Nothing else changed. Open the
-      account to see the new balance, or import another file.</div>
-    ${(() => {
-      if (!closing) return "";
-      return `<div class="muted" style="font-size:11.5px;margin-top:6px">${closing.matches
-        ? `✓ ${esc(label)} now ends at ${money(closing.printed)}, the same as the file.`
-        : `⚠ The file's closing balance is ${money(closing.printed)}; the merged ledger ends at
-           ${money(closing.actual)}. Open the account and check the latest row.`}</div>`;
-    })()}
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button class="btn" onclick="bpAccount(${jsArg(account)})">Open ${esc(label)}</button>
-      <button class="btn" onclick="document.getElementById('f').click()">Import another file</button>
-    </div>
-    <details class="how-values"><summary>Something looks wrong?</summary>
-      <div class="muted" style="font-size:12px;margin-top:6px">Send this shape-only report: it
-      carries counts, column positions and character shapes, never amounts or names.</div>
-      ${diagnosticsBlock(buildReport(p.meta, [sheetReport("statement", p.rows, p.parsed, {
-        inserted: newCount, duplicates: heldCount,
-        match: p.guess ? p.guess.why : "file name" })]))}
-    </details></div>`;
-  const wrap = document.getElementById("acctwrap"); if (wrap) wrap.innerHTML = "";
-  window.bpBankPending = null;
-  window.bpBankPdfPending = null;
-  window.bpImportTarget = "";
-  const f = document.getElementById("f"); if (f) f.value = "";
+      { closing: entry.closing ?? null });
+  } catch (e) { dbError = String((e && e.message) || e).slice(0, 90); }
+  entry.result = {
+    inserted: dbStats ? dbStats.inserted : browser.kept,
+    duplicates: dbStats ? dbStats.duplicates : browser.dup,
+    corrected: dbStats ? dbStats.corrected || 0 : 0,
+    breaks: dbStats ? dbStats.breaks || 0 : 0,
+    closing: dbStats ? dbStats.closing || null : null,
+    browserOnly: !dbStats,
+    dbError,
+  };
+}
+
+window.bpBatchImport = async () => {
+  const state = bpBatchState();
+  if (state.busy) return;
+  const queue = state.entries.filter((entry) =>
+    entry.status === "ready" && !entry.duplicateOf);
+  if (!queue.length) return;
+  state.busy = true;
+  bpBatchRender();
+  try {
+    // Queue order, one file at a time. A failure is recorded on that row and
+    // the next file still runs; importRows dedupes against what just landed.
+    for (const entry of queue) {
+      if (!state.entries.includes(entry)) continue;
+      entry.status = "importing";
+      entry.message = "";
+      bpBatchRender();
+      try {
+        await bpBatchImportOne(entry);
+        entry.status = "done";
+      } catch (e) {
+        entry.status = "error";
+        entry.message = String((e && e.message) || e).slice(0, 160);
+      }
+      bpBatchRender();
+    }
+    state.accounts = await bpBankKnownAccounts();
+    window.bpImportTarget = "";
+  } finally {
+    state.busy = false;
+    bpBatchRender();
+  }
 };
+
 
 function renderIssues() {
   if ((localStorage.getItem("bp.mode") || "demo") === "demo" && Array.isArray(DATA?.review)) {
@@ -2669,7 +2668,6 @@ function renderImport() {
       <button type="button" data-guide="safety" aria-selected="false">Safety</button>
     </div>
     <div class="guide" id="guide">${GUIDES.bank}</div>
-    <div id="import-target"></div>
     <div id="uploadHost"></div>
   </div>
 
