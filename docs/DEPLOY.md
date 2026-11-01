@@ -76,7 +76,8 @@ Check `https://bankpipe.pages.dev/version.json` afterwards. Its `commit` field m
 ## Secrets and limits
 
 - The token is account-scoped, not a user OAuth token. Do not commit it.
-- The workflow runs `npx wrangler@4.153.0`, pinned. Bump the version deliberately when
+- Wrangler 4.153 requires Node 22 or newer. The workflow uses Node 22; the manual
+  fallback needs it too. The Wrangler version is pinned; bump it deliberately when
   Cloudflare changes the deploy format.
 - The production verify polls for up to 90 seconds. A slow Cloudflare propagation can
   fail the job even when the deploy eventually succeeds; rerun the job or check the
