@@ -188,6 +188,7 @@ label.field textarea{resize:vertical;min-height:58px}
 .unlinked-fds summary{list-style:none}
 .unlinked-fds summary::-webkit-details-marker{display:none}
 .acct-sections{margin:0 0 4px 14px;border-left:1px dashed var(--line);padding-left:8px;padding-right:14px;box-sizing:border-box}
+.acct-sections.in-bank{margin-left:0;border-left:0;padding-left:0;padding-right:0}
 .acct-sec + .acct-sec{border-top:1px solid var(--hair)}
 .acct-sec-head{display:grid;grid-template-columns:28px minmax(0,1fr);gap:2px;align-items:center}
 .acct-sec-head.no-toggle{grid-template-columns:28px minmax(0,1fr)}
@@ -4095,7 +4096,7 @@ function lockerRowHtml(acc, locker) {
 }
 function accountSectionsHtml({
   acc, open, openFds = open, openLockers = open, savings,
-  fds = [], activeFds = [], lockers = [], fdRow, currency = "",
+  fds = [], activeFds = [], lockers = [], fdRow, currency = "", variant = "",
 }) {
   const slug = String(acc.id).replace(/[^A-Za-z0-9_-]/g, "-");
   const section = ({ kind, label, amount, body = "", toggle = false, href = open }) => {
@@ -4136,7 +4137,7 @@ function accountSectionsHtml({
         : `<div class="muted acct-sec-empty">No lockers recorded. Use Add locker on the account page.</div>`,
     }),
   ];
-  return `<div class="acct-sections">${parts.join("")}</div>`;
+  return `<div class="acct-sections${variant === "bank" ? " in-bank" : ""}">${parts.join("")}</div>`;
 }
 function bankRow(g, total, fdLinks, lockerMap = new Map()) {
   const savingsPct = g.total ? (g.savings * 100) / g.total : 0;
@@ -4181,6 +4182,7 @@ function bankRow(g, total, fdLinks, lockerMap = new Map()) {
         openLockers: `bpAccount(${jsArg(acc.id)},'lockers')`,
         savings: value, fds: accFds, activeFds: active,
         lockers: lockerMap.get(acc.id) || [], fdRow, currency: acc.currency,
+        variant: "bank",
       })}
     </div>`;
   }).join("");

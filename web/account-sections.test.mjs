@@ -45,3 +45,10 @@ test("the disclosure sits left of the section label", () => {
   assert.match(html, /acct-sec-spacer/);
   assert.match(html, /\.acct-sec-body\{padding:0 0 6px 30px\}/);
 });
+
+test("the bank page does not double-indent the account sections", () => {
+  assert.match(html, /variant: "bank"/);
+  assert.match(html, /variant === "bank" \? " in-bank" : ""/);
+  assert.match(html,
+    /\.acct-sections\.in-bank\{margin-left:0;border-left:0;padding-left:0;padding-right:0\}/);
+});
