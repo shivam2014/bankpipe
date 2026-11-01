@@ -495,23 +495,24 @@ textarea.inline-input{resize:vertical;min-height:48px}
   table[data-table="issues"] td:nth-child(4){text-align:left}
   table[data-table="issues"] td:nth-child(6){display:flex;gap:8px}
   table[data-table="issues"] td:nth-child(6) .btn{flex:1}
-  table[data-table^="health-"]{display:block;min-width:0!important}
+  table[data-table^="health-"]{display:block;width:100%!important;min-width:0!important}
   table[data-table^="health-"] tr:first-child{display:none}
-  table[data-table^="health-"] tr{display:grid;grid-template-columns:1fr 1fr;
+  table[data-table^="health-"] tr{display:flex;flex-wrap:wrap;width:100%;box-sizing:border-box;
     gap:6px 12px;padding:12px 0;border-top:1px solid var(--line)}
   table[data-table^="health-"] tr:nth-child(2){border-top:0}
-  table[data-table^="health-"] td{display:block;padding:0;border:0;min-width:0;font-size:12.5px}
+  table[data-table^="health-"] td{display:block;flex:1 1 calc(50% - 12px);
+    padding:0;border:0;min-width:0;font-size:12.5px}
   table[data-table^="health-"] td.n{text-align:left;white-space:normal}
-  table[data-table^="health-"] td:nth-child(1){grid-column:1/-1;font-size:14px;line-height:1.35}
+  table[data-table^="health-"] td:nth-child(1){flex:1 1 100%;font-size:14px;line-height:1.35}
   table[data-table^="health-"] td[data-label]::before{content:attr(data-label);
     display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
     color:var(--muted);margin-bottom:2px}
   table[data-table^="health-"] td:nth-child(1)::before{content:none}
-  table[data-table="health-statements"] td:nth-child(7){grid-column:1/-1}
+  table[data-table="health-statements"] td:nth-child(7){flex:1 1 100%}
   table[data-table="health-statements"] .health-actions{justify-content:flex-start}
   table[data-table="health-statements"] .health-actions .btn{flex:1 1 auto}
   table[data-table="health-sheets"] td:nth-child(3),
-  table[data-table="health-bond-ratings"] td:nth-child(2){grid-column:1/-1}
+  table[data-table="health-bond-ratings"] td:nth-child(2){flex:1 1 100%}
 }
 th.sort{cursor:pointer;user-select:none;white-space:nowrap}
 th.sort:hover{color:var(--ink)}
