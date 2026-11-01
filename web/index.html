@@ -203,6 +203,15 @@ label.field textarea{resize:vertical;min-height:58px}
 .acct-sec-body{padding:0 0 6px 28px}
 .acct-sec-body[hidden]{display:none}
 .acct-sec-body .subrow{font-size:12px}
+.acct-sec-note{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;margin-left:4px}
+.locker-row{display:grid;grid-template-columns:minmax(0,1fr) 18px;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--hair);text-decoration:none;color:inherit;font-size:12.5px;width:100%;box-sizing:border-box}
+.locker-row:first-child{border-top:0}
+.locker-main{min-width:0}
+.locker-title{display:block;line-height:1.35}
+.locker-stored{display:block;font-size:11.5px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.locker-cost{display:block;font-size:10.5px;color:var(--muted);margin-top:1px}
+.locker-row .pc{color:var(--muted);text-align:right}
+.locker-row:hover{background:rgba(15,18,22,.03)}
 .acct-sec-empty{padding:2px 0 6px;line-height:1.45;font-size:12px}
 .donut{width:190px;height:190px;border-radius:50%;position:relative;display:grid;place-items:center;flex-shrink:0;box-shadow:inset 0 0 0 1px var(--line);transition:filter .15s ease}
 .donut:hover{filter:brightness(1.04)}
@@ -3918,7 +3927,7 @@ window.bpTxForAccount = (id) => {
 };
 function lockerCardHtml(l) {
   const contents = String(l.contents || "").split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
-  const rent = l.rent_paise ? `${money(l.rent_paise)} / year` : "";
+  const rent = l.rent_paise ? `${money(l.rent_paise)} / year rent` : "";
   const sub = [l.branch, l.size, rent].filter(Boolean).join(" · ");
   return `<div class="locker-card">
     <div class="locker-head">
@@ -3932,10 +3941,10 @@ function lockerCardHtml(l) {
         `<span class="tag">${esc(c)}</span>`).join("")}</div>`
         : `<span class="muted" style="font-size:12px">No contents recorded.</span>`}
     </div>
-    ${l.value_paise ? `<div class="muted" style="font-size:12px;margin-top:6px">Worth about
-      <b style="color:var(--ink)">${money(l.value_paise)}</b> · a memo, not counted in net worth</div>` : ""}
+    ${l.value_paise ? `<div class="muted" style="font-size:12px;margin-top:6px">Contents memo
+      <b style="color:var(--ink)">${money(l.value_paise)}</b> · not counted in net worth</div>` : ""}
     ${l.notes ? `<div class="muted" style="font-size:12px;margin-top:6px">${esc(l.notes)}</div>` : ""}
-    ${l.renewal_date ? `<div class="muted" style="font-size:11.5px;margin-top:4px">Renews ${esc(l.renewal_date)}</div>` : ""}
+    ${l.renewal_date ? `<div class="muted" style="font-size:11.5px;margin-top:4px">Renews ${esc(dateLabel(l.renewal_date))}</div>` : ""}
   </div>`;
 }
 function lockerFormHtml(account, editing) {
@@ -4088,13 +4097,25 @@ function bankGroups(assets) {
   }
   return [...map.values()].sort((a, b) => b.total - a.total);
 }
+function lockerContents(locker) {
+  return String(locker.contents || "").split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
+}
 function lockerRowHtml(acc, locker) {
   const bits = [locker.branch, locker.size].filter(Boolean).join(" · ");
-  const rent = Number(locker.rent_paise) > 0 ? `${money(locker.rent_paise)}/yr` : "—";
-  return `<a class="subrow" href="#" onclick="bpAccount(${jsArg(acc.id)},'lockers');return false">
-    <span class="nm">🔒 Locker ${esc(locker.number || "—")}${bits
-      ? ` <span class="muted" style="font-size:10.5px">· ${esc(bits)}</span>` : ""}</span>
-    <span class="amt">${rent}</span>
+  const stored = lockerContents(locker);
+  const shown = stored.slice(0, 3).join(" · ")
+    + (stored.length > 3 ? ` +${stored.length - 3} more` : "");
+  const rent = Number(locker.rent_paise) > 0
+    ? `${money(locker.rent_paise)}/yr rent` : "";
+  const renew = locker.renewal_date ? `renews ${dateLabel(locker.renewal_date)}` : "";
+  const cost = [rent, renew].filter(Boolean).join(" · ");
+  return `<a class="locker-row" href="#" onclick="bpAccount(${jsArg(acc.id)},'lockers');return false">
+    <span class="locker-main">
+      <span class="locker-title">🔒 Locker ${esc(locker.number || "—")}${bits
+        ? ` <span class="muted">· ${esc(bits)}</span>` : ""}</span>
+      <span class="locker-stored">${stored.length ? esc(shown) : "No contents recorded"}</span>
+      ${cost ? `<span class="locker-cost">${esc(cost)}</span>` : ""}
+    </span>
     <span class="pc">›</span></a>`;
 }
 function accountSectionsHtml({
@@ -4102,7 +4123,7 @@ function accountSectionsHtml({
   fds = [], activeFds = [], lockers = [], fdRow, currency = "", variant = "",
 }) {
   const slug = String(acc.id).replace(/[^A-Za-z0-9_-]/g, "-");
-  const section = ({ kind, label, amount, body = "", toggle = false, href = open }) => {
+  const section = ({ kind, label, amount, body = "", toggle = false, href = open, note = "" }) => {
     const id = `acct-${slug}-${kind}`;
     return `<div class="acct-sec">
       <div class="acct-sec-head${toggle ? "" : " no-toggle"}">
@@ -4111,7 +4132,7 @@ function accountSectionsHtml({
           onclick="bpSectionToggle(this)"><span aria-hidden="true">▾</span></button>`
           : `<span class="acct-sec-spacer" aria-hidden="true"></span>`}
         <a class="subrow acct-sec-link" href="#" onclick="${href};return false">
-          <span class="nm">${label}</span>
+          <span class="nm">${label}${note ? ` <span class="acct-sec-note">${note}</span>` : ""}</span>
           <span class="amt">${amount}</span>
           <span class="pc">›</span></a>
       </div>
@@ -4119,7 +4140,7 @@ function accountSectionsHtml({
     </div>`;
   };
   const activeTotal = activeFds.reduce((sum, fd) => sum + (assetValue(fd).paise || 0), 0);
-  const lockerTotal = lockers.reduce((sum, l) => sum + (Number(l.value_paise) || 0), 0);
+  const contentsCount = lockers.reduce((n, l) => n + lockerContents(l).length, 0);
   const parts = [
     section({
       kind: "savings", label: "Savings",
@@ -4134,8 +4155,10 @@ function accountSectionsHtml({
     }),
     section({
       kind: "lockers", label: `Lockers (${lockers.length})`,
-      amount: lockerTotal ? money(lockerTotal) : "—",
-      toggle: true, href: openLockers,
+      amount: contentsCount
+        ? `<span class="muted">${contentsCount} item${contentsCount === 1 ? "" : "s"}</span>`
+        : "—",
+      toggle: true, href: openLockers, note: "custody",
       body: lockers.length ? lockers.map((l) => lockerRowHtml(acc, l)).join("")
         : `<div class="muted acct-sec-empty">No lockers recorded. Use Add locker on the account page.</div>`,
     }),
@@ -4399,14 +4422,10 @@ async function renderBankViewAsync(host, bank) {
   }
   const today = new Date().toISOString().slice(0, 10);
   const links = await linkFds(store, [g]);
-  // Locker contents are a memo: they are either counted elsewhere or are not
-  // money, so they never enter the hero total or net worth.
-  let lockerValue = 0;
+  // Lockers are custody, not assets; their contents never enter the hero total.
   const lockerMap = new Map();
   for (const acc of g.accounts) {
-    const list = await store.listLockers(acc.id);
-    lockerMap.set(acc.id, list);
-    for (const l of list) lockerValue += Number(l.value_paise) || 0;
+    lockerMap.set(acc.id, await store.listLockers(acc.id));
   }
   const primary = primaryBankAccount(g);
   const isMatured = (fd) => !!(fd.maturity_date && fd.maturity_date < today);
@@ -4537,8 +4556,6 @@ async function renderBankViewAsync(host, bank) {
         </div>
         ${maturedValueAtBank ? `<div class="muted" style="font-size:11.5px;margin-top:6px;
           color:rgba(255,255,255,.7)">${money(maturedValueAtBank)} matured, not counted</div>` : ""}
-        ${lockerValue ? `<div class="muted" style="font-size:11.5px;margin-top:4px;
-          color:rgba(255,255,255,.7)">Locker contents ${money(lockerValue)} — a memo, not counted</div>` : ""}
       </div></div>
     <div class="card pad" style="margin-top:14px;display:flex;gap:22px;align-items:center;flex-wrap:wrap">
       <div class="donut" id="bank-pie" style="background:conic-gradient(${stops});cursor:pointer"
@@ -4889,7 +4906,7 @@ function renderAccount() {
       store.lockerPayments(id),
     ]);
     window.bpLockers = lockers;
-    const lockerTotal = lockers.reduce((t, l) => t + (Number(l.value_paise) || 0), 0);
+    const lockerItems = lockers.reduce((n, l) => n + lockerContents(l).length, 0);
     const { account, facts, totals } = data;
     const flash = window.bpAccountFlash || "";
     window.bpAccountFlash = "";
@@ -5084,9 +5101,9 @@ function renderAccount() {
       </div>`;
     const lockersSection = isBank ? `<div class="card pad" id="lockers" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
-        <h2 style="margin:0">Lockers${lockerTotal ? ` <span class="muted"
-          style="font-weight:400;font-size:12px;text-transform:none;letter-spacing:0">${money(lockerTotal)}
-          inside, not counted</span>` : ""}</h2>
+        <h2 style="margin:0">Lockers${lockers.length ? ` <span class="muted"
+          style="font-weight:400;font-size:12px;text-transform:none;letter-spacing:0">${lockerItems}
+          item${lockerItems === 1 ? "" : "s"} · custody</span>` : ""}</h2>
         <button class="mini-btn" onclick="bpLockerNew(${jsArg(account.id)})">Add locker</button>
       </div>
       ${window.bpLockerFormAccount === account.id ? lockerFormHtml(account, window.bpLockerEditing) : ""}
