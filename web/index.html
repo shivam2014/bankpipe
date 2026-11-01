@@ -451,6 +451,26 @@ textarea.inline-input{resize:vertical;min-height:48px}
   .stats{grid-template-columns:1fr 1fr}
   nav button{padding:7px 9px;font-size:13px}
 }
+@media (max-width:720px){
+  table[data-table="bank-batch"]{display:block;min-width:0!important}
+  table[data-table="bank-batch"] tr:first-child{display:none}
+  table[data-table="bank-batch"] tr{display:grid;grid-template-columns:1fr 1fr;
+    gap:8px 12px;padding:12px 0;border-top:1px solid var(--line)}
+  table[data-table="bank-batch"] tr:nth-child(2){border-top:0}
+  table[data-table="bank-batch"] td{display:block;padding:0;border:0;min-width:0;font-size:12.5px}
+  table[data-table="bank-batch"] td:nth-child(1),
+  table[data-table="bank-batch"] td:nth-child(2),
+  table[data-table="bank-batch"] td:nth-child(3),
+  table[data-table="bank-batch"] td:nth-child(6){grid-column:1/-1}
+  table[data-table="bank-batch"] td:nth-child(1){font-size:14px;line-height:1.35}
+  table[data-table="bank-batch"] td:nth-child(4){text-align:left;white-space:normal}
+  table[data-table="bank-batch"] td:nth-child(2) select{width:100%;max-width:none}
+  table[data-table="bank-batch"] td:nth-child(6){white-space:normal}
+  table[data-table="bank-batch"] td:nth-child(6) .btn{width:100%}
+  table[data-table="bank-batch"] td[data-label]::before{content:attr(data-label);
+    display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
+    color:var(--muted);margin-bottom:2px}
+}
 th.sort{cursor:pointer;user-select:none;white-space:nowrap}
 th.sort:hover{color:var(--ink)}
 th.sort .arrow{opacity:.45;font-size:9px;margin-left:4px}
@@ -1189,10 +1209,10 @@ function bpBatchRowHtml(entry, accounts) {
   return `<tr>
     <td><b>${esc(entry.name)}</b>${note
       ? `<div class="muted" style="font-size:11.5px;margin-top:3px">${esc(note)}</div>` : ""}</td>
-    <td>${destination}</td>
-    <td>${bpBatchDetectedHtml(entry)}</td>
-    <td class="n">${entry.parsed ? entry.count : "—"}</td>
-    <td>${bpBatchStatusHtml(entry)}</td>
+    <td data-label="Destination">${destination}</td>
+    <td data-label="Detected">${bpBatchDetectedHtml(entry)}</td>
+    <td class="n" data-label="Rows">${entry.parsed ? entry.count : "—"}</td>
+    <td data-label="Status">${bpBatchStatusHtml(entry)}</td>
     <td style="white-space:nowrap"><button class="btn" style="padding:3px 9px;font-size:12px"${busy}
       onclick="bpBatchRemove(${entry.id})">Remove</button></td>
   </tr>`;
@@ -1278,8 +1298,8 @@ async function bpBatchPrepare(entry) {
   try {
     const { isEncryptedOffice } = await import("./office-crypto.js");
     if (isEncryptedOffice(entry.bytes)) {
-      entry.status = "locked";
-      entry.message = "Locked by the bank. Unlock it to read the rows.";
+      const bytes = await bpOfficePasswordPrompt(entry);
+      await bpBatchPrepareBytes(entry, bytes);
       return;
     }
     if (/\.pdf$/i.test(entry.name)) {
@@ -1415,6 +1435,17 @@ function bpPdfPasswordPrompt(entry, attempt) {
   });
 }
 
+function bpOfficePasswordPrompt(entry) {
+  return new Promise((resolve, reject) => {
+    window.bpLockedFile = { kind: "office", entry, name: entry.name,
+      bytes: entry.bytes, meta: entry.meta, resolve, reject };
+    entry.status = "locked";
+    entry.message = "Password needed.";
+    bpBatchRender();
+    bpShowUnlock();
+  });
+}
+
 function bpShowUnlock() {
   const locked = window.bpLockedFile;
   const host = document.getElementById("bp-unlock-host") || document.getElementById("res");
@@ -1478,9 +1509,11 @@ window.bpUnlockFile = async () => {
     const { decryptOffice } = await import("./office-crypto.js");
     const bytes = await decryptOffice(locked.bytes, password);
     const entry = locked.entry;
+    const resolve = locked.resolve;
     window.bpLockedFile = null;
     bpBatchClearUnlock();
-    if (entry) await bpBatchPrepareBytes(entry, bytes);
+    if (resolve) resolve(bytes);
+    else if (entry) await bpBatchPrepareBytes(entry, bytes);
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = "Unlock"; }
     const wrong = /wrong password/i.test(String(e && e.message));
@@ -1499,7 +1532,11 @@ window.bpUnlockCancel = () => {
   const locked = window.bpLockedFile;
   window.bpLockedFile = null;
   bpBatchClearUnlock();
-  if (locked && locked.reject) locked.reject(new Error("cancelled"));
+  if (locked && locked.reject) {
+    const err = new Error("cancelled");
+    err.cancelled = true;
+    locked.reject(err);
+  }
   bpBatchRender();
 };
 
@@ -1526,6 +1563,10 @@ window.bpImportClearTarget = () => { window.bpImportTarget = ""; go("import"); }
 window.bpBatchUnlock = (id) => {
   const entry = bpBatchState().entries.find((item) => item.id === id);
   if (!entry) return;
+  if (window.bpLockedFile) {
+    if (window.bpLockedFile.entry && window.bpLockedFile.entry.id === id) bpShowUnlock();
+    return;
+  }
   if (/\.pdf$/i.test(entry.name)) {
     if (!entry.bytes) return;
     bpBatchPrepare(entry);
