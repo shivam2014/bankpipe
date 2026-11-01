@@ -480,6 +480,20 @@ textarea.inline-input{resize:vertical;min-height:48px}
   table[data-table="bank-batch"] td[data-label]::before{content:attr(data-label);
     display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
     color:var(--muted);margin-bottom:2px}
+  table[data-table="issues"]{display:block;min-width:0!important}
+  table[data-table="issues"] tr:first-child{display:none}
+  table[data-table="issues"] tr{display:grid;grid-template-columns:1fr 1fr;
+    gap:6px 12px;padding:12px 0;border-top:1px solid var(--line)}
+  table[data-table="issues"] tr:nth-child(2){border-top:0}
+  table[data-table="issues"] td{display:block;padding:0;border:0;min-width:0;font-size:12.5px}
+  table[data-table="issues"] td:nth-child(5),
+  table[data-table="issues"] td:nth-child(6){grid-column:1/-1}
+  table[data-table="issues"] td[data-label]::before{content:attr(data-label);
+    display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
+    color:var(--muted);margin-bottom:2px}
+  table[data-table="issues"] td:nth-child(4){text-align:left}
+  table[data-table="issues"] td:nth-child(6){display:flex;gap:8px}
+  table[data-table="issues"] td:nth-child(6) .btn{flex:1}
 }
 th.sort{cursor:pointer;user-select:none;white-space:nowrap}
 th.sort:hover{color:var(--ink)}
@@ -1727,26 +1741,56 @@ function renderIssues() {
   host.innerHTML = `<h1>Review</h1><div class="card pad">loading…</div>`;
   (async () => {
     const store = await import("./db.js");
-    const rows = await store.listIssues();
+    const accountFilter = window.bpState?.issueAccount || "";
+    const kindFilter = window.bpState?.issueKind || "";
+    const accountName = window.bpState?.issueAccountLabel || "";
+    const allRows = await store.listIssues();
+    const rows = allRows.filter((r) =>
+      (!accountFilter || r.account_id === accountFilter)
+      && (!kindFilter || r.kind === kindFilter));
+    const scoped = Boolean(accountFilter || kindFilter);
+    const scopeLabel = accountFilter
+      ? (accountName || rows[0]?.account || accountFilter)
+      : "all accounts";
+    const kindText = kindFilter
+      ? ({ balance_break: "balance breaks", no_date: "rows with no date",
+          out_of_order: "out-of-order rows" }[kindFilter] || "review items")
+      : "review items";
     if (!rows.length) {
-      host.innerHTML = `<h1>Review</h1><div class="card pad"><b>Nothing to review.</b>
+      host.innerHTML = `<h1>Review</h1><div class="card pad">
+        <b>Nothing to review${scoped ? ` for ${esc(scopeLabel)}` : ""}.</b>
         <p class="muted" style="font-size:13px;margin-bottom:0">Every check passed on the
-        rows already loaded. New items appear here after an import.</p></div>`;
+        rows already loaded. New items appear here after an import.</p>
+        ${scoped ? `<div style="margin-top:10px"><button class="btn"
+          onclick="bpIssuesAll()">All review items</button></div>` : ""}</div>`;
       return;
     }
+    window.bpIssueIds = rows.map((r) => r.id);
     const kindLabel = (kind) => ({ balance_break: "Balance break", no_date: "No date",
       out_of_order: "Out of order" })[kind] || "Check";
-    const body = rows.map((r) => `<tr><td>${esc(r.date || "—")}</td>
-      <td>${esc(r.account || "")}</td>
-      <td class="n ${r.amount < 0 ? "neg" : r.amount > 0 ? "pos" : ""}">${amountInr(r.amount)}</td>
-      <td class="n">${amountInr(r.balance)}</td>
-      <td><b>${esc(kindLabel(r.kind))}</b>
+    const body = rows.map((r) => `<tr><td data-label="Date">${esc(r.date || "—")}</td>
+      <td data-label="Asset">${esc(r.account || "")}</td>
+      <td class="n ${r.amount < 0 ? "neg" : r.amount > 0 ? "pos" : ""}"
+        data-label="Amount">${amountInr(r.amount)}</td>
+      <td class="n" data-label="Balance">${amountInr(r.balance)}</td>
+      <td data-label="Check"><b>${esc(kindLabel(r.kind))}</b>
         <div class="muted" style="font-size:12px">${esc(r.detail || "")}</div></td>
       <td style="white-space:nowrap">
         <button class="btn" onclick="bpResolveIssue(${r.id},'accepted')">Accept</button>
         <button class="btn" onclick="bpResolveIssue(${r.id},'ignored')">Ignore</button>
       </td></tr>`).join("");
+    const acceptLabel = scoped ? `Accept these ${rows.length}` : "Accept all";
+    const ignoreLabel = scoped ? `Ignore these ${rows.length}` : "Ignore all";
     host.innerHTML = `<h1>Review</h1>
+      ${scoped ? `<div class="card pad" style="margin-bottom:14px;background:var(--hair)">
+        <b>Showing ${rows.length} item${rows.length === 1 ? "" : "s"}${
+          kindFilter ? ` · ${esc(kindText)}` : ""} for ${esc(scopeLabel)}</b>
+        ${allRows.length > rows.length ? `<div class="muted" style="font-size:12.5px;margin-top:4px">
+          The other ${allRows.length - rows.length} open item${
+            allRows.length - rows.length === 1 ? "" : "s"} ${
+            allRows.length - rows.length === 1 ? "is" : "are"} outside this filter.</div>` : ""}
+        <div style="margin-top:8px"><button class="btn"
+          onclick="bpIssuesAll()">All review items</button></div></div>` : ""}
       <div class="card pad" style="margin-bottom:14px">
         <b>${rows.length} item${rows.length === 1 ? "" : "s"} to review</b>
         <div class="muted" style="font-size:12.5px;margin-top:4px">Each item is one check on
@@ -1757,19 +1801,30 @@ function renderIssues() {
       <th class="n">Amount (${currency()})</th>
       <th class="n">Balance (${currency()})</th><th>Check</th><th></th></tr>${body}</table></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn" onclick="bpResolveAll('accepted')">Accept all</button>
-        <button class="btn" onclick="bpResolveAll('ignored')">Ignore all</button>
+        <button class="btn" onclick="bpResolveAll('accepted')">${acceptLabel}</button>
+        <button class="btn" onclick="bpResolveAll('ignored')">${ignoreLabel}</button>
         <button class="btn" onclick="go('gaps')">Data health</button>
-        <button class="btn" title="Recompute every account's review items from the rows already held"
-          onclick="bpRecheckAll(this)">Re-check all accounts</button></div>`;
+        ${accountFilter
+          ? `<button class="btn" title="Recompute this account's review items from the rows already held"
+              onclick="bpRecheckAccount(${jsArg(accountFilter)})">Re-check this account</button>`
+          : `<button class="btn" title="Recompute every account's review items from the rows already held"
+              onclick="bpRecheckAll(this)">Re-check all accounts</button>`}</div>`;
   })();
   return "";
 }
+window.bpIssuesFor = (accountId = "", kind = "", label = "") => {
+  window.bpState = { ...(window.bpState || {}), issueAccount: accountId || "",
+    issueKind: kind || "", issueAccountLabel: label || "" };
+  go("issues");
+};
+window.bpIssuesAll = () => window.bpIssuesFor("", "", "");
 window.bpResolveAll = async (state) => {
+  const ids = window.bpIssueIds || [];
+  if (!ids.length) return;
   const what = state === "accepted" ? "accept" : "ignore";
-  if (!confirm(`Mark every open review item as ${what}?`)) return;
+  if (!confirm(`Mark ${ids.length} review item${ids.length === 1 ? "" : "s"} as ${what}?`)) return;
   const store = await import("./db.js");
-  await store.resolveAllIssues(state);
+  await store.resolveIssueIds(ids, state);
   go("issues");
 };
 window.bpResolveIssue = async (id, state) => {
@@ -5960,7 +6015,7 @@ async function renderRealHome() {
         <ul class="muted" style="font-size:13px;margin:6px 0 0;padding-left:20px">
           ${issues.map((i) => `<li>${i}</li>`).join("")}</ul>
         ${sum.issues ? `<div style="margin-top:10px"><button class="btn"
-          onclick="go('issues')">Review items</button></div>` : ""}</div>` : ""}
+          onclick="bpIssuesAll()">Review items</button></div>` : ""}</div>` : ""}
 
       <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="go('assets')">Manage assets</button>
@@ -6038,8 +6093,8 @@ async function renderGaps() {
       <td style="white-space:nowrap">
         ${a.missing_date ? `<button class="btn" onclick="bpGap(${jsArg(a.account_id)},'date')">Dates</button>` : ""}
         ${a.missing_balance ? `<button class="btn" onclick="bpGap(${jsArg(a.account_id)},'balance')">Balances</button>` : ""}
-        ${a.breaks ? `<button class="btn" onclick="go('issues')">Breaks</button>` : ""}
-        ${a.items ? `<button class="btn" onclick="go('issues')">Review ${a.items}</button>` : ""}
+        ${a.breaks ? `<button class="btn" onclick="bpIssuesFor(${jsArg(a.account_id)},'balance_break',${jsArg(a.label || a.account_id)})">Breaks</button>` : ""}
+        ${a.items ? `<button class="btn" onclick="bpIssuesFor(${jsArg(a.account_id)},'',${jsArg(a.label || a.account_id)})">Review ${a.items}</button>` : ""}
         <button class="btn" title="Recompute this account's review items from the rows already held"
           onclick="bpRecheckAccount(${jsArg(a.account_id)})">Re-check</button>
       </td></tr>`).join("");
@@ -6110,7 +6165,7 @@ async function renderGaps() {
       ${noValueHtml}
 
       <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-        ${breaks ? `<button class="btn" onclick="go('issues')">Review ${breaks} balance breaks</button>` : ""}
+        ${breaks ? `<button class="btn" onclick="bpIssuesFor('','balance_break')">Review ${breaks} balance breaks</button>` : ""}
         <button class="btn" onclick="go('assets')">Open assets</button>
         <button class="btn" onclick="go('import')">Re-import workbook</button>
       </div>`;
@@ -6364,7 +6419,7 @@ function renderHome() {
         <span class="pill ${d.issues ? "warn" : "ok"}">${d.issues ? d.issues + " items need a decision" : "all statements reconciled"}</span>
         <span class="muted" style="font-size:12.5px">${d.issues ? "Balance breaks and possible duplicates from the last import." : "Every statement's balance chain is consistent."}</span>
       </div>
-      <a class="link" href="#" onclick="go('issues');return false" style="font-size:13px">Review →</a>
+      <a class="link" href="#" onclick="bpIssuesAll();return false" style="font-size:13px">Review →</a>
     </div>
     <div class="hero"><div class="lbl">Net worth</div><div class="num">${sym} ${inr(d.net_worth)}</div>
       <div class="chips"><span>${imported} of ${d.accounts.length} bank accounts imported</span>

@@ -611,6 +611,12 @@ export function makeStore(SQLlib, save) {
   store.resolveIssue = (id, state) => {
     conn.run("UPDATE issue SET state=? WHERE id=?", [state, id]);
   };
+  store.resolveIssueIds = (ids, state) => {
+    if (!ids || !ids.length) return 0;
+    const marks = ids.map(() => "?").join(",");
+    conn.run(`UPDATE issue SET state=? WHERE id IN (${marks})`, [state, ...ids]);
+    return all("SELECT changes() AS n")[0]?.n || 0;
+  };
   store.resolveAllIssues = (state) => {
     conn.run("UPDATE issue SET state=? WHERE state='open'", [state]);
   };
@@ -1233,6 +1239,13 @@ export async function resolveIssue(id, state) {
   browserStore.resolveIssue(id, state);
   await browserStore.save();
   return true;
+}
+
+export async function resolveIssueIds(ids, state) {
+  if (!browserStore) await openDb();
+  const n = browserStore.resolveIssueIds(ids, state);
+  await browserStore.save();
+  return n;
 }
 
 export async function query(sql, params = []) {
