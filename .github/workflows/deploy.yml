@@ -1,0 +1,81 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "worker/**"
+      - "scripts/pages/**"
+      - "scripts/build-pages.sh"
+      - ".github/workflows/deploy.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "worker/**"
+      - "scripts/pages/**"
+      - "scripts/build-pages.sh"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: "!contains(github.event.head_commit.message, '[skip deploy]')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build the Pages bundle
+        run: BP_COMMIT="$(git rev-parse --short HEAD)" bash scripts/build-pages.sh
+
+      - name: Check Cloudflare credentials
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || {
+            echo "::error::Add CLOUDFLARE_API_TOKEN in Settings > Secrets and variables > Actions. See docs/DEPLOY.md."
+            exit 1
+          }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || {
+            echo "::error::Add CLOUDFLARE_ACCOUNT_ID in Settings > Secrets and variables > Actions. See docs/DEPLOY.md."
+            exit 1
+          }
+
+      - name: Deploy to Cloudflare Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          cd build/pages
+          npx --yes wrangler@4.153.0 pages deploy \
+            --project-name bankpipe \
+            --branch main \
+            --commit-dirty=true
+
+      - name: Verify production serves this commit
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          want="$(git rev-parse --short HEAD)"
+          for attempt in $(seq 1 18); do
+            got="$(curl -fsS -H 'Cache-Control: no-cache' \
+              "https://bankpipe.pages.dev/version.json?ts=$(date +%s)" | jq -r .commit || true)"
+            echo "attempt $attempt: production reports $got, want $want"
+            if [ "$got" = "$want" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Production did not report commit $want. Check the Pages deployment log."
+          exit 1

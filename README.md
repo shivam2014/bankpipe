@@ -169,6 +169,15 @@ account number and amount in it is invented.
 4. Anything that does not reconcile lands in **Review** with the figures. **Health**
    shows the state of every account.
 
+## Deploy
+
+Pushing to `main` runs `.github/workflows/deploy.yml`, builds `build/pages`, and deploys
+the `bankpipe` Cloudflare Pages project. One-time setup: add `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` as repository secrets. See [docs/DEPLOY.md](./docs/DEPLOY.md).
+
+The ledger lives in the browser's IndexedDB, so a deploy replaces static files only. It
+does not touch the database.
+
 ## Tests
 
 ```bash
@@ -211,6 +220,8 @@ The optional Drive broker in `worker/` has its own suite: `cd worker && node --t
 | `docs/diagrams/` | Mermaid sources and their rendered SVGs |
 | `scripts/docs/` | docs generator and renderer, with their own pinned tooling |
 | `.github/workflows/docs.yml` | checks generated docs and updates them on `main` |
+| `.github/workflows/deploy.yml` | builds and deploys the Pages project on `main` |
+| `docs/DEPLOY.md` | deploy workflow, secrets, rollback and database notes |
 | `docs/UI-REVIEW.md` | running UI issue log |
 | `BACKUP.md` | backup format, restore path and failure modes |
 | `DEMAT_INTEGRATION.md` | proposal for CAS import, not built |
