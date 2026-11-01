@@ -189,13 +189,14 @@ label.field textarea{resize:vertical;min-height:58px}
 .unlinked-fds summary::-webkit-details-marker{display:none}
 .acct-sections{margin:0 0 4px 14px;border-left:1px dashed var(--line);padding-left:8px;padding-right:14px;box-sizing:border-box}
 .acct-sec + .acct-sec{border-top:1px solid var(--hair)}
-.acct-sec-head{display:grid;grid-template-columns:minmax(0,1fr) 32px;gap:2px;align-items:center}
-.acct-sec-head.no-toggle{grid-template-columns:minmax(0,1fr)}
-.acct-sec-toggle{width:32px;height:32px;border:0;background:none;color:var(--muted);cursor:pointer;border-radius:8px;display:grid;place-items:center;font-size:13px;line-height:1;flex-shrink:0}
+.acct-sec-head{display:grid;grid-template-columns:28px minmax(0,1fr);gap:2px;align-items:center}
+.acct-sec-head.no-toggle{grid-template-columns:28px minmax(0,1fr)}
+.acct-sec-spacer{display:block;width:28px;height:1px}
+.acct-sec-toggle{width:28px;height:28px;border:0;background:none;color:var(--muted);cursor:pointer;border-radius:8px;display:grid;place-items:center;font-size:11px;line-height:1;flex-shrink:0}
 .acct-sec-toggle:hover{background:var(--hair);color:var(--ink)}
 .acct-sec-toggle span{display:block;transition:transform .15s}
 .acct-sec-toggle[aria-expanded="false"] span{transform:rotate(-90deg)}
-.acct-sec-body{padding:0 0 6px}
+.acct-sec-body{padding:0 0 6px 30px}
 .acct-sec-body[hidden]{display:none}
 .acct-sec-body .subrow{font-size:12px}
 .acct-sec-empty{padding:2px 0 6px;line-height:1.45;font-size:12px}
@@ -4101,13 +4102,14 @@ function accountSectionsHtml({
     const id = `acct-${slug}-${kind}`;
     return `<div class="acct-sec">
       <div class="acct-sec-head${toggle ? "" : " no-toggle"}">
+        ${toggle ? `<button class="acct-sec-toggle" type="button" aria-expanded="true"
+          aria-controls="${id}" aria-label="Collapse ${label}" data-label="${label}"
+          onclick="bpSectionToggle(this)"><span aria-hidden="true">▾</span></button>`
+          : `<span class="acct-sec-spacer" aria-hidden="true"></span>`}
         <a class="subrow acct-sec-link" href="#" onclick="${href};return false">
           <span class="nm">${label}</span>
           <span class="amt">${amount}</span>
           <span class="pc">›</span></a>
-        ${toggle ? `<button class="acct-sec-toggle" type="button" aria-expanded="true"
-          aria-controls="${id}" aria-label="Collapse ${label}" data-label="${label}"
-          onclick="bpSectionToggle(this)"><span aria-hidden="true">▾</span></button>` : ""}
       </div>
       ${body ? `<div class="acct-sec-body" id="${id}">${body}</div>` : ""}
     </div>`;
