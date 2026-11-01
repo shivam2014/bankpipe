@@ -11,9 +11,21 @@
 
 const MAGIC = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 
+export function hasEncryptionStreams(streams) {
+  return Boolean(streams && streams.EncryptionInfo && streams.EncryptedPackage);
+}
+
+// An OLE2 container is not proof of encryption: every legacy .xls file is one
+// too, and it holds a Workbook stream instead. Only the two streams an
+// encrypted OOXML package carries mean the file needs a password.
 export function isEncryptedOffice(bytes) {
   if (!bytes || bytes.length < 8) return false;
-  return MAGIC.every((b, i) => bytes[i] === b);
+  if (!MAGIC.every((b, i) => bytes[i] === b)) return false;
+  try {
+    return hasEncryptionStreams(readCfb(bytes));
+  } catch (e) {
+    return false;
+  }
 }
 
 // --- small helpers ---------------------------------------------------------
