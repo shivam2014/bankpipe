@@ -203,7 +203,6 @@ label.field textarea{resize:vertical;min-height:58px}
 .acct-sec-body{padding:0 0 6px 28px}
 .acct-sec-body[hidden]{display:none}
 .acct-sec-body .subrow{font-size:12px}
-.acct-sec-note{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;margin-left:4px}
 .locker-row{display:grid;grid-template-columns:minmax(0,1fr) 18px;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--hair);text-decoration:none;color:inherit;font-size:12.5px;width:100%;box-sizing:border-box}
 .locker-row:first-child{border-top:0}
 .locker-main{min-width:0}
@@ -4123,7 +4122,7 @@ function accountSectionsHtml({
   fds = [], activeFds = [], lockers = [], fdRow, currency = "", variant = "",
 }) {
   const slug = String(acc.id).replace(/[^A-Za-z0-9_-]/g, "-");
-  const section = ({ kind, label, amount, body = "", toggle = false, href = open, note = "" }) => {
+  const section = ({ kind, label, amount, body = "", toggle = false, href = open }) => {
     const id = `acct-${slug}-${kind}`;
     return `<div class="acct-sec">
       <div class="acct-sec-head${toggle ? "" : " no-toggle"}">
@@ -4132,7 +4131,7 @@ function accountSectionsHtml({
           onclick="bpSectionToggle(this)"><span aria-hidden="true">▾</span></button>`
           : `<span class="acct-sec-spacer" aria-hidden="true"></span>`}
         <a class="subrow acct-sec-link" href="#" onclick="${href};return false">
-          <span class="nm">${label}${note ? ` <span class="acct-sec-note">${note}</span>` : ""}</span>
+          <span class="nm">${label}</span>
           <span class="amt">${amount}</span>
           <span class="pc">›</span></a>
       </div>
@@ -4158,7 +4157,7 @@ function accountSectionsHtml({
       amount: contentsCount
         ? `<span class="muted">${contentsCount} item${contentsCount === 1 ? "" : "s"}</span>`
         : "—",
-      toggle: true, href: openLockers, note: "custody",
+      toggle: true, href: openLockers,
       body: lockers.length ? lockers.map((l) => lockerRowHtml(acc, l)).join("")
         : `<div class="muted acct-sec-empty">No lockers recorded. Use Add locker on the account page.</div>`,
     }),
@@ -5103,7 +5102,7 @@ function renderAccount() {
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
         <h2 style="margin:0">Lockers${lockers.length ? ` <span class="muted"
           style="font-weight:400;font-size:12px;text-transform:none;letter-spacing:0">${lockerItems}
-          item${lockerItems === 1 ? "" : "s"} · custody</span>` : ""}</h2>
+          item${lockerItems === 1 ? "" : "s"}</span>` : ""}</h2>
         <button class="mini-btn" onclick="bpLockerNew(${jsArg(account.id)})">Add locker</button>
       </div>
       ${window.bpLockerFormAccount === account.id ? lockerFormHtml(account, window.bpLockerEditing) : ""}

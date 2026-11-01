@@ -70,9 +70,11 @@ test("lockers are custody, not an asset value", () => {
   assert.match(html, /class="locker-row"/);
   assert.match(html, /locker-stored/);
   assert.match(html, /locker-cost/);
-  assert.match(html, /note: "custody"/);
   assert.match(html, /Contents memo/);
   assert.match(html, /Renews \$\{esc\(dateLabel\(l\.renewal_date\)\)\}/);
   assert.doesNotMatch(html, /Locker contents/);
   assert.doesNotMatch(html, /inside, not counted/);
+  assert.doesNotMatch(html, /acct-sec-note/);
+  assert.doesNotMatch(html, /note: "custody"/);
+  assert.doesNotMatch(html, /· custody/);
 });
