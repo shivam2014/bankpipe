@@ -7,7 +7,7 @@ const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 test("every account card renders Savings, fixed deposits and lockers", () => {
   assert.match(html, /function accountSectionsHtml/);
   assert.match(html, /kind: "savings", label: "Savings"/);
-  assert.match(html, /kind: "fds", label: `Fixed deposits \(\$\{fds\.length\}\)`/);
+  assert.match(html, /kind: "fds", label: `Fixed deposits \(\$\{activeFds\.length\}\)`/);
   assert.match(html, /kind: "lockers", label: `Lockers \(\$\{lockers\.length\}\)`/);
   const calls = html.match(/accountSectionsHtml\(\{/g) || [];
   assert.ok(calls.length >= 4,
@@ -77,4 +77,13 @@ test("lockers are custody, not an asset value", () => {
   assert.doesNotMatch(html, /acct-sec-note/);
   assert.doesNotMatch(html, /note: "custody"/);
   assert.doesNotMatch(html, /· custody/);
+});
+
+test("matured FDs are collapsed history inside fixed deposits", () => {
+  assert.match(html, /maturedFds = \[\]/);
+  assert.match(html, /<details class="fd-matured">/);
+  assert.match(html, /Matured \(\$\{maturedFds\.length\}\)/);
+  assert.match(html, /label: `Fixed deposits \(\$\{activeFds\.length\}\)`/);
+  assert.doesNotMatch(html, /History · not in the total above/);
+  assert.match(html, /History · not in current assets/);
 });
