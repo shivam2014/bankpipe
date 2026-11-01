@@ -59,3 +59,8 @@ test("the bank account row aligns with the section labels", () => {
   assert.match(html, /\.acct-bank-row \.nm\{white-space:normal;overflow:visible;text-overflow:clip;line-height:1\.35\}/);
   assert.match(html, /\.acct-sec-body\{padding:0 0 6px 28px\}/);
 });
+
+test("the bank account list uses the assets page inset", () => {
+  assert.match(html, /class="bank-subs acct-list"/);
+  assert.match(html, /\.bank-subs\.acct-list\{margin-left:14px;padding-left:8px;width:calc\(100% - 14px\)\}/);
+});

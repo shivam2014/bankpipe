@@ -172,6 +172,7 @@ label.field textarea{resize:vertical;min-height:58px}
 .ifsc-tag{display:inline-block;padding:1px 5px;border-radius:99px;background:var(--card);border:1px solid var(--line);color:var(--blue);font-size:9px;font-weight:700;letter-spacing:.04em}
 .bank-group{display:block}
 .bank-subs{margin:-2px 0 6px 40px;border-left:1px solid var(--line);padding-left:10px;padding-right:14px;width:calc(100% - 40px);box-sizing:border-box}
+.bank-subs.acct-list{margin-left:14px;padding-left:8px;width:calc(100% - 14px)}
 .fd-subs{margin:0 0 4px 14px;border-left:1px dashed var(--line);padding-left:8px;padding-right:14px;width:calc(100% - 14px);box-sizing:border-box}
 .fd-sub{font-size:11.5px;color:var(--muted)}
 .fd-sub .amt{font-size:11.5px}
@@ -4230,7 +4231,7 @@ function bankRow(g, total, fdLinks, lockerMap = new Map()) {
       </div>
       <div class="vl">${money(g.total)}<div class="sub" style="text-align:right">${Math.round(share)}% of bank total</div></div>
       <div class="pc">›</div></a>
-    ${subs ? `<div class="bank-subs">${subs}</div>` : ""}
+    ${subs ? `<div class="bank-subs acct-list">${subs}</div>` : ""}
   </div>`;
 }
 async function findFdAccount(store, fd, accounts) {
