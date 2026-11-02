@@ -962,6 +962,7 @@ function nav() {
 }
 import { parseStatement, chronological, auditStatement, rowsFromCsv, scanPreamble, guessAccount, parseMoney } from "./parse.js";
 import { reorderByChain } from "./ledger.js";
+import { balanceConventionFromSheet } from "./balance-formula.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
 import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, allocationGroups, importFillPlan } from "./assets.js";
@@ -3048,6 +3049,10 @@ async function importWorkbook(file) {
     await new Promise((r) => setTimeout(r, 0));
     const rows = sheetRows(wb.Sheets[name]);
     const rawRows = sheetRows(wb.Sheets[name], true);
+    // The formula in the balance column is proof of the convention; the chain
+    // is only the fallback for CSVs and value-only columns.
+    const formulaConvention = sp && sp.purpose === "transactions"
+      ? balanceConventionFromSheet(wb.Sheets[name], sp, rows) : "";
     if (sp && sp.purpose === "register") {
       const planOk = assetPlan && Number(assetPlan.sheet_index) === si
         && /description/i.test(String(rows[0]?.[0] || ""))
@@ -3255,7 +3260,9 @@ async function importWorkbook(file) {
     // Dates place rows on a day; the running balance places rows inside it.
     // Adopt the repaired order only when the whole chain reconciles, otherwise
     // keep the sheet exactly as typed and let the existing flags stand.
-    const ordered = reorderByChain(chronological(parsed), { opening });
+    const ordered = reorderByChain(chronological(parsed), {
+      opening, convention: formulaConvention,
+    });
     const res = await store.importRows(account, ordered.rows, {
       batch,
       receipt: receiptFrom(ordered.rows, {
@@ -6277,7 +6284,8 @@ async function renderGaps() {
       const moved = Number(r?.reorder?.moved || 0);
       const reason = String(r?.reorder?.reason || "");
       const convention = r?.reorder?.convention === "opening"
-        ? "balance convention: opening" : "";
+        ? `balance convention: opening (${r.reorder.conventionSource === "formula"
+          ? "formula" : "inferred"})` : "";
       const sign = Number(r?.reorder?.signCorrected || 0);
       const signText = sign
         ? `sign corrected on ${count(sign)} row${sign === 1 ? "" : "s"}` : "";

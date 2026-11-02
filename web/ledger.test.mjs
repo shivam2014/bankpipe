@@ -510,8 +510,39 @@ test("the SCB joint block adopts the opening convention and repairs two signs", 
   assert.deepEqual(res.rows.map((r) => r.amount),
     [55480, 250000, -1479500, -1479500, -1479500]);
   assert.equal(res.convention, "opening");
+  assert.equal(res.conventionSource, "inferred");
   assert.equal(res.signCorrected, 2);
   assert.equal(res.reason, "");
+});
+
+test("a formula verdict forces the opening convention", () => {
+  const rows = [
+    { id: 1, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+    { id: 2, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 3, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, date: "2025-03-15", amount: -250000, balance: 9928272 },
+    { id: 5, date: "2025-03-13", amount: -55480, balance: 9872792 },
+  ];
+  const res = reorderByChain(rows, { opening: 9872792, convention: "opening" });
+  assert.equal(res.convention, "opening");
+  assert.equal(res.conventionSource, "formula");
+  assert.equal(res.signCorrected, 2);
+});
+
+test("a formula post verdict is not overridden by inference", () => {
+  const rows = [
+    { id: 1, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+    { id: 2, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 3, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, date: "2025-03-15", amount: -250000, balance: 9928272 },
+    { id: 5, date: "2025-03-13", amount: -55480, balance: 9872792 },
+  ];
+  const res = reorderByChain(rows, { opening: 9872792, convention: "post" });
+  assert.equal(res.reordered, false);
+  assert.equal(res.convention, "");
+  assert.equal(res.signCorrected, 0);
+  assert.match(res.reason, /chain does not reconcile/);
+  assert.deepEqual(res.rows, rows);
 });
 
 test("the same opening block with correct signs is not flipped", () => {
@@ -524,6 +555,7 @@ test("the same opening block with correct signs is not flipped", () => {
   ];
   const res = reorderByChain(rows, { opening: 9872792 });
   assert.equal(res.convention, "opening");
+  assert.equal(res.conventionSource, "inferred");
   assert.equal(res.signCorrected, 0);
   assert.deepEqual(res.rows.map((r) => r.amount),
     [55480, 250000, -1479500, -1479500, -1479500]);

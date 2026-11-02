@@ -267,31 +267,38 @@ function requiredSigns(rows, convention, opening) {
 // whole ordered run verifies. A sign repair is attempted only on a run that
 // ordered cleanly but broke the chain; it is kept only when the flipped rows
 // verify from scratch. Ambiguous or repeated days are never sign-repaired.
-function reorderSegment(segment, { opening = null } = {}) {
-  const empty = { rows: segment, moved: 0, reason: "", convention: "", signCorrected: 0 };
+function reorderSegment(segment, { opening = null, convention = "" } = {}) {
+  const empty = { rows: segment, moved: 0, reason: "", convention: "",
+    conventionSource: "", signCorrected: 0 };
   if (segment.length < 2) return empty;
   const reasons = [];
   const orders = [];
-  for (const convention of ["post", "opening"]) {
-    const order = orderFor(segment, convention);
-    orders.push({ convention, order });
+  const conventions = convention ? [convention] : ["post", "opening"];
+  for (const each of conventions) {
+    const order = orderFor(segment, each);
+    orders.push({ convention: each, order });
     if (order.reason) { reasons.push(order.reason); continue; }
-    if (verifyOrder(order.rows, convention, opening)) {
+    if (verifyOrder(order.rows, each, opening)) {
       const moved = order.rows.reduce((n, row, i) => n + (segment[i] === row ? 0 : 1), 0);
       return { rows: moved ? order.rows : segment, moved, reason: "",
-        convention: convention === "opening" ? "opening" : "", signCorrected: 0 };
+        convention: each === "opening" ? "opening" : "",
+        conventionSource: convention ? "formula"
+          : (each === "opening" ? "inferred" : ""),
+        signCorrected: 0 };
     }
   }
-  for (const { convention, order } of orders) {
+  for (const { convention: each, order } of orders) {
     if (order.reason) continue;
-    const flips = requiredSigns(order.rows, convention, opening);
+    const flips = requiredSigns(order.rows, each, opening);
     if (!flips || !flips.length) continue;
     const fixed = order.rows.map((row, i) =>
       flips.includes(i) ? { ...row, amount: -row.amount } : row);
-    if (verifyOrder(fixed, convention, opening)) {
+    if (verifyOrder(fixed, each, opening)) {
       const moved = order.rows.reduce((n, row, i) => n + (segment[i] === row ? 0 : 1), 0);
       return { rows: fixed, moved, reason: "",
-        convention: convention === "opening" ? "opening" : "",
+        convention: each === "opening" ? "opening" : "",
+        conventionSource: convention ? "formula"
+          : (each === "opening" ? "inferred" : ""),
         signCorrected: flips.length };
     }
     reasons.push("chain does not reconcile");
@@ -312,23 +319,31 @@ function reorderSegment(segment, { opening = null } = {}) {
 // much was repaired without naming a row. A reason is returned for every run
 // that declined and for every anchored row, so silence means "nothing needed
 // to move", never "the pass gave up".
-export function reorderByChain(rows = [], { opening = null } = {}) {
+export function reorderByChain(rows = [], { opening = null, convention = "" } = {}) {
+  const fixed = convention === "post" || convention === "opening" ? convention : "";
   const list = rows || [];
   const out = [];
   const missing = { date: 0, amount: 0, balance: 0 };
   const declined = [];
   let moved = 0;
   let signCorrected = 0;
-  let convention = "";
+  let conventionOut = fixed === "opening" ? "opening" : "";
+  let conventionSource = fixed === "opening" ? "formula" : "";
   let segment = [];
   let start = 0;
   const flush = () => {
     if (!segment.length) return;
-    const result = reorderSegment(segment, { opening: start === 0 ? opening : null });
+    const result = reorderSegment(segment, {
+      opening: start === 0 ? opening : null, convention: fixed,
+    });
     out.push(...result.rows);
     moved += result.moved;
     signCorrected += result.signCorrected || 0;
-    if (result.convention === "opening") convention = "opening";
+    if (result.convention === "opening") {
+      conventionOut = "opening";
+      if (result.conventionSource === "formula") conventionSource = "formula";
+      else if (!conventionSource) conventionSource = "inferred";
+    }
     if (result.reason) declined.push(result.reason);
     segment = [];
   };
@@ -356,7 +371,7 @@ export function reorderByChain(rows = [], { opening = null } = {}) {
   const sameOrder = moved === 0 && signCorrected === 0 && out.length === list.length
     && out.every((row, i) => row === list[i]);
   return { rows: sameOrder ? list : out, reordered: moved > 0, moved, reason,
-    convention, signCorrected };
+    convention: conventionOut, conventionSource, signCorrected };
 }
 
 export function reconcileChain(rows = []) {
