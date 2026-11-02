@@ -6,6 +6,7 @@ import { dedupePlan, duplicateIds, reconcileChain, orderForChain, reorderByChain
   normNarration, planImport as planMergedImport } from "./ledger.js";
 import { isSealed, sealBytes, openBytes } from "./dbatrest.js";
 import { receiptTotals } from "./receipt.js";
+import { assetShortIdentity } from "./asset-identity.js";
 
 const DB_KEY = "bankpipe.db.v1";
 
@@ -900,9 +901,22 @@ export function makeStore(SQLlib, save) {
       + " WHERE batch IS NOT NULL AND batch <> '' GROUP BY batch"
       + " ORDER BY at DESC, batch DESC LIMIT 1")[0];
     if (!head) return { batch: null, at: null, rows: [], totals: receiptTotals([]) };
-    const rows = all("SELECT receipt FROM import_run WHERE batch=? ORDER BY id", [head.batch])
+    const rows = all("SELECT r.receipt, r.account_id,"
+      + " a.label AS account_label, a.number AS account_number,"
+      + " a.holder AS account_holder FROM import_run r"
+      + " LEFT JOIN account a ON a.id=r.account_id"
+      + " WHERE r.batch=? ORDER BY r.id", [head.batch])
       .map((r) => {
-        try { return JSON.parse(r.receipt || "null"); } catch (e) { return null; }
+        let receipt = null;
+        try { receipt = JSON.parse(r.receipt || "null"); } catch (e) {}
+        if (!receipt || typeof receipt !== "object") return null;
+        if (!Array.isArray(receipt.accounts)) {
+          receipt.accounts = r.account_label
+            ? [assetShortIdentity({ label: r.account_label,
+              number: r.account_number, holder: r.account_holder })]
+            : [];
+        }
+        return receipt;
       })
       .filter((r) => r && typeof r === "object")
       .sort((a, b) => (Number(a.sheet) || 0) - (Number(b.sheet) || 0));
