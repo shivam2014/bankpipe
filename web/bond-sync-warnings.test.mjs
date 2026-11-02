@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { bondSyncNotices, bondSyncConfirmText } from "./bond-sync-warnings.js";
+import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
 
 const mappingLine = "This Demat is mapped to Bonds · portfolio 1."
   + " Applying here will move the mapping to this portfolio.";
@@ -61,36 +61,78 @@ test("a report from another Demat leads the dangers", () => {
   assert.equal(notices.dangers[0], line);
 });
 
-test("the Apply confirm repeats the dangers before the notes", () => {
+test("the dialog body carries the action and the informational notes", () => {
   const text = bondSyncConfirmText({
     target: "bonds-2",
     current: 9,
-    dangers: [mappingLine, "Applying here removes 17 existing lots from this portfolio."],
     notes: ["1 ISIN appears more than once in the Portfolio Report."],
   });
   assert.equal(text, [
     "Replace the holdings on this portfolio with 9 current lots?",
-    mappingLine,
-    "Applying here removes 17 existing lots from this portfolio.",
     "1 ISIN appears more than once in the Portfolio Report.",
   ].join("\n\n"));
 });
 
-test("creating a portfolio names it in the confirm", () => {
+test("creating a portfolio names it in the dialog body", () => {
   const text = bondSyncConfirmText({
     target: "__new__", name: "Bonds · DigiFInn 3122", current: 7,
-    dangers: ["This Demat is already mapped to Bonds · portfolio 1. Creating a new portfolio may duplicate it."],
   });
-  assert.match(text,
-    /^Create “Bonds · DigiFInn 3122” and import 7 current lots\?\n\nThis Demat is already mapped/);
+  assert.equal(text, "Create “Bonds · DigiFInn 3122” and import 7 current lots?");
 });
 
-test("the preview renders dangers above the stats and Apply repeats them", () => {
+test("the accept label names each danger combination", () => {
+  assert.equal(bondSyncAcceptLabel({ mapping: true, removed: 17 }),
+    "Move mapping and remove 17 lots");
+  assert.equal(bondSyncAcceptLabel({ mapping: false, removed: 17 }),
+    "Remove 17 lots");
+  assert.equal(bondSyncAcceptLabel({ mapping: true, removed: 0 }),
+    "Move mapping");
+  assert.equal(bondSyncAcceptLabel({ mapping: false, removed: 0 }),
+    "Replace holdings");
+  assert.equal(bondSyncAcceptLabel({ mapping: false, removed: 1 }),
+    "Remove 1 lot");
+});
+
+test("notices report the kinds behind the accept label", () => {
+  const both = bondSyncNotices({ removed: 17, warnings: [] },
+    { target: "bonds-2", mapped: "bonds-1", mappedLabel: "Bonds · portfolio 1" });
+  assert.deepEqual(both.dangers, [mappingLine,
+    "Applying here removes 17 existing lots from this portfolio."],
+  "the mapping line stays first");
+  assert.equal(both.mapping, true);
+  assert.equal(both.removed, 17);
+  const clean = bondSyncNotices({ removed: 0, warnings: [] },
+    { target: "bonds-1", mapped: "bonds-1" });
+  assert.equal(clean.mapping, false);
+  assert.equal(clean.removed, 0);
+});
+
+test("the preview feeds the dialog and writes only after consent", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.match(html, /\.sync-danger\{color:var\(--red\);font-size:12\.5px;font-weight:600/);
   assert.match(html, /bondSyncNotices\(sync, \{/);
   assert.ok(html.includes("${dangerHtml}<div class=\"stats\">"),
     "dangers come before the numbers");
-  assert.match(html, /confirm\(bondSyncConfirmText\(\{ target, name, current: sync\.current,/);
-  assert.match(html, /confirm\(bondSyncConfirmText\(\{ target, current: sync\.current,/);
+  const dialog = html.slice(html.indexOf('<dialog id="bond-sync-dialog">'),
+    html.indexOf("</dialog>", html.indexOf('<dialog id="bond-sync-dialog">')));
+  assert.match(dialog, /id="bond-sync-dangers" class="sync-danger"/);
+  assert.ok(dialog.indexOf('id="bond-sync-cancel"') < dialog.indexOf('id="bond-sync-accept"'),
+    "Cancel is first in tab order");
+  assert.match(html, /#bond-sync-dialog \.btn\.danger\{background:var\(--red\)/);
+  const start = html.indexOf("window.bpDigiFinnSyncApply = async () => {");
+  const apply = html.slice(start, html.indexOf("function digiFinnCardHtml", start));
+  assert.equal(/\bconfirm\(/.test(apply), false, "no native confirm in the apply path");
+  assert.match(apply, /acceptLabel: bondSyncAcceptLabel\(kinds\)/);
+  const ask = apply.indexOf("await bpBondSyncAsk(");
+  const giveUp = apply.indexOf("if (!accepted) return;");
+  const snapshot = apply.indexOf('snapshotDb("Before DigiFInn bond sync")');
+  const store = apply.indexOf('await import("./db.js")');
+  assert.ok(ask > -1 && giveUp > ask && store > giveUp && snapshot > giveUp,
+    "reads, consent and writes stay in that order");
+  const beforeConsent = apply.slice(ask, giveUp);
+  assert.equal(/\bstore\./.test(beforeConsent), false,
+    "Cancel never reaches a store call");
+  assert.equal(/snapshotDb|replaceHoldings|updateAccount|setSetting/.test(beforeConsent),
+    false, "Cancel never reaches a write");
 });
+
