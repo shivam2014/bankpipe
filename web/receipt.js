@@ -86,6 +86,17 @@ export function receiptFrom(rows, {
       receipt.reorder.conventionSource = order.conventionSource === "formula"
         ? "formula" : "inferred";
     }
+    if (Array.isArray(order.runs) && order.runs.length) {
+      receipt.reorder.runs = order.runs.map((run) => ({
+        from: number(run.from), to: number(run.to),
+        formula: !!run.formula, mixed: !!run.mixed, unreadable: !!run.unreadable,
+        convention: run.convention === "opening" || run.convention === "post"
+          ? run.convention : run.convention === "mixed" ? "mixed" : "",
+        moved: number(run.moved),
+        signCorrected: number(run.signCorrected),
+        reason: run.reason ? String(run.reason) : "",
+      }));
+    }
     if (number(order.signCorrected) > 0) {
       receipt.reorder.signCorrected = number(order.signCorrected);
     }

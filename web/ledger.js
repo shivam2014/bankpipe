@@ -269,7 +269,7 @@ function requiredSigns(rows, convention, opening) {
 // verify from scratch. Ambiguous or repeated days are never sign-repaired.
 function reorderSegment(segment, { opening = null, convention = "" } = {}) {
   const empty = { rows: segment, moved: 0, reason: "", convention: "",
-    conventionSource: "", signCorrected: 0 };
+    conventionSource: "", adopted: "", signCorrected: 0 };
   if (segment.length < 2) return empty;
   const reasons = [];
   const orders = [];
@@ -284,6 +284,7 @@ function reorderSegment(segment, { opening = null, convention = "" } = {}) {
         convention: each === "opening" ? "opening" : "",
         conventionSource: convention ? "formula"
           : (each === "opening" ? "inferred" : ""),
+        adopted: each,
         signCorrected: 0 };
     }
   }
@@ -299,6 +300,7 @@ function reorderSegment(segment, { opening = null, convention = "" } = {}) {
         convention: each === "opening" ? "opening" : "",
         conventionSource: convention ? "formula"
           : (each === "opening" ? "inferred" : ""),
+        adopted: each,
         signCorrected: flips.length };
     }
     reasons.push("chain does not reconcile");
@@ -319,38 +321,65 @@ function reorderSegment(segment, { opening = null, convention = "" } = {}) {
 // much was repaired without naming a row. A reason is returned for every run
 // that declined and for every anchored row, so silence means "nothing needed
 // to move", never "the pass gave up".
-export function reorderByChain(rows = [], { opening = null, convention = "" } = {}) {
-  const fixed = convention === "post" || convention === "opening" ? convention : "";
+export function reorderByChain(rows = [], { opening = null, runs = null } = {}) {
   const list = rows || [];
   const out = [];
   const missing = { date: 0, amount: 0, balance: 0 };
   const declined = [];
   let moved = 0;
   let signCorrected = 0;
-  let conventionOut = fixed === "opening" ? "opening" : "";
-  let conventionSource = fixed === "opening" ? "formula" : "";
   let segment = [];
   let start = 0;
+  let segmentRun = null;
+  const defaultRun = { from: 0, to: 0, formula: false, convention: "",
+    mixed: false, unreadable: false };
+  if (!Array.isArray(runs) || !runs.length) {
+    const numbers = list.map((row, i) => Number(row?.source_row) || i + 1);
+    defaultRun.from = numbers.length ? Math.min(...numbers) : 0;
+    defaultRun.to = numbers.length ? Math.max(...numbers) : 0;
+  }
+  const activeRuns = Array.isArray(runs) && runs.length ? runs : [defaultRun];
+  const states = new Map();
+  const stateFor = (run) => {
+    if (!states.has(run)) states.set(run, { moved: 0, sign: 0,
+      reasons: new Set(), adopted: new Set() });
+    return states.get(run);
+  };
+  const runFor = (row) => {
+    if (!Array.isArray(runs) || !runs.length) return defaultRun;
+    const rowNo = Number(row?.source_row);
+    return runs.find((run) => rowNo >= run.from && rowNo <= run.to) || null;
+  };
   const flush = () => {
     if (!segment.length) return;
+    const fixed = segmentRun && segmentRun.formula && segmentRun.convention
+      ? segmentRun.convention : "";
     const result = reorderSegment(segment, {
       opening: start === 0 ? opening : null, convention: fixed,
     });
     out.push(...result.rows);
     moved += result.moved;
     signCorrected += result.signCorrected || 0;
-    if (result.convention === "opening") {
-      conventionOut = "opening";
-      if (result.conventionSource === "formula") conventionSource = "formula";
-      else if (!conventionSource) conventionSource = "inferred";
-    }
     if (result.reason) declined.push(result.reason);
+    if (segmentRun) {
+      const state = stateFor(segmentRun);
+      state.moved += result.moved;
+      state.sign += result.signCorrected || 0;
+      if (result.reason) state.reasons.add(result.reason);
+      if (segmentRun.formula && segmentRun.convention) {
+        state.adopted.add(segmentRun.convention);
+      } else if (result.adopted) {
+        state.adopted.add(result.adopted);
+      }
+    }
     segment = [];
   };
   for (let i = 0; i < list.length; i++) {
     const row = list[i];
     if (judgeableRow(row)) {
-      if (!segment.length) start = i;
+      const run = runFor(row);
+      if (segment.length && run !== segmentRun) flush();
+      if (!segment.length) { start = i; segmentRun = run; }
       segment.push(row);
       continue;
     }
@@ -362,6 +391,27 @@ export function reorderByChain(rows = [], { opening = null, convention = "" } = 
   }
   flush();
 
+  const reports = activeRuns.map((run) => {
+    const state = stateFor(run);
+    const adopted = new Set(state.adopted);
+    if (run.formula && run.convention) adopted.add(run.convention);
+    let convention = "";
+    if (run.formula && run.convention) convention = run.convention;
+    else if (adopted.size === 1) convention = [...adopted][0];
+    else if (adopted.size > 1) convention = "mixed";
+    return {
+      from: run.from, to: run.to,
+      formula: !!run.formula, mixed: !!run.mixed, unreadable: !!run.unreadable,
+      convention, moved: state.moved, signCorrected: state.sign,
+      reason: [...state.reasons].join(" · "),
+    };
+  });
+  const openingRun = reports.find((run) => run.convention === "opening");
+  const conventionOut = openingRun ? "opening" : "";
+  const conventionSource = openingRun
+    ? (openingRun.formula && !openingRun.mixed && !openingRun.unreadable
+      ? "formula" : "inferred") : "";
+
   const anchors = [];
   const rowsWith = (n, text) => `${n} row${n === 1 ? "" : "s"} ${text}`;
   if (missing.date) anchors.push(rowsWith(missing.date, "without a date"));
@@ -371,7 +421,7 @@ export function reorderByChain(rows = [], { opening = null, convention = "" } = 
   const sameOrder = moved === 0 && signCorrected === 0 && out.length === list.length
     && out.every((row, i) => row === list[i]);
   return { rows: sameOrder ? list : out, reordered: moved > 0, moved, reason,
-    convention: conventionOut, conventionSource, signCorrected };
+    convention: conventionOut, conventionSource, signCorrected, runs: reports };
 }
 
 export function reconcileChain(rows = []) {

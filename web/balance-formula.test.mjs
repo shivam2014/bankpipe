@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 
-import { balanceConventionFromSheet, classifyBalanceFormula }
-  from "./balance-formula.js";
+import { balanceRunsFromSheet, classifyBalanceFormula } from "./balance-formula.js";
 
 const require = createRequire(import.meta.url);
 const XLSX = require("./vendor/xlsx.full.min.js");
@@ -31,6 +30,7 @@ function workbook(formulas = []) {
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   for (let i = 0; i < formulas.length; i++) {
+    if (!formulas[i]) continue;
     const row = i + 2;
     ws[`E${row}`] = { t: "n", f: formulas[i], v: aoa[i + 1][4] };
   }
@@ -47,26 +47,59 @@ test("post-entry formulas classify as post", () => {
   const book = workbook([
     "E1+C2-D2", "E2+C3-D3", "E3+C4-D4", "E4+C5-D5", "E5+C6-D6",
   ]);
-  assert.equal(balanceConventionFromSheet(book.ws, profile, book.matrix), "post");
+  const runs = balanceRunsFromSheet(book.ws, profile, book.matrix);
+  assert.deepEqual(runs, [{ from: 2, to: 6, formula: true, convention: "post",
+    mixed: false, unreadable: false }]);
 });
 
 test("opening formulas classify as opening", () => {
   const book = workbook([
     "E1+C1-D1", "E2+C2-D2", "E3+C3-D3", "E4+C4-D4", "E5+C5-D5",
   ]);
-  assert.equal(balanceConventionFromSheet(book.ws, profile, book.matrix), "opening");
+  const runs = balanceRunsFromSheet(book.ws, profile, book.matrix);
+  assert.deepEqual(runs, [{ from: 2, to: 6, formula: true, convention: "opening",
+    mixed: false, unreadable: false }]);
 });
 
-test("a values-only balance column has no formula evidence", () => {
+test("a values-only balance column is one evidence-free value run", () => {
   const book = workbook();
-  assert.equal(balanceConventionFromSheet(book.ws, profile, book.matrix), "");
+  const runs = balanceRunsFromSheet(book.ws, profile, book.matrix);
+  assert.deepEqual(runs, [{ from: 2, to: 6, formula: false, convention: "",
+    mixed: false, unreadable: false }]);
 });
 
-test("unparseable formulas fall back instead of failing", () => {
+test("formula rows followed by value rows become two runs", () => {
+  const book = workbook([
+    "E1+C1-D1", "E2+C2-D2", "", "", "",
+  ]);
+  const runs = balanceRunsFromSheet(book.ws, profile, book.matrix);
+  assert.deepEqual(runs.map((r) => [r.from, r.to, r.formula, r.convention]), [
+    [2, 3, true, "opening"],
+    [4, 6, false, ""],
+  ]);
+});
+
+test("formula runs that disagree are each classified", () => {
+  const book = workbook([
+    "E1+C1-D1", "E2+C2-D2", "", "E4+C5-D5", "E5+C6-D6",
+  ]);
+  const runs = balanceRunsFromSheet(book.ws, profile, book.matrix);
+  assert.deepEqual(runs.map((r) => [r.from, r.to, r.formula, r.convention]), [
+    [2, 3, true, "opening"],
+    [4, 4, false, ""],
+    [5, 6, true, "post"],
+  ]);
+});
+
+test("unparseable formulas are evidence-free, not a majority guess", () => {
   const book = workbook([
     "SUM(E2:E3)", "SUM(E2:E3)", "SUM(E3:E4)", "SUM(E4:E5)", "SUM(E5:E6)",
   ]);
-  assert.equal(balanceConventionFromSheet(book.ws, profile, book.matrix), "");
+  const runs = balanceRunsFromSheet(book.ws, profile, book.matrix);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].formula, true);
+  assert.equal(runs[0].unreadable, true);
+  assert.equal(runs[0].convention, "");
 });
 
 test("formula shapes name the convention", () => {
@@ -81,9 +114,9 @@ test("formula shapes name the convention", () => {
 
 test("the batch CSV path does not read formulas", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-  assert.match(html, /balanceConventionFromSheet\(wb\.Sheets\[name\], sp, rows\)/);
+  assert.match(html, /balanceRunsFromSheet\(wb\.Sheets\[name\], sp, rows\)/);
   const start = html.indexOf("function bpBatchPrepareSheet");
   const end = html.indexOf("function bpBatchFinishDetect", start);
   assert.ok(start > -1 && end > start);
-  assert.equal(html.slice(start, end).includes("balanceConventionFromSheet"), false);
+  assert.equal(html.slice(start, end).includes("balanceRunsFromSheet"), false);
 });
