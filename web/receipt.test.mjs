@@ -113,6 +113,12 @@ test("a receipt carries the reorder result as a count and a fixed phrase", () =>
         convention: "opening", moved: 4, signCorrected: 2, reason: "" }] });
 });
 
+test("a receipt records an order verified as printed", () => {
+  const receipt = receiptFrom([{ date: "2024-04-02", amount: -50, balance: 100 }],
+    { sheet: 2, read: 1, order: { moved: 0, reason: "", verifiedAsPrinted: true } });
+  assert.equal(receipt.reorder.verifiedAsPrinted, true);
+});
+
 test("a receipt keeps every run even when the line lists three", () => {
   const runs = Array.from({ length: 12 }, (_, i) => ({
     from: i * 2 + 1, to: i * 2 + 2, formula: false, convention: "",

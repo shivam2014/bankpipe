@@ -540,8 +540,44 @@ test("a date inversion is one review item, not a balance break", async () => {
   assert.equal(issues.filter((i) => i.kind === "balance_break").length, 0);
   const odd = issues.filter((i) => i.kind === "out_of_order");
   assert.equal(odd.length, 1);
-  assert.equal(odd[0].detail, "printed after 2024-04-05 but dated 2024-04-04, row 5");
+  assert.equal(odd[0].detail, "1 row (row 5) prints a date earlier than the row above;"
+    + " balances chain, so the order is trusted");
   assert.equal(odd[0].account_id, "pnb");
+});
+
+test("a chained block with several date inversions is one item", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const res = store.importRows("pnb", [
+    { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 2 },
+    { date: "2024-04-05", amount: -20000, balance: 1080000, description: "B", source_row: 3 },
+    { date: "2024-04-04", amount: 5000, balance: 1085000, description: "C", source_row: 4 },
+    { date: "2024-04-03", amount: -1000, balance: 1084000, description: "D", source_row: 5 },
+    { date: "2024-04-06", amount: -2000, balance: 1082000, description: "E", source_row: 6 },
+  ]);
+  assert.equal(res.breaks, 0);
+  const odd = store.listIssues().filter((i) => i.kind === "out_of_order");
+  assert.equal(odd.length, 1);
+  assert.equal(odd[0].detail, "2 rows (rows 4-5) print dates earlier than the row above;"
+    + " balances chain, so the order is trusted");
+});
+
+test("a broken chain keeps one item per date inversion", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", [
+    { date: "2024-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 2 },
+    { date: "2024-04-05", amount: -20000, balance: 1080000, description: "B", source_row: 3 },
+    { date: "2024-04-04", amount: 5000, balance: 1084000, description: "C", source_row: 4 },
+    { date: "2024-04-03", amount: -1000, balance: 1084000, description: "D", source_row: 5 },
+    { date: "2024-04-06", amount: -2000, balance: 1082000, description: "E", source_row: 6 },
+  ]);
+  const odd = store.listIssues().filter((i) => i.kind === "out_of_order");
+  assert.equal(odd.length, 2);
+  assert.deepEqual(odd.map((i) => i.detail).sort(), [
+    "printed after 2024-04-04 but dated 2024-04-03, row 5",
+    "printed after 2024-04-05 but dated 2024-04-04, row 4",
+  ]);
 });
 
 test("a blank date stays in printed order and is flagged, not dropped", async () => {

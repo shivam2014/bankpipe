@@ -36,7 +36,8 @@ export function reorderLine(r) {
     ? [...shown.map(runLabel), more].filter(Boolean).join(" · ") : "";
   const signText = sign
     ? `sign corrected on ${count(sign)} row${sign === 1 ? "" : "s"}` : "";
-  const status = moved ? `reordered ${count(moved)} rows` : "";
+  const status = moved ? `reordered ${count(moved)} rows`
+    : (r?.reorder?.verifiedAsPrinted ? "order verified as printed" : "");
   const state = reason ? (moved ? reason : `order unchanged: ${reason}`) : "";
   const head = [runsText, status, signText].filter(Boolean).join(" · ");
   return [head, state].filter(Boolean).join("\n");

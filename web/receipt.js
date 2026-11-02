@@ -101,6 +101,7 @@ export function receiptFrom(rows, {
     if (number(order.signCorrected) > 0) {
       receipt.reorder.signCorrected = number(order.signCorrected);
     }
+    if (order.verifiedAsPrinted) receipt.reorder.verifiedAsPrinted = true;
   }
   return receipt;
 }
