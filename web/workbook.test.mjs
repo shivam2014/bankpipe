@@ -172,34 +172,19 @@ test("a blank date with an amount carries the previous date", () => {
   assert.equal(out.rows[2].date_carried, true);
 });
 
-test("workbook date cells that are Excel serials become dates", () => {
+test("accepted rows with an empty date carry their source rows", () => {
   const sheet = { header_row: 1, columns: [
     { col: "A", kind: "date", role: "value" },
     { col: "B", kind: "free_text", role: "label" },
     { col: "C", kind: "amount", role: "value" },
-    { col: "D", kind: "amount", role: "value" },
-    { col: "E", kind: "amount", role: "value" },
   ] };
-  const formatted = [
-    ["Date", "Desc", "Debit", "Credit", "Balance"],
-    ["40366", "ONLINE CARD", "2,400.63", "", "77,146.50"],
-    ["40519", "", "", "7,714.65", "84,861.15"],
-    ["17/07/10", "Visa", "2,566.00", "", "82,295.15"],
-    ["12", "not a date", "1.00", "", "82,294.15"],
-  ];
-  const raw = [
-    ["Date", "Desc", "Debit", "Credit", "Balance"],
-    [40366, "ONLINE CARD", "2,400.63", "", "77,146.50"],
-    [40519, "", "", "7,714.65", "84,861.15"],
-    ["17/07/10", "Visa", "2,566.00", "", "82,295.15"],
-    [12, "not a date", "1.00", "", "82,294.15"],
-  ];
-  const out = parseTransactions(formatted, sheet, raw);
-  assert.equal(out.rows[0].date, "2010-07-07");
-  assert.equal(out.rows[1].date, "2010-12-07");
-  assert.equal(out.rows[2].date, "2010-07-17");
-  assert.equal(out.rows[3].date, "");
-  assert.equal(out.serialDates, 2);
+  const out = parseTransactions([
+    ["Date", "Desc", "Amount"],
+    ["", "NO DATE", "-100.00"],
+    ["02/04/2024", "B", "-50.00"],
+  ], sheet);
+  assert.equal(out.rows[0].date, "");
+  assert.deepEqual(out.noDateRows, [2]);
 });
 
 test("a register row becomes an asset record", () => {

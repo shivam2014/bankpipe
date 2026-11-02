@@ -5,7 +5,7 @@
 // Header words are read locally, from the workbook in this browser, only to
 // tell a debit column from a credit or balance column. They never leave.
 
-import { parseDate, parseDateInText, parseExcelSerial, parseMoney } from "./parse.js";
+import { parseDate, parseDateInText, parseMoney } from "./parse.js";
 
 export function colIndex(letter) {
   const s = String(letter || "").toUpperCase().replace(/[^A-Z]/g, "");
@@ -51,7 +51,7 @@ function firstColumn(sheet, kind, role) {
 
 const TOTAL_ROW = /^(total|grand total|b\/f|brought forward|carried forward|opening balance|closing balance)\b/i;
 
-export function parseTransactions(matrix, sheet, rawMatrix = null) {
+export function parseTransactions(matrix, sheet) {
   const headerRow = Math.max(1, sheet.header_row || 1);
   const dateCol = firstColumn(sheet, "date", "value");
   const descCol = firstColumn(sheet, "free_text", "label");
@@ -59,13 +59,13 @@ export function parseTransactions(matrix, sheet, rawMatrix = null) {
   const rows = [];
   let skipped = 0;
   let rowsRead = 0;
-  let serialDates = 0;
   let lastDate = "";
   // Why a row was rejected, and the source rows where a real transaction
   // could still be hiding. Counts and row numbers only; no cell values.
   const reasons = { total: 0, blank: 0, stray: 0, orphan: 0 };
   const strayRows = [];
   const orphanRows = [];
+  const noDateRows = [];
   let opening = null;
 
   for (let r = headerRow; r < matrix.length; r++) {
@@ -76,15 +76,7 @@ export function parseTransactions(matrix, sheet, rawMatrix = null) {
     // them; rows that are entirely empty are formatting, not source rows.
     if (nonEmpty) rowsRead++;
     const rawDate = cell(row, dateCol);
-    const rawCell = rawMatrix ? cell(rawMatrix[r], dateCol) : "";
     let date = parseDate(rawDate) || parseDateInText(rawDate);
-    const serialText = parseExcelSerial(rawDate);
-    if (!date) {
-      const serial = serialText || parseExcelSerial(rawCell);
-      if (serial) { date = serial; serialDates++; }
-    } else if (serialText) {
-      serialDates++;
-    }
     const desc = String(cell(row, descCol) || "").trim();
     const money = {};
     for (const c of amountCols) {
@@ -111,10 +103,7 @@ export function parseTransactions(matrix, sheet, rawMatrix = null) {
     let carried = false;
     if (!date && amount !== null) {
       const raw = String(rawDate || "").trim();
-      const numericCell = typeof rawCell === "number";
-      if (!numericCell && (!raw || /^\d{1,2}$/.test(raw))) {
-        date = lastDate; carried = !!date;
-      }
+      if (!raw || /^\d{1,2}$/.test(raw)) { date = lastDate; carried = !!date; }
     }
     if (date) lastDate = date;
     const blank = !rawDate && amount === null && !desc;
@@ -137,6 +126,7 @@ export function parseTransactions(matrix, sheet, rawMatrix = null) {
       skipped++;
       continue;
     }
+    if (!date && noDateRows.length < 50) noDateRows.push(r + 1);
     rows.push({
       date, description: desc, amount, balance,
       source_row: r + 1,
@@ -144,8 +134,8 @@ export function parseTransactions(matrix, sheet, rawMatrix = null) {
       date_carried: carried,
     });
   }
-  return { rows, skipped, rowsRead, reasons, strayRows, orphanRows, opening,
-    serialDates, headerRow, dateCol, descCol, amountCols };
+  return { rows, skipped, rowsRead, reasons, strayRows, orphanRows, noDateRows,
+    opening, headerRow, dateCol, descCol, amountCols };
 }
 
 export function parseHoldings(matrix, sheet) {
@@ -505,7 +495,7 @@ export function parseSheet(matrix, sheet, rawMatrix) {
       error: sheet ? "not importable" : "no profile for this sheet" };
   }
   if (sheet.purpose === "transactions") {
-    const p = parseTransactions(matrix, sheet, rawMatrix);
+    const p = parseTransactions(matrix, sheet);
     return { kind: "transactions", ...p, error: null };
   }
   if (sheet.purpose === "holdings") {

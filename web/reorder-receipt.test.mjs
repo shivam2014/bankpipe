@@ -68,6 +68,4 @@ test("the page renders the line with its own reason line", () => {
   assert.match(html, /import \{ reorderLine \} from "\.\/reorder-line\.js"/);
   assert.match(html, /white-space:pre-line/);
   assert.match(html, /esc\(reorderLine\(r\)\)/);
-  assert.match(html, /dates read as Excel serials/);
-  assert.match(html, /serialText\(r\)/);
 });
