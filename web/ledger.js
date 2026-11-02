@@ -162,6 +162,92 @@ function chainsFrom(rows, start) {
   return true;
 }
 
+// A block typed newest-first cannot be repaired by dates alone: a wrong date
+// and a genuine gap look the same. The running balance is the authority. Sort
+// by date, rebuild each day from the chain, then require every row to follow
+// the previous one and the first row to agree with the printed opening. Adopt
+// the result only when it reconciles exactly; otherwise keep the file order.
+// `moved` is the number of positions that changed, so the receipt can say how
+// much was repaired without naming a row.
+export function reorderByChain(rows = [], { opening = null } = {}) {
+  const list = rows || [];
+  const unchanged = (reason = "") => ({ rows: list, reordered: false, moved: 0, reason });
+  if (list.length < 2) return unchanged();
+  // Without a date, amount and balance on every row there is no chain to
+  // judge. This is not a failure, so the receipt stays quiet.
+  const judgeable = list.every((r) => r && r.date
+    && r.amount !== null && r.amount !== undefined
+    && r.balance !== null && r.balance !== undefined);
+  if (!judgeable) return unchanged();
+
+  const dated = list.map((row, index) => ({ row, index }))
+    .sort((a, b) => String(a.row.date).localeCompare(String(b.row.date)) || a.index - b.index);
+  const days = [];
+  for (const item of dated) {
+    const day = String(item.row.date);
+    const last = days[days.length - 1];
+    if (last && last.date === day) last.items.push(item);
+    else days.push({ date: day, items: [item] });
+  }
+
+  let balance = opening === null || opening === undefined ? null : Number(opening);
+  const ordered = [];
+  for (const day of days) {
+    const remaining = day.items.slice();
+    // Some statements repeat the end-of-day balance on every row of that day.
+    // There is no intra-day chain to judge, so leave the block as typed.
+    if (remaining.length > 1
+        && remaining.every((item) => item.row.balance === remaining[0].row.balance)) {
+      return unchanged();
+    }
+    if (remaining.length === 1) {
+      const row = remaining[0].row;
+      if (balance !== null && Math.abs(row.balance - (balance + row.amount)) > 1) {
+        return unchanged("chain does not reconcile");
+      }
+      ordered.push(remaining[0]);
+      balance = row.balance;
+      continue;
+    }
+    // A multi-row first day has no previous balance. Its head is the one row
+    // no other row on that day can follow; two heads mean the day is not one
+    // chain, so decline.
+    if (balance === null) {
+      const heads = remaining.filter((item) => !remaining.some((other) =>
+        other !== item
+        && Math.abs(other.row.balance - (item.row.balance - item.row.amount)) <= 1));
+      if (heads.length !== 1) return unchanged("ambiguous within-day order");
+      const head = heads[0];
+      ordered.push(head);
+      remaining.splice(remaining.indexOf(head), 1);
+      balance = head.row.balance;
+    }
+    while (remaining.length) {
+      const matches = remaining.filter((item) =>
+        Math.abs(item.row.balance - (balance + item.row.amount)) <= 1);
+      if (matches.length !== 1) {
+        return unchanged(matches.length ? "ambiguous within-day order"
+          : "chain does not reconcile");
+      }
+      const pick = matches[0];
+      ordered.push(pick);
+      remaining.splice(remaining.indexOf(pick), 1);
+      balance = pick.row.balance;
+    }
+  }
+
+  if (opening !== null && opening !== undefined && ordered.length) {
+    const first = ordered[0].row;
+    if (Math.abs(Number(opening) - (first.balance - first.amount)) > 1) {
+      return unchanged("chain does not reconcile");
+    }
+  }
+
+  const next = ordered.map((item) => item.row);
+  const moved = next.reduce((n, row, i) => n + (list[i] === row ? 0 : 1), 0);
+  return moved ? { rows: next, reordered: true, moved, reason: "" } : unchanged();
+}
+
 export function reconcileChain(rows = []) {
   // A break is more than one paise, the same tolerance the file audit uses, so
   // a one-paise rounding difference does not invent an error.

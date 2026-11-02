@@ -80,6 +80,21 @@ test("the head check compares the printed opening with the first dated row", () 
   assert.equal(mismatch.head.unknown, 1);
 });
 
+test("a receipt carries the reorder result as a count and a fixed phrase", () => {
+  const moved = receiptFrom([
+    { date: "2024-04-01", amount: 100000, balance: 105000 },
+    { date: "2024-04-02", amount: -2500, balance: 102500 },
+  ], { sheet: 2, read: 2, order: { moved: 2, reason: "" } });
+  assert.deepEqual(moved.reorder, { moved: 2, reason: "" });
+  const declined = receiptFrom([
+    { date: "2024-04-01", amount: 100000, balance: 105000 },
+  ], { sheet: 2, read: 2, order: { moved: 0, reason: "chain does not reconcile" } });
+  assert.deepEqual(declined.reorder, { moved: 0, reason: "chain does not reconcile" });
+  const old = receiptFrom([{ date: "2024-04-01", amount: 100000, balance: 105000 }],
+    { sheet: 2, read: 1 });
+  assert.equal("reorder" in old, false);
+});
+
 test("countRows ignores rows that are entirely blank", () => {
   const matrix = [
     ["Date", "Description", "Amount"],

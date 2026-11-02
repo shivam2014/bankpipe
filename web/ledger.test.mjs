@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { dedupePlan, duplicateIds, reconcileChain, orderForChain, statementChain,
-  planImport } from "./ledger.js";
+import { dedupePlan, duplicateIds, reconcileChain, orderForChain, reorderByChain,
+  statementChain, planImport } from "./ledger.js";
 
 const row = (date, amount, balance, extra = {}) => ({ date, amount, balance, ...extra });
 
@@ -324,4 +324,125 @@ test("planImport counts undated and out-of-order rows and the closing match", ()
   assert.equal(plan.outOfOrder, 1);
   assert.deepEqual(plan.closing,
     { printed: 1070000, actual: 1070000, matches: true });
+});
+
+test("an inverted block is reordered only when the chain and opening agree", () => {
+  const rows = [
+    { id: 3, date: "2024-04-03", amount: 2500, balance: 102500 },
+    { id: 2, date: "2024-04-02", amount: -5000, balance: 100000 },
+    { id: 1, date: "2024-04-01", amount: 100000, balance: 105000 },
+  ];
+  const res = reorderByChain(rows, { opening: 5000 });
+  assert.equal(res.reordered, true);
+  assert.equal(res.moved, 2);
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 2, 3]);
+  assert.equal(res.reason, "");
+});
+
+test("a missing transaction keeps the file order and is reported", () => {
+  const rows = [
+    { id: 3, date: "2024-04-03", amount: 2500, balance: 102500 },
+    { id: 1, date: "2024-04-01", amount: 100000, balance: 105000 },
+  ];
+  const res = reorderByChain(rows, { opening: 5000 });
+  assert.equal(res.reordered, false);
+  assert.equal(res.moved, 0);
+  assert.deepEqual(res.rows.map((r) => r.id), [3, 1]);
+  assert.equal(res.reason, "chain does not reconcile");
+});
+
+test("two successors on one day are ambiguous and the file order stands", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 100000, balance: 105000 },
+    { id: 3, date: "2024-04-02", amount: -5000, balance: 100000, note: "b" },
+    { id: 2, date: "2024-04-02", amount: -10000, balance: 95000, note: "a" },
+    { id: 4, date: "2024-04-03", amount: 2500, balance: 102500 },
+  ];
+  const res = reorderByChain(rows, { opening: 5000 });
+  assert.equal(res.reordered, false);
+  assert.equal(res.reason, "ambiguous within-day order");
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 3, 2, 4]);
+});
+
+test("a same-day pair is rebuilt from the chain when only one order works", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 100000, balance: 105000 },
+    { id: 3, date: "2024-04-02", amount: -5000, balance: 97500 },
+    { id: 2, date: "2024-04-02", amount: -2500, balance: 102500 },
+  ];
+  const res = reorderByChain(rows, { opening: 5000 });
+  assert.equal(res.reordered, true);
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 2, 3]);
+  assert.equal(res.moved, 2);
+});
+
+test("a first day without a printed opening is rebuilt from a unique head", () => {
+  const rows = [
+    { id: 2, date: "2024-04-01", amount: -1000, balance: 98000 },
+    { id: 1, date: "2024-04-01", amount: -1000, balance: 99000 },
+  ];
+  // Only the 99,000 row can start the chain; the other follows it.
+  const res = reorderByChain(rows);
+  assert.equal(res.reordered, true);
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 2]);
+  assert.equal(res.moved, 2);
+});
+
+test("a first day with two possible heads is ambiguous", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: -100, balance: 900 },
+    { id: 2, date: "2024-04-01", amount: -50, balance: 950 },
+  ];
+  // Both rows could start from 1,000; neither follows the other.
+  const res = reorderByChain(rows);
+  assert.equal(res.reordered, false);
+  assert.equal(res.reason, "ambiguous within-day order");
+});
+
+test("a day that repeats its closing balance is left alone quietly", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: -100, balance: 900 },
+    { id: 2, date: "2024-04-01", amount: -50, balance: 900 },
+    { id: 3, date: "2024-04-02", amount: 25, balance: 925 },
+  ];
+  const res = reorderByChain(rows, { opening: 1000 });
+  assert.equal(res.reordered, false);
+  assert.equal(res.reason, "");
+  assert.equal(res.rows, rows);
+});
+
+test("an already chronological sheet is a no-op", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 100000, balance: 105000 },
+    { id: 2, date: "2024-04-02", amount: -2500, balance: 102500 },
+    { id: 3, date: "2024-04-03", amount: -5000, balance: 97500 },
+  ];
+  const res = reorderByChain(rows, { opening: 5000 });
+  assert.equal(res.reordered, false);
+  assert.equal(res.moved, 0);
+  assert.equal(res.reason, "");
+  assert.equal(res.rows, rows);
+});
+
+test("a first row that disagrees with the printed opening is not adopted", () => {
+  const rows = [
+    { id: 2, date: "2024-04-02", amount: -2500, balance: 102500 },
+    { id: 1, date: "2024-04-01", amount: 100000, balance: 105000 },
+  ];
+  // The rows chain with each other, but the printed opening says 7000, not the
+  // 5000 implied by the first row.
+  const res = reorderByChain(rows, { opening: 7000 });
+  assert.equal(res.reordered, false);
+  assert.equal(res.reason, "chain does not reconcile");
+});
+
+test("rows without a balance are left alone without a failure line", () => {
+  const rows = [
+    { id: 2, date: "2024-04-02", amount: -2500, balance: null },
+    { id: 1, date: "2024-04-01", amount: 100000, balance: 105000 },
+  ];
+  const res = reorderByChain(rows, { opening: 5000 });
+  assert.equal(res.reordered, false);
+  assert.equal(res.reason, "");
+  assert.equal(res.rows, rows);
 });

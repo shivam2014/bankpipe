@@ -925,6 +925,7 @@ function nav() {
   requestAnimationFrame(() => window.bpNavArrows && window.bpNavArrows());
 }
 import { parseStatement, chronological, auditStatement, rowsFromCsv, scanPreamble, guessAccount, parseMoney } from "./parse.js";
+import { reorderByChain } from "./ledger.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
 import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, allocationGroups, importFillPlan } from "./assets.js";
@@ -1678,30 +1679,32 @@ async function bpBatchCreateAccount(entry) {
   return id;
 }
 
-function bpStatementReceipt(entry) {
+function bpStatementReceipt(entry, order = null) {
   const parsed = entry.parsed || { rows: [] };
-  const rows = parsed.rows || [];
+  // The head check must see the order that was actually stored.
+  const rows = order?.rows || parsed.rows || [];
   // Sheet and CSV statements keep the raw matrix, so the header row is known.
   // A PDF has only the rows the text layer produced.
   const read = entry.rows && parsed.header
     ? countRows(entry.rows, parsed.header)
     : rows.length;
-  return receiptFrom(rows, { sheet: 0, read });
+  return receiptFrom(rows, { sheet: 0, read, order });
 }
 
 async function bpBatchImportOne(entry, batch) {
   if (entry.accountId === "__new__") await bpBatchCreateAccount(entry);
   const account = entry.accountId;
   const incoming = chronological(entry.parsed).map((row) => ({ ...row, account }));
-  const browser = saveTxns(incoming);
+  const ordered = reorderByChain(incoming);
+  const browser = saveTxns(ordered.rows);
   let dbStats = null, dbError = "";
   try {
     const store = await import("./db.js");
     const timeout = (promise, ms, label) => Promise.race([promise, new Promise((_, reject) =>
       setTimeout(() => reject(new Error("timeout: " + label)), ms))]);
     await timeout(store.openDb(), 8000, "openDb");
-    dbStats = await store.importRows(account, incoming,
-      { closing: entry.closing ?? null, batch, receipt: bpStatementReceipt(entry) });
+    dbStats = await store.importRows(account, ordered.rows,
+      { closing: entry.closing ?? null, batch, receipt: bpStatementReceipt(entry, ordered) });
   } catch (e) { dbError = String((e && e.message) || e).slice(0, 90); }
   entry.result = {
     inserted: dbStats ? dbStats.inserted : browser.kept,
@@ -3196,9 +3199,13 @@ async function importWorkbook(file) {
         if (Object.keys(patch).length) await store.updateAccount(account, patch);
       } catch (e) {}
     }
-    const res = await store.importRows(account, chronological(parsed), {
+    // Dates place rows on a day; the running balance places rows inside it.
+    // Adopt the repaired order only when the whole chain reconciles, otherwise
+    // keep the sheet exactly as typed and let the existing flags stand.
+    const ordered = reorderByChain(chronological(parsed), { opening });
+    const res = await store.importRows(account, ordered.rows, {
       batch,
-      receipt: receiptFrom(parsed.rows, {
+      receipt: receiptFrom(ordered.rows, {
         sheet: si,
         read: parsedRead === null
           ? (parsed.header ? countRows(rows, parsed.header) : parsed.rows.length)
@@ -3207,6 +3214,7 @@ async function importWorkbook(file) {
         strayRows,
         orphanRows,
         opening,
+        order: ordered,
       }),
     });
     total += res.inserted;
@@ -6210,6 +6218,16 @@ async function renderGaps() {
         ? ` (+${count(Number(total) - list.length)} more)` : "";
       return `${label}: ${list.join(", ")}${more}`;
     };
+    // The reorder pass is a count and a fixed phrase. A sheet that needed no
+    // change says nothing; a sheet whose chain could not be proven says why.
+    const reorderText = (r) => {
+      const moved = Number(r?.reorder?.moved || 0);
+      if (moved > 0) return `reordered ${count(moved)} rows`;
+      const reason = String(r?.reorder?.reason || "");
+      return reason ? `order unchanged: ${reason}` : "";
+    };
+    const reorderTotal = receiptRows
+      .reduce((n, r) => n + Number(r?.reorder?.moved || 0), 0);
     const sumReasons = reasonText(receiptSum.reasons);
     const sourceCard = receiptRows.length
       ? `<div class="card pad" data-card="source-reconciliation" style="margin-bottom:14px">
@@ -6217,7 +6235,8 @@ async function renderGaps() {
           <div style="font-size:13px;margin-top:6px">${count(receiptSum.read)} read → ${count(receiptSum.parsed)} accepted → ${count(receiptSum.rejected)} rejected</div>
           ${sumReasons ? `<div class="muted" style="font-size:12.5px;margin-top:2px">${sumReasons}</div>` : ""}
           <div class="muted" style="font-size:12.5px;margin-top:2px">${count(receiptSum.noDate)} accepted rows have no date</div>
-          ${receiptRows.map((r) => `<div class="muted" style="font-size:12.5px;margin-top:6px">Sheet ${esc(r.sheet)} · ${count(r.read)} read · ${count(r.rejected)} rejected · ${count(r.noDate)} without a date · ${esc(headText(r))}</div>
+          ${reorderTotal ? `<div class="muted" style="font-size:12.5px;margin-top:2px">reordered ${count(reorderTotal)} rows</div>` : ""}
+          ${receiptRows.map((r) => `<div class="muted" style="font-size:12.5px;margin-top:6px">Sheet ${esc(r.sheet)} · ${count(r.read)} read · ${count(r.rejected)} rejected · ${count(r.noDate)} without a date · ${esc(headText(r))}${reorderText(r) ? ` · ${esc(reorderText(r))}` : ""}</div>
             ${reasonText(r.reasons || {}) ? `<div class="muted" style="font-size:11.5px;margin-left:12px">${reasonText(r.reasons || {})}</div>` : ""}
             ${rowsText("Stray rows", r.stray, r.reasons?.stray) ? `<div class="muted" style="font-size:11.5px;margin-left:12px">${esc(rowsText("Stray rows", r.stray, r.reasons?.stray))}</div>` : ""}
             ${rowsText("Orphan rows", r.orphan, r.reasons?.orphan) ? `<div class="muted" style="font-size:11.5px;margin-left:12px">${esc(rowsText("Orphan rows", r.orphan, r.reasons?.orphan))}</div>` : ""}`).join("")}

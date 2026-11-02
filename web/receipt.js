@@ -23,6 +23,7 @@ export function countRows(matrix, headerRow) {
 // no date is still accepted, and is counted separately so it is visible.
 export function receiptFrom(rows, {
   sheet = 0, read = null, reasons = null, strayRows = [], orphanRows = [], opening = null,
+  order = null,
 } = {}) {
   const accepted = (rows || []).filter(Boolean);
   let noDate = 0, debit = 0, credit = 0, first = "", last = "";
@@ -57,7 +58,7 @@ export function receiptFrom(rows, {
     && row.balance !== null && row.balance !== undefined)
     .slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const openingFromRows = dated.length ? dated[0].balance - dated[0].amount : null;
-  return {
+  const receipt = {
     sheet: number(sheet),
     read: sourceRows,
     parsed: accepted.length,
@@ -73,6 +74,15 @@ export function receiptFrom(rows, {
     opening: opening === null || opening === undefined ? null : number(opening),
     openingFromRows,
   };
+  // The reorder result is a count and a fixed phrase. Rows are never named,
+  // and an older receipt without this field renders exactly as before.
+  if (order && typeof order === "object") {
+    receipt.reorder = {
+      moved: number(order.moved),
+      reason: order.reason ? String(order.reason) : "",
+    };
+  }
+  return receipt;
 }
 
 // The totals the Data health card shows. Kept to the counts on that card so a
