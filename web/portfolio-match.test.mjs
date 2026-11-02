@@ -36,17 +36,14 @@ test("spaces and dashes in one number do not break the match", () => {
 test("index.html blocks Apply sync on a mismatch until the override", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.match(html, /import \{ matchDemat \} from "\.\/portfolio-match\.js"/);
+  assert.match(html, /import \{ dematCardHtml, dematLast4, dematMismatchLine, dematText \} from "\.\/demat-card\.js"/);
   assert.match(html, /matchDemat\(reportDemat, targetDemat\) === "mismatch"/);
-  // The red card names both Demats and offers the four ways out.
-  assert.match(html, /These reports are for Demat/);
-  assert.match(html, /not this portfolio \(…/);
-  assert.match(html, /Import into \$\{esc\(mappedAsset/);
-  assert.match(html, /Create a portfolio for …/);
-  assert.match(html, /Keep this portfolio/);
+  // The card itself lives in demat-card.js; the page only supplies the data.
+  assert.match(html, /return dematCardHtml\(\{/);
+  assert.match(html, /dematMismatchLine\(reportDemat\)/);
   // The apply stays disabled until the person says to import anyway.
   assert.match(html, /onclick="bpDigiFinnSyncApply\(\)"\$\{blocked \? " disabled" : ""\}/);
   assert.match(html, /Import anyway into this portfolio/);
   assert.match(html, /These reports belong to a different Demat\. Use 'Import anyway' if you are sure\./);
-  assert.match(html, /These reports belong to Demat …\$\{dematLast4\(reportDemat\)\}, not this portfolio\./);
 });
 
