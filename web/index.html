@@ -69,7 +69,9 @@ h2{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted
  margin:26px 0 10px;font-weight:680}
 .card{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
  box-shadow:var(--sh)}
-.pad{padding:18px 20px}
+.pad{padding:18px 16px}
+.health-heading{padding-left:16px;padding-right:16px}
+.demat-card{max-width:720px}
 .hero{border:0;color:#fff;padding:26px 28px;border-radius:var(--r);
  background:linear-gradient(135deg,#084b39,#0c6b50 48%,#0f8a68)}
 .hero .lbl{font-size:12.5px;color:rgba(255,255,255,.75)}
@@ -107,6 +109,15 @@ a.link:hover{border-bottom-color:var(--green);color:var(--green)}
  flex-wrap:wrap;margin:14px 0}
 .acct-actions-main,.acct-actions-side{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .health-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+table[data-table^="health-"] td,
+table[data-table^="health-"] th{padding-left:16px;padding-right:16px;border-bottom:0}
+table[data-table^="health-"] th{letter-spacing:.04em}
+table[data-table^="health-"] td{font-weight:560}
+table[data-table^="health-"] td[data-label]::before{font-weight:400;letter-spacing:.04em}
+table[data-table^="health-"] tr:not(:last-child){
+  background-image:linear-gradient(var(--line),var(--line));
+  background-size:calc(100% - 32px) 1px;
+  background-position:16px bottom;background-repeat:no-repeat}
 .fact-edit td{background:var(--hair);padding:10px 12px}
 .fe-grid{display:grid;grid-template-columns:140px minmax(0,1fr) 130px 140px auto;gap:8px;
  align-items:end}
@@ -514,20 +525,18 @@ textarea.inline-input{resize:vertical;min-height:48px}
   table[data-table^="health-"] tbody{display:block;width:100%}
   table[data-table^="health-"] tr:first-child{display:none}
   table[data-table^="health-"] tr{display:flex;flex-wrap:wrap;width:100%;box-sizing:border-box;
-    gap:6px 12px;padding:12px 14px;position:relative;border-top:0}
-  table[data-table^="health-"] tr:nth-child(n+3)::before{content:"";position:absolute;
-    top:0;left:14px;right:14px;border-top:1px solid var(--line)}
+    gap:6px 12px;padding:12px 16px;border-top:0}
   table[data-table^="health-"] td{display:block;flex:1 1 calc(50% - 12px);
     padding:0;border:0;min-width:0;font-size:12.5px}
   table[data-table^="health-"] td.n{text-align:left;white-space:normal}
   table[data-table^="health-"] td:nth-child(1){flex:1 1 100%;font-size:14px;line-height:1.35}
   table[data-table^="health-"] td[data-label]::before{content:attr(data-label);
-    display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
+    display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;
     color:var(--muted);margin-bottom:2px}
   table[data-table^="health-"] td:nth-child(1)::before{content:none}
   table[data-table="health-statements"] td:nth-child(7){flex:1 1 100%}
   table[data-table="health-statements"] .health-actions{justify-content:flex-start}
-  table[data-table="health-statements"] .health-actions .btn{flex:1 1 auto}
+  table[data-table="health-statements"] .health-actions .btn{flex:0 1 auto}
   table[data-table="health-sheets"] td:nth-child(3),
   table[data-table="health-bond-ratings"] td:nth-child(2){flex:1 1 100%}
 }
@@ -6302,7 +6311,7 @@ async function renderGaps() {
 
       ${sourceCard}
 
-      <h2>Checks</h2>
+      <h2 class="health-heading">Checks</h2>
       <div class="card"><table data-table="health-checks"><tr><th>Check</th><th>Status</th><th>Value</th></tr>
         ${checks.map(([name, state, value]) => `<tr><td data-label="Check">${name}</td>
           <td data-label="Status">${pill(state)}</td>
@@ -6310,7 +6319,7 @@ async function renderGaps() {
 
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;
         flex-wrap:wrap;margin:26px 0 10px">
-        <h2 style="margin:0">Statements</h2>
+        <h2 class="health-heading" style="margin:0">Statements</h2>
         <button class="btn" title="Recompute every account's review items from the rows already held"
           onclick="bpRecheckAll(this)">Re-check all accounts</button></div>
       <div class="card"><table data-table="health-statements"><tr><th>Account</th><th class="n">Rows</th>
@@ -6318,7 +6327,7 @@ async function renderGaps() {
         <th class="n">Delta</th><th></th></tr>
         ${accountRows || `<tr><td colspan="7" class="muted">No statements loaded.</td></tr>`}</table></div>
 
-      <h2>Sheets</h2>
+      <h2 class="health-heading">Sheets</h2>
       <div class="card"><table data-table="health-sheets"><tr><th>Sheet</th><th>Status</th>
         <th>Asset</th><th class="n">Rows</th></tr>
         ${sheetMap.length ? sheetMap.map((x) => `<tr><td data-label="Sheet">${x.sheet_index + 1}. ${esc(x.sheet)}</td>
@@ -6327,12 +6336,12 @@ async function renderGaps() {
           : `<tr><td colspan="4" class="muted">Re-import once to record which asset each sheet went to.</td></tr>`}
       </table></div>
 
-      <h2>Register</h2>
+      <h2 class="health-heading">Register</h2>
       <div class="card"><table data-table="health-register"><tr><th>Category</th><th class="n">Assets</th>
         <th class="n">No principal</th><th class="n">No maturity</th><th class="n">No number</th></tr>
         ${registerRows || `<tr><td colspan="5" class="muted">No register assets.</td></tr>`}</table></div>
 
-      <h2>Bond ratings that moved</h2>
+      <h2 class="health-heading">Bond ratings that moved</h2>
       ${ratingDrift.length ? `<div class="card"><table data-table="health-bond-ratings"><tr><th>Bond</th><th>Rating</th></tr>
         ${ratingDrift.map(({ asset, h, change }) => `<tr>
           <td data-label="Bond"><div>${esc(h.label || h.security_id || "—")}</div>
@@ -6343,7 +6352,7 @@ async function renderGaps() {
       </table></div>` : `<div class="card pad muted" style="font-size:13px">No bond rating has
         moved since it was recorded.</div>`}
 
-      <h2>Assets without a value</h2>
+      <h2 class="health-heading">Assets without a value</h2>
       ${noValueHtml}
 
       <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
