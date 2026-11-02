@@ -9,6 +9,22 @@ import { receiptTotals } from "./receipt.js";
 
 const DB_KEY = "bankpipe.db.v1";
 
+// Same grouping as inr() in web/index.html. Issue details are stored strings,
+// so they cannot call the UI helper when the review card renders them.
+const inrText = (p) => {
+  if (p === null || p === undefined) return "—";
+  const v = Math.round(p), neg = v < 0, a = Math.abs(v);
+  const whole = String(Math.trunc(a / 100)), frac = String(a % 100).padStart(2, "0");
+  let out, head = whole.slice(0, -3), tail = whole.slice(-3);
+  if (head) {
+    const parts = [];
+    while (head.length > 2) { parts.unshift(head.slice(-2)); head = head.slice(0, -2); }
+    if (head) parts.unshift(head);
+    out = parts.join(",") + "," + tail;
+  } else out = tail;
+  return (neg ? "-" : "") + out + "." + frac;
+};
+
 // The dashboard view should follow the data, not a stored preference. Any write
 // marks this browser as holding real rows; a wipe clears it. index.html reads
 // this before the first render, so "Use my data" never appears over real data.
@@ -319,7 +335,7 @@ export function makeStore(SQLlib, save) {
     if (balanceBreaks) {
       reconcileChain(rows).issues.forEach((is) => {
         derived.push({ factId: is.id, kind: "balance_break",
-          detail: `balance ${is.actual} expected ${is.expected}` });
+          detail: `balance ${inrText(is.actual)} expected ${inrText(is.expected)}` });
       });
     }
     const wanted = factIds ? new Set(factIds) : null;
@@ -335,7 +351,7 @@ export function makeStore(SQLlib, save) {
       }
       if (previousDate && row.date < previousDate && (!wanted || wanted.has(row.id))) {
         derived.push({ factId: row.id, kind: "out_of_order",
-          detail: `printed after ${previousDate}, before ${row.date}, row ${rowNo}` });
+          detail: `printed after ${previousDate} but dated ${row.date}, row ${rowNo}` });
       }
       previousDate = row.date;
     });

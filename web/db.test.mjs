@@ -540,7 +540,7 @@ test("a date inversion is one review item, not a balance break", async () => {
   assert.equal(issues.filter((i) => i.kind === "balance_break").length, 0);
   const odd = issues.filter((i) => i.kind === "out_of_order");
   assert.equal(odd.length, 1);
-  assert.equal(odd[0].detail, "printed after 2024-04-05, before 2024-04-04, row 5");
+  assert.equal(odd[0].detail, "printed after 2024-04-05 but dated 2024-04-04, row 5");
   assert.equal(odd[0].account_id, "pnb");
 });
 
@@ -592,6 +592,7 @@ test("re-check leaves an accepted balance break accepted", async () => {
   ]);
   const [open] = store.listIssues();
   assert.equal(open.kind, "balance_break");
+  assert.equal(open.detail, "balance 10,790.00 expected 10,800.00");
   store.resolveIssue(open.id, "accepted");
   store.raw().run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
     [null, "pnb", "no_date", "row 9 has no date; amount and balance imported as printed"]);
@@ -623,7 +624,7 @@ test("re-check derives all three review kinds from rows already held", async () 
   assert.equal(undated.detail,
     "row 4 has no date; amount and balance imported as printed");
   const odd = open.find((i) => i.kind === "out_of_order");
-  assert.equal(odd.detail, "printed after 2024-04-05, before 2024-04-04, row 6");
+  assert.equal(odd.detail, "printed after 2024-04-05 but dated 2024-04-04, row 6");
 });
 
 test("a second re-check replaces the same items without duplicating them", async () => {
