@@ -156,6 +156,8 @@ label.field textarea{resize:vertical;min-height:58px}
  font-weight:650}
 .stats .v{font-size:19px;font-weight:660;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .stats .v.pos{color:var(--green)}.stats .v.neg{color:var(--red)}
+.sync-danger{color:var(--red);font-size:12.5px;font-weight:600;line-height:1.5;
+ display:grid;gap:4px;margin:0 0 10px}
 .bar-row{display:grid;grid-template-columns:110px 1fr 120px;gap:12px;align-items:center;
  padding:7px 0;font-size:13px}
 .bar-track{height:7px;background:var(--hair);border-radius:99px;overflow:hidden;display:flex}
@@ -941,6 +943,7 @@ import { BOND_BROKERS, bondBroker } from "./brokers.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
 import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
+import { bondSyncNotices, bondSyncConfirmText } from "./bond-sync-warnings.js";
 import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
 import { countRows, receiptFrom, receiptTotals } from "./receipt.js";
 import { VAULT_SETTING, emptyVault, sealVault, openVault, safeUrl, upsertEntry, removeEntry } from "./secrets.js";
@@ -2627,32 +2630,32 @@ window.bpDigiFinnSyncPreview = async (target) => {
   const mismatch = !!asset && matchDemat(reportDemat, targetDemat) === "mismatch";
   window.bpDigiFinnDemat = { target, reportDemat, targetDemat, mismatch };
   if (dematCard) dematCard.innerHTML = asset ? digiFinnDematCardHtml(target, targetDemat) : "";
-  const warnings = [...sync.warnings];
   const mismatchLine = `These reports belong to Demat …${dematLast4(reportDemat)}, not this portfolio.`;
-  if (mismatch) warnings.unshift(mismatchLine);
   const mapped = window.bpDigiFinnMapped || "";
   const mappedLabel = window.bpDigiFinnMappedLabel || mapped;
-  if (target === "__new__" && mapped) {
-    warnings.push(`This Demat is already mapped to ${mappedLabel}. Creating a new portfolio may duplicate it.`);
-  } else if (target !== "__new__" && mapped && mapped !== target) {
-    warnings.push(`This Demat is mapped to ${mappedLabel}. Applying here will move the mapping to this portfolio.`);
-  }
+  const notices = bondSyncNotices(sync, {
+    target, mapped, mappedLabel, mismatch, mismatchLine,
+  });
   if (state.portfolio.asOf && state.investment.asOf
     && state.portfolio.asOf !== state.investment.asOf) {
-    warnings.push(`Portfolio report is as of ${state.portfolio.asOf}; Investment report is as of ${state.investment.asOf}.`);
+    notices.notes.push(`Portfolio report is as of ${state.portfolio.asOf}; Investment report is as of ${state.investment.asOf}.`);
   }
   const last = asset ? metaOf(asset).holdings_as_of || "" : "";
   if (state.portfolio.asOf && last && state.portfolio.asOf < last) {
-    warnings.push(`This report is older than the last sync (${last}).`);
+    notices.notes.push(`This report is older than the last sync (${last}).`);
   }
   window.bpDigiFinnSync = sync;
   window.bpDigiFinnTarget = target;
-  window.bpDigiFinnWarnings = warnings;
+  window.bpDigiFinnWarnings = notices.notes;
+  window.bpDigiFinnDangers = notices.dangers;
   const name = target === "__new__" ? `<label class="field">Portfolio name
     <input id="df-new-name" value="Bonds · DigiFInn ${esc(dematLast4(state.portfolio.demat))}"
       autocomplete="off"></label>` : "";
   const blocked = mismatch && window.bpDigiFinnOverride !== true;
-  detail.innerHTML = `<div class="stats">
+  const dangerHtml = notices.dangers.length
+    ? `<div class="sync-danger">${notices.dangers.map((w) =>
+        `<div>${esc(w)}</div>`).join("")}</div>` : "";
+  detail.innerHTML = `${dangerHtml}<div class="stats">
       <div><div class="k">Current</div><div class="v">${sync.current}</div></div>
       <div><div class="k">Matured</div><div class="v">${sync.matured.length}</div></div>
       <div><div class="k">New</div><div class="v">${sync.added}</div></div>
@@ -2660,8 +2663,7 @@ window.bpDigiFinnSyncPreview = async (target) => {
       <div><div class="k">Removed</div><div class="v">${sync.removed}</div></div>
     </div>
     ${name}
-    ${mismatch ? `<div style="color:var(--red);font-size:12.5px;font-weight:600;margin-top:8px">${esc(mismatchLine)}</div>` : ""}
-    ${warnings.map((w) => `<div class="muted" style="font-size:11.5px;margin-top:6px">${esc(w)}</div>`).join("")}
+    ${notices.notes.map((w) => `<div class="muted" style="font-size:11.5px;margin-top:6px">${esc(w)}</div>`).join("")}
     <div class="muted" style="font-size:11.5px;margin-top:7px">${sync.matched} of ${sync.current}
       current lots match this portfolio. ${sync.matured.length} matured lots are excluded.
       Applying replaces the report holdings and keeps ratings and market values on matched rows.
@@ -2683,6 +2685,8 @@ window.bpDigiFinnCancel = () => {
   window.bpDigiFinnSyncTarget = "";
   window.bpDigiFinnOverride = false;
   window.bpDigiFinnDemat = null;
+  window.bpDigiFinnWarnings = [];
+  window.bpDigiFinnDangers = [];
   const host = document.getElementById("digifinn-preview");
   if (host) host.innerHTML = "";
 };
@@ -2700,8 +2704,10 @@ window.bpDigiFinnSyncApply = async () => {
   }
   const store = await import("./db.js");
   let targetId = target;
-  const warningText = (window.bpDigiFinnWarnings || []).length
-    ? `\n\n${window.bpDigiFinnWarnings.join("\n")}` : "";
+  // The confirm repeats the card's dangers first, so the mapping move and any
+  // removed lots are read again at the moment of the write.
+  const dangers = window.bpDigiFinnDangers || [];
+  const notes = window.bpDigiFinnWarnings || [];
   if (target === "__new__") {
     const name = (document.getElementById("df-new-name")?.value || "").trim()
       || `Bonds · DigiFInn ${(state.portfolio.demat || "").slice(-4)}`;
@@ -2710,16 +2716,12 @@ window.bpDigiFinnSyncApply = async () => {
     targetId = base;
     let n = 2;
     while (all.some((a) => a.id === targetId)) targetId = `${base}-${n++}`;
-    if (!confirm(`Create “${name}” and import ${sync.current} current lots?${warningText}`)) return;
+    if (!confirm(bondSyncConfirmText({ target, name, current: sync.current,
+      dangers, notes }))) return;
     await store.createAccount({ id: targetId, label: name, category: "bonds", subtype: "bond" });
   } else {
-    const mapped = window.bpDigiFinnMapped || "";
-    const extra = mapped && mapped !== target
-      ? `\n\nThis Demat is currently mapped to ${window.bpDigiFinnMappedLabel || mapped}. Applying here will move the mapping.`
-      : "";
-    if (!confirm(`Replace the holdings on this portfolio with ${sync.current} current lots?${warningText}${extra}`)) {
-      return;
-    }
+    if (!confirm(bondSyncConfirmText({ target, current: sync.current,
+      dangers, notes }))) return;
   }
   try {
     try { await store.snapshotDb("Before DigiFInn bond sync"); } catch (e) {}
@@ -2765,6 +2767,8 @@ window.bpDigiFinnSyncApply = async () => {
     window.bpDigiFinnSyncTarget = "";
     window.bpDigiFinnOverride = false;
     window.bpDigiFinnDemat = null;
+    window.bpDigiFinnWarnings = [];
+    window.bpDigiFinnDangers = [];
     window.bpAsset(targetId);
   } catch (e) {
     alert("Could not apply the DigiFInn sync: " + (e.message || e));
