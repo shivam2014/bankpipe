@@ -179,45 +179,94 @@ function dayGroups(segment) {
   return days;
 }
 
+const sameCandidate = (a, b) => String(a.date) === String(b.date)
+  && Number(a.amount) === Number(b.amount)
+  && Number(a.balance) === Number(b.balance);
+
+// Rows that agree on date, amount and balance are interchangeable: no order
+// between them can be proven, and none is needed.
+function allSame(rows) {
+  return rows.length > 0 && rows.every((row) => sameCandidate(row, rows[0]));
+}
+
+function followsFrom(previous, row, convention) {
+  return convention === "opening"
+    ? Math.abs(row.balance - (previous.balance + previous.amount)) <= 1
+    : Math.abs(row.balance - (previous.balance + row.amount)) <= 1;
+}
+
+function followsOpening(opening, row, convention) {
+  return convention === "opening"
+    ? Math.abs(row.balance - Number(opening)) <= 1
+    : Math.abs(row.balance - (Number(opening) + row.amount)) <= 1;
+}
+
 // Rebuild one day under a balance convention. Post-entry uses the next row's
 // amount (balance[i] == balance[i-1] + amount[i]); opening uses the previous
-// row's amount (balance[i] == balance[i-1] + amount[i-1]). The day's head is
-// the row no other row can follow; a tie is ambiguous.
-function orderDay(rows, convention) {
+// row's amount (balance[i] == balance[i-1] + amount[i-1]). A day that revisits
+// a balance has no head; the printed opening or the previous day's closing row
+// then names the row that starts it. A tie is ambiguous only when the
+// candidates differ in date, amount or balance.
+function orderDay(rows, convention, previous, opening) {
   if (rows.length < 2) return { rows: rows.slice(), reason: "" };
   if (rows.every((row) => row.balance === rows[0].balance)) {
     return { rows: [], reason: "repeated end-of-day balance" };
   }
-  const follows = (prev, next) => convention === "opening"
-    ? Math.abs(next.balance - (prev.balance + prev.amount)) <= 1
-    : Math.abs(next.balance - (prev.balance + next.amount)) <= 1;
+  const follows = (prev, next) => followsFrom(prev, next, convention);
   const hasPredecessor = (row) => rows.some((other) => other !== row
     && (convention === "opening"
       ? Math.abs(row.balance - (other.balance + other.amount)) <= 1
       : Math.abs(row.balance - (other.balance + row.amount)) <= 1));
   const heads = rows.filter((row) => !hasPredecessor(row));
-  if (heads.length !== 1) return { rows: [], reason: "ambiguous within-day order" };
-  const ordered = [heads[0]];
-  const remaining = rows.filter((row) => row !== heads[0]);
+  const baseline = previous
+    ? (row) => followsFrom(previous, row, convention)
+    : opening !== null && opening !== undefined
+      ? (row) => followsOpening(opening, row, convention)
+      : null;
+  let start = null;
+  if (heads.length === 1) {
+    start = heads[0];
+  } else if (heads.length > 1) {
+    const viable = baseline ? heads.filter(baseline) : heads;
+    const pool = viable.length ? viable : heads;
+    if (pool.length > 1 && !allSame(pool)) {
+      return { rows: [], reason: "ambiguous within-day order" };
+    }
+    start = pool[0];
+  } else if (baseline) {
+    const viable = rows.filter(baseline);
+    if (!viable.length) return { rows: [], reason: "chain does not reconcile" };
+    if (viable.length > 1 && !allSame(viable)) {
+      return { rows: [], reason: "ambiguous within-day order" };
+    }
+    start = viable[0];
+  } else {
+    return { rows: [], reason: "ambiguous within-day order" };
+  }
+  const ordered = [start];
+  const remaining = rows.filter((row) => row !== start);
   while (remaining.length) {
     const current = ordered[ordered.length - 1];
     const matches = remaining.filter((row) => follows(current, row));
-    if (matches.length !== 1) {
-      return { rows: [], reason: matches.length ? "ambiguous within-day order"
-        : "chain does not reconcile" };
+    if (!matches.length) return { rows: [], reason: "chain does not reconcile" };
+    if (matches.length > 1 && !allSame(matches)) {
+      return { rows: [], reason: "ambiguous within-day order" };
     }
-    ordered.push(matches[0]);
-    remaining.splice(remaining.indexOf(matches[0]), 1);
+    const next = matches[0];
+    ordered.push(next);
+    remaining.splice(remaining.indexOf(next), 1);
   }
   return { rows: ordered, reason: "" };
 }
 
-function orderFor(segment, convention) {
+function orderFor(segment, convention, opening = null) {
   const rows = [];
+  let previous = null;
   for (const day of dayGroups(segment)) {
-    const result = orderDay(day.rows, convention);
+    const result = orderDay(day.rows, convention, previous, opening);
     if (result.reason) return { rows: [], reason: result.reason };
     rows.push(...result.rows);
+    previous = result.rows[result.rows.length - 1] || previous;
   }
   return { rows, reason: "" };
 }
@@ -275,7 +324,7 @@ function reorderSegment(segment, { opening = null, convention = "" } = {}) {
   const orders = [];
   const conventions = convention ? [convention] : ["post", "opening"];
   for (const each of conventions) {
-    const order = orderFor(segment, each);
+    const order = orderFor(segment, each, opening);
     orders.push({ convention: each, order });
     if (order.reason) { reasons.push(order.reason); continue; }
     if (verifyOrder(order.rows, each, opening)) {
