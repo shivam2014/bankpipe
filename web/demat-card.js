@@ -19,23 +19,27 @@ export function dematText(value) {
 // strings as the Assets row come from assetIdentity. Empty fields drop their
 // clause instead of printing "…" or "".
 export function dematCardModel({ target = "", reportDemat = "", reportHolder = "",
-  targetAsset = null, targetDemat = "", mapped = "", mappedAsset = null } = {}) {
+  targetDemat = "", mapped = "", mappedAsset = null, removed = 0, current = 0 } = {}) {
   const report = assetIdentity({ number: reportDemat, holder: reportHolder },
     { numberLabel: "Demat" });
-  const here = assetIdentity(targetAsset
-    ? { ...targetAsset, number: targetDemat || targetAsset.number }
-    : { number: targetDemat });
   const destination = assetIdentity(mappedAsset || { id: mapped });
   const report4 = dematLast4(reportDemat);
+  const moved = mapped && mapped !== target && !!destination.name;
+  const n = Number(removed || 0);
+  const total = Number(current || 0);
+  const lots = total > 0 ? `${n} of the ${total} lots`
+    : `${n} existing lot${n === 1 ? "" : "s"}`;
+  const consequence = moved && n > 0
+    ? `Applying here would move that Demat from ${destination.name} and remove ${lots}.`
+    : moved ? `Applying here would move that Demat from ${destination.name}.`
+      : n > 0 ? `Applying here would remove ${lots}.` : "";
   const safe = mapped && mapped !== target && destination.name
     ? { id: mapped, label: `Apply to ${destination.name}` } : null;
   return {
     heading: report.numberLine
       ? `This snapshot is for ${report.numberLine}.`
       : "This snapshot is for another Demat.",
-    applying: here.full
-      ? `You are applying to ${here.full}.`
-      : "You are applying to this portfolio.",
+    consequence,
     sub: "Nothing is written until you choose.",
     safe,
     create: report4 ? `Create a portfolio for …${report4}`
@@ -45,8 +49,8 @@ export function dematCardModel({ target = "", reportDemat = "", reportHolder = "
   };
 }
 
-// The red line inside the sync card. A missing number drops the Demat phrase
-// rather than rendering "Demat …".
+// The mismatch sentence used when the apply confirm lists dangers. A missing
+// number drops the Demat phrase rather than rendering "Demat …".
 export function dematMismatchLine(reportDemat = "", reportHolder = "") {
   const report = assetIdentity({ number: reportDemat, holder: reportHolder },
     { numberLabel: "Demat" });
@@ -55,7 +59,14 @@ export function dematMismatchLine(reportDemat = "", reportHolder = "") {
     : "These reports belong to another Demat, not this portfolio.";
 }
 
-export function dematCardHtml(options = {}) {
+// The neutral card for a safe or new destination. A safe preview passes no
+// danger, by construction; a new portfolio may carry one duplicate warning.
+export function syncPreviewCardHtml({ header = "", body = "", danger = "" } = {}) {
+  return `<div class="card pad" style="background:var(--hair);margin-bottom:14px">
+    ${danger}${header}${body}</div>`;
+}
+
+export function dematCardHtml(options = {}, { body = "" } = {}) {
   if (matchDemat(options.reportDemat || "", options.targetDemat || "") !== "mismatch") return "";
   const model = dematCardModel(options);
   const actions = [];
@@ -67,8 +78,8 @@ export function dematCardHtml(options = {}) {
   actions.push(`<button class="btn" onclick="bpDigiFinnCancel()">${esc(model.cancel)}</button>`);
   return `<div class="card pad" style="border:1px solid var(--red);margin-bottom:10px">
     <b style="color:var(--red);font-size:13.5px">${esc(model.heading)}</b>
-    <div style="color:var(--red);font-size:13.5px;font-weight:600;margin-top:3px">${esc(model.applying)}</div>
+    ${model.consequence ? `<div style="color:var(--red);font-size:13.5px;font-weight:600;margin-top:3px">${esc(model.consequence)}</div>` : ""}
     <div class="muted" style="font-size:12px;margin-top:5px">${esc(model.sub)}</div>
-    <div class="df-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${actions.join("")}</div>
+    ${body || `<div class="df-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${actions.join("")}</div>`}
   </div>`;
 }

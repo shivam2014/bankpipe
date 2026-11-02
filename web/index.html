@@ -158,10 +158,13 @@ label.field textarea{resize:vertical;min-height:58px}
 .stats .v.pos{color:var(--green)}.stats .v.neg{color:var(--red)}
 .sync-danger{color:var(--red);font-size:12.5px;font-weight:600;line-height:1.5;
  display:grid;gap:4px;margin:0 0 10px}
-#df-demat-warning .btn.danger{color:var(--red);
+#df-sync-card .btn.danger{color:var(--red);
  border-color:color-mix(in srgb,var(--red) 40%,transparent)}
-#df-demat-warning .btn.danger:hover{color:var(--red);border-color:var(--red);
+#df-sync-card .btn.danger:hover{color:var(--red);border-color:var(--red);
  background:color-mix(in srgb,var(--red) 8%,var(--card))}
+.sync-details{margin-top:10px}
+.sync-details summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
+.sync-details .muted{font-size:11.5px;margin-top:6px}
 #bond-sync-dialog .btn.danger{background:var(--red);border-color:var(--red);color:var(--card)}
 #bond-sync-dialog .btn.danger:hover,
 #bond-sync-dialog .btn.danger:focus-visible{background:color-mix(in srgb,var(--red) 88%,#000);
@@ -963,7 +966,8 @@ import { BOND_BROKERS, bondBroker } from "./brokers.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
 import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
-import { dematCardHtml, dematLast4, dematMismatchLine, dematText } from "./demat-card.js";
+import { dematCardHtml, dematLast4, dematMismatchLine, dematText,
+  syncPreviewCardHtml } from "./demat-card.js";
 import { assetIdentity } from "./asset-identity.js";
 import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
 import { createBondSyncDialog } from "./bond-sync-dialog.js";
@@ -2451,27 +2455,6 @@ async function digiFinnTargetDemat(asset) {
   return asset.number || "";
 }
 
-// The red card above the sync detail. Empty when the Demats agree, or when
-// either side is unknown: a portfolio with no Demat yet is being linked for the
-// first time, and that import is allowed.
-function digiFinnDematCardHtml(target, targetDemat) {
-  const data = window.bpDigiFinnReviewData;
-  if (!data || !target || target === "__new__") return "";
-  const mappedAsset = data.mappedEntry?.asset || null;
-  return dematCardHtml({
-    target,
-    reportDemat: data.state.portfolio.demat || "",
-    reportHolder: data.state.portfolio.identity?.name || "",
-    targetDemat,
-    targetAsset: data.scored.find((x) => x.asset.id === target)?.asset || null,
-    mapped: data.mapped || "",
-    mappedAsset: mappedAsset
-      ? { ...mappedAsset,
-          holder: mappedAsset.holder || data.state.portfolio.identity?.name || "" }
-      : null,
-  });
-}
-
 window.bpDigiFinnKeepPortfolio = async () => {
   // Keep the page's portfolio even though its Demat disagrees. The preview
   // resets the consent when the destination changes, so pin it first.
@@ -2533,17 +2516,9 @@ window.bpDigiFinnReview = async () => {
     // The reports carry their own Demat; the portfolio the page was opened on may
     // belong to somebody else's account. Warn before anything is written.
     const targetDemat = await digiFinnTargetDemat(pinnedAsset);
-    const targetIdentity = assetIdentity({ ...pinnedAsset,
-      number: targetDemat || pinnedAsset.number });
     const mismatch = matchDemat(demat, targetDemat) === "mismatch";
     window.bpDigiFinnDemat = { target: pinnedAsset.id, reportDemat: demat, targetDemat, mismatch };
-    host.innerHTML = `<div id="df-demat-warning">${digiFinnDematCardHtml(pinnedAsset.id, targetDemat)}</div>
-      <div class="card pad" style="background:var(--hair)">
-      <b>Syncing into ${esc(targetIdentity.full || pinnedAsset.label || pinnedAsset.id)}</b>
-      <div class="muted" style="font-size:12px;margin-top:4px">Reports are for
-        <b>${esc(reportIdentity.numberLine || "Demat not found")}</b>. ${esc(linked)} Nothing is written until you
-        apply.</div>
-      <div id="df-owner-detail"></div><div id="df-detail"></div></div>`;
+    host.innerHTML = `<div id="df-sync-card"></div>`;
     await window.bpDigiFinnSyncPreview(pinnedAsset.id);
     return;
   }
@@ -2558,7 +2533,7 @@ window.bpDigiFinnReview = async () => {
         No — choose an existing portfolio</button>
     </div>
     <div id="df-owner-detail" style="margin-top:10px"></div>
-    <div id="df-detail" style="margin-top:10px"></div>
+    <div id="df-sync-card" style="margin-top:10px"></div>
   </div>`;
 };
 window.bpDigiFinnExistingPrompt = async () => {
@@ -2608,7 +2583,7 @@ window.bpDigiFinnExistingPrompt = async () => {
   host.innerHTML = `<div class="muted" style="font-size:11.5px">This Demat is
     ${data.mapped ? `already linked to <b>${esc(linkedName)}</b>.` : "not linked to any portfolio yet."}</div>
     ${cards.join("")}`;
-  const detail = document.getElementById("df-detail");
+  const detail = document.getElementById("df-sync-card");
   if (detail) detail.innerHTML = "";
 };
 window.bpDigiFinnNewPrompt = async () => {
@@ -2624,17 +2599,35 @@ window.bpDigiFinnChoose = async (id) => {
   if (host) host.innerHTML = "";
   await window.bpDigiFinnSyncPreview(id);
 };
+function bondSyncPreviewBodyHtml({ sync, target, name, notes, footer }) {
+  return `${target === "__new__" ? name : ""}
+    <div class="stats" style="margin-top:10px">
+      <div><div class="k">Current</div><div class="v">${sync.current}</div></div>
+      <div><div class="k">Matured</div><div class="v">${sync.matured.length}</div></div>
+      <div><div class="k">New</div><div class="v">${sync.added}</div></div>
+      <div><div class="k">Updated</div><div class="v">${sync.updated}</div></div>
+      <div><div class="k">Removed</div><div class="v">${sync.removed}</div></div>
+    </div>
+    <details class="sync-details">
+      <summary>Details</summary>
+      ${(notes || []).map((w) => `<div class="muted">${esc(w)}</div>`).join("")}
+      <div class="muted">${esc(footer)}</div>
+    </details>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn" onclick="bpDigiFinnSyncApply()">Apply sync</button>
+      <button class="btn" onclick="bpDigiFinnCancel()">Cancel</button>
+    </div>`;
+}
 window.bpDigiFinnSyncPreview = async (target) => {
   const state = window.bpDigiFinnReports;
-  const detail = document.getElementById("df-detail");
-  if (!detail || !state?.portfolio || !state?.investment || !state?.payouts) return;
+  const cardHost = document.getElementById("df-sync-card");
+  if (!cardHost || !state?.portfolio || !state?.investment || !state?.payouts) return;
   // A new destination cancels an earlier "import anyway" consent; the reports
   // changing does too, and bpDigiFinnReport clears it at that point.
   if (window.bpDigiFinnSyncTarget !== target) {
     window.bpDigiFinnOverride = false;
     window.bpDigiFinnSyncTarget = target;
   }
-  const dematCard = document.getElementById("df-demat-warning");
   if (!target) {
     window.bpDigiFinnSync = null;
     window.bpDigiFinnTarget = "";
@@ -2642,8 +2635,7 @@ window.bpDigiFinnSyncPreview = async (target) => {
     window.bpDigiFinnWarnings = [];
     window.bpDigiFinnDangers = [];
     window.bpDigiFinnNoticeKinds = null;
-    if (dematCard) dematCard.innerHTML = "";
-    detail.innerHTML = `<div class="muted" style="font-size:12px">Choose a portfolio above
+    cardHost.innerHTML = `<div class="muted" style="font-size:12px">Choose a portfolio above
       before importing. Nothing will be written until you apply.</div>`;
     return;
   }
@@ -2656,16 +2648,22 @@ window.bpDigiFinnSyncPreview = async (target) => {
   const sync = buildBondSync({ portfolio: state.portfolio, investment: state.investment,
     payouts: state.payouts, existing });
   const reportDemat = state.portfolio.demat || "";
+  const reportHolder = state.portfolio.identity?.name || "";
   const targetDemat = await digiFinnTargetDemat(asset);
   const mismatch = !!asset && matchDemat(reportDemat, targetDemat) === "mismatch";
   window.bpDigiFinnDemat = { target, reportDemat, targetDemat, mismatch };
-  if (dematCard) dematCard.innerHTML = asset ? digiFinnDematCardHtml(target, targetDemat) : "";
-  const mismatchLine = dematMismatchLine(reportDemat,
-    state.portfolio.identity?.name || "");
+  const reportIdentity = assetIdentity({ number: dematText(reportDemat),
+    holder: reportHolder }, { numberLabel: "Demat" });
+  const targetIdentity = asset
+    ? assetIdentity({ ...asset, number: targetDemat || asset.number }) : null;
   const mapped = window.bpDigiFinnMapped || "";
-  const mappedLabel = window.bpDigiFinnMappedLabel || mapped;
+  const mappedAsset = window.bpDigiFinnReviewData?.mappedEntry?.asset || null;
+  const mappedAssetWithHolder = mappedAsset
+    ? { ...mappedAsset, holder: mappedAsset.holder || reportHolder } : null;
+  const mappedIdentity = assetIdentity(mappedAssetWithHolder || { id: mapped });
   const notices = bondSyncNotices(sync, {
-    target, mapped, mappedLabel, mismatch, mismatchLine,
+    target, mapped, mappedLabel: mappedIdentity.name || mapped, mismatch,
+    mismatchLine: dematMismatchLine(reportDemat, reportHolder),
   });
   if (state.portfolio.asOf && state.investment.asOf
     && state.portfolio.asOf !== state.investment.asOf) {
@@ -2685,33 +2683,29 @@ window.bpDigiFinnSyncPreview = async (target) => {
   const name = target === "__new__" ? `<label class="field">Portfolio name
     <input id="df-new-name" value="${esc(newName)}"
       autocomplete="off"></label>` : "";
-  const blocked = mismatch && window.bpDigiFinnOverride !== true;
-  const dangerHtml = notices.dangers.length
-    ? `<div class="sync-danger">${notices.dangers.map((w) =>
-        `<div>${esc(w)}</div>`).join("")}</div>` : "";
-  detail.innerHTML = `${dangerHtml}<div class="stats">
-      <div><div class="k">Current</div><div class="v">${sync.current}</div></div>
-      <div><div class="k">Matured</div><div class="v">${sync.matured.length}</div></div>
-      <div><div class="k">New</div><div class="v">${sync.added}</div></div>
-      <div><div class="k">Updated</div><div class="v">${sync.updated}</div></div>
-      <div><div class="k">Removed</div><div class="v">${sync.removed}</div></div>
-    </div>
-    ${name}
-    ${notices.notes.map((w) => `<div class="muted" style="font-size:11.5px;margin-top:6px">${esc(w)}</div>`).join("")}
-    <div class="muted" style="font-size:11.5px;margin-top:7px">${sync.matched} of ${sync.current}
-      current lots match this portfolio. ${sync.matured.length} matured lots are excluded.
-      Applying replaces the report holdings and keeps ratings and market values on matched rows.
-      ${manualLots.length ? `${manualLots.length} holding${manualLots.length === 1 ? "" : "s"}
-      added by hand stay untouched.` : ""}</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button class="btn" onclick="bpDigiFinnSyncApply()"${blocked ? " disabled" : ""}>Apply sync</button>
-      ${blocked ? `<button class="btn" onclick="bpDigiFinnImportAnyway()">Import anyway into this portfolio</button>` : ""}
-      <button class="btn" onclick="bpDigiFinnCancel()">Cancel</button>
-    </div>`;
-};
-window.bpDigiFinnImportAnyway = async () => {
-  window.bpDigiFinnOverride = true;
-  await window.bpDigiFinnSyncPreview(window.bpDigiFinnTarget);
+  const footer = `${sync.matched} of ${sync.current} current lots match this portfolio.`
+    + ` ${sync.matured.length} matured lots are excluded.`
+    + " Applying replaces the report holdings and keeps ratings and market values on matched rows."
+    + (manualLots.length ? ` ${manualLots.length} holding${manualLots.length === 1 ? "" : "s"}`
+      + " added by hand stay untouched." : "");
+  const expanded = !mismatch || window.bpDigiFinnOverride === true;
+  const body = expanded
+    ? bondSyncPreviewBodyHtml({ sync, target, name, notes: notices.notes, footer }) : "";
+  if (mismatch) {
+    cardHost.innerHTML = dematCardHtml({
+      target, reportDemat, reportHolder, targetDemat, mapped,
+      mappedAsset: mappedAssetWithHolder,
+      removed: sync.removed, current: sync.current,
+    }, { body });
+  } else {
+    const header = target === "__new__"
+      ? `<b>Create a portfolio for ${esc(reportIdentity.numberLine || "this Demat")}</b>`
+      : `<b>Applying to ${esc(targetIdentity?.full || reportIdentity.numberLine || "this portfolio")}</b>`;
+    const duplicate = target === "__new__" && notices.dangers.length
+      ? `<div class="sync-danger">${notices.dangers.map((w) =>
+          `<div>${esc(w)}</div>`).join("")}</div>` : "";
+    cardHost.innerHTML = syncPreviewCardHtml({ header, body, danger: duplicate });
+  }
 };
 window.bpDigiFinnCancel = () => {
   window.bpDigiFinnSync = null;
@@ -2722,7 +2716,7 @@ window.bpDigiFinnCancel = () => {
   window.bpDigiFinnWarnings = [];
   window.bpDigiFinnDangers = [];
   window.bpDigiFinnNoticeKinds = null;
-  const host = document.getElementById("digifinn-preview");
+  const host = document.getElementById("df-sync-card");
   if (host) host.innerHTML = "";
 };
 let bondSyncDialog = null;
@@ -2735,11 +2729,11 @@ window.bpDigiFinnSyncApply = async () => {
   const sync = window.bpDigiFinnSync;
   const target = window.bpDigiFinnTarget;
   if (!state || !sync || !target) return;
-  // Reports for another Demat are refused until the person says "Import anyway".
+  // Reports for another Demat are refused until the person says "Apply here anyway".
   const dematState = window.bpDigiFinnDemat || {};
   if (dematState.target === target && dematState.mismatch
     && window.bpDigiFinnOverride !== true) {
-    alert("These reports belong to a different Demat. Use 'Import anyway' if you are sure.");
+    alert("These reports belong to a different Demat. Use 'Apply here anyway' if you are sure.");
     return;
   }
   const dangers = window.bpDigiFinnDangers || [];

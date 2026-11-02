@@ -111,8 +111,11 @@ test("the preview feeds the dialog and writes only after consent", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.match(html, /\.sync-danger\{color:var\(--red\);font-size:12\.5px;font-weight:600/);
   assert.match(html, /bondSyncNotices\(sync, \{/);
-  assert.ok(html.includes("${dangerHtml}<div class=\"stats\">"),
-    "dangers come before the numbers");
+  assert.match(html, /dematCardHtml\(\{/);
+  assert.match(html, /syncPreviewCardHtml\(\{ header, body, danger: duplicate \}\)/);
+  assert.match(html, /<details class="sync-details">\s*<summary>Details<\/summary>/);
+  assert.equal(/<details class="sync-details"[^>]*\bopen\b/.test(html), false,
+    "Details starts collapsed");
   const dialog = html.slice(html.indexOf('<dialog id="bond-sync-dialog">'),
     html.indexOf("</dialog>", html.indexOf('<dialog id="bond-sync-dialog">')));
   assert.match(dialog, /id="bond-sync-dangers" class="sync-danger"/);
