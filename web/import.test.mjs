@@ -447,7 +447,7 @@ test("a wrong running balance is one review item and a non-zero audit delta", as
   assert.equal(store.listIssues().length, 1);
   const issue = store.listIssues()[0];
   assert.equal(issue.kind, "balance_break");
-  assert.match(issue.detail, /960000/);
+  assert.match(issue.detail, /9,600\.00 expected 9,500\.00/);
   const v = store.validation();
   const acct = v.accounts.find((a) => a.account_id === "audit-bad");
   assert.equal(acct.closing - acct.opening - (acct.credits - acct.debits), 10000);

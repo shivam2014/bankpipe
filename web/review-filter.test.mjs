@@ -28,6 +28,13 @@ test("global review links clear an old filter", () => {
 
 test("the review table becomes cards on phones", () => {
   assert.match(html, /data-label="Check"/);
-  assert.match(html, /table\[data-table="issues"\]\{display:block;min-width:0!important\}/);
+  assert.match(html,
+    /table\[data-table="issues"\]\{display:block;width:100%!important;min-width:0!important\}/);
+  // Rows sit in an anonymous table box once the table is a block; without an
+  // explicit block tbody they shrink to their content.
+  assert.match(html, /table\[data-table="issues"\] tbody\{display:block;width:100%\}/);
   assert.match(html, /table\[data-table="issues"\] td\[data-label\]::before\{/);
+  // The Check cell carries a sentence, so it spans the card instead of
+  // squeezing into a label/value column.
+  assert.match(html, /table\[data-table="issues"\] td:nth-child\(5\)\{display:block/);
 });

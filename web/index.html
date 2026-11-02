@@ -481,19 +481,21 @@ textarea.inline-input{resize:vertical;min-height:48px}
   table[data-table="bank-batch"] td[data-label]::before{content:attr(data-label);
     display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
     color:var(--muted);margin-bottom:2px}
-  table[data-table="issues"]{display:block;min-width:0!important}
+  table[data-table="issues"]{display:block;width:100%!important;min-width:0!important}
+  table[data-table="issues"] tbody{display:block;width:100%}
   table[data-table="issues"] tr:first-child{display:none}
-  table[data-table="issues"] tr{display:grid;grid-template-columns:1fr 1fr;
-    gap:6px 12px;padding:12px 0;border-top:1px solid var(--line)}
+  table[data-table="issues"] tr{display:block;padding:14px;border-top:1px solid var(--line)}
   table[data-table="issues"] tr:nth-child(2){border-top:0}
-  table[data-table="issues"] td{display:block;padding:0;border:0;min-width:0;font-size:12.5px}
-  table[data-table="issues"] td:nth-child(5),
-  table[data-table="issues"] td:nth-child(6){grid-column:1/-1}
+  table[data-table="issues"] td{display:grid;grid-template-columns:82px minmax(0,1fr);
+    gap:10px;align-items:baseline;padding:3px 0;border:0;min-width:0;
+    font-size:12.5px;text-align:left}
   table[data-table="issues"] td[data-label]::before{content:attr(data-label);
-    display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;
-    color:var(--muted);margin-bottom:2px}
-  table[data-table="issues"] td:nth-child(4){text-align:left}
-  table[data-table="issues"] td:nth-child(6){display:flex;gap:8px}
+    display:block;text-align:left;font-size:9.5px;text-transform:uppercase;
+    letter-spacing:.07em;color:var(--muted);margin:0}
+  table[data-table="issues"] td.n{text-align:right}
+  table[data-table="issues"] td:nth-child(5){display:block;margin-top:8px}
+  table[data-table="issues"] td:nth-child(5)::before{display:block;margin-bottom:4px}
+  table[data-table="issues"] td:nth-child(6){display:flex;gap:8px;margin-top:10px}
   table[data-table="issues"] td:nth-child(6) .btn{flex:1}
   table[data-table^="health-"]{display:block;width:100%!important;min-width:0!important}
   table[data-table^="health-"] tr:first-child{display:none}
