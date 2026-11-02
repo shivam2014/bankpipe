@@ -287,26 +287,32 @@ function verifyOrder(rows, convention, opening) {
   return true;
 }
 
+// The balance column proves each sign outright. Opening rows use
+// delta = balance[i+1] - balance[i]; post-entry rows use
+// delta = balance[i] - balance[i-1]. Every magnitude must match before a flip
+// is considered, then all disagreeing rows flip in one pass. The last opening
+// row has no successor, so its sign stays as parsed. The first post-entry row
+// is proven only when the printed opening supplies its predecessor.
 function requiredSigns(rows, convention, opening) {
   const flips = [];
-  const check = (index, required) => {
+  const prove = (index, delta) => {
     const amount = Number(rows[index].amount);
-    if (Math.abs(amount - required) <= 1) return true;
-    if (Math.abs(-amount - required) <= 1) { flips.push(index); return true; }
-    return false;
+    if (Math.abs(delta) !== Math.abs(amount)) return false;
+    if (Math.sign(amount) !== Math.sign(delta)) flips.push(index);
+    return true;
   };
   if (convention === "opening") {
     if (opening !== null && opening !== undefined
         && Math.abs(rows[0].balance - Number(opening)) > 1) return null;
     for (let i = 0; i < rows.length - 1; i++) {
-      if (!check(i, rows[i + 1].balance - rows[i].balance)) return null;
+      if (!prove(i, rows[i + 1].balance - rows[i].balance)) return null;
     }
   } else {
     if (opening !== null && opening !== undefined) {
-      if (!check(0, rows[0].balance - Number(opening))) return null;
+      if (!prove(0, rows[0].balance - Number(opening))) return null;
     }
     for (let i = 1; i < rows.length; i++) {
-      if (!check(i, rows[i].balance - rows[i - 1].balance)) return null;
+      if (!prove(i, rows[i].balance - rows[i - 1].balance)) return null;
     }
   }
   return flips;
