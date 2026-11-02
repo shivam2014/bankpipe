@@ -6275,8 +6275,10 @@ async function renderGaps() {
     // change says nothing; a sheet whose chain could not be proven says why.
     const reorderText = (r) => {
       const moved = Number(r?.reorder?.moved || 0);
-      if (moved > 0) return `reordered ${count(moved)} rows`;
       const reason = String(r?.reorder?.reason || "");
+      if (moved > 0) return reason
+        ? `reordered ${count(moved)} rows · ${reason}`
+        : `reordered ${count(moved)} rows`;
       return reason ? `order unchanged: ${reason}` : "";
     };
     const reorderTotal = receiptRows
