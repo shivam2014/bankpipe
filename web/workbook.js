@@ -126,7 +126,7 @@ export function parseTransactions(matrix, sheet) {
       skipped++;
       continue;
     }
-    if (!date && noDateRows.length < 50) noDateRows.push(r + 1);
+    if (!date) noDateRows.push(r + 1);
     rows.push({
       date, description: desc, amount, balance,
       source_row: r + 1,

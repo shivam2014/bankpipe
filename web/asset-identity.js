@@ -11,6 +11,16 @@
 const clean = (value) => String(value ?? "").replace(/^[,\s]+/, "")
   .replace(/^"+|"+$/g, "").trim();
 
+const last4 = (value) => String(value ?? "").replace(/\D+/g, "").slice(-4);
+
+// The pasteable identity: label plus the last four digits. A missing number
+// drops the tail rather than leaving a bare ellipsis.
+export function assetShortIdentity(asset = {}) {
+  const id = assetIdentity(asset);
+  const tail = last4(id.number);
+  return tail ? `${id.label} …${tail}` : id.label;
+}
+
 export function assetIdentity(asset = {}, { numberLabel = "" } = {}) {
   const rawLabel = clean(asset.label);
   const broker = clean(asset.bank);

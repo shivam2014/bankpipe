@@ -1214,6 +1214,29 @@ test("latestReceipt returns only the newest batch, parsed and in sheet order", a
   });
 });
 
+test("latestReceipt fills an older receipt with its account identity", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "icici-demat", label: "ICICI demat account",
+    category: "bank", type: "savings", number: "1201090009140907" });
+  const batch = "2026-11-02T09:00:00.000Z";
+  store.importRows("icici-demat", rows, { batch,
+    receipt: { sheet: 5, read: 3, parsed: 3, rejected: 0, noDate: 0 } });
+  const latest = store.latestReceipt();
+  assert.deepEqual(latest.rows[0].accounts, ["ICICI demat account …0907"]);
+});
+
+test("latestReceipt marks a receipt with no account row", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const batch = "2026-11-02T09:05:00.000Z";
+  store.importRows("gone-account", rows, { batch,
+    receipt: { sheet: 6, read: 3167, parsed: 3167, rejected: 0, noDate: 0 } });
+  store.raw().run("DELETE FROM account WHERE id=?", ["gone-account"]);
+  const latest = store.latestReceipt();
+  assert.deepEqual(latest.rows[0].accounts, []);
+});
+
 test("a re-import with no new rows still stores its source receipt", async () => {
   const store = makeStore(SQL, null);
   await store.open();

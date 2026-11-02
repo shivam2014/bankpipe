@@ -23,7 +23,7 @@ export function countRows(matrix, headerRow) {
 // no date is still accepted, and is counted separately so it is visible.
 export function receiptFrom(rows, {
   sheet = 0, read = null, reasons = null, strayRows = [], orphanRows = [],
-  noDateRows = [], opening = null, order = null,
+  noDateRows = [], accounts = null, opening = null, order = null,
 } = {}) {
   const accepted = (rows || []).filter(Boolean);
   let noDate = 0, debit = 0, credit = 0, first = "", last = "";
@@ -66,7 +66,7 @@ export function receiptFrom(rows, {
     reasons: counts,
     stray: (strayRows || []).slice(0, 50),
     orphan: (orphanRows || []).slice(0, 50),
-    noDateRows: (noDateRows || []).slice(0, 50),
+    noDateRows: (noDateRows || []).slice(),
     noDate,
     debit,
     credit,
@@ -75,6 +75,7 @@ export function receiptFrom(rows, {
     opening: opening === null || opening === undefined ? null : number(opening),
     openingFromRows,
   };
+  if (Array.isArray(accounts)) receipt.accounts = accounts.slice();
   // The reorder result is a count and a fixed phrase. Rows are never named,
   // and an older receipt without this field renders exactly as before.
   if (order && typeof order === "object") {

@@ -48,11 +48,27 @@ test("a receipt counts totals, dates and undated amounts without identity", () =
   });
 });
 
+test("a receipt keeps the complete account list", () => {
+  const receipt = receiptFrom([{ date: "2024-04-01", amount: 100, balance: 100 }],
+    { sheet: 5, read: 1, accounts: ["ICICI demat account …4051",
+      "SCB savings …1842", "HDFC savings …8821"] });
+  assert.deepEqual(receipt.accounts, ["ICICI demat account …4051",
+    "SCB savings …1842", "HDFC savings …8821"]);
+});
+
 test("a receipt carries the rows with no date", () => {
   const receipt = receiptFrom([{ date: "", amount: -100 }],
     { sheet: 5, read: 2, noDateRows: [36, 37] });
   assert.equal(receipt.noDate, 1);
   assert.deepEqual(receipt.noDateRows, [36, 37]);
+});
+
+test("a receipt keeps the complete no-date row list", () => {
+  const rows = Array.from({ length: 51 }, (_, i) => i + 1);
+  const receipt = receiptFrom([{ date: "", amount: -100 }],
+    { sheet: 8, read: 51, noDateRows: rows });
+  assert.equal(receipt.noDateRows.length, 51);
+  assert.deepEqual(receipt.noDateRows.slice(0, 3), [1, 2, 3]);
 });
 
 test("reasons sum to rejected and keep the stray and orphan rows", () => {

@@ -68,4 +68,6 @@ test("the page renders the line with its own reason line", () => {
   assert.match(html, /import \{ reorderLine \} from "\.\/reorder-line\.js"/);
   assert.match(html, /white-space:pre-line/);
   assert.match(html, /esc\(reorderLine\(r\)\)/);
+  assert.match(html, /sheetAccountLabel\(r\.sheet, r\.accounts\)/);
+  assert.match(html, /const noDateList = \(r\) => rowList/);
 });

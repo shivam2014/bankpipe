@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { assetIdentity } from "./asset-identity.js";
+import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 
 const bond = {
   id: "bonds-1",
@@ -52,6 +52,16 @@ test("an empty or quote-only identity becomes empty, not quotes", () => {
   assert.equal(quoted.full, "Bonds · portfolio 1");
   assert.equal(quoted.full.includes('""'), false);
   assert.equal(quoted.row.includes('""'), false);
+});
+
+test("a short identity keeps the label and only the last four digits", () => {
+  const id = assetShortIdentity({ label: "ICICI demat account",
+    number: "1201090009140907" });
+  assert.equal(id, "ICICI demat account …0907");
+  assert.equal(id.includes("1201090009140907"), false);
+  assert.equal(assetShortIdentity({ label: "ICICI demat account", number: "4051" }),
+    "ICICI demat account …4051");
+  assert.equal(assetShortIdentity({ label: "SCB savings", number: "" }), "SCB savings");
 });
 
 test("a bank asset reads the same way as the Assets row", () => {

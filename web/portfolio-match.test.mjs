@@ -45,7 +45,7 @@ test("index.html blocks Apply sync on a mismatch until the override", () => {
   assert.equal(html.includes('id="df-detail"'), false);
   assert.match(html, /cardHost\.innerHTML = dematCardHtml\(\{/);
   assert.match(html, /dematMismatchLine\(reportDemat,/);
-  assert.match(html, /import \{ assetIdentity \} from "\.\/asset-identity\.js"/);
+  assert.match(html, /import \{ assetIdentity, assetShortIdentity \} from "\.\/asset-identity\.js"/);
   assert.match(html, /const expanded = !mismatch \|\| window\.bpDigiFinnOverride === true;/);
   assert.match(html, /dematCardHtml\(\{[\s\S]*?\}, \{ body \}\)/);
   assert.match(html, /These reports belong to a different Demat\. Use 'Apply here anyway' if you are sure\./);
