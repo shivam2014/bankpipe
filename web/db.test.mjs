@@ -628,7 +628,7 @@ test("re-check leaves an accepted balance break accepted", async () => {
   ]);
   const [open] = store.listIssues();
   assert.equal(open.kind, "balance_break");
-  assert.equal(open.detail, "balance 10,790.00 expected 10,800.00");
+  assert.equal(open.detail, "balance 10,790.00 expected 10,800.00, row 3");
   store.resolveIssue(open.id, "accepted");
   store.raw().run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
     [null, "pnb", "no_date", "row 9 has no date; amount and balance imported as printed"]);
@@ -641,6 +641,28 @@ test("re-check leaves an accepted balance break accepted", async () => {
   assert.deepEqual(Object.fromEntries(states.map((r) => [`${r.kind}:${r.state}`, r.n])), {
     "balance_break:accepted": 1,
   });
+});
+
+test("a balance break names its source row", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("pnb", [
+    { date: "2024-04-02", amount: 100000, balance: 1100000,
+      description: "A", source_row: 2 },
+    { date: "2024-04-03", amount: -20000, balance: 1079000,
+      description: "B", source_row: 2290 },
+  ]);
+  const open = store.listIssues().find((i) => i.kind === "balance_break");
+  assert.equal(open.detail, "balance 10,790.00 expected 10,800.00, row 2290");
+});
+
+test("an older balance break without a row is left as stored", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.raw().run("INSERT INTO issue(fact_id,account_id,kind,detail) VALUES(?,?,?,?)",
+    [null, "pnb", "balance_break", "balance 1,000.00 expected 1,100.00"]);
+  const [open] = store.listIssues();
+  assert.equal(open.detail, "balance 1,000.00 expected 1,100.00");
 });
 
 test("re-check derives all three review kinds from rows already held", async () => {
