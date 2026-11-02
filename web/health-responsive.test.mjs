@@ -179,8 +179,15 @@ test("Health and transactions fit at 390 and 640 px", { skip, timeout: 90000 }, 
     }
   } finally {
     try { ws?.close(); } catch (e) {}
-    chrome?.kill("SIGKILL");
+    if (chrome && chrome.exitCode === null) {
+      chrome.kill("SIGKILL");
+      await new Promise((resolve) => {
+        const done = () => resolve();
+        chrome.once("exit", done);
+        setTimeout(done, 2000);
+      });
+    }
     server?.kill("SIGKILL");
-    if (profile) rmSync(profile, { recursive: true, force: true });
+    if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
