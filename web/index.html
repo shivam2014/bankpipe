@@ -316,6 +316,7 @@ label.field textarea{resize:vertical;min-height:58px}
 tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
   padding:7px 10px 9px;line-height:1.5}
 .bond-table-wrap{overflow-x:auto;margin-top:10px;-webkit-overflow-scrolling:touch}
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .bond-table{width:100%;min-width:900px;border-collapse:collapse;font-size:11.5px}
 .bond-table th{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
 .bond-table td{padding:8px;border-bottom:1px solid var(--hair);vertical-align:top}
@@ -448,7 +449,6 @@ textarea.inline-input{resize:vertical;min-height:48px}
   h1{font-size:21px}
   .hero{padding:20px 18px}
   .hero .num{font-size:32px;white-space:normal;word-break:break-word}
-  .card{overflow-x:auto}
   #view th{width:auto!important}
   table.resizable{table-layout:auto!important}
   .col-resizer{display:none}
@@ -3463,14 +3463,14 @@ async function renderRealTransactions(host) {
     <td class="n">${amountInr(r.balance)}${r.account_currency && r.account_currency !== "INR" ? " " + r.account_currency : ""}</td></tr>`).join("");
   host.innerHTML = `<h1>Transactions <span class="muted" style="font-size:14px">${totals.n || 0} matched</span></h1>
     ${txFilterCard("tx", f, accounts, true)}
-    ${rows.length ? `<div class="card"><table data-table="transactions">
+    ${rows.length ? `<div class="card"><div class="table-wrap"><table data-table="transactions">
       <tr><th class="sort" onclick="bpTxSort('date')">Date${sort === "date" ? `<span class="arrow">${dir < 0 ? "▼" : "▲"}</span>` : ""}</th>
       <th class="sort" onclick="bpTxSort('account')">Account${sort === "account" ? `<span class="arrow">${dir < 0 ? "▼" : "▲"}</span>` : ""}</th>
       <th class="sort" onclick="bpTxSort('description')">Description${sort === "description" ? `<span class="arrow">${dir < 0 ? "▼" : "▲"}</span>` : ""}</th>
       <th class="n sort" onclick="bpTxSort('amount')">Amount (${currency()})${sort === "amount" ? `<span class="arrow">${dir < 0 ? "▼" : "▲"}</span>` : ""}</th>
       <th class="n sort" title="Running balance after this transaction; rows are newest first"
         onclick="bpTxSort('balance')">Balance after (${currency()})${sort === "balance" ? `<span class="arrow">${dir < 0 ? "▼" : "▲"}</span>` : ""}</th></tr>
-      ${body}</table></div>` : `<div class="card pad">No transactions match these filters.</div>`}
+      ${body}</table></div></div>` : `<div class="card pad">No transactions match these filters.</div>`}
     ${pager("bpTx", totals.n || 0, page, limit)}`;
 }
 async function sha256Hex(buf) {
