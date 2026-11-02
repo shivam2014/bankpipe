@@ -169,18 +169,15 @@ function chainsFrom(rows, start) {
 // the result only when it reconciles exactly; otherwise keep the file order.
 // `moved` is the number of positions that changed, so the receipt can say how
 // much was repaired without naming a row.
-export function reorderByChain(rows = [], { opening = null } = {}) {
-  const list = rows || [];
-  const unchanged = (reason = "") => ({ rows: list, reordered: false, moved: 0, reason });
-  if (list.length < 2) return unchanged();
-  // Without a date, amount and balance on every row there is no chain to
-  // judge. This is not a failure, so the receipt stays quiet.
-  const judgeable = list.every((r) => r && r.date
-    && r.amount !== null && r.amount !== undefined
-    && r.balance !== null && r.balance !== undefined);
-  if (!judgeable) return unchanged();
+const judgeableRow = (row) => !!row && !!row.date
+  && row.amount !== null && row.amount !== undefined
+  && row.balance !== null && row.balance !== undefined;
 
-  const dated = list.map((row, index) => ({ row, index }))
+function reorderSegment(segment, { opening = null } = {}) {
+  const decline = (reason) => ({ rows: segment, moved: 0, reason });
+  if (segment.length < 2) return { rows: segment, moved: 0, reason: "" };
+
+  const dated = segment.map((row, index) => ({ row, index }))
     .sort((a, b) => String(a.row.date).localeCompare(String(b.row.date)) || a.index - b.index);
   const days = [];
   for (const item of dated) {
@@ -198,12 +195,12 @@ export function reorderByChain(rows = [], { opening = null } = {}) {
     // There is no intra-day chain to judge, so leave the block as typed.
     if (remaining.length > 1
         && remaining.every((item) => item.row.balance === remaining[0].row.balance)) {
-      return unchanged();
+      return decline("repeated end-of-day balance");
     }
     if (remaining.length === 1) {
       const row = remaining[0].row;
       if (balance !== null && Math.abs(row.balance - (balance + row.amount)) > 1) {
-        return unchanged("chain does not reconcile");
+        return decline("chain does not reconcile");
       }
       ordered.push(remaining[0]);
       balance = row.balance;
@@ -216,7 +213,7 @@ export function reorderByChain(rows = [], { opening = null } = {}) {
       const heads = remaining.filter((item) => !remaining.some((other) =>
         other !== item
         && Math.abs(other.row.balance - (item.row.balance - item.row.amount)) <= 1));
-      if (heads.length !== 1) return unchanged("ambiguous within-day order");
+      if (heads.length !== 1) return decline("ambiguous within-day order");
       const head = heads[0];
       ordered.push(head);
       remaining.splice(remaining.indexOf(head), 1);
@@ -226,7 +223,7 @@ export function reorderByChain(rows = [], { opening = null } = {}) {
       const matches = remaining.filter((item) =>
         Math.abs(item.row.balance - (balance + item.row.amount)) <= 1);
       if (matches.length !== 1) {
-        return unchanged(matches.length ? "ambiguous within-day order"
+        return decline(matches.length ? "ambiguous within-day order"
           : "chain does not reconcile");
       }
       const pick = matches[0];
@@ -239,13 +236,67 @@ export function reorderByChain(rows = [], { opening = null } = {}) {
   if (opening !== null && opening !== undefined && ordered.length) {
     const first = ordered[0].row;
     if (Math.abs(Number(opening) - (first.balance - first.amount)) > 1) {
-      return unchanged("chain does not reconcile");
+      return decline("chain does not reconcile");
     }
   }
 
   const next = ordered.map((item) => item.row);
-  const moved = next.reduce((n, row, i) => n + (list[i] === row ? 0 : 1), 0);
-  return moved ? { rows: next, reordered: true, moved, reason: "" } : unchanged();
+  const moved = next.reduce((n, row, i) => n + (segment[i] === row ? 0 : 1), 0);
+  return moved
+    ? { rows: next, moved, reason: "" }
+    : { rows: segment, moved: 0, reason: "" };
+}
+
+// A block typed newest-first cannot be repaired by dates alone: a wrong date
+// and a genuine gap look the same. The running balance is the authority. Rows
+// without a date, amount or balance are anchors: they stay where the file put
+// them and split the sheet into contiguous judgeable runs. Each run is sorted
+// by date, rebuilt from its chain, and adopted only when it reconciles; the
+// printed opening is checked on the first run only.
+// `moved` is the number of positions that changed, so the receipt can say how
+// much was repaired without naming a row. A reason is returned for every run
+// that declined and for every anchored row, so silence means "nothing needed
+// to move", never "the pass gave up".
+export function reorderByChain(rows = [], { opening = null } = {}) {
+  const list = rows || [];
+  const out = [];
+  const missing = { date: 0, amount: 0, balance: 0 };
+  const declined = [];
+  let moved = 0;
+  let segment = [];
+  let start = 0;
+  const flush = () => {
+    if (!segment.length) return;
+    const result = reorderSegment(segment, { opening: start === 0 ? opening : null });
+    out.push(...result.rows);
+    moved += result.moved;
+    if (result.reason) declined.push(result.reason);
+    segment = [];
+  };
+  for (let i = 0; i < list.length; i++) {
+    const row = list[i];
+    if (judgeableRow(row)) {
+      if (!segment.length) start = i;
+      segment.push(row);
+      continue;
+    }
+    flush();
+    out.push(row);
+    if (!row?.date) missing.date += 1;
+    else if (row.amount === null || row.amount === undefined) missing.amount += 1;
+    else missing.balance += 1;
+  }
+  flush();
+
+  const anchors = [];
+  const rowsWith = (n, text) => `${n} row${n === 1 ? "" : "s"} ${text}`;
+  if (missing.date) anchors.push(rowsWith(missing.date, "without a date"));
+  if (missing.amount) anchors.push(rowsWith(missing.amount, "without an amount"));
+  if (missing.balance) anchors.push(rowsWith(missing.balance, "without a balance"));
+  const reason = [...anchors, ...new Set(declined)].join(" · ");
+  const sameOrder = moved === 0 && out.length === list.length
+    && out.every((row, i) => row === list[i]);
+  return { rows: sameOrder ? list : out, reordered: moved > 0, moved, reason };
 }
 
 export function reconcileChain(rows = []) {

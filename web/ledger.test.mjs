@@ -399,7 +399,7 @@ test("a first day with two possible heads is ambiguous", () => {
   assert.equal(res.reason, "ambiguous within-day order");
 });
 
-test("a day that repeats its closing balance is left alone quietly", () => {
+test("a day that repeats its closing balance reports the reason", () => {
   const rows = [
     { id: 1, date: "2024-04-01", amount: -100, balance: 900 },
     { id: 2, date: "2024-04-01", amount: -50, balance: 900 },
@@ -407,7 +407,7 @@ test("a day that repeats its closing balance is left alone quietly", () => {
   ];
   const res = reorderByChain(rows, { opening: 1000 });
   assert.equal(res.reordered, false);
-  assert.equal(res.reason, "");
+  assert.equal(res.reason, "repeated end-of-day balance");
   assert.equal(res.rows, rows);
 });
 
@@ -436,13 +436,61 @@ test("a first row that disagrees with the printed opening is not adopted", () =>
   assert.equal(res.reason, "chain does not reconcile");
 });
 
-test("rows without a balance are left alone without a failure line", () => {
+test("rows without a balance are anchored and named", () => {
   const rows = [
     { id: 2, date: "2024-04-02", amount: -2500, balance: null },
     { id: 1, date: "2024-04-01", amount: 100000, balance: 105000 },
   ];
   const res = reorderByChain(rows, { opening: 5000 });
   assert.equal(res.reordered, false);
-  assert.equal(res.reason, "");
+  assert.equal(res.reason, "1 row without a balance");
+  assert.equal(res.rows, rows);
+});
+
+test("an undated row in the middle reorders both sides around it", () => {
+  const anchor = { id: 9, date: "", amount: -25, balance: 175 };
+  const rows = [
+    { id: 3, date: "2024-04-03", amount: 50, balance: 150 },
+    { id: 2, date: "2024-04-02", amount: 100, balance: 100 },
+    anchor,
+    { id: 6, date: "2024-04-06", amount: 25, balance: 225 },
+    { id: 5, date: "2024-04-05", amount: 25, balance: 200 },
+  ];
+  const res = reorderByChain(rows, { opening: 0 });
+  assert.equal(res.reordered, true);
+  assert.equal(res.moved, 4);
+  assert.deepEqual(res.rows.map((r) => r.id), [2, 3, 9, 5, 6]);
+  assert.equal(res.rows[2], anchor, "the anchor does not move");
+  assert.equal(res.reason, "1 row without a date");
+});
+
+test("one bad segment stays put while another reorders", () => {
+  const bad = [
+    { id: 3, date: "2024-04-03", amount: 25, balance: 150 },
+    { id: 1, date: "2024-04-01", amount: 100, balance: 100 },
+  ];
+  const anchor = { id: 9, date: "", amount: -25, balance: 175 };
+  const good = [
+    { id: 6, date: "2024-04-06", amount: 25, balance: 225 },
+    { id: 5, date: "2024-04-05", amount: 25, balance: 200 },
+  ];
+  const res = reorderByChain([...bad, anchor, ...good], { opening: 0 });
+  assert.equal(res.reordered, true);
+  assert.equal(res.moved, 2);
+  assert.deepEqual(res.rows.map((r) => r.id), [3, 1, 9, 5, 6]);
+  assert.match(res.reason, /chain does not reconcile/);
+  assert.match(res.reason, /1 row without a date/);
+});
+
+test("a sheet of anchored rows names the missing field", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 100, balance: null },
+    { id: 2, date: "2024-04-02", amount: 50, balance: null },
+    { id: 3, date: "2024-04-03", amount: 25, balance: null },
+  ];
+  const res = reorderByChain(rows);
+  assert.equal(res.reordered, false);
+  assert.equal(res.moved, 0);
+  assert.equal(res.reason, "3 rows without a balance");
   assert.equal(res.rows, rows);
 });
