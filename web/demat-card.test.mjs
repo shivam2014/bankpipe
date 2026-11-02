@@ -5,47 +5,70 @@ import { dematCardHtml, dematCardModel, dematLast4, dematMismatchLine, dematText
   from "./demat-card.js";
 
 const reportDemat = "1201090009140907";
-const targetDemat = "1201090009143122";
+const targetDemat = "IN30302873183122";
+const targetAsset = {
+  id: "bonds-1",
+  label: "Bonds · portfolio 1",
+  bank: "DigiFInn",
+  number: targetDemat,
+  holder: "BABITA BHALLA",
+};
+const mappedAsset = {
+  id: "bonds-2",
+  label: "Bonds · portfolio 2",
+  bank: "DigiFInn",
+  number: reportDemat,
+  holder: "MINENDER BHALLA",
+};
 const base = {
   target: "bonds-1",
   reportDemat,
+  reportHolder: "MINENDER BHALLA",
+  targetAsset,
   targetDemat,
   mapped: "bonds-2",
-  mappedLabel: "Bonds · portfolio 2",
+  mappedAsset,
 };
 
-test("the heading names both Demats and the destination button names the portfolio", () => {
+test("the card uses the full Demat, label and holder from the same identity", () => {
   const model = dematCardModel(base);
   assert.equal(model.heading,
-    "This snapshot belongs to Demat …0907, not this portfolio (…3122).");
-  assert.equal(model.safe.label, "Apply to Bonds · portfolio 2");
-  assert.equal(model.safe.id, "bonds-2");
+    "This snapshot is for Demat 1201090009140907 (MINENDER BHALLA).");
+  assert.equal(model.applying,
+    "You are applying to Bonds · portfolio 1 · IN30302873183122 (BABITA BHALLA).");
+  assert.equal(model.safe.label,
+    "Apply to Bonds · portfolio 2 (MINENDER BHALLA)");
   assert.equal(model.create, "Create a portfolio for …0907");
   assert.equal(model.override, "Apply here anyway");
   assert.equal(model.cancel, "Cancel");
 });
 
-test("an absent target last-4 drops the parenthetical, not the sentence", () => {
-  const model = dematCardModel({ ...base, targetDemat: "" });
-  assert.equal(model.heading,
-    "This snapshot belongs to Demat …0907, not this portfolio.");
-  assert.equal(/\(\)/.test(model.heading), false);
-  assert.equal(model.heading.includes('""'), false);
-  const quoted = dematCardModel({ ...base, targetDemat: '""' });
-  assert.equal(quoted.heading,
-    "This snapshot belongs to Demat …0907, not this portfolio.");
-  assert.equal(quoted.heading.includes('""'), false);
+test("a missing holder drops the parentheses, not the identity", () => {
+  const noReportHolder = dematCardModel({ ...base, reportHolder: "" });
+  assert.equal(noReportHolder.heading,
+    "This snapshot is for Demat 1201090009140907.");
+  const noTargetHolder = dematCardModel({
+    ...base, targetAsset: { ...targetAsset, holder: "" },
+  });
+  assert.equal(noTargetHolder.applying,
+    "You are applying to Bonds · portfolio 1 · IN30302873183122.");
+  const noMappedHolder = dematCardModel({
+    ...base, mappedAsset: { ...mappedAsset, holder: "" },
+  });
+  assert.equal(noMappedHolder.safe.label, "Apply to Bonds · portfolio 2");
 });
 
-test("an absent report last-4 drops the Demat suffix", () => {
-  const model = dematCardModel({ ...base, reportDemat: "" });
-  assert.equal(model.heading,
-    "This snapshot belongs to another Demat, not this portfolio (…3122).");
-  assert.equal(model.create, "Create a portfolio for this Demat");
+test("a missing number drops the middle clause without a double separator", () => {
+  const model = dematCardModel({
+    ...base, targetDemat: "", targetAsset: { ...targetAsset, number: "" },
+  });
+  assert.equal(model.applying,
+    "You are applying to Bonds · portfolio 1 (BABITA BHALLA).");
+  assert.equal(/·\s*·/.test(model.applying), false);
 });
 
-test("a missing mapped label falls back to the id, never an empty button", () => {
-  const model = dematCardModel({ ...base, mappedLabel: "" });
+test("the safe destination falls back to the mapped id, never an empty label", () => {
+  const model = dematCardModel({ ...base, mappedAsset: null });
   assert.equal(model.safe.label, "Apply to bonds-2");
   assert.equal(model.safe.label.includes('""'), false);
 });
@@ -55,22 +78,30 @@ test("the safe destination disappears when it is the current portfolio", () => {
 });
 
 test("the safe destination disappears when nothing is mapped", () => {
-  assert.equal(dematCardModel({ ...base, mapped: "", mappedLabel: "" }).safe, null);
+  assert.equal(dematCardModel({ ...base, mapped: "", mappedAsset: null }).safe, null);
 });
 
-test("the mismatch line drops the Demat suffix when the last-4 is absent", () => {
-  assert.equal(dematMismatchLine(reportDemat),
-    "These reports belong to Demat …0907, not this portfolio.");
-  assert.equal(dematMismatchLine(""),
+test("a quote-only Demat is treated as absent", () => {
+  const model = dematCardModel({ ...base, reportDemat: '""', reportHolder: "" });
+  assert.equal(model.heading, "This snapshot is for another Demat.");
+  assert.equal(model.heading.includes('""'), false);
+  assert.equal(dematMismatchLine('""', ""),
+    "These reports belong to another Demat, not this portfolio.");
+});
+
+test("the mismatch line uses the full Demat and holder", () => {
+  assert.equal(dematMismatchLine(reportDemat, "MINENDER BHALLA"),
+    "These reports belong to Demat 1201090009140907 (MINENDER BHALLA), not this portfolio.");
+  assert.equal(dematMismatchLine(reportDemat, ""),
+    "These reports belong to Demat 1201090009140907, not this portfolio.");
+  assert.equal(dematMismatchLine("", ""),
     "These reports belong to another Demat, not this portfolio.");
   assert.equal(dematMismatchLine("").includes("…"), false);
-  assert.equal(dematMismatchLine('""'),
-    "These reports belong to another Demat, not this portfolio.");
 });
 
 test("the card buttons run safe, create, destructive, cancel in that order", () => {
   const html = dematCardHtml(base);
-  const safe = html.indexOf("Apply to Bonds · portfolio 2");
+  const safe = html.indexOf("Apply to Bonds · portfolio 2 (MINENDER BHALLA)");
   const create = html.indexOf("Create a portfolio for …0907");
   const override = html.indexOf("Apply here anyway");
   const cancel = html.indexOf("Cancel");

@@ -40,7 +40,9 @@ test("index.html blocks Apply sync on a mismatch until the override", () => {
   assert.match(html, /matchDemat\(reportDemat, targetDemat\) === "mismatch"/);
   // The card itself lives in demat-card.js; the page only supplies the data.
   assert.match(html, /return dematCardHtml\(\{/);
-  assert.match(html, /dematMismatchLine\(reportDemat\)/);
+  assert.match(html, /dematMismatchLine\(reportDemat,/);
+  assert.match(html, /import \{ assetIdentity \} from "\.\/asset-identity\.js"/);
+  assert.match(html, /assetIdentity\(\{ \.\.\.pinnedAsset,/);
   // The apply stays disabled until the person says to import anyway.
   assert.match(html, /onclick="bpDigiFinnSyncApply\(\)"\$\{blocked \? " disabled" : ""\}/);
   assert.match(html, /Import anyway into this portfolio/);

@@ -964,6 +964,7 @@ import { bondHoldingsCsv } from "./bond-csv.js";
 import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
 import { dematCardHtml, dematLast4, dematMismatchLine, dematText } from "./demat-card.js";
+import { assetIdentity } from "./asset-identity.js";
 import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
 import { createBondSyncDialog } from "./bond-sync-dialog.js";
 import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
@@ -2456,13 +2457,18 @@ async function digiFinnTargetDemat(asset) {
 function digiFinnDematCardHtml(target, targetDemat) {
   const data = window.bpDigiFinnReviewData;
   if (!data || !target || target === "__new__") return "";
-  const mapped = data.mapped || "";
+  const mappedAsset = data.mappedEntry?.asset || null;
   return dematCardHtml({
     target,
     reportDemat: data.state.portfolio.demat || "",
+    reportHolder: data.state.portfolio.identity?.name || "",
     targetDemat,
-    mapped,
-    mappedLabel: data.mappedEntry?.asset.label || mapped,
+    targetAsset: data.scored.find((x) => x.asset.id === target)?.asset || null,
+    mapped: data.mapped || "",
+    mappedAsset: mappedAsset
+      ? { ...mappedAsset,
+          holder: mappedAsset.holder || data.state.portfolio.identity?.name || "" }
+      : null,
   });
 }
 
@@ -2511,8 +2517,14 @@ window.bpDigiFinnReview = async () => {
   window.bpDigiFinnReviewData = { state, scored, currentPortfolio, mapped,
     mappedEntry, bestEntry, clearBest, recommendedId };
   const demat = dematText(state.portfolio.demat);
-  const mappedLabel = mappedEntry ? (mappedEntry.asset.label || mappedEntry.asset.id) : "";
-  const linked = mappedLabel ? `This Demat is linked to ${mappedLabel}.` : "";
+  const reportIdentity = assetIdentity({ number: demat,
+    holder: state.portfolio.identity?.name || "" }, { numberLabel: "Demat" });
+  const mappedIdentity = mappedEntry
+    ? assetIdentity({ ...mappedEntry.asset,
+        holder: mappedEntry.asset.holder || state.portfolio.identity?.name || "" })
+    : null;
+  const linked = mappedIdentity?.name
+    ? `This Demat is linked to ${mappedIdentity.name}.` : "";
   // Rendered from a bond portfolio: the destination is already chosen, so skip the
   // "new or existing" question and show what the apply would do to this portfolio.
   const pinnedId = window.bpDigiFinnPinned || "";
@@ -2521,13 +2533,15 @@ window.bpDigiFinnReview = async () => {
     // The reports carry their own Demat; the portfolio the page was opened on may
     // belong to somebody else's account. Warn before anything is written.
     const targetDemat = await digiFinnTargetDemat(pinnedAsset);
+    const targetIdentity = assetIdentity({ ...pinnedAsset,
+      number: targetDemat || pinnedAsset.number });
     const mismatch = matchDemat(demat, targetDemat) === "mismatch";
     window.bpDigiFinnDemat = { target: pinnedAsset.id, reportDemat: demat, targetDemat, mismatch };
     host.innerHTML = `<div id="df-demat-warning">${digiFinnDematCardHtml(pinnedAsset.id, targetDemat)}</div>
       <div class="card pad" style="background:var(--hair)">
-      <b>Syncing into ${esc(pinnedAsset.label || pinnedAsset.bank || pinnedAsset.id)}</b>
+      <b>Syncing into ${esc(targetIdentity.full || pinnedAsset.label || pinnedAsset.id)}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">Reports are for
-        <b>Demat ${esc(demat || "not found")}</b>. ${esc(linked)} Nothing is written until you
+        <b>${esc(reportIdentity.numberLine || "Demat not found")}</b>. ${esc(linked)} Nothing is written until you
         apply.</div>
       <div id="df-owner-detail"></div><div id="df-detail"></div></div>`;
     await window.bpDigiFinnSyncPreview(pinnedAsset.id);
@@ -2536,7 +2550,7 @@ window.bpDigiFinnReview = async () => {
   host.innerHTML = `<div class="card pad" style="background:var(--hair)">
     <b>Is this a new bond portfolio?</b>
     <div class="muted" style="font-size:12px;margin-top:4px">Reports are for
-      <b>Demat ${esc(demat || "not found")}</b>. ${esc(linked)} Check the Demat, lot count,
+      <b>${esc(reportIdentity.numberLine || "Demat not found")}</b>. ${esc(linked)} Check the Demat, lot count,
       cost and example bonds before choosing.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <button class="btn" onclick="bpDigiFinnNewPrompt()">Yes — create a new portfolio</button>
@@ -2562,19 +2576,23 @@ window.bpDigiFinnExistingPrompt = async () => {
     const rows = await store.listHoldings(asset.id);
     const cost = rows.reduce((t, r) => t + (r.cost_paise || 0), 0);
     const demat = dematByAsset[asset.id] || "";
-    const demat4 = dematLast4(demat);
     const last = metaOf(asset).holdings_as_of || "";
     const samples = rows.slice(0, 2).map((r) => r.label).filter(Boolean);
     const dematMatch = demat && data.state.portfolio.demat
       && demat === data.state.portfolio.demat;
+    const identity = assetIdentity({
+      ...asset,
+      number: demat || asset.number,
+      holder: asset.holder || (dematMatch ? data.state.portfolio.identity?.name || "" : ""),
+    }, { numberLabel: "Demat" });
     const recommended = dematMatch || (!data.mapped && data.recommendedId === asset.id);
     cards.push(`<div class="df-owner">
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline">
-        <b>${esc(asset.label || asset.id)}</b>
+        <b>${esc(identity.label || asset.id)}</b>
         ${recommended ? `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--green);color:#fff">${dematMatch ? "Demat match" : "Best ISIN match"}</span>` : ""}
       </div>
       <div class="muted" style="font-size:11.5px;margin-top:3px">${rows.length} lots ·
-        cost ${money(cost)} · ${demat4 ? `Demat …${esc(demat4)}` : "No Demat linked"}</div>
+        cost ${money(cost)} · ${identity.numberLine ? esc(identity.numberLine) : "No Demat linked"}</div>
       <div class="muted" style="font-size:11.5px">${samples.length
         ? `Holds ${samples.map(esc).join(" · ")}` : "No holdings yet"}</div>
       <div class="muted" style="font-size:11px">Last sync ${esc(last || "never")}</div>
@@ -2582,8 +2600,13 @@ window.bpDigiFinnExistingPrompt = async () => {
         Use this portfolio</button>
     </div>`);
   }
+  const linkedIdentity = data.mappedEntry
+    ? assetIdentity({ ...data.mappedEntry.asset,
+        holder: data.mappedEntry.asset.holder || data.state.portfolio.identity?.name || "" })
+    : null;
+  const linkedName = linkedIdentity?.name || data.mapped;
   host.innerHTML = `<div class="muted" style="font-size:11.5px">This Demat is
-    ${data.mapped ? `already linked to <b>${esc(data.mappedEntry?.asset.label || data.mapped)}</b>.` : "not linked to any portfolio yet."}</div>
+    ${data.mapped ? `already linked to <b>${esc(linkedName)}</b>.` : "not linked to any portfolio yet."}</div>
     ${cards.join("")}`;
   const detail = document.getElementById("df-detail");
   if (detail) detail.innerHTML = "";
@@ -2637,7 +2660,8 @@ window.bpDigiFinnSyncPreview = async (target) => {
   const mismatch = !!asset && matchDemat(reportDemat, targetDemat) === "mismatch";
   window.bpDigiFinnDemat = { target, reportDemat, targetDemat, mismatch };
   if (dematCard) dematCard.innerHTML = asset ? digiFinnDematCardHtml(target, targetDemat) : "";
-  const mismatchLine = dematMismatchLine(reportDemat);
+  const mismatchLine = dematMismatchLine(reportDemat,
+    state.portfolio.identity?.name || "");
   const mapped = window.bpDigiFinnMapped || "";
   const mappedLabel = window.bpDigiFinnMappedLabel || mapped;
   const notices = bondSyncNotices(sync, {
@@ -6708,10 +6732,9 @@ function assetRow(a, onclick, overrideShown) {
     gold.grams !== null ? `${gramsLabel(gold.grams)} g${gold.gramsDerived ? " est." : ""}` : "",
     gold.sinceYear ? `since ${gold.sinceYear}` : "",
   ].filter(Boolean) : [];
-  const number = String(a.number || "").replace(/^[,\s]+/, "");
-  const sub = [a.bank && a.bank !== a.label ? a.bank : "", number, a.holder, place,
-    ...goldBits, maturedFd ? "matured" : ""].filter(Boolean).join(" · ")
-    || "no details yet";
+  const identity = assetIdentity(a);
+  const sub = [identity.row, place, ...goldBits, maturedFd ? "matured" : ""]
+    .filter(Boolean).join(" · ") || "no details yet";
   // A long "principal only · rate and start date missing" note does not fit the
   // amount column; the FD detail carries the full explanation.
   const source = cat === "fd" && /principal only/i.test(shown.source)
@@ -6720,7 +6743,7 @@ function assetRow(a, onclick, overrideShown) {
   return `<a class="srow" href="#" onclick="${onclick};return false">
     ${logo ? `<img class="bank-logo" src="${logo}" alt="${esc(a.bank || "Bank")} logo">`
       : `<div class="chip">${cat.slice(0, 2).toUpperCase()}</div>`}
-    <div><div class="nm">${esc(a.label || a.bank || a.id)}</div>
+    <div><div class="nm">${esc(identity.label || a.id)}</div>
       <div class="sub">${esc(sub)}</div></div>
     <div class="vl">${shown.paise === null
       ? '<span class="muted">no value</span>' : money(shown.paise, a.currency)}
