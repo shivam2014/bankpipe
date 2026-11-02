@@ -41,18 +41,18 @@ test("a receipt counts totals, dates and undated amounts without identity", () =
   ], { sheet: 4, read: 7 });
   assert.deepEqual(receipt, {
     sheet: 4, read: 7, parsed: 4, rejected: 3,
-    reasons: null, stray: [], orphan: [],
-    noDate: 1, serials: 0, debit: 125000, credit: 149525,
+    reasons: null, stray: [], orphan: [], noDateRows: [],
+    noDate: 1, debit: 125000, credit: 149525,
     first: "2024-04-01", last: "2024-04-04",
     opening: null, openingFromRows: null,
   });
 });
 
-test("a receipt carries the count of dates read as Excel serials", () => {
-  const receipt = receiptFrom([
-    { date: "2010-07-07", amount: 100, balance: 100 },
-  ], { sheet: 5, read: 1, serials: 2 });
-  assert.equal(receipt.serials, 2);
+test("a receipt carries the rows with no date", () => {
+  const receipt = receiptFrom([{ date: "", amount: -100 }],
+    { sheet: 5, read: 2, noDateRows: [36, 37] });
+  assert.equal(receipt.noDate, 1);
+  assert.deepEqual(receipt.noDateRows, [36, 37]);
 });
 
 test("reasons sum to rejected and keep the stray and orphan rows", () => {

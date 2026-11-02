@@ -1732,7 +1732,7 @@ function bpStatementReceipt(entry, order = null) {
     ? countRows(entry.rows, parsed.header)
     : rows.length;
   return receiptFrom(rows, { sheet: 0, read, order,
-    serials: entry.parsed?.serialDates || 0 });
+    noDateRows: entry.parsed?.noDateRows || [] });
 }
 
 async function bpBatchImportOne(entry, batch) {
@@ -1987,7 +1987,7 @@ async function verifyWorkbook(file) {
         results.push(row); continue;
       }
       let parsed;
-      if (sp && sp.purpose === "transactions") parsed = parseSheet(matrix, sp, rawMatrix);
+      if (sp && sp.purpose === "transactions") parsed = parseSheet(matrix, sp);
       else parsed = parseStatement(matrix);
       if (parsed.error || !parsed.rows.length) {
         row.status = parsed.error || "no rows"; results.push(row); continue;
@@ -3172,7 +3172,7 @@ async function importWorkbook(file) {
     let orphanRows = [];
     let opening = null;
     if (sp && sp.purpose === "transactions") {
-      const tp = parseSheet(rows, sp, rawRows);
+      const tp = parseSheet(rows, sp);
       if (tp.rows.length) {
         parsed = { rows: tp.rows, header: tp.headerRow, mapping: [], order: "" };
         parsedRead = tp.rowsRead;
@@ -3279,7 +3279,7 @@ async function importWorkbook(file) {
         orphanRows,
         opening,
         order: ordered,
-        serials: parsed.serialDates || 0,
+        noDateRows: parsed.noDateRows || [],
       }),
     });
     total += res.inserted;
@@ -6277,12 +6277,6 @@ async function renderGaps() {
       return Math.abs(Number(r.opening) - Number(r.openingFromRows)) <= 1
         ? "head matches" : "head mismatch";
     };
-    const serialText = (r) => {
-      const n = Number(r?.serials || 0);
-      if (!n) return "";
-      return n === 1 ? "1 date read as an Excel serial"
-        : `${count(n)} dates read as Excel serials`;
-    };
     const rowsText = (label, list, total) => {
       if (!list || !list.length) return "";
       const more = Number(total || 0) > list.length
@@ -6299,8 +6293,9 @@ async function renderGaps() {
           ${sumReasons ? `<div class="muted" style="font-size:12.5px;margin-top:2px">${sumReasons}</div>` : ""}
           <div class="muted" style="font-size:12.5px;margin-top:2px">${count(receiptSum.noDate)} accepted rows have no date</div>
           ${reorderTotal ? `<div class="muted" style="font-size:12.5px;margin-top:2px">reordered ${count(reorderTotal)} rows</div>` : ""}
-          ${receiptRows.map((r) => `<div class="muted" style="font-size:12.5px;margin-top:6px;white-space:pre-line">Sheet ${esc(r.sheet)} · ${count(r.read)} read · ${count(r.rejected)} rejected · ${count(r.noDate)} without a date${serialText(r) ? ` · ${esc(serialText(r))}` : ""} · ${esc(headText(r))}${reorderLine(r) ? ` · ${esc(reorderLine(r))}` : ""}</div>
+          ${receiptRows.map((r) => `<div class="muted" style="font-size:12.5px;margin-top:6px;white-space:pre-line">Sheet ${esc(r.sheet)} · ${count(r.read)} read · ${count(r.rejected)} rejected · ${count(r.noDate)} without a date · ${esc(headText(r))}${reorderLine(r) ? ` · ${esc(reorderLine(r))}` : ""}</div>
             ${reasonText(r.reasons || {}) ? `<div class="muted" style="font-size:11.5px;margin-left:12px">${reasonText(r.reasons || {})}</div>` : ""}
+            ${r.noDateRows?.length ? `<div class="muted" style="font-size:11.5px;margin-left:12px">No-date rows: ${esc(r.noDateRows.join(", "))}</div>` : ""}
             ${rowsText("Stray rows", r.stray, r.reasons?.stray) ? `<div class="muted" style="font-size:11.5px;margin-left:12px">${esc(rowsText("Stray rows", r.stray, r.reasons?.stray))}</div>` : ""}
             ${rowsText("Orphan rows", r.orphan, r.reasons?.orphan) ? `<div class="muted" style="font-size:11.5px;margin-left:12px">${esc(rowsText("Orphan rows", r.orphan, r.reasons?.orphan))}</div>` : ""}`).join("")}
         </div>`

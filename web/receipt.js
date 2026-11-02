@@ -22,8 +22,8 @@ export function countRows(matrix, headerRow) {
 // the header; `parsed` is what the parser accepted. A row with an amount but
 // no date is still accepted, and is counted separately so it is visible.
 export function receiptFrom(rows, {
-  sheet = 0, read = null, reasons = null, strayRows = [], orphanRows = [], opening = null,
-  order = null, serials = 0,
+  sheet = 0, read = null, reasons = null, strayRows = [], orphanRows = [],
+  noDateRows = [], opening = null, order = null,
 } = {}) {
   const accepted = (rows || []).filter(Boolean);
   let noDate = 0, debit = 0, credit = 0, first = "", last = "";
@@ -66,8 +66,8 @@ export function receiptFrom(rows, {
     reasons: counts,
     stray: (strayRows || []).slice(0, 50),
     orphan: (orphanRows || []).slice(0, 50),
+    noDateRows: (noDateRows || []).slice(0, 50),
     noDate,
-    serials: number(serials),
     debit,
     credit,
     first,
