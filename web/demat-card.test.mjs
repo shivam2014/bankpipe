@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { dematCardHtml, dematCardModel, dematLast4, dematMismatchLine, dematText,
   syncPreviewCardHtml } from "./demat-card.js";
@@ -111,14 +112,38 @@ test("a safe preview card has no danger line", () => {
     header: "<b>Applying to Bonds · portfolio 2 (MINENDER BHALLA)</b>",
     body: `<div class="stats"></div><details class="sync-details"><summary>Details</summary></details>`,
   });
-  assert.equal((html.match(/class="card pad"/g) || []).length, 1);
+  assert.equal((html.match(/class="card pad demat-card"/g) || []).length, 1);
   assert.equal(html.includes("sync-danger"), false);
   assert.ok(html.includes("Applying to Bonds · portfolio 2 (MINENDER BHALLA)"));
 });
 
+test("the safe destination is the only primary action", () => {
+  const html = dematCardHtml(base);
+  assert.equal((html.match(/class="btn primary"/g) || []).length, 1);
+  assert.match(html,
+    /class="btn primary" onclick="bpDigiFinnSyncPreview\(&quot;bonds-2&quot;\)"/);
+  const noSafe = dematCardHtml({ ...base, mapped: "", mappedAsset: null });
+  assert.equal(noSafe.includes('class="btn primary"'), false);
+});
+
+test("after choosing, the count and the stale subline leave the card", () => {
+  const model = dematCardModel({ ...base, expanded: true });
+  assert.equal(model.consequence,
+    "Applying here would move that Demat from Bonds · portfolio 2 (MINENDER BHALLA).");
+  const html = dematCardHtml(base, { body: '<div class="stats"></div>' });
+  assert.equal(html.includes("Nothing is written until you choose."), false);
+  assert.equal(html.includes("remove 5 of the 17 lots"), false);
+});
+
+test("the mismatch card is capped at 720px", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.match(html, /\.demat-card\{max-width:720px\}/);
+  assert.match(dematCardHtml(base), /class="card pad demat-card"/);
+});
+
 test("the first card is one card with four buttons and no preview", () => {
   const html = dematCardHtml(base);
-  assert.equal((html.match(/class="card pad"/g) || []).length, 1);
+  assert.equal((html.match(/class="card pad demat-card"/g) || []).length, 1);
   assert.equal(html.includes('class="stats"'), false);
   assert.equal(html.includes("<details"), false);
   assert.equal(html.includes("Apply sync"), false);
@@ -139,7 +164,7 @@ test("the preview body replaces the button row in the same card", () => {
     <details class="sync-details"><summary>Details</summary></details>
     <button class="btn" onclick="bpDigiFinnSyncApply()">Apply sync</button>`;
   const html = dematCardHtml(base, { body });
-  assert.equal((html.match(/class="card pad"/g) || []).length, 1);
+  assert.equal((html.match(/class="card pad demat-card"/g) || []).length, 1);
   assert.equal(html.includes("Apply here anyway"), false);
   assert.equal(html.includes("Create a portfolio for …0907"), false);
   assert.ok(html.includes(body), "the preview lands where the buttons were");

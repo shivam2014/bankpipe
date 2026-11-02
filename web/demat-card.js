@@ -19,7 +19,8 @@ export function dematText(value) {
 // strings as the Assets row come from assetIdentity. Empty fields drop their
 // clause instead of printing "…" or "".
 export function dematCardModel({ target = "", reportDemat = "", reportHolder = "",
-  targetDemat = "", mapped = "", mappedAsset = null, removed = 0, current = 0 } = {}) {
+  targetDemat = "", mapped = "", mappedAsset = null, removed = 0, current = 0,
+  expanded = false } = {}) {
   const report = assetIdentity({ number: reportDemat, holder: reportHolder },
     { numberLabel: "Demat" });
   const destination = assetIdentity(mappedAsset || { id: mapped });
@@ -27,12 +28,13 @@ export function dematCardModel({ target = "", reportDemat = "", reportHolder = "
   const moved = mapped && mapped !== target && !!destination.name;
   const n = Number(removed || 0);
   const total = Number(current || 0);
-  const lots = total > 0 ? `${n} of the ${total} lots`
-    : `${n} existing lot${n === 1 ? "" : "s"}`;
-  const consequence = moved && n > 0
+  const shown = expanded ? 0 : n;
+  const lots = total > 0 ? `${shown} of the ${total} lots`
+    : `${shown} existing lot${shown === 1 ? "" : "s"}`;
+  const consequence = moved && shown > 0
     ? `Applying here would move that Demat from ${destination.name} and remove ${lots}.`
     : moved ? `Applying here would move that Demat from ${destination.name}.`
-      : n > 0 ? `Applying here would remove ${lots}.` : "";
+      : shown > 0 ? `Applying here would remove ${lots}.` : "";
   const safe = mapped && mapped !== target && destination.name
     ? { id: mapped, label: `Apply to ${destination.name}` } : null;
   return {
@@ -62,24 +64,24 @@ export function dematMismatchLine(reportDemat = "", reportHolder = "") {
 // The neutral card for a safe or new destination. A safe preview passes no
 // danger, by construction; a new portfolio may carry one duplicate warning.
 export function syncPreviewCardHtml({ header = "", body = "", danger = "" } = {}) {
-  return `<div class="card pad" style="background:var(--hair);margin-bottom:14px">
+  return `<div class="card pad demat-card" style="background:var(--hair);margin-bottom:14px">
     ${danger}${header}${body}</div>`;
 }
 
 export function dematCardHtml(options = {}, { body = "" } = {}) {
   if (matchDemat(options.reportDemat || "", options.targetDemat || "") !== "mismatch") return "";
-  const model = dematCardModel(options);
+  const model = dematCardModel({ ...options, expanded: !!body });
   const actions = [];
   if (model.safe) {
-    actions.push(`<button class="btn" onclick="bpDigiFinnSyncPreview(${jsArg(model.safe.id)})">${esc(model.safe.label)}</button>`);
+    actions.push(`<button class="btn primary" onclick="bpDigiFinnSyncPreview(${jsArg(model.safe.id)})">${esc(model.safe.label)}</button>`);
   }
   actions.push(`<button class="btn" onclick="bpDigiFinnSyncPreview('__new__')">${esc(model.create)}</button>`);
   actions.push(`<button class="btn danger" onclick="bpDigiFinnKeepPortfolio()">${esc(model.override)}</button>`);
   actions.push(`<button class="btn" onclick="bpDigiFinnCancel()">${esc(model.cancel)}</button>`);
-  return `<div class="card pad" style="border:1px solid var(--red);margin-bottom:10px">
+  return `<div class="card pad demat-card" style="border:1px solid var(--red);margin-bottom:10px">
     <b style="color:var(--red);font-size:13.5px">${esc(model.heading)}</b>
     ${model.consequence ? `<div style="color:var(--red);font-size:13.5px;font-weight:600;margin-top:3px">${esc(model.consequence)}</div>` : ""}
-    <div class="muted" style="font-size:12px;margin-top:5px">${esc(model.sub)}</div>
+    ${body ? "" : `<div class="muted" style="font-size:12px;margin-top:5px">${esc(model.sub)}</div>`}
     ${body || `<div class="df-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${actions.join("")}</div>`}
   </div>`;
 }
