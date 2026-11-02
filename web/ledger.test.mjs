@@ -341,7 +341,7 @@ test("an inverted block is reordered only when the chain and opening agree", () 
 
 test("a missing transaction keeps the file order and is reported", () => {
   const rows = [
-    { id: 3, date: "2024-04-03", amount: 2500, balance: 102500 },
+    { id: 3, date: "2024-04-03", amount: 2500, balance: 102600 },
     { id: 1, date: "2024-04-01", amount: 100000, balance: 105000 },
   ];
   const res = reorderByChain(rows, { opening: 5000 });
@@ -391,9 +391,9 @@ test("a first day without a printed opening is rebuilt from a unique head", () =
 test("a first day with two possible heads is ambiguous", () => {
   const rows = [
     { id: 1, date: "2024-04-01", amount: -100, balance: 900 },
-    { id: 2, date: "2024-04-01", amount: -50, balance: 950 },
+    { id: 2, date: "2024-04-01", amount: -200, balance: 950 },
   ];
-  // Both rows could start from 1,000; neither follows the other.
+  // Neither row can follow the other under either balance convention.
   const res = reorderByChain(rows);
   assert.equal(res.reordered, false);
   assert.equal(res.reason, "ambiguous within-day order");
@@ -492,5 +492,69 @@ test("a sheet of anchored rows names the missing field", () => {
   assert.equal(res.reordered, false);
   assert.equal(res.moved, 0);
   assert.equal(res.reason, "3 rows without a balance");
+  assert.equal(res.rows, rows);
+});
+
+test("the SCB joint block adopts the opening convention and repairs two signs", () => {
+  const rows = [
+    { id: 1, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+    { id: 2, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 3, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, date: "2025-03-15", amount: -250000, balance: 9928272 },
+    { id: 5, date: "2025-03-13", amount: -55480, balance: 9872792 },
+  ];
+  const res = reorderByChain(rows, { opening: 9872792 });
+  assert.equal(res.reordered, true);
+  assert.equal(res.moved, 4);
+  assert.deepEqual(res.rows.map((r) => r.id), [5, 4, 3, 2, 1]);
+  assert.deepEqual(res.rows.map((r) => r.amount),
+    [55480, 250000, -1479500, -1479500, -1479500]);
+  assert.equal(res.convention, "opening");
+  assert.equal(res.signCorrected, 2);
+  assert.equal(res.reason, "");
+});
+
+test("the same opening block with correct signs is not flipped", () => {
+  const rows = [
+    { id: 1, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+    { id: 2, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 3, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, date: "2025-03-15", amount: 250000, balance: 9928272 },
+    { id: 5, date: "2025-03-13", amount: 55480, balance: 9872792 },
+  ];
+  const res = reorderByChain(rows, { opening: 9872792 });
+  assert.equal(res.convention, "opening");
+  assert.equal(res.signCorrected, 0);
+  assert.deepEqual(res.rows.map((r) => r.amount),
+    [55480, 250000, -1479500, -1479500, -1479500]);
+});
+
+test("a sign flip that still leaves a break is not applied", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 100, balance: 100 },
+    { id: 2, date: "2024-04-02", amount: -50, balance: 50 },
+    { id: 3, date: "2024-04-03", amount: 10, balance: 40 },
+    { id: 4, date: "2024-04-04", amount: 100, balance: 200 },
+  ];
+  const res = reorderByChain(rows, { opening: 0 });
+  assert.equal(res.reordered, false);
+  assert.equal(res.moved, 0);
+  assert.deepEqual(res.rows, rows);
+  assert.equal(res.convention, "");
+  assert.equal(res.signCorrected, 0);
+  assert.ok(res.reason);
+});
+
+test("a normal post-entry statement reports no repair", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 100, balance: 100 },
+    { id: 2, date: "2024-04-02", amount: 50, balance: 150 },
+  ];
+  const res = reorderByChain(rows, { opening: 0 });
+  assert.equal(res.reordered, false);
+  assert.equal(res.moved, 0);
+  assert.equal(res.convention, "");
+  assert.equal(res.signCorrected, 0);
+  assert.equal(res.reason, "");
   assert.equal(res.rows, rows);
 });

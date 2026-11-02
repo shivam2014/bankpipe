@@ -6276,10 +6276,15 @@ async function renderGaps() {
     const reorderText = (r) => {
       const moved = Number(r?.reorder?.moved || 0);
       const reason = String(r?.reorder?.reason || "");
-      if (moved > 0) return reason
-        ? `reordered ${count(moved)} rows · ${reason}`
-        : `reordered ${count(moved)} rows`;
-      return reason ? `order unchanged: ${reason}` : "";
+      const convention = r?.reorder?.convention === "opening"
+        ? "balance convention: opening" : "";
+      const sign = Number(r?.reorder?.signCorrected || 0);
+      const signText = sign
+        ? `sign corrected on ${count(sign)} row${sign === 1 ? "" : "s"}` : "";
+      const bits = [moved ? `reordered ${count(moved)} rows` : "",
+        convention, signText, reason].filter(Boolean);
+      if (!bits.length) return "";
+      return moved ? bits.join(" · ") : `order unchanged: ${bits.join(" · ")}`;
     };
     const reorderTotal = receiptRows
       .reduce((n, r) => n + Number(r?.reorder?.moved || 0), 0);

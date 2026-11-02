@@ -162,89 +162,144 @@ function chainsFrom(rows, start) {
   return true;
 }
 
-// A block typed newest-first cannot be repaired by dates alone: a wrong date
-// and a genuine gap look the same. The running balance is the authority. Sort
-// by date, rebuild each day from the chain, then require every row to follow
-// the previous one and the first row to agree with the printed opening. Adopt
-// the result only when it reconciles exactly; otherwise keep the file order.
-// `moved` is the number of positions that changed, so the receipt can say how
-// much was repaired without naming a row.
 const judgeableRow = (row) => !!row && !!row.date
   && row.amount !== null && row.amount !== undefined
   && row.balance !== null && row.balance !== undefined;
 
-function reorderSegment(segment, { opening = null } = {}) {
-  const decline = (reason) => ({ rows: segment, moved: 0, reason });
-  if (segment.length < 2) return { rows: segment, moved: 0, reason: "" };
-
+function dayGroups(segment) {
   const dated = segment.map((row, index) => ({ row, index }))
     .sort((a, b) => String(a.row.date).localeCompare(String(b.row.date)) || a.index - b.index);
   const days = [];
   for (const item of dated) {
     const day = String(item.row.date);
     const last = days[days.length - 1];
-    if (last && last.date === day) last.items.push(item);
-    else days.push({ date: day, items: [item] });
+    if (last && last.date === day) last.rows.push(item.row);
+    else days.push({ date: day, rows: [item.row] });
   }
+  return days;
+}
 
-  let balance = opening === null || opening === undefined ? null : Number(opening);
-  const ordered = [];
-  for (const day of days) {
-    const remaining = day.items.slice();
-    // Some statements repeat the end-of-day balance on every row of that day.
-    // There is no intra-day chain to judge, so leave the block as typed.
-    if (remaining.length > 1
-        && remaining.every((item) => item.row.balance === remaining[0].row.balance)) {
-      return decline("repeated end-of-day balance");
+// Rebuild one day under a balance convention. Post-entry uses the next row's
+// amount (balance[i] == balance[i-1] + amount[i]); opening uses the previous
+// row's amount (balance[i] == balance[i-1] + amount[i-1]). The day's head is
+// the row no other row can follow; a tie is ambiguous.
+function orderDay(rows, convention) {
+  if (rows.length < 2) return { rows: rows.slice(), reason: "" };
+  if (rows.every((row) => row.balance === rows[0].balance)) {
+    return { rows: [], reason: "repeated end-of-day balance" };
+  }
+  const follows = (prev, next) => convention === "opening"
+    ? Math.abs(next.balance - (prev.balance + prev.amount)) <= 1
+    : Math.abs(next.balance - (prev.balance + next.amount)) <= 1;
+  const hasPredecessor = (row) => rows.some((other) => other !== row
+    && (convention === "opening"
+      ? Math.abs(row.balance - (other.balance + other.amount)) <= 1
+      : Math.abs(row.balance - (other.balance + row.amount)) <= 1));
+  const heads = rows.filter((row) => !hasPredecessor(row));
+  if (heads.length !== 1) return { rows: [], reason: "ambiguous within-day order" };
+  const ordered = [heads[0]];
+  const remaining = rows.filter((row) => row !== heads[0]);
+  while (remaining.length) {
+    const current = ordered[ordered.length - 1];
+    const matches = remaining.filter((row) => follows(current, row));
+    if (matches.length !== 1) {
+      return { rows: [], reason: matches.length ? "ambiguous within-day order"
+        : "chain does not reconcile" };
     }
-    if (remaining.length === 1) {
-      const row = remaining[0].row;
-      if (balance !== null && Math.abs(row.balance - (balance + row.amount)) > 1) {
-        return decline("chain does not reconcile");
-      }
-      ordered.push(remaining[0]);
-      balance = row.balance;
-      continue;
+    ordered.push(matches[0]);
+    remaining.splice(remaining.indexOf(matches[0]), 1);
+  }
+  return { rows: ordered, reason: "" };
+}
+
+function orderFor(segment, convention) {
+  const rows = [];
+  for (const day of dayGroups(segment)) {
+    const result = orderDay(day.rows, convention);
+    if (result.reason) return { rows: [], reason: result.reason };
+    rows.push(...result.rows);
+  }
+  return { rows, reason: "" };
+}
+
+function verifyOrder(rows, convention, opening) {
+  for (let i = 1; i < rows.length; i++) {
+    const expected = convention === "opening"
+      ? rows[i - 1].balance + rows[i - 1].amount
+      : rows[i - 1].balance + rows[i].amount;
+    if (Math.abs(rows[i].balance - expected) > 1) return false;
+  }
+  if (opening !== null && opening !== undefined && rows.length) {
+    const implied = convention === "opening"
+      ? rows[0].balance
+      : rows[0].balance - rows[0].amount;
+    if (Math.abs(Number(opening) - implied) > 1) return false;
+  }
+  return true;
+}
+
+function requiredSigns(rows, convention, opening) {
+  const flips = [];
+  const check = (index, required) => {
+    const amount = Number(rows[index].amount);
+    if (Math.abs(amount - required) <= 1) return true;
+    if (Math.abs(-amount - required) <= 1) { flips.push(index); return true; }
+    return false;
+  };
+  if (convention === "opening") {
+    if (opening !== null && opening !== undefined
+        && Math.abs(rows[0].balance - Number(opening)) > 1) return null;
+    for (let i = 0; i < rows.length - 1; i++) {
+      if (!check(i, rows[i + 1].balance - rows[i].balance)) return null;
     }
-    // A multi-row first day has no previous balance. Its head is the one row
-    // no other row on that day can follow; two heads mean the day is not one
-    // chain, so decline.
-    if (balance === null) {
-      const heads = remaining.filter((item) => !remaining.some((other) =>
-        other !== item
-        && Math.abs(other.row.balance - (item.row.balance - item.row.amount)) <= 1));
-      if (heads.length !== 1) return decline("ambiguous within-day order");
-      const head = heads[0];
-      ordered.push(head);
-      remaining.splice(remaining.indexOf(head), 1);
-      balance = head.row.balance;
+  } else {
+    if (opening !== null && opening !== undefined) {
+      if (!check(0, rows[0].balance - Number(opening))) return null;
     }
-    while (remaining.length) {
-      const matches = remaining.filter((item) =>
-        Math.abs(item.row.balance - (balance + item.row.amount)) <= 1);
-      if (matches.length !== 1) {
-        return decline(matches.length ? "ambiguous within-day order"
-          : "chain does not reconcile");
-      }
-      const pick = matches[0];
-      ordered.push(pick);
-      remaining.splice(remaining.indexOf(pick), 1);
-      balance = pick.row.balance;
+    for (let i = 1; i < rows.length; i++) {
+      if (!check(i, rows[i].balance - rows[i - 1].balance)) return null;
     }
   }
+  return flips;
+}
 
-  if (opening !== null && opening !== undefined && ordered.length) {
-    const first = ordered[0].row;
-    if (Math.abs(Number(opening) - (first.balance - first.amount)) > 1) {
-      return decline("chain does not reconcile");
+// Convention first, then sign repair. A convention is adopted only when the
+// whole ordered run verifies. A sign repair is attempted only on a run that
+// ordered cleanly but broke the chain; it is kept only when the flipped rows
+// verify from scratch. Ambiguous or repeated days are never sign-repaired.
+function reorderSegment(segment, { opening = null } = {}) {
+  const empty = { rows: segment, moved: 0, reason: "", convention: "", signCorrected: 0 };
+  if (segment.length < 2) return empty;
+  const reasons = [];
+  const orders = [];
+  for (const convention of ["post", "opening"]) {
+    const order = orderFor(segment, convention);
+    orders.push({ convention, order });
+    if (order.reason) { reasons.push(order.reason); continue; }
+    if (verifyOrder(order.rows, convention, opening)) {
+      const moved = order.rows.reduce((n, row, i) => n + (segment[i] === row ? 0 : 1), 0);
+      return { rows: moved ? order.rows : segment, moved, reason: "",
+        convention: convention === "opening" ? "opening" : "", signCorrected: 0 };
     }
   }
-
-  const next = ordered.map((item) => item.row);
-  const moved = next.reduce((n, row, i) => n + (segment[i] === row ? 0 : 1), 0);
-  return moved
-    ? { rows: next, moved, reason: "" }
-    : { rows: segment, moved: 0, reason: "" };
+  for (const { convention, order } of orders) {
+    if (order.reason) continue;
+    const flips = requiredSigns(order.rows, convention, opening);
+    if (!flips || !flips.length) continue;
+    const fixed = order.rows.map((row, i) =>
+      flips.includes(i) ? { ...row, amount: -row.amount } : row);
+    if (verifyOrder(fixed, convention, opening)) {
+      const moved = order.rows.reduce((n, row, i) => n + (segment[i] === row ? 0 : 1), 0);
+      return { rows: fixed, moved, reason: "",
+        convention: convention === "opening" ? "opening" : "",
+        signCorrected: flips.length };
+    }
+    reasons.push("chain does not reconcile");
+  }
+  const reason = reasons.includes("ambiguous within-day order") ? "ambiguous within-day order"
+    : reasons.includes("repeated end-of-day balance") ? "repeated end-of-day balance"
+      : "chain does not reconcile";
+  return { ...empty, reason };
 }
 
 // A block typed newest-first cannot be repaired by dates alone: a wrong date
@@ -263,6 +318,8 @@ export function reorderByChain(rows = [], { opening = null } = {}) {
   const missing = { date: 0, amount: 0, balance: 0 };
   const declined = [];
   let moved = 0;
+  let signCorrected = 0;
+  let convention = "";
   let segment = [];
   let start = 0;
   const flush = () => {
@@ -270,6 +327,8 @@ export function reorderByChain(rows = [], { opening = null } = {}) {
     const result = reorderSegment(segment, { opening: start === 0 ? opening : null });
     out.push(...result.rows);
     moved += result.moved;
+    signCorrected += result.signCorrected || 0;
+    if (result.convention === "opening") convention = "opening";
     if (result.reason) declined.push(result.reason);
     segment = [];
   };
@@ -294,9 +353,10 @@ export function reorderByChain(rows = [], { opening = null } = {}) {
   if (missing.amount) anchors.push(rowsWith(missing.amount, "without an amount"));
   if (missing.balance) anchors.push(rowsWith(missing.balance, "without a balance"));
   const reason = [...anchors, ...new Set(declined)].join(" · ");
-  const sameOrder = moved === 0 && out.length === list.length
+  const sameOrder = moved === 0 && signCorrected === 0 && out.length === list.length
     && out.every((row, i) => row === list[i]);
-  return { rows: sameOrder ? list : out, reordered: moved > 0, moved, reason };
+  return { rows: sameOrder ? list : out, reordered: moved > 0, moved, reason,
+    convention, signCorrected };
 }
 
 export function reconcileChain(rows = []) {
