@@ -36,16 +36,18 @@ test("spaces and dashes in one number do not break the match", () => {
 test("index.html blocks Apply sync on a mismatch until the override", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.match(html, /import \{ matchDemat \} from "\.\/portfolio-match\.js"/);
-  assert.match(html, /import \{ dematCardHtml, dematLast4, dematMismatchLine, dematText \} from "\.\/demat-card\.js"/);
+  assert.match(html, /dematCardHtml, dematLast4, dematMismatchLine, dematText,/);
+  assert.match(html, /syncPreviewCardHtml \} from "\.\/demat-card\.js"/);
   assert.match(html, /matchDemat\(reportDemat, targetDemat\) === "mismatch"/);
-  // The card itself lives in demat-card.js; the page only supplies the data.
-  assert.match(html, /return dematCardHtml\(\{/);
+  // One card host. The old warning card and the second detail card are gone.
+  assert.match(html, /host\.innerHTML = `<div id="df-sync-card"><\/div>`/);
+  assert.equal(html.includes('id="df-demat-warning"'), false);
+  assert.equal(html.includes('id="df-detail"'), false);
+  assert.match(html, /cardHost\.innerHTML = dematCardHtml\(\{/);
   assert.match(html, /dematMismatchLine\(reportDemat,/);
   assert.match(html, /import \{ assetIdentity \} from "\.\/asset-identity\.js"/);
-  assert.match(html, /assetIdentity\(\{ \.\.\.pinnedAsset,/);
-  // The apply stays disabled until the person says to import anyway.
-  assert.match(html, /onclick="bpDigiFinnSyncApply\(\)"\$\{blocked \? " disabled" : ""\}/);
-  assert.match(html, /Import anyway into this portfolio/);
-  assert.match(html, /These reports belong to a different Demat\. Use 'Import anyway' if you are sure\./);
+  assert.match(html, /const expanded = !mismatch \|\| window\.bpDigiFinnOverride === true;/);
+  assert.match(html, /dematCardHtml\(\{[\s\S]*?\}, \{ body \}\)/);
+  assert.match(html, /These reports belong to a different Demat\. Use 'Apply here anyway' if you are sure\./);
 });
 
