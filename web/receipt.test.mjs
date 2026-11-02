@@ -106,6 +106,19 @@ test("a receipt carries the reorder result as a count and a fixed phrase", () =>
         convention: "opening", moved: 4, signCorrected: 2, reason: "" }] });
 });
 
+test("a receipt keeps every run even when the line lists three", () => {
+  const runs = Array.from({ length: 12 }, (_, i) => ({
+    from: i * 2 + 1, to: i * 2 + 2, formula: false, convention: "",
+    moved: 0, signCorrected: 0, reason: "",
+  }));
+  const r = receiptFrom([{ date: "2024-04-01", amount: 100, balance: 100 }],
+    { sheet: 2, read: 1, order: { moved: 0, reason: "", runs } });
+  assert.equal(r.reorder.runs.length, 12);
+  assert.deepEqual(r.reorder.runs[11], { from: 23, to: 24, formula: false,
+    mixed: false, unreadable: false, convention: "", moved: 0,
+    signCorrected: 0, reason: "" });
+});
+
 test("countRows ignores rows that are entirely blank", () => {
   const matrix = [
     ["Date", "Description", "Amount"],

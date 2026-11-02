@@ -399,6 +399,33 @@ test("a first day with two possible heads is ambiguous", () => {
   assert.equal(res.reason, "ambiguous within-day order");
 });
 
+test("three interchangeable same-day rows reorder instead of refusing", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 100, balance: 100 },
+    { id: 2, date: "2024-04-02", amount: 50, balance: 150 },
+    { id: 3, date: "2024-04-02", amount: 50, balance: 150 },
+    { id: 4, date: "2024-04-02", amount: -50, balance: 100 },
+    { id: 5, date: "2024-04-02", amount: 50, balance: 150 },
+    { id: 6, date: "2024-04-02", amount: -50, balance: 100 },
+  ];
+  const res = reorderByChain(rows, { opening: 0 });
+  assert.equal(res.reason, "");
+  assert.equal(res.reordered, true);
+  assert.deepEqual(res.rows.map((r) => r.id), [1, 2, 4, 3, 6, 5]);
+  assert.equal(res.signCorrected, 0);
+});
+
+test("two same-day rows that differ in balance are still ambiguous", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: -100, balance: 900 },
+    { id: 2, date: "2024-04-01", amount: -100, balance: 950 },
+  ];
+  const res = reorderByChain(rows);
+  assert.equal(res.reordered, false);
+  assert.equal(res.reason, "ambiguous within-day order");
+  assert.deepEqual(res.rows, rows);
+});
+
 test("a day that repeats its closing balance reports the reason", () => {
   const rows = [
     { id: 1, date: "2024-04-01", amount: -100, balance: 900 },
