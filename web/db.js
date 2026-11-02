@@ -2,8 +2,8 @@
 // The dedupe and reconciliation rules come from ledger.js, so the browser and
 // the Python reference agree on what a duplicate is.
 
-import { dedupePlan, duplicateIds, reconcileChain, orderForChain, normNarration,
-  planImport as planMergedImport } from "./ledger.js";
+import { dedupePlan, duplicateIds, reconcileChain, orderForChain, reorderByChain,
+  normNarration, planImport as planMergedImport } from "./ledger.js";
 import { isSealed, sealBytes, openBytes } from "./dbatrest.js";
 import { receiptTotals } from "./receipt.js";
 
@@ -339,6 +339,7 @@ export function makeStore(SQLlib, save) {
       });
     }
     const wanted = factIds ? new Set(factIds) : null;
+    const inversions = [];
     let previousDate = "";
     rows.forEach((row, index) => {
       const rowNo = row.source_row || index + 2;
@@ -349,12 +350,29 @@ export function makeStore(SQLlib, save) {
         }
         return;
       }
-      if (previousDate && row.date < previousDate && (!wanted || wanted.has(row.id))) {
-        derived.push({ factId: row.id, kind: "out_of_order",
-          detail: `printed after ${previousDate} but dated ${row.date}, row ${rowNo}` });
+      if (previousDate && row.date < previousDate) {
+        inversions.push({ row, index, rowNo, previousDate });
       }
       previousDate = row.date;
     });
+    const affected = inversions.filter(({ row }) => !wanted || wanted.has(row.id));
+    if (affected.length) {
+      if (reorderByChain(rows).verifiedAsPrinted) {
+        const rowNos = affected.map(({ rowNo }) => rowNo);
+        const from = Math.min(...rowNos), to = Math.max(...rowNos);
+        const range = from === to ? `row ${from}` : `rows ${from}-${to}`;
+        const n = affected.length;
+        const verb = n === 1 ? "prints a date" : "print dates";
+        derived.push({ factId: null, kind: "out_of_order",
+          detail: `${n} row${n === 1 ? "" : "s"} (${range}) ${verb}`
+            + " earlier than the row above; balances chain, so the order is trusted" });
+      } else {
+        affected.forEach(({ row, rowNo, previousDate: after }) => {
+          derived.push({ factId: row.id, kind: "out_of_order",
+            detail: `printed after ${after} but dated ${row.date}, row ${rowNo}` });
+        });
+      }
+    }
 
     // An accepted or ignored decision about the same fact and kind is a real
     // answer; Re-check must not reopen it as a second, open item.
@@ -629,7 +647,7 @@ export function makeStore(SQLlib, save) {
     + "  AND b.balance_paise IS NOT NULL ORDER BY b.txn_date DESC, b.id DESC LIMIT 1) closing"
     + " FROM fact f GROUP BY f.account_id ORDER BY f.account_id");
   store.listIssues = () => all(
-    "SELECT i.id, i.kind, i.detail, i.state, i.account_id,"
+    "SELECT i.id, i.kind, i.detail, i.state, i.account_id, i.fact_id,"
     + " a.label AS account, f.txn_date AS date, f.amount_paise AS amount,"
     + " f.balance_paise AS balance"
     + " FROM issue i LEFT JOIN fact f ON f.id=i.fact_id"

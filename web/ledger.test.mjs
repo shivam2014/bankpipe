@@ -384,8 +384,22 @@ test("a first day without a printed opening is rebuilt from a unique head", () =
   // Only the 99,000 row can start the chain; the other follows it.
   const res = reorderByChain(rows);
   assert.equal(res.reordered, true);
+  assert.equal(res.verifiedAsPrinted, false);
   assert.deepEqual(res.rows.map((r) => r.id), [1, 2]);
   assert.equal(res.moved, 2);
+});
+
+test("a chain that closes in file order is verified as printed", () => {
+  const rows = [
+    { id: 1, date: "2024-04-02", amount: -50, balance: 100 },
+    { id: 2, date: "2024-04-01", amount: 50, balance: 150 },
+  ];
+  const res = reorderByChain(rows, { opening: 150 });
+  assert.equal(res.reason, "");
+  assert.equal(res.moved, 0);
+  assert.equal(res.reordered, false);
+  assert.equal(res.verifiedAsPrinted, true);
+  assert.deepEqual(res.rows, rows);
 });
 
 test("a first day with two possible heads is ambiguous", () => {

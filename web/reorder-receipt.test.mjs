@@ -42,6 +42,13 @@ test("the sheet line caps the live run list and keeps the decline below", () => 
     + " · ambiguous within-day order · chain does not reconcile");
 });
 
+test("an order verified as printed says so", () => {
+  const line = reorderLine({ reorder: { moved: 0, signCorrected: 0,
+    verifiedAsPrinted: true,
+    runs: [{ from: 3, to: 30, formula: false, convention: "" }] } });
+  assert.match(line, /order verified as printed/);
+});
+
 test("the sheet line prints repairs and per-run evidence", () => {
   const line = reorderLine({ reorder: { moved: 4, signCorrected: 2,
     runs: [

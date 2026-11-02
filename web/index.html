@@ -1849,14 +1849,16 @@ function renderIssues() {
       return;
     }
     window.bpIssueIds = rows.map((r) => r.id);
-    const kindLabel = (kind) => ({ balance_break: "Balance break", no_date: "No date",
-      out_of_order: "Out of order" })[kind] || "Check";
+    const kindLabel = (r) => (r.kind === "out_of_order" && !r.fact_id
+      ? "Date order"
+      : ({ balance_break: "Balance break", no_date: "No date",
+        out_of_order: "Out of order" })[r.kind] || "Check");
     const body = rows.map((r) => `<tr><td data-label="Date">${esc(r.date || "—")}</td>
       <td data-label="Asset">${esc(r.account || "")}</td>
       <td class="n ${r.amount < 0 ? "neg" : r.amount > 0 ? "pos" : ""}"
         data-label="Amount">${amountInr(r.amount)}</td>
       <td class="n" data-label="Balance">${amountInr(r.balance)}</td>
-      <td data-label="Check"><b>${esc(kindLabel(r.kind))}</b>
+      <td data-label="Check"><b>${esc(kindLabel(r))}</b>
         <div class="muted" style="font-size:12px">${esc(r.detail || "")}</div></td>
       <td style="white-space:nowrap">
         <button class="btn" onclick="bpResolveIssue(${r.id},'accepted')">Accept</button>

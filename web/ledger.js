@@ -324,11 +324,25 @@ function requiredSigns(rows, convention, opening) {
 // verify from scratch. Ambiguous or repeated days are never sign-repaired.
 function reorderSegment(segment, { opening = null, convention = "" } = {}) {
   const empty = { rows: segment, moved: 0, reason: "", convention: "",
-    conventionSource: "", adopted: "", signCorrected: 0 };
-  if (segment.length < 2) return empty;
+    conventionSource: "", adopted: "", signCorrected: 0, verifiedAsPrinted: false };
+  const conventions = convention ? [convention] : ["post", "opening"];
+  if (segment.length < 2) {
+    return { ...empty,
+      verifiedAsPrinted: conventions.some((each) => verifyOrder(segment, each, opening)) };
+  }
+  // The file order is the bank's order. Verify it before sorting by date; a
+  // back-dated row is not a reason to reorder a chain that already closes.
+  for (const each of conventions) {
+    if (verifyOrder(segment, each, opening)) {
+      return { rows: segment, moved: 0, reason: "",
+        convention: each === "opening" ? "opening" : "",
+        conventionSource: convention ? "formula"
+          : (each === "opening" ? "inferred" : ""),
+        adopted: each, signCorrected: 0, verifiedAsPrinted: true };
+    }
+  }
   const reasons = [];
   const orders = [];
-  const conventions = convention ? [convention] : ["post", "opening"];
   for (const each of conventions) {
     const order = orderFor(segment, each, opening);
     orders.push({ convention: each, order });
@@ -340,7 +354,7 @@ function reorderSegment(segment, { opening = null, convention = "" } = {}) {
         conventionSource: convention ? "formula"
           : (each === "opening" ? "inferred" : ""),
         adopted: each,
-        signCorrected: 0 };
+        signCorrected: 0, verifiedAsPrinted: false };
     }
   }
   for (const { convention: each, order } of orders) {
@@ -356,7 +370,7 @@ function reorderSegment(segment, { opening = null, convention = "" } = {}) {
         conventionSource: convention ? "formula"
           : (each === "opening" ? "inferred" : ""),
         adopted: each,
-        signCorrected: flips.length };
+        signCorrected: flips.length, verifiedAsPrinted: false };
     }
     reasons.push("chain does not reconcile");
   }
@@ -383,6 +397,7 @@ export function reorderByChain(rows = [], { opening = null, runs = null } = {}) 
   const declined = [];
   let moved = 0;
   let signCorrected = 0;
+  let verifiedAsPrinted = null;
   let segment = [];
   let start = 0;
   let segmentRun = null;
@@ -415,6 +430,8 @@ export function reorderByChain(rows = [], { opening = null, runs = null } = {}) 
     out.push(...result.rows);
     moved += result.moved;
     signCorrected += result.signCorrected || 0;
+    verifiedAsPrinted = (verifiedAsPrinted === null ? true : verifiedAsPrinted)
+      && !!result.verifiedAsPrinted;
     if (result.reason) declined.push(result.reason);
     if (segmentRun) {
       const state = stateFor(segmentRun);
@@ -476,7 +493,8 @@ export function reorderByChain(rows = [], { opening = null, runs = null } = {}) 
   const sameOrder = moved === 0 && signCorrected === 0 && out.length === list.length
     && out.every((row, i) => row === list[i]);
   return { rows: sameOrder ? list : out, reordered: moved > 0, moved, reason,
-    convention: conventionOut, conventionSource, signCorrected, runs: reports };
+    convention: conventionOut, conventionSource, signCorrected,
+    verifiedAsPrinted: !!verifiedAsPrinted, runs: reports };
 }
 
 export function reconcileChain(rows = []) {
