@@ -11,6 +11,7 @@ import {
   parseMoney, scanPreamble, guessAccount,
 } from "./parse.js";
 import { makeStore } from "./db.js";
+import { reorderByChain } from "./ledger.js";
 import { isEncryptedOffice, decryptOffice } from "./office-crypto.js";
 
 const require = createRequire(import.meta.url);
@@ -616,6 +617,31 @@ test("delete-all clears rows and their review items, and a re-import restores on
   assert.equal(res.inserted, 2);
   assert.equal(store.summary().facts, 2);
   assert.equal(store.summary().issues, 1);
+});
+
+test("a reversed block imported in chain order raises no order or balance flag", async () => {
+  const store = await newStore();
+  // Newest first, as a typed sheet block can be.
+  const source = [
+    { date: "2024-04-03", amount: 25000, balance: 1025000, description: "C" },
+    { date: "2024-04-02", amount: -500000, balance: 1000000, description: "B" },
+    { date: "2024-04-01", amount: 1000000, balance: 1500000, description: "A" },
+  ];
+  const ordered = reorderByChain(source, { opening: 500000 });
+  assert.equal(ordered.reordered, true);
+  assert.equal(ordered.moved, 2);
+  const res = store.importRows("reorder-bank", ordered.rows);
+  assert.equal(res.inserted, 3);
+  const kinds = store.listIssues().map((i) => i.kind);
+  assert.equal(kinds.includes("out_of_order"), false);
+  assert.equal(kinds.includes("balance_break"), false);
+});
+
+test("both import paths run the chain reorder before insert", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.match(html, /reorderByChain\(chronological\(parsed\), \{ opening \}\)/);
+  assert.match(html, /store\.importRows\(account, ordered\.rows/);
+  assert.match(html, /reorderByChain\(incoming\)/);
 });
 
 test("the advanced workbook re-import renders into a host that exists", () => {
