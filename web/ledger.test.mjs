@@ -515,34 +515,41 @@ test("the SCB joint block adopts the opening convention and repairs two signs", 
   assert.equal(res.reason, "");
 });
 
-test("a formula verdict forces the opening convention", () => {
+test("a formula run forces the opening convention", () => {
   const rows = [
-    { id: 1, date: "2025-04-21", amount: -1479500, balance: 7219272 },
-    { id: 2, date: "2025-04-21", amount: -1479500, balance: 8698772 },
-    { id: 3, date: "2025-04-21", amount: -1479500, balance: 10178272 },
-    { id: 4, date: "2025-03-15", amount: -250000, balance: 9928272 },
-    { id: 5, date: "2025-03-13", amount: -55480, balance: 9872792 },
+    { id: 1, source_row: 2, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+    { id: 2, source_row: 3, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 3, source_row: 4, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, source_row: 5, date: "2025-03-15", amount: -250000, balance: 9928272 },
+    { id: 5, source_row: 6, date: "2025-03-13", amount: -55480, balance: 9872792 },
   ];
-  const res = reorderByChain(rows, { opening: 9872792, convention: "opening" });
+  const runs = [{ from: 2, to: 6, formula: true, convention: "opening" }];
+  const res = reorderByChain(rows, { opening: 9872792, runs });
   assert.equal(res.convention, "opening");
   assert.equal(res.conventionSource, "formula");
   assert.equal(res.signCorrected, 2);
+  assert.equal(res.runs.length, 1);
+  assert.deepEqual(res.runs[0], { from: 2, to: 6, formula: true, mixed: false,
+    unreadable: false, convention: "opening", moved: 4, signCorrected: 2, reason: "" });
 });
 
-test("a formula post verdict is not overridden by inference", () => {
+test("a formula post run is not overridden by inference", () => {
   const rows = [
-    { id: 1, date: "2025-04-21", amount: -1479500, balance: 7219272 },
-    { id: 2, date: "2025-04-21", amount: -1479500, balance: 8698772 },
-    { id: 3, date: "2025-04-21", amount: -1479500, balance: 10178272 },
-    { id: 4, date: "2025-03-15", amount: -250000, balance: 9928272 },
-    { id: 5, date: "2025-03-13", amount: -55480, balance: 9872792 },
+    { id: 1, source_row: 2, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+    { id: 2, source_row: 3, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 3, source_row: 4, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, source_row: 5, date: "2025-03-15", amount: -250000, balance: 9928272 },
+    { id: 5, source_row: 6, date: "2025-03-13", amount: -55480, balance: 9872792 },
   ];
-  const res = reorderByChain(rows, { opening: 9872792, convention: "post" });
+  const runs = [{ from: 2, to: 6, formula: true, convention: "post" }];
+  const res = reorderByChain(rows, { opening: 9872792, runs });
   assert.equal(res.reordered, false);
   assert.equal(res.convention, "");
   assert.equal(res.signCorrected, 0);
   assert.match(res.reason, /chain does not reconcile/);
   assert.deepEqual(res.rows, rows);
+  assert.equal(res.runs[0].formula, true);
+  assert.equal(res.runs[0].convention, "post");
 });
 
 test("the same opening block with correct signs is not flipped", () => {
@@ -589,4 +596,70 @@ test("a normal post-entry statement reports no repair", () => {
   assert.equal(res.signCorrected, 0);
   assert.equal(res.reason, "");
   assert.equal(res.rows, rows);
+});
+
+test("formula and value runs are classified separately", () => {
+  const formulaRows = [
+    { id: 1, source_row: 2, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+    { id: 2, source_row: 3, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 3, source_row: 4, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, source_row: 5, date: "2025-03-15", amount: -250000, balance: 9928272 },
+    { id: 5, source_row: 6, date: "2025-03-13", amount: -55480, balance: 9872792 },
+  ];
+  const valueRows = [
+    { id: 6, source_row: 7, date: "2025-05-01", amount: 100, balance: 100 },
+    { id: 7, source_row: 8, date: "2025-05-02", amount: 50, balance: 150 },
+    { id: 8, source_row: 9, date: "2025-05-03", amount: 25, balance: 175 },
+  ];
+  const runs = [
+    { from: 2, to: 6, formula: true, convention: "opening" },
+    { from: 7, to: 9, formula: false, convention: "" },
+  ];
+  const res = reorderByChain([...formulaRows, ...valueRows],
+    { opening: 9872792, runs });
+  assert.equal(res.runs.length, 2);
+  assert.equal(res.runs[0].formula, true);
+  assert.equal(res.runs[0].convention, "opening");
+  assert.equal(res.runs[0].signCorrected, 2);
+  assert.equal(res.runs[1].formula, false);
+  assert.equal(res.runs[1].convention, "post");
+  assert.equal(res.runs[1].moved, 0);
+});
+
+test("two formula runs with different verdicts both stay on their evidence", () => {
+  const first = [
+    { id: 1, source_row: 2, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+    { id: 2, source_row: 3, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 3, source_row: 4, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, source_row: 5, date: "2025-03-15", amount: -250000, balance: 9928272 },
+    { id: 5, source_row: 6, date: "2025-03-13", amount: -55480, balance: 9872792 },
+  ];
+  const second = [
+    { id: 6, source_row: 7, date: "2025-05-01", amount: 100, balance: 100 },
+    { id: 7, source_row: 8, date: "2025-05-02", amount: 50, balance: 150 },
+    { id: 8, source_row: 9, date: "2025-05-03", amount: 25, balance: 175 },
+  ];
+  const runs = [
+    { from: 2, to: 6, formula: true, convention: "opening" },
+    { from: 7, to: 9, formula: true, convention: "post" },
+  ];
+  const res = reorderByChain([...first, ...second], { opening: 9872792, runs });
+  assert.equal(res.runs[0].convention, "opening");
+  assert.equal(res.runs[1].convention, "post");
+  assert.equal(res.runs[1].formula, true);
+});
+
+test("a value run with opening inference reports inferred, not formula", () => {
+  const rows = [
+    { id: 1, source_row: 2, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+    { id: 2, source_row: 3, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 3, source_row: 4, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, source_row: 5, date: "2025-03-15", amount: -250000, balance: 9928272 },
+    { id: 5, source_row: 6, date: "2025-03-13", amount: -55480, balance: 9872792 },
+  ];
+  const runs = [{ from: 2, to: 6, formula: false, convention: "" }];
+  const res = reorderByChain(rows, { opening: 9872792, runs });
+  assert.equal(res.runs[0].formula, false);
+  assert.equal(res.runs[0].convention, "opening");
+  assert.equal(res.conventionSource, "inferred");
 });

@@ -640,8 +640,8 @@ test("a reversed block imported in chain order raises no order or balance flag",
 test("both import paths run the chain reorder before insert", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.match(html, /reorderByChain\(chronological\(parsed\), \{/);
-  assert.match(html, /opening, convention: formulaConvention,/);
-  assert.match(html, /balanceConventionFromSheet\(wb\.Sheets\[name\], sp, rows\)/);
+  assert.match(html, /opening, runs: formulaRuns,/);
+  assert.match(html, /balanceRunsFromSheet\(wb\.Sheets\[name\], sp, rows\)/);
   assert.match(html, /store\.importRows\(account, ordered\.rows/);
   assert.match(html, /reorderByChain\(incoming\)/);
 });

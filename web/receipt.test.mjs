@@ -96,10 +96,14 @@ test("a receipt carries the reorder result as a count and a fixed phrase", () =>
   const repaired = receiptFrom([
     { date: "2024-04-01", amount: 100000, balance: 105000 },
   ], { sheet: 2, read: 1, order: { moved: 4, reason: "",
-    convention: "opening", conventionSource: "formula", signCorrected: 2 } });
+    convention: "opening", conventionSource: "formula", signCorrected: 2,
+    runs: [{ from: 2, to: 6, formula: true, convention: "opening",
+      moved: 4, signCorrected: 2, reason: "" }] } });
   assert.deepEqual(repaired.reorder,
     { moved: 4, reason: "", convention: "opening",
-      conventionSource: "formula", signCorrected: 2 });
+      conventionSource: "formula", signCorrected: 2,
+      runs: [{ from: 2, to: 6, formula: true, mixed: false, unreadable: false,
+        convention: "opening", moved: 4, signCorrected: 2, reason: "" }] });
 });
 
 test("countRows ignores rows that are entirely blank", () => {

@@ -33,42 +33,63 @@ export function classifyBalanceFormula(formula, {
   return post ? "post" : "opening";
 }
 
-// Read the raw sheet's balance formulas before the matrix is built. Returns
-// "post" or "opening" only when most populated balance cells are formulas and
-// every sampled formula agrees; otherwise "" for the chain fallback.
-export function balanceConventionFromSheet(ws, sheet, matrix = []) {
-  if (!ws || !sheet || !Array.isArray(sheet.columns)) return "";
+// Walk every data row in the balance column, group contiguous rows by whether
+// the cell carries a formula, and classify each formula run on its own. Value
+// runs stay evidence-free for the chain fallback. A formula run whose formulas
+// disagree (or cannot be read) is evidence-free too, with `mixed`/`unreadable`
+// set so the receipt can say so instead of quietly taking a majority.
+export function balanceRunsFromSheet(ws, sheet, matrix = []) {
+  if (!ws || !sheet || !Array.isArray(sheet.columns)) return [];
   const headerRow = Math.max(0, (sheet.header_row || 1) - 1);
   const cols = sheet.columns.filter((c) =>
     c.role !== "ignore" && c.kind === "amount");
-  if (!cols.length) return "";
+  if (!cols.length) return [];
   const withUse = cols.map((c) => ({
     ...c,
     use: c.use || classifyAmountHeader(matrix[headerRow]?.[colIndex(c.col)]),
   }));
   let balance = withUse.find((c) => c.use === "balance");
   if (!balance && withUse.length >= 3) balance = withUse[2];
-  if (!balance) return "";
+  if (!balance) return [];
   const balanceCol = String(balance.col).toUpperCase();
   const amountCols = withUse.filter((c) => c !== balance)
     .map((c) => String(c.col).toUpperCase());
 
   const firstData = Math.max(1, sheet.header_row || 1);
-  const populated = [];
+  const runs = [];
   for (let i = firstData; i < matrix.length; i++) {
-    const cell = ws[balanceCol + (i + 1)];
-    if (!cell) continue;
-    const hasValue = cell.v !== undefined && cell.v !== null
-      && String(cell.v).trim() !== "";
-    if (hasValue || cell.f) populated.push({ row: i + 1, cell });
+    const row = i + 1;
+    const cell = ws[balanceCol + row];
+    const formula = !!(cell && cell.f);
+    const last = runs[runs.length - 1];
+    if (last && last.formula === formula) last.to = row;
+    else runs.push({ from: row, to: row, formula, convention: "",
+      mixed: false, unreadable: false });
   }
-  const formulas = populated.filter((x) => x.cell.f);
-  if (!formulas.length || formulas.length <= populated.length / 2) return "";
 
-  const sample = formulas.length > 2 ? formulas.slice(1, -1) : formulas;
-  const verdicts = sample.map((x) => classifyBalanceFormula(x.cell.f, {
-    row: x.row, balanceCol, amountCols,
-  }));
-  if (!verdicts.length || verdicts.some((v) => !v)) return "";
-  return verdicts.every((v) => v === verdicts[0]) ? verdicts[0] : "";
+  for (const run of runs) {
+    if (!run.formula) continue;
+    const verdicts = [];
+    for (let row = run.from; row <= run.to; row++) {
+      const cell = ws[balanceCol + row];
+      if (!cell || !cell.f) continue;
+      verdicts.push(classifyBalanceFormula(cell.f, {
+        row, balanceCol, amountCols,
+      }));
+    }
+    if (!verdicts.length) {
+      run.formula = false;
+      continue;
+    }
+    if (verdicts.some((v) => !v)) {
+      run.unreadable = true;
+      continue;
+    }
+    if (verdicts.some((v) => v !== verdicts[0])) {
+      run.mixed = true;
+      continue;
+    }
+    run.convention = verdicts[0];
+  }
+  return runs;
 }
