@@ -69,6 +69,16 @@ function saneDate(y, mo, d) {
   return `${yy}-${String(m).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
 }
 
+// Excel stores a date as days since 1899-12-30. SheetJS already accounts for
+// the 1900 leap bug, so the serial maps directly; no one-day shift.
+export function parseExcelSerial(v) {
+  const number = typeof v === "number" ? v
+    : Number(String(v ?? "").trim().replace(/,/g, "").replace(/\.0+$/, ""));
+  if (!Number.isInteger(number) || number < 20000 || number > 60000) return "";
+  return new Date(Date.UTC(1899, 11, 30) + number * 86400000)
+    .toISOString().slice(0, 10);
+}
+
 export function parseDate(v) {
   let s = String(v || "").trim(); if (!s) return "";
   s = s.replace(/[.,;:]+$/, "").trim();
@@ -87,11 +97,8 @@ export function parseDate(v) {
   // Excel stores dates as days since 1899-12-30. A bare 5-digit number in a
   // date column is almost always a serial, not a year or an amount.
   if (/^\d{5}$/.test(s)) {
-    const n = Number(s);
-    if (n >= 20000 && n <= 60000) {
-      const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
-      return d.toISOString().slice(0, 10);
-    }
+    const iso = parseExcelSerial(s);
+    if (iso) return iso;
   }
   let m;
   if ((m = s.match(/^([A-Za-z]{3,})\s+(\d{1,2}),?\s+(\d{2,4})$/))) {
