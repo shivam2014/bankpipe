@@ -331,11 +331,15 @@ export function makeStore(SQLlib, save) {
     }
 
     const rows = chainRows(accountId);
+    const rowAt = new Map(rows.map((row, index) =>
+      [row.id, row.source_row || index + 2]));
     const derived = [];
     if (balanceBreaks) {
       reconcileChain(rows).issues.forEach((is) => {
+        const rowNo = rowAt.get(is.id);
         derived.push({ factId: is.id, kind: "balance_break",
-          detail: `balance ${inrText(is.actual)} expected ${inrText(is.expected)}` });
+          detail: `balance ${inrText(is.actual)} expected ${inrText(is.expected)}`
+            + (rowNo ? `, row ${rowNo}` : "") });
       });
     }
     const wanted = factIds ? new Set(factIds) : null;
