@@ -542,6 +542,72 @@ test("the SCB joint block adopts the opening convention and repairs two signs", 
   assert.equal(res.reason, "");
 });
 
+test("the ascending SCB block proves exactly two signs", () => {
+  const rows = [
+    { id: 1, date: "2025-03-13", amount: -55480, balance: 9872792 },
+    { id: 2, date: "2025-03-15", amount: -250000, balance: 9928272 },
+    { id: 3, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 5, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+  ];
+  const res = reorderByChain(rows, { opening: 9872792 });
+  assert.equal(res.reason, "");
+  assert.equal(res.signCorrected, 2);
+  assert.deepEqual(res.rows.map((r) => r.amount),
+    [55480, 250000, -1479500, -1479500, -1479500]);
+});
+
+test("a correctly signed block proves zero flips", () => {
+  const rows = [
+    { id: 1, date: "2025-03-13", amount: 55480, balance: 9872792 },
+    { id: 2, date: "2025-03-15", amount: 250000, balance: 9928272 },
+    { id: 3, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 5, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+  ];
+  const res = reorderByChain(rows, { opening: 9872792 });
+  assert.equal(res.reason, "");
+  assert.equal(res.signCorrected, 0);
+});
+
+test("a one-paise magnitude mismatch declines instead of flipping", () => {
+  const rows = [
+    { id: 1, date: "2025-03-13", amount: -55480, balance: 9872792 },
+    { id: 2, date: "2025-03-15", amount: -249999, balance: 9928272 },
+    { id: 3, date: "2025-04-21", amount: -1479500, balance: 10178272 },
+    { id: 4, date: "2025-04-21", amount: -1479500, balance: 8698772 },
+    { id: 5, date: "2025-04-21", amount: -1479500, balance: 7219272 },
+  ];
+  const res = reorderByChain(rows, { opening: 9872792 });
+  assert.equal(res.reordered, false);
+  assert.equal(res.signCorrected, 0);
+  assert.match(res.reason, /chain does not reconcile/);
+});
+
+test("the last row of an opening run keeps its parsed sign", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: 200, balance: 100 },
+    { id: 2, date: "2024-04-02", amount: -999, balance: 300 },
+  ];
+  const res = reorderByChain(rows, { opening: 100 });
+  assert.equal(res.reason, "");
+  assert.equal(res.signCorrected, 0);
+  assert.equal(res.rows[1].amount, -999);
+});
+
+test("a block that needs three flips flips all three", () => {
+  const rows = [
+    { id: 1, date: "2024-04-01", amount: -200, balance: 100 },
+    { id: 2, date: "2024-04-02", amount: -300, balance: 300 },
+    { id: 3, date: "2024-04-03", amount: -400, balance: 600 },
+    { id: 4, date: "2024-04-04", amount: -500, balance: 1000 },
+  ];
+  const res = reorderByChain(rows, { opening: 100 });
+  assert.equal(res.reason, "");
+  assert.equal(res.signCorrected, 3);
+  assert.deepEqual(res.rows.map((r) => r.amount), [200, 300, 400, -500]);
+});
+
 test("a formula run forces the opening convention", () => {
   const rows = [
     { id: 1, source_row: 2, date: "2025-04-21", amount: -1479500, balance: 7219272 },
