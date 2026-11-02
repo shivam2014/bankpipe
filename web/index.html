@@ -939,6 +939,7 @@ import { bondHoldingsCsv } from "./bond-csv.js";
 import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
 import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
+import { countRows, receiptFrom, receiptTotals } from "./receipt.js";
 import { VAULT_SETTING, emptyVault, sealVault, openVault, safeUrl, upsertEntry, removeEntry } from "./secrets.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
 import { showDeleteAll } from "./db.js";
@@ -1675,7 +1676,18 @@ async function bpBatchCreateAccount(entry) {
   return id;
 }
 
-async function bpBatchImportOne(entry) {
+function bpStatementReceipt(entry) {
+  const parsed = entry.parsed || { rows: [] };
+  const rows = parsed.rows || [];
+  // Sheet and CSV statements keep the raw matrix, so the header row is known.
+  // A PDF has only the rows the text layer produced.
+  const read = entry.rows && parsed.header
+    ? countRows(entry.rows, parsed.header)
+    : rows.length;
+  return receiptFrom(rows, { sheet: 0, read });
+}
+
+async function bpBatchImportOne(entry, batch) {
   if (entry.accountId === "__new__") await bpBatchCreateAccount(entry);
   const account = entry.accountId;
   const incoming = chronological(entry.parsed).map((row) => ({ ...row, account }));
@@ -1687,7 +1699,7 @@ async function bpBatchImportOne(entry) {
       setTimeout(() => reject(new Error("timeout: " + label)), ms))]);
     await timeout(store.openDb(), 8000, "openDb");
     dbStats = await store.importRows(account, incoming,
-      { closing: entry.closing ?? null });
+      { closing: entry.closing ?? null, batch, receipt: bpStatementReceipt(entry) });
   } catch (e) { dbError = String((e && e.message) || e).slice(0, 90); }
   entry.result = {
     inserted: dbStats ? dbStats.inserted : browser.kept,
@@ -1708,6 +1720,9 @@ window.bpBatchImport = async () => {
   if (!queue.length) return;
   state.busy = true;
   bpBatchRender();
+  // One batch for the whole action, so every file in the queue lands in the
+  // same source receipt even though each file is its own run.
+  const batch = new Date().toISOString();
   try {
     // Queue order, one file at a time. A failure is recorded on that row and
     // the next file still runs; importRows dedupes against what just landed.
@@ -1717,7 +1732,7 @@ window.bpBatchImport = async () => {
       entry.message = "";
       bpBatchRender();
       try {
-        await bpBatchImportOne(entry);
+        await bpBatchImportOne(entry, batch);
         entry.status = "done";
       } catch (e) {
         entry.status = "error";
@@ -2963,6 +2978,9 @@ async function importWorkbook(file) {
   const reports = [];
   const profile = window.bpProfile || null;
   let total = 0;
+  // One batch for every sheet this workbook action imports. The receipt for a
+  // sheet describes the source, not the rows that survived dedupe.
+  const batch = new Date().toISOString();
   const totalSheets = wb.SheetNames.length;
   for (const name of wb.SheetNames) {
     const si = wb.SheetNames.indexOf(name);
@@ -3081,9 +3099,13 @@ async function importWorkbook(file) {
       continue;
     }
     let parsed = parseStatement(rows);
+    let parsedRead = null;
     if (sp && sp.purpose === "transactions") {
       const tp = parseSheet(rows, sp);
-      if (tp.rows.length) parsed = { rows: tp.rows, header: tp.headerRow, mapping: [], order: "" };
+      if (tp.rows.length) {
+        parsed = { rows: tp.rows, header: tp.headerRow, mapping: [], order: "" };
+        parsedRead = tp.rowsRead;
+      }
     }
     const dated = parsed.rows.filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.date)).length;
     const profileTxn = sp && sp.purpose === "transactions";
@@ -3164,7 +3186,15 @@ async function importWorkbook(file) {
         if (Object.keys(patch).length) await store.updateAccount(account, patch);
       } catch (e) {}
     }
-    const res = await store.importRows(account, chronological(parsed));
+    const res = await store.importRows(account, chronological(parsed), {
+      batch,
+      receipt: receiptFrom(parsed.rows, {
+        sheet: si,
+        read: parsedRead === null
+          ? (parsed.header ? countRows(rows, parsed.header) : parsed.rows.length)
+          : parsedRead,
+      }),
+    });
     total += res.inserted;
     const match = confident ? confident.why
       : reused ? "existing sheet asset"
@@ -6049,6 +6079,16 @@ async function renderRealHome() {
     host.innerHTML = `<h1>Home</h1><div class="card pad">storage error: ${esc(e.message)}</div>`;
   }
 }
+
+function receiptWhen(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()},`
+    + ` ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 async function renderGaps() {
   const host = document.getElementById("view");
   host.innerHTML = `<h1>Data health</h1><div class="card pad">checking…</div>`;
@@ -6056,8 +6096,9 @@ async function renderGaps() {
     const store = await import("./db.js");
     const flash = window.bpHealthFlash || "";
     window.bpHealthFlash = "";
-    const [v, assets, sheetMapRaw] = await Promise.all([
-      store.validation(), store.listAccounts(), store.getSetting("bp.sheetmap")]);
+    const [v, assets, sheetMapRaw, receipt] = await Promise.all([
+      store.validation(), store.listAccounts(), store.getSetting("bp.sheetmap"),
+      store.latestReceipt()]);
     let sheetMap = [];
     try { sheetMap = JSON.parse(sheetMapRaw || "[]"); } catch (e) {}
     const sum = (key) => v.accounts.reduce((n, a) => n + (a[key] || 0), 0);
@@ -6128,6 +6169,24 @@ async function renderGaps() {
     const noValueHtml = noValue.length ? `<div class="card">${noValue.map((a) =>
       assetRow(a, assetOpen(a))).join("")}</div>`
       : `<div class="card pad">Every asset has a value.</div>`;
+    // Source receipts are counts only. No file name, sheet name, account number
+    // or narration is read here, so this card can say what the source held
+    // without carrying an identity.
+    const receiptRows = receipt?.rows || [];
+    const receiptSum = receiptTotals(receiptRows);
+    const count = (n) => Number(n || 0).toLocaleString("en-IN");
+    const receiptAt = receipt?.batch ? receiptWhen(receipt.batch) : "";
+    const sourceCard = receiptRows.length
+      ? `<div class="card pad" data-card="source-reconciliation" style="margin-bottom:14px">
+          <b>Source reconciliation${receiptAt ? ` · ${esc(receiptAt)}` : ""}</b>
+          <div style="font-size:13px;margin-top:6px">${count(receiptSum.read)} read → ${count(receiptSum.parsed)} accepted → ${count(receiptSum.rejected)} rejected</div>
+          <div class="muted" style="font-size:12.5px;margin-top:2px">${count(receiptSum.noDate)} accepted rows have no date</div>
+          ${receiptRows.map((r) => `<div class="muted" style="font-size:12.5px;margin-top:4px">Sheet ${esc(r.sheet)} · ${count(r.read)} read · ${count(r.rejected)} rejected · ${count(r.noDate)} without a date</div>`).join("")}
+        </div>`
+      : `<div class="card pad" data-card="source-reconciliation" style="margin-bottom:14px">
+          <b>Source reconciliation</b>
+          <div class="muted" style="font-size:12.5px;margin-top:6px">No source receipt yet. The next import records one.</div>
+        </div>`;
     host.innerHTML = `<h1>Data health</h1>
       ${flash ? `<div class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px">${esc(flash)}</div>` : ""}
       <div class="hero"><div class="lbl">Checks on the data that is already loaded</div>
@@ -6137,8 +6196,9 @@ async function renderGaps() {
           <span>${v.totals.holdings_lots || 0} holding lots</span>
           <span>${v.totals.register_assets || 0} register assets</span></div>
         <div style="font-size:12px;margin-top:10px;color:rgba(255,255,255,.75)">
-          ${lastImport?.at ? `Last import ${new Date(lastImport.at).toLocaleString()}` : "No import recorded"}
-          ${lastImport?.file ? ` · ${esc(lastImport.file)}` : ""}</div></div>
+          ${lastImport?.at ? `Last import ${new Date(lastImport.at).toLocaleString()}` : "No import recorded"}</div></div>
+
+      ${sourceCard}
 
       <h2>Checks</h2>
       <div class="card"><table data-table="health-checks"><tr><th>Check</th><th>Status</th><th>Value</th></tr>

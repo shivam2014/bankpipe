@@ -472,3 +472,28 @@ test("an insurance plan counts premiums paid, not the recurring premium or cover
   assert.equal(out.rows[1].premium_paise, 85890000);
   assert.equal(out.rows[1].sum_assured_paise, null);
 });
+
+test("rowsRead counts non-empty rows after the header and ignores phantom rows", () => {
+  const sheet = {
+    i: 0, purpose: "transactions", importable: true, header_row: 1,
+    columns: [
+      { col: "A", kind: "date", role: "value" },
+      { col: "B", kind: "free_text", role: "label" },
+      { col: "C", kind: "amount", role: "value" },
+      { col: "D", kind: "amount", role: "value" },
+    ],
+  };
+  const matrix = [
+    ["Date", "Description", "Amount", "Balance"],
+    ["01/04/2024", "UPI-SWIGGY", "-1,250.00", "1,00,000.00"],
+    [],
+    ["02/04/2024", "SALARY", "50,000.00", "1,50,000.00"],
+    ["", "   ", null, ""],
+    ["", "TOTAL", "", ""],
+    ["   ", " ", " ", ""],
+  ];
+  const out = parseTransactions(matrix, sheet);
+  assert.equal(out.rows.length, 2);
+  assert.equal(out.rowsRead, 3);
+  assert.equal(out.skipped, 4);
+});

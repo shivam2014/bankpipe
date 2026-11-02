@@ -58,10 +58,15 @@ export function parseTransactions(matrix, sheet) {
   const amountCols = amountColumns(sheet, matrix);
   const rows = [];
   let skipped = 0;
+  let rowsRead = 0;
   let lastDate = "";
 
   for (let r = headerRow; r < matrix.length; r++) {
     const row = matrix[r] || [];
+    // A receipt reports what the source held, so count every non-empty row
+    // after the header. Summary rows count here even when the parser rejects
+    // them; rows that are entirely empty are formatting, not source rows.
+    if (row.some((value) => String(value ?? "").trim())) rowsRead++;
     const rawDate = cell(row, dateCol);
     let date = parseDate(rawDate) || parseDateInText(rawDate);
     const desc = String(cell(row, descCol) || "").trim();
@@ -98,7 +103,7 @@ export function parseTransactions(matrix, sheet) {
       date_carried: carried,
     });
   }
-  return { rows, skipped, headerRow, dateCol, descCol, amountCols };
+  return { rows, skipped, rowsRead, headerRow, dateCol, descCol, amountCols };
 }
 
 export function parseHoldings(matrix, sheet) {

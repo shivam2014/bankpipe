@@ -5,6 +5,7 @@
 import { dedupePlan, duplicateIds, reconcileChain, orderForChain, normNarration,
   planImport as planMergedImport } from "./ledger.js";
 import { isSealed, sealBytes, openBytes } from "./dbatrest.js";
+import { receiptTotals } from "./receipt.js";
 
 const DB_KEY = "bankpipe.db.v1";
 
@@ -130,6 +131,16 @@ function migrate(conn) {
   if (!fhave.has("chain_seq")) conn.run("ALTER TABLE fact ADD COLUMN chain_seq INTEGER");
   conn.run("UPDATE fact SET chain_seq = CASE"
     + " WHEN source_row > 0 THEN source_row ELSE id END WHERE chain_seq IS NULL");
+
+  // A run used to know only how many rows it read and kept. A source receipt
+  // adds one batch per import action and counts-only JSON per sheet, so Health
+  // can show what the file held without storing a value from it. Old runs keep
+  // both columns null.
+  const rinfo = conn.exec("PRAGMA table_info(import_run)");
+  const rhave = new Set(rinfo.length ? rinfo[0].values.map((v) => v[1]) : []);
+  for (const [name, type] of [["batch", "TEXT"], ["receipt", "TEXT"]]) {
+    if (!rhave.has(name)) conn.run(`ALTER TABLE import_run ADD COLUMN ${name} ${type}`);
+  }
 }
 
 function idb() {
@@ -843,6 +854,22 @@ export function makeStore(SQLlib, save) {
     accounts: all("SELECT COUNT(*) n FROM account")[0]?.n || 0,
     issues: all("SELECT COUNT(*) n FROM issue WHERE state='open'")[0]?.n || 0,
   });
+  // The newest import action, read back as source counts. The batch is the
+  // timestamp shared by every sheet in that action; the receipts inside it are
+  // ordered by sheet index so Health lists them the way the file did.
+  store.latestReceipt = () => {
+    const head = all("SELECT batch, MAX(started_at) AS at FROM import_run"
+      + " WHERE batch IS NOT NULL AND batch <> '' GROUP BY batch"
+      + " ORDER BY at DESC, batch DESC LIMIT 1")[0];
+    if (!head) return { batch: null, at: null, rows: [], totals: receiptTotals([]) };
+    const rows = all("SELECT receipt FROM import_run WHERE batch=? ORDER BY id", [head.batch])
+      .map((r) => {
+        try { return JSON.parse(r.receipt || "null"); } catch (e) { return null; }
+      })
+      .filter((r) => r && typeof r === "object")
+      .sort((a, b) => (Number(a.sheet) || 0) - (Number(b.sheet) || 0));
+    return { batch: head.batch, at: head.at, rows, totals: receiptTotals(rows) };
+  };
   store.importRows = (account, rows, opts = {}) => {
     const usable = rows.filter((r) => r.date || r.amount !== null);
     // The same planner the preview runs, on the same held rows and file rows.
@@ -851,10 +878,16 @@ export function makeStore(SQLlib, save) {
       today: opts.today, closing: opts.closing });
     const updates = plan.updates || [];
     const now = new Date().toISOString();
+    const receipt = opts.receipt && typeof opts.receipt === "object" ? opts.receipt : null;
+    // A receipt always belongs to a batch. Callers that import several sheets
+    // pass one timestamp for the whole action; a single run falls back to its
+    // own start time. No receipt means both columns stay null.
+    const batch = receipt ? String(opts.batch || now) : null;
     conn.run("INSERT OR IGNORE INTO account(id,label,category,type) VALUES(?,?,?,?)",
       [account, account, "bank", "savings"]);
-    conn.run("INSERT INTO import_run(account_id,file,started_at,rows_read,rows_kept)"
-      + " VALUES(?,?,?,?,0)", [account, account, now, usable.length]);
+    conn.run("INSERT INTO import_run(account_id,file,started_at,rows_read,rows_kept,"
+      + "batch,receipt) VALUES(?,?,?,?,0,?,?)",
+      [account, account, now, usable.length, batch, receipt ? JSON.stringify(receipt) : null]);
     const runId = all("SELECT last_insert_rowid() AS id")[0].id;
     let inserted = 0, corrected = 0;
     const occurrence = new Map();
@@ -1195,6 +1228,11 @@ export async function appAudit() {
 export async function validation() {
   if (!browserStore) await openDb();
   return browserStore.validation();
+}
+
+export async function latestReceipt() {
+  if (!browserStore) await openDb();
+  return browserStore.latestReceipt();
 }
 
 export async function auditAccounts() {
