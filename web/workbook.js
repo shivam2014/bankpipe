@@ -60,13 +60,20 @@ export function parseTransactions(matrix, sheet) {
   let skipped = 0;
   let rowsRead = 0;
   let lastDate = "";
+  // Why a row was rejected, and the source rows where a real transaction
+  // could still be hiding. Counts and row numbers only; no cell values.
+  const reasons = { total: 0, blank: 0, stray: 0, orphan: 0 };
+  const strayRows = [];
+  const orphanRows = [];
+  let opening = null;
 
   for (let r = headerRow; r < matrix.length; r++) {
     const row = matrix[r] || [];
+    const nonEmpty = row.some((value) => String(value ?? "").trim());
     // A receipt reports what the source held, so count every non-empty row
     // after the header. Summary rows count here even when the parser rejects
     // them; rows that are entirely empty are formatting, not source rows.
-    if (row.some((value) => String(value ?? "").trim())) rowsRead++;
+    if (nonEmpty) rowsRead++;
     const rawDate = cell(row, dateCol);
     let date = parseDate(rawDate) || parseDateInText(rawDate);
     const desc = String(cell(row, descCol) || "").trim();
@@ -82,7 +89,15 @@ export function parseTransactions(matrix, sheet) {
     else if (money.amount !== null && money.amount !== undefined) amount = money.amount;
     const balance = money.balance === undefined ? null : money.balance;
     if (!String(rawDate || "").trim() && TOTAL_ROW.test(desc)) {
-      skipped++; continue;
+      reasons.total++;
+      // The B/F or opening line is the only place the sheet prints the
+      // balance before the first transaction. Keep it for the head check.
+      if (opening === null && balance !== null
+          && /^(b\/f|brought forward|opening balance)\b/i.test(desc)) {
+        opening = balance;
+      }
+      skipped++;
+      continue;
     }
     let carried = false;
     if (!date && amount !== null) {
@@ -91,11 +106,25 @@ export function parseTransactions(matrix, sheet) {
     }
     if (date) lastDate = date;
     const blank = !rawDate && amount === null && !desc;
-    if (blank) { skipped++; continue; }
+    if (blank) {
+      if (nonEmpty) reasons.blank++;
+      skipped++;
+      continue;
+    }
     // A stray date in a formatting row carries no transaction. Keep the row
     // only if it has an amount, a balance or a description.
-    if (amount === null && balance === null && !desc) { skipped++; continue; }
-    if (!date && amount === null) { skipped++; continue; }
+    if (amount === null && balance === null && !desc) {
+      reasons.stray++;
+      if (strayRows.length < 50) strayRows.push(r + 1);
+      skipped++;
+      continue;
+    }
+    if (!date && amount === null) {
+      reasons.orphan++;
+      if (orphanRows.length < 50) orphanRows.push(r + 1);
+      skipped++;
+      continue;
+    }
     rows.push({
       date, description: desc, amount, balance,
       source_row: r + 1,
@@ -103,7 +132,8 @@ export function parseTransactions(matrix, sheet) {
       date_carried: carried,
     });
   }
-  return { rows, skipped, rowsRead, headerRow, dateCol, descCol, amountCols };
+  return { rows, skipped, rowsRead, reasons, strayRows, orphanRows, opening,
+    headerRow, dateCol, descCol, amountCols };
 }
 
 export function parseHoldings(matrix, sheet) {

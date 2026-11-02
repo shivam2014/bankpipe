@@ -497,3 +497,33 @@ test("rowsRead counts non-empty rows after the header and ignores phantom rows",
   assert.equal(out.rowsRead, 3);
   assert.equal(out.skipped, 4);
 });
+
+test("rejected rows keep their reason and the stray and orphan row numbers", () => {
+  const sheet = {
+    purpose: "transactions", importable: true, header_row: 1,
+    columns: [
+      { col: "A", kind: "date", role: "value" },
+      { col: "B", kind: "free_text", role: "label" },
+      { col: "C", kind: "amount", role: "value" },
+      { col: "D", kind: "amount", role: "value" },
+      { col: "E", kind: "amount", role: "value" },
+    ],
+  };
+  const matrix = [
+    ["Date", "Description", "Debit", "Credit", "Balance"],
+    ["", "B/F", "", "", "1,00,000.00"],
+    ["01/04/2024", "Opening", "1,000.00", "", "99,000.00"],
+    ["02/04/2024", "Interest", "", "500.00", "99,500.00"],
+    ["03/04/2024", "", "", "", ""],
+    ["", "note", "", "", ""],
+    ["", "", "", "", "x"],
+    ["", "", "", "", ""],
+  ];
+  const out = parseTransactions(matrix, sheet);
+  assert.equal(out.rows.length, 2);
+  assert.equal(out.rowsRead, 6);
+  assert.deepEqual(out.reasons, { total: 1, blank: 1, stray: 1, orphan: 1 });
+  assert.deepEqual(out.strayRows, [5]);
+  assert.deepEqual(out.orphanRows, [6]);
+  assert.equal(out.opening, 10000000);
+});

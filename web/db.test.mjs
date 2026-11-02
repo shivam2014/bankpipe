@@ -1148,7 +1148,11 @@ test("latestReceipt returns only the newest batch, parsed and in sheet order", a
   const latest = store.latestReceipt();
   assert.equal(latest.batch, newer);
   assert.deepEqual(latest.rows.map((r) => r.sheet), [3, 5]);
-  assert.deepEqual(latest.totals, { read: 12, parsed: 11, rejected: 1, noDate: 1 });
+  assert.deepEqual(latest.totals, {
+    read: 12, parsed: 11, rejected: 1, noDate: 1,
+    reasons: { total: 0, blank: 0, stray: 0, orphan: 0 },
+    head: { match: 0, mismatch: 0, unknown: 2 },
+  });
 });
 
 test("a re-import with no new rows still stores its source receipt", async () => {

@@ -3100,11 +3100,19 @@ async function importWorkbook(file) {
     }
     let parsed = parseStatement(rows);
     let parsedRead = null;
+    let parsedReasons = null;
+    let strayRows = [];
+    let orphanRows = [];
+    let opening = null;
     if (sp && sp.purpose === "transactions") {
       const tp = parseSheet(rows, sp);
       if (tp.rows.length) {
         parsed = { rows: tp.rows, header: tp.headerRow, mapping: [], order: "" };
         parsedRead = tp.rowsRead;
+        parsedReasons = tp.reasons || null;
+        strayRows = tp.strayRows || [];
+        orphanRows = tp.orphanRows || [];
+        opening = tp.opening ?? null;
       }
     }
     const dated = parsed.rows.filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.date)).length;
@@ -3193,6 +3201,10 @@ async function importWorkbook(file) {
         read: parsedRead === null
           ? (parsed.header ? countRows(rows, parsed.header) : parsed.rows.length)
           : parsedRead,
+        reasons: parsedReasons,
+        strayRows,
+        orphanRows,
+        opening,
       }),
     });
     total += res.inserted;
@@ -6176,12 +6188,37 @@ async function renderGaps() {
     const receiptSum = receiptTotals(receiptRows);
     const count = (n) => Number(n || 0).toLocaleString("en-IN");
     const receiptAt = receipt?.batch ? receiptWhen(receipt.batch) : "";
+    const reasonText = (r) => [
+      r.total ? `${count(r.total)} total` : "",
+      r.blank ? `${count(r.blank)} blank` : "",
+      r.stray ? `${count(r.stray)} stray` : "",
+      r.orphan ? `${count(r.orphan)} orphan` : "",
+    ].filter(Boolean).join(" · ");
+    const headText = (r) => {
+      if (r.opening === null || r.opening === undefined
+          || r.openingFromRows === null || r.openingFromRows === undefined) {
+        return "head not printed";
+      }
+      return Math.abs(Number(r.opening) - Number(r.openingFromRows)) <= 1
+        ? "head matches" : "head mismatch";
+    };
+    const rowsText = (label, list, total) => {
+      if (!list || !list.length) return "";
+      const more = Number(total || 0) > list.length
+        ? ` (+${count(Number(total) - list.length)} more)` : "";
+      return `${label}: ${list.join(", ")}${more}`;
+    };
+    const sumReasons = reasonText(receiptSum.reasons);
     const sourceCard = receiptRows.length
       ? `<div class="card pad" data-card="source-reconciliation" style="margin-bottom:14px">
           <b>Source reconciliation${receiptAt ? ` · ${esc(receiptAt)}` : ""}</b>
           <div style="font-size:13px;margin-top:6px">${count(receiptSum.read)} read → ${count(receiptSum.parsed)} accepted → ${count(receiptSum.rejected)} rejected</div>
+          ${sumReasons ? `<div class="muted" style="font-size:12.5px;margin-top:2px">${sumReasons}</div>` : ""}
           <div class="muted" style="font-size:12.5px;margin-top:2px">${count(receiptSum.noDate)} accepted rows have no date</div>
-          ${receiptRows.map((r) => `<div class="muted" style="font-size:12.5px;margin-top:4px">Sheet ${esc(r.sheet)} · ${count(r.read)} read · ${count(r.rejected)} rejected · ${count(r.noDate)} without a date</div>`).join("")}
+          ${receiptRows.map((r) => `<div class="muted" style="font-size:12.5px;margin-top:6px">Sheet ${esc(r.sheet)} · ${count(r.read)} read · ${count(r.rejected)} rejected · ${count(r.noDate)} without a date · ${esc(headText(r))}</div>
+            ${reasonText(r.reasons || {}) ? `<div class="muted" style="font-size:11.5px;margin-left:12px">${reasonText(r.reasons || {})}</div>` : ""}
+            ${rowsText("Stray rows", r.stray, r.reasons?.stray) ? `<div class="muted" style="font-size:11.5px;margin-left:12px">${esc(rowsText("Stray rows", r.stray, r.reasons?.stray))}</div>` : ""}
+            ${rowsText("Orphan rows", r.orphan, r.reasons?.orphan) ? `<div class="muted" style="font-size:11.5px;margin-left:12px">${esc(rowsText("Orphan rows", r.orphan, r.reasons?.orphan))}</div>` : ""}`).join("")}
         </div>`
       : `<div class="card pad" data-card="source-reconciliation" style="margin-bottom:14px">
           <b>Source reconciliation</b>
