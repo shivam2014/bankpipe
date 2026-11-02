@@ -11,11 +11,14 @@ export function bondSyncNotices(sync, {
   target = "", mapped = "", mappedLabel = "", mismatch = false, mismatchLine = "",
 } = {}) {
   const dangers = [];
+  let mapping = false;
   if (mismatch && mismatchLine) dangers.push(mismatchLine);
   if (target === "__new__" && mapped) {
+    mapping = true;
     dangers.push(`This Demat is already mapped to ${mappedLabel || mapped}.`
       + " Creating a new portfolio may duplicate it.");
   } else if (target !== "__new__" && mapped && mapped !== target) {
+    mapping = true;
     dangers.push(`This Demat is mapped to ${mappedLabel || mapped}.`
       + " Applying here will move the mapping to this portfolio.");
   }
@@ -25,15 +28,25 @@ export function bondSyncNotices(sync, {
       + ` lot${removed === 1 ? "" : "s"} from this portfolio.`);
   }
   const notes = (sync?.warnings || []).filter((w) => typeof w === "string" && w);
-  return { dangers, notes };
+  return { dangers, notes, mapping, removed };
 }
 
-// The Apply confirmation. Dangers come first, then the informational notes the
-// old confirm already carried, so the destructive part is read before the rest.
+// The accept button names what the click does, so it is never a bare "OK".
+export function bondSyncAcceptLabel({ mapping = false, removed = 0 } = {}) {
+  const n = Number(removed || 0);
+  const lots = `${n} lot${n === 1 ? "" : "s"}`;
+  if (mapping && n > 0) return `Move mapping and remove ${lots}`;
+  if (n > 0) return `Remove ${lots}`;
+  if (mapping) return "Move mapping";
+  return "Replace holdings";
+}
+
+// The dialog body: the action sentence, then the informational notes. The
+// destructive lines are rendered separately at the top of the dialog.
 export function bondSyncConfirmText({ target = "", name = "", current = 0,
-  dangers = [], notes = [] } = {}) {
+  notes = [] } = {}) {
   const action = target === "__new__"
     ? `Create “${name}” and import ${current} current lots?`
     : `Replace the holdings on this portfolio with ${current} current lots?`;
-  return [action, ...dangers, ...notes].filter(Boolean).join("\n\n");
+  return [action, ...notes].filter(Boolean).join("\n\n");
 }
