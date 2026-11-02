@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseStatement, chronological, rowsFromCsv, parseDate, parseDateInText,
-  mapHeader, parseMoney } from "./parse.js";
+  parseExcelSerial, mapHeader, parseMoney } from "./parse.js";
 import { makeStore } from "./db.js";
 
 const require = createRequire(import.meta.url);
@@ -175,6 +175,19 @@ test("impossible years fail closed, and prose dates are read", () => {
   assert.equal(parseDateInText("Maturity:27/11/2026"), "2026-11-27");
   assert.equal(parseDateInText("Policy upto July 2042"), "2042-07-01");
   assert.equal(parseDateInText("17.12.20226 mat"), "");
+});
+
+test("Excel serials map to the intended day without a shift", () => {
+  assert.equal(parseExcelSerial(40366), "2010-07-07");
+  assert.equal(parseExcelSerial(40519), "2010-12-07");
+  assert.equal(parseExcelSerial("40366"), "2010-07-07");
+  assert.equal(parseExcelSerial("40,366"), "2010-07-07");
+  assert.equal(parseExcelSerial("40366.00"), "2010-07-07");
+  assert.equal(parseExcelSerial(12), "");
+  assert.equal(parseExcelSerial(19999), "");
+  assert.equal(parseExcelSerial(60001), "");
+  assert.equal(parseDate("40366"), "2010-07-07");
+  assert.equal(parseDate("17/07/10"), "2010-07-17");
 });
 
 test("dates written with a month name are parsed", () => {
