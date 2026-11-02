@@ -4,14 +4,21 @@ import { readFileSync } from "node:fs";
 
 const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 
-test("Health tables stack on phones and their actions wrap", () => {
+test("Health tables stack on phones with an inset row and separator", () => {
   assert.match(html, /data-table="health-checks"/);
   assert.match(html, /data-label="No balance"/);
   assert.match(html, /class="health-actions"/);
   assert.match(html,
     /\.health-actions\{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end\}/);
   assert.match(html, /table\[data-table\^="health-"\]\{display:block;width:100%!important;min-width:0!important\}/);
-  assert.match(html, /table\[data-table\^="health-"\] tr\{display:flex;flex-wrap:wrap;width:100%/);
+  assert.match(html, /table\[data-table\^="health-"\] tbody\{display:block;width:100%\}/);
+  assert.match(html,
+    /table\[data-table\^="health-"\] tr\{display:flex;flex-wrap:wrap;width:100%;[^}]*padding:12px 14px/);
+  assert.match(html,
+    /table\[data-table\^="health-"\] tr:nth-child\(n\+3\)::before\{[^}]*left:14px;right:14px/);
   assert.match(html,
     /table\[data-table="health-statements"\] \.health-actions \.btn\{flex:1 1 auto\}/);
+  // The two tables with an extra full-width cell only change flex, not padding.
+  assert.match(html,
+    /table\[data-table="health-sheets"\] td:nth-child\(3\),\s*table\[data-table="health-bond-ratings"\] td:nth-child\(2\)\{flex:1 1 100%\}/);
 });
