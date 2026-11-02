@@ -1,8 +1,10 @@
-// Layout guard for the stacked Health tables and the wide transactions table.
-// It drives the real page in headless Chrome at 390 and 640 CSS px, seeds the
-// fixture statement with the app's own selftest route, and measures the three
-// acceptance rules: the document does not scroll sideways, no card overflows,
-// and no table cell clips its text. Skipped when Chrome is not installed.
+// Layout guard for the stacked Health tables, the wide transactions table and
+// the Review cards. It drives the real page in headless Chrome at 390, 640 and
+// 1040 CSS px, seeds the fixture statement with the app's own selftest route,
+// and measures the three acceptance rules: the document does not scroll
+// sideways, no card overflows, and no table cell clips its text. The Review
+// amounts also keep a 16px right inset at phone width. Skipped when Chrome is
+// not installed.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -39,7 +41,7 @@ async function waitFor(fn, ms = 15000, label = "") {
   throw new Error("timeout: " + label);
 }
 
-test("Health and transactions fit at 390 and 640 px", { skip, timeout: 90000 }, async () => {
+test("Health, transactions and review fit at phone and desktop widths", { skip, timeout: 90000 }, async () => {
   let server = null;
   let chrome = null;
   let profile = "";
@@ -147,6 +149,35 @@ test("Health and transactions fit at 390 and 640 px", { skip, timeout: 90000 }, 
       return false;
     }, 20000, "seed");
     await evaluate("localStorage.setItem('bp.mode','real')");
+    await evaluate(`(async () => {
+      const store = await import("./db.js");
+      await store.createAccount({ id: "review-layout", label: "Review layout",
+        bank: "Review", category: "bank", type: "savings" });
+      await store.importRows("review-layout", [
+        { date: "2025-04-02", amount: 100000, balance: 1100000, description: "A", source_row: 2 },
+        { date: "2025-04-03", amount: -20000, balance: 1079000, description: "B", source_row: 3 },
+        { date: "2025-04-05", amount: 5000, balance: 1083000, description: "C", source_row: 4 },
+        { date: "2025-04-04", amount: -2000, balance: 1081000, description: "D", source_row: 5 },
+        { date: "2025-04-06", amount: 1000, balance: 1082000, description: "E", source_row: 6 },
+      ]);
+      return true;
+    })()`);
+
+    await evaluate("go('issues')");
+    await waitForTable("issues");
+    const review390 = await measure();
+    const amounts390 = await evaluate(`(() => {
+      const card = document.querySelector('[data-table="issues"]')?.closest('.card');
+      if (!card) return null;
+      const right = card.getBoundingClientRect().right;
+      return [...document.querySelectorAll('[data-table="issues"] td.n > .amt')]
+        .map((el) => Math.round(right - el.getBoundingClientRect().right));
+    })()`);
+    console.log("Review 390 amount insets", JSON.stringify(amounts390));
+    assert.ok(Array.isArray(amounts390) && amounts390.length > 0,
+      "Review 390: no amount cells measured");
+    assert.ok(amounts390.every((n) => n >= 16),
+      `Review 390: amount inset ${JSON.stringify(amounts390)}`);
 
     await evaluate("go('gaps')");
     await waitForTable("health-statements");
@@ -155,6 +186,12 @@ test("Health and transactions fit at 390 and 640 px", { skip, timeout: 90000 }, 
     await evaluate("go('transactions')");
     await waitForTable("transactions");
     const tx390 = await measure();
+
+    await send("Emulation.setDeviceMetricsOverride",
+      { width: 1040, height: 900, deviceScaleFactor: 1, mobile: false });
+    await evaluate("go('issues')");
+    await waitForTable("issues");
+    const review1040 = await measure();
 
     await send("Emulation.setDeviceMetricsOverride",
       { width: 640, height: 900, deviceScaleFactor: 1, mobile: true });
@@ -167,9 +204,11 @@ test("Health and transactions fit at 390 and 640 px", { skip, timeout: 90000 }, 
     const tx640 = await measure();
 
     for (const [label, m] of Object.entries({
+      "Review 390": review390, "Review 1040": review1040,
       "Health 390": health390, "Transactions 390": tx390,
       "Health 640": health640, "Transactions 640": tx640,
     })) {
+      if (label.startsWith("Review")) console.log(label, JSON.stringify(m));
       assert.equal(m.root.sw, m.root.cw,
         `${label}: document ${JSON.stringify(m.root)}`);
       assert.deepEqual(m.cards, [],
