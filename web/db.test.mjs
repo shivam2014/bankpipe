@@ -130,6 +130,28 @@ test("an older database gains the asset columns on open", async () => {
     [null, null]);
 });
 
+test("an older database gains the import receipt columns on open", async () => {
+  const old = new SQL.Database();
+  old.run("CREATE TABLE account(id TEXT PRIMARY KEY, label TEXT, bank TEXT, number TEXT,"
+    + " holder TEXT, city TEXT, type TEXT)");
+  old.run("CREATE TABLE import_run(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT,"
+    + " file TEXT, started_at TEXT, rows_read INTEGER, rows_kept INTEGER)");
+  old.run("INSERT INTO import_run(account_id,file,started_at,rows_read,rows_kept)"
+    + " VALUES('hdfc','hdfc','2026-01-01T00:00:00.000Z',3,3)");
+  const store = makeStore(SQL, null);
+  await store.open(old.export());
+  const columns = store.query("PRAGMA table_info(import_run)").map((r) => r.name);
+  assert.ok(columns.includes("batch"));
+  assert.ok(columns.includes("receipt"));
+  const res = store.importRows("hdfc", rows, {
+    batch: "2026-11-01T06:46:00.000Z",
+    receipt: { sheet: 4, read: 3, parsed: 3, rejected: 0, noDate: 0,
+      debit: 1, credit: 2, first: "2024-04-02", last: "2024-04-04" },
+  });
+  assert.ok(res.runId);
+  assert.equal(store.latestReceipt().rows[0].sheet, 4);
+});
+
 test("an asset can carry a category, a manual value and notes", async () => {
   const store = makeStore(SQL, null);
   await store.open();
@@ -1080,4 +1102,65 @@ test("a PDF-derived row set previews and imports with the same count", async () 
   assert.equal(imported.inserted, pdfRows.length);
   assert.equal(imported.duplicates, 0);
   assert.equal(store.summary().facts, pdfRows.length);
+});
+
+test("an import receipt is stored with its batch", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const receipt = { sheet: 4, read: 4, parsed: 3, rejected: 1, noDate: 0,
+    debit: 120000, credit: 149525, first: "2024-04-02", last: "2024-04-04" };
+  const res = store.importRows("hdfc-dad", rows,
+    { batch: "2026-11-01T06:46:00.000Z", receipt });
+  const run = store.query("SELECT batch, receipt FROM import_run WHERE id=?", [res.runId])[0];
+  assert.equal(run.batch, "2026-11-01T06:46:00.000Z");
+  assert.deepEqual(JSON.parse(run.receipt), receipt);
+});
+
+test("an import without a receipt leaves batch and receipt null", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const res = store.importRows("hdfc-dad", rows);
+  const run = store.query("SELECT batch, receipt FROM import_run WHERE id=?", [res.runId])[0];
+  assert.equal(run.batch, null);
+  assert.equal(run.receipt, null);
+});
+
+test("latestReceipt returns only the newest batch, parsed and in sheet order", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  const older = "2026-11-01T06:46:00.000Z";
+  const newer = "2026-11-02T07:15:00.000Z";
+  store.importRows("hdfc-dad", rows, { batch: older,
+    receipt: { sheet: 5, read: 10, parsed: 9, rejected: 1, noDate: 2,
+      debit: 1, credit: 2, first: "2024-04-01", last: "2024-04-30" } });
+  // Sheet 5 lands before sheet 3 in the same action on purpose.
+  store.importRows("hdfc-dad", rows, { batch: newer,
+    receipt: { sheet: 5, read: 8, parsed: 7, rejected: 1, noDate: 0,
+      debit: 3, credit: 4, first: "2024-06-01", last: "2024-06-30" } });
+  store.importRows("hdfc-dad", rows, { batch: newer,
+    receipt: { sheet: 3, read: 4, parsed: 4, rejected: 0, noDate: 1,
+      debit: 5, credit: 6, first: "2024-06-02", last: "2024-07-01" } });
+  store.raw().run("UPDATE import_run SET started_at=? WHERE batch=?",
+    ["2026-11-01T06:46:01.000Z", older]);
+  store.raw().run("UPDATE import_run SET started_at=? WHERE batch=?",
+    ["2026-11-02T07:15:01.000Z", newer]);
+
+  const latest = store.latestReceipt();
+  assert.equal(latest.batch, newer);
+  assert.deepEqual(latest.rows.map((r) => r.sheet), [3, 5]);
+  assert.deepEqual(latest.totals, { read: 12, parsed: 11, rejected: 1, noDate: 1 });
+});
+
+test("a re-import with no new rows still stores its source receipt", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.importRows("hdfc-dad", rows);
+  const again = store.importRows("hdfc-dad", rows,
+    { batch: "2026-11-01T06:46:00.000Z",
+      receipt: { sheet: 4, read: 3, parsed: 3, rejected: 0, noDate: 0,
+        debit: 170000, credit: 149525, first: "2024-04-02", last: "2024-04-04" } });
+  assert.equal(again.inserted, 0);
+  const run = store.query("SELECT receipt FROM import_run WHERE id=?", [again.runId])[0];
+  assert.equal(JSON.parse(run.receipt).read, 3);
+  assert.equal(store.latestReceipt().batch, "2026-11-01T06:46:00.000Z");
 });
