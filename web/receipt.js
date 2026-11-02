@@ -81,7 +81,11 @@ export function receiptFrom(rows, {
       moved: number(order.moved),
       reason: order.reason ? String(order.reason) : "",
     };
-    if (order.convention === "opening") receipt.reorder.convention = "opening";
+    if (order.convention === "opening") {
+      receipt.reorder.convention = "opening";
+      receipt.reorder.conventionSource = order.conventionSource === "formula"
+        ? "formula" : "inferred";
+    }
     if (number(order.signCorrected) > 0) {
       receipt.reorder.signCorrected = number(order.signCorrected);
     }
