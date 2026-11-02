@@ -114,6 +114,7 @@ table[data-table^="health-"] th{padding-left:16px;padding-right:16px;border-bott
 table[data-table^="health-"] th{letter-spacing:.04em}
 table[data-table^="health-"] td{font-weight:560}
 table[data-table^="health-"] td[data-label]::before{font-weight:400;letter-spacing:.04em}
+table[data-table="issues"] td.n > .amt{white-space:nowrap;text-align:right}
 table[data-table^="health-"] tr:not(:last-child){
   background-image:linear-gradient(var(--line),var(--line));
   background-size:calc(100% - 32px) 1px;
@@ -508,7 +509,8 @@ textarea.inline-input{resize:vertical;min-height:48px}
   table[data-table="issues"]{display:block;width:100%!important;min-width:0!important}
   table[data-table="issues"] tbody{display:block;width:100%}
   table[data-table="issues"] tr:first-child{display:none}
-  table[data-table="issues"] tr{display:block;padding:14px;border-top:1px solid var(--line)}
+  table[data-table="issues"] tr{display:block;box-sizing:border-box;width:100%;
+    padding:14px 16px;border-top:1px solid var(--line)}
   table[data-table="issues"] tr:nth-child(2){border-top:0}
   table[data-table="issues"] td{display:grid;grid-template-columns:82px minmax(0,1fr);
     gap:10px;align-items:baseline;padding:3px 0;border:0;min-width:0;
@@ -516,7 +518,10 @@ textarea.inline-input{resize:vertical;min-height:48px}
   table[data-table="issues"] td[data-label]::before{content:attr(data-label);
     display:block;text-align:left;font-size:9.5px;text-transform:uppercase;
     letter-spacing:.07em;color:var(--muted);margin:0}
-  table[data-table="issues"] td.n{text-align:right}
+  table[data-table="issues"] td.n{text-align:right;min-width:0}
+  table[data-table="issues"] td.n > .amt{display:block;min-width:0;max-width:100%;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    overflow-wrap:normal;text-align:right}
   table[data-table="issues"] td:nth-child(5){display:block;margin-top:8px}
   table[data-table="issues"] td:nth-child(5)::before{display:block;margin-bottom:4px}
   table[data-table="issues"] td:nth-child(6){display:flex;gap:8px;margin-top:10px}
@@ -1856,8 +1861,8 @@ function renderIssues() {
     const body = rows.map((r) => `<tr><td data-label="Date">${esc(r.date || "—")}</td>
       <td data-label="Asset">${esc(r.account || "")}</td>
       <td class="n ${r.amount < 0 ? "neg" : r.amount > 0 ? "pos" : ""}"
-        data-label="Amount">${amountInr(r.amount)}</td>
-      <td class="n" data-label="Balance">${amountInr(r.balance)}</td>
+        data-label="Amount"><span class="amt">${amountInr(r.amount)}</span></td>
+      <td class="n" data-label="Balance"><span class="amt">${amountInr(r.balance)}</span></td>
       <td data-label="Check"><b>${esc(kindLabel(r))}</b>
         <div class="muted" style="font-size:12px">${esc(r.detail || "")}</div></td>
       <td style="white-space:nowrap">
