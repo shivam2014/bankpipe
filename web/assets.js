@@ -68,6 +68,26 @@ export function groupAssets(assets) {
   }).filter((g) => g.rows.length);
 }
 
+// The Assets page groups by what a person is looking at, not by the box it sits
+// in. A demat account holds shares and fund units, and calling that one section
+// "Demat" hid which of the two a row was. Allocation keeps the container split
+// (allocationByClass), so this only changes the list.
+export function assetSections(assets) {
+  const list = assets || [];
+  return groupAssets(list).flatMap((group) => {
+    if (group.id !== "demat") return [group];
+    const isFund = (a) => /mutual\s*fund|^mf$/i.test(String(a.subtype || ""));
+    const funds = group.rows.filter(isFund);
+    const shares = group.rows.filter((a) => !isFund(a));
+    return [
+      { id: "equity", label: "Equities", types: ["equity"], rows: shares,
+        total: totalAssets(shares) },
+      { id: "mf", label: "Mutual funds", types: ["mutual fund"], rows: funds,
+        total: totalAssets(funds) },
+    ].filter((g) => g.rows.length);
+  });
+}
+
 // The allocation card is about where the money sits, so fixed deposits are
 // shown under the bank that holds them. They remain separate assets for
 // maturity and interest calculations, and the Assets page nests them under
