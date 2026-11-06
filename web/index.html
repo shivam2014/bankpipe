@@ -310,7 +310,7 @@ label.field textarea{resize:vertical;min-height:58px}
 .fdrow .nm{white-space:normal;overflow:visible}
 .fdrow .nm > span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fdrow .fdrow-sub{font-size:11px;color:var(--muted)}
-.snap-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:8px;align-items:center;
+.snap-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;gap:8px;align-items:center;
   padding:9px 0;border-top:1px solid var(--hair)}
 .snap-row:first-child{border-top:0}
 .snap-date{font-size:12.5px}
@@ -991,6 +991,7 @@ import { dematCardHtml, dematLast4, dematMismatchLine, dematText,
   syncPreviewCardHtml } from "./demat-card.js";
 import { reconCardHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
+import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
 import { createBondSyncDialog } from "./bond-sync-dialog.js";
@@ -5858,6 +5859,7 @@ function renderSettings() {
   const lastBackup = Number(localStorage.getItem("bankpipe.backup.last") || 0);
   const lastBackupText = lastBackup ? new Date(lastBackup).toLocaleString() : "never";
   const theme = localStorage.getItem("bp.theme") || "system";
+  const snapKeep = readKeep(localStorage);
   const themeBtn = (id, label) => `<button class="btn" aria-pressed="${theme === id}"
     style="${theme === id ? "border-color:var(--green);color:var(--green);font-weight:600" : ""}"
     onclick="bpSetTheme('${id}')">${label}</button>`;
@@ -5886,11 +5888,26 @@ function renderSettings() {
     <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
       <div style="font-weight:600;font-size:13.5px">Snapshots in this browser</div>
       <p class="muted" style="font-size:12.5px;margin:4px 0 8px">A daily snapshot is saved on
-      Home, plus one before imports, restores and deletes. The last 12 stay on this device;
-      each can be restored or downloaded.</p>
+      Home, plus one before imports, restores and deletes. Each snapshot is the whole
+      database, so the newest few are kept: each can be restored or downloaded.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn" onclick="bpSnapshotNow()">Save a snapshot in this browser</button>
+        <label class="muted" style="font-size:12px;display:flex;gap:6px;align-items:center">Keep
+          <select id="snap-keep" onchange="bpSetSnapshotKeep(this.value)"
+            style="font:inherit;font-size:12px;padding:4px 6px;border-radius:7px;
+            border:1px solid var(--line);background:var(--card)">
+            ${KEEP_OPTIONS.map((n) => `<option value="${n}"${
+              n === snapKeep ? " selected" : ""}>${n}</option>`).join("")}
+          </select> snapshots</label>
         <span id="snap-note" class="muted" style="font-size:12px"></span>
+      </div>
+      <div id="snap-tools" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;
+        margin-top:10px">
+        <label class="muted" style="font-size:12px;display:flex;gap:6px;align-items:center">
+          <input type="checkbox" id="snap-all" onchange="bpSnapSelectAll(this.checked)">
+          Select all</label>
+        <button class="mini-btn" id="snap-del" onclick="bpSnapDeleteSelected()">Delete selected</button>
+        <span id="snap-count" class="muted" style="font-size:12px"></span>
       </div>
       <div id="snap-list" style="margin-top:10px"><div class="muted" style="font-size:12px">Loading…</div></div>
     </div>
@@ -6427,10 +6444,27 @@ window.bpLoadSnapshots = async () => {
   if (!store.isUnlocked()) {
     host.innerHTML = `<div class="muted" style="font-size:12px">Unlock the database to see
       versions.</div>`;
+    const toolsOff = document.getElementById("snap-tools");
+    if (toolsOff) toolsOff.style.display = "none";
     return;
   }
   const list = await store.listDbSnapshots();
+  window.bpSnapList = list;
+  // A key that vanished (deleted here or in another tab) must not stay selected,
+  // or the next bulk delete counts a row that is no longer on screen.
+  const sel = window.bpSnapSel = new Set(selectedKeys(list, window.bpSnapSel));
+  const tools = document.getElementById("snap-tools");
+  if (tools) tools.style.display = list.length ? "flex" : "none";
+  const all = document.getElementById("snap-all");
+  if (all) {
+    all.checked = allSelected(list, sel);
+    all.indeterminate = !all.checked && sel.size > 0;
+  }
+  const count = document.getElementById("snap-count");
+  if (count) count.textContent = sel.size ? `${sel.size} selected` : "";
   host.innerHTML = list.length ? list.map((x) => `<div class="snap-row">
+      <input type="checkbox"${sel.has(x.key) ? " checked" : ""}
+        aria-label="Select this snapshot" onchange="bpSnapToggle(${jsArg(x.key)})">
       <div><div class="snap-date">${esc(new Date(x.at).toLocaleString())}</div>
         <div class="snap-meta">${esc(x.label || "Snapshot")} · ${Math.round(x.bytes / 1024)} KB</div></div>
       <button class="mini-btn" onclick="bpDownloadSnapshot(${jsArg(x.key)})">Download</button>
@@ -6439,6 +6473,56 @@ window.bpLoadSnapshots = async () => {
     </div>`).join("")
     : `<div class="muted" style="font-size:12px">No versions yet. One is saved automatically
       before the next import or delete.</div>`;
+};
+window.bpSnapToggle = (key) => {
+  window.bpSnapSel = toggleKey(window.bpSnapSel, key);
+  window.bpLoadSnapshots();
+};
+window.bpSnapSelectAll = (on) => {
+  const list = window.bpSnapList || [];
+  window.bpSnapSel = on ? new Set(list.map((x) => x.key)) : new Set();
+  window.bpLoadSnapshots();
+};
+window.bpSnapDeleteSelected = async () => {
+  const keys = selectedKeys(window.bpSnapList || [], window.bpSnapSel);
+  if (!keys.length) return;
+  const one = keys.length === 1;
+  if (!confirm(`Delete ${keys.length} snapshot${one ? "" : "s"}? This cannot be undone. `
+    + "The current database is not affected.")) return;
+  try {
+    const store = await import("./db.js");
+    const removed = await store.deleteDbSnapshots(keys);
+    window.bpSnapSel = new Set();
+    const note = document.getElementById("snap-note");
+    if (note) note.textContent = `Deleted ${removed} snapshot${removed === 1 ? "" : "s"}.`;
+    await window.bpLoadSnapshots();
+  } catch (e) {
+    alert("Could not delete: " + (e.message || e));
+  }
+};
+// Applying a smaller limit deletes the tail now, so the number on screen and the
+// number on disk never disagree. Cancelling restores the select to the stored one.
+window.bpSetSnapshotKeep = async (value) => {
+  const keep = Number(value);
+  const list = window.bpSnapList || [];
+  const extra = Math.max(0, list.length - keep);
+  if (extra && !confirm(`Keep only the newest ${keep} snapshots? `
+    + `${extra} older one${extra === 1 ? "" : "s"} will be deleted. `
+    + "The current database is not affected.")) {
+    const sel = document.getElementById("snap-keep");
+    if (sel) sel.value = String(readKeep(localStorage));
+    return;
+  }
+  try {
+    const store = await import("./db.js");
+    const res = await store.setSnapshotKeep(keep);
+    const note = document.getElementById("snap-note");
+    if (note) note.textContent = `Keeping ${res.keep}`
+      + (res.removed ? `, removed ${res.removed}.` : ".");
+    await window.bpLoadSnapshots();
+  } catch (e) {
+    alert("Could not change the limit: " + (e.message || e));
+  }
 };
 window.bpSnapshotNow = async () => {
   const note = document.getElementById("snap-note");
