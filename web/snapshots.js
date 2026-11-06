@@ -1,12 +1,12 @@
 // How many local snapshots a browser keeps, and which ones a bulk delete should
-// remove. Snapshots are sealed copies of the whole database, so a dozen of them
-// is tens of megabytes of storage on a phone: the limit is a setting, not a
-// constant, and the default is unchanged at twelve.
+// remove. Snapshots are sealed copies of the whole database, so a few of them is
+// tens of megabytes of storage on a phone: the limit is a setting, not a
+// constant, and four is the default because that is enough to undo a bad import.
 //
 // Pure: the caller passes the stored value and the list, so this is testable
 // without a browser.
 
-export const KEEP_DEFAULT = 12;
+export const KEEP_DEFAULT = 4;
 export const KEEP_OPTIONS = [3, 4, 6, 12, 24];
 export const KEEP_KEY = "bp.snapshots.keep";
 
