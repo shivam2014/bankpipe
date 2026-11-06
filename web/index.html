@@ -822,7 +822,10 @@ function go(name, opts = {}) {
   b.setAttribute("aria-current", b.dataset.v === name ? "page" : "false"));
   document.getElementById("view").innerHTML = views[name]();
   if (name === "import") wireImport();
-  if (name === "asset") setTimeout(() => window.bpAssetKinds && window.bpAssetKinds(), 0);
+  if (name === "asset") setTimeout(() => {
+    if (window.bpAssetKinds) window.bpAssetKinds();
+    if (window.bpReconFill) window.bpReconFill();
+  }, 0);
   if (name === "verify") wireVerify();
   if (name === "settings") setTimeout(() => {
     if (window.bpMarkMode) window.bpMarkMode();
@@ -986,6 +989,8 @@ import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } 
 import { matchDemat } from "./portfolio-match.js";
 import { dematCardHtml, dematLast4, dematMismatchLine, dematText,
   syncPreviewCardHtml } from "./demat-card.js";
+import { reconCardHtml } from "./recon-card.js";
+import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
 import { createBondSyncDialog } from "./bond-sync-dialog.js";
@@ -7929,6 +7934,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? positionCard(a, holdings) : ""}
   ${a ? assetFocusCard(a) : ""}
   ${a ? assetDetailCard(a) : ""}
+  ${a && (cat === "bonds" || cat === "demat") ? `<div id="recon-card"></div>` : ""}
   ${a ? valuationCard(a) : ""}
   ${a && cat === "bonds" ? digiFinnCardHtml(a) : ""}
   ${a ? holdingsBlock(holdings, id) : ""}
@@ -8839,6 +8845,24 @@ window.bpAccountNewFd = () => {
 window.bpAsset = (id) => {
   window.bpState = { ...(window.bpState || {}), asset: id };
   go("asset");
+};
+// The audit card is filled after the page is on screen: it reads two assets and
+// their holdings, and a slow read must not hold up the editor. A card that has
+// nothing to say still says why, which is why the empty reasons are rendered.
+window.bpReconFill = async () => {
+  const host = document.getElementById("recon-card");
+  const id = window.bpState?.asset || "";
+  if (!host || !id) return;
+  try {
+    const store = await import("./db.js");
+    const result = await store.reconFor(id);
+    host.innerHTML = reconCardHtml(result, {
+      money,
+      shapeText: result ? reconShapeText(reconShape(result)) : "",
+    });
+  } catch (e) {
+    host.innerHTML = "";
+  }
 };
 // An FD usually belongs to an account already on file. Picking it fills the
 // branch details and files the deposit under that account, instead of asking

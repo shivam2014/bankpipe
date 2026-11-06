@@ -7,8 +7,23 @@ test("identical Demat numbers match", () => {
   assert.equal(matchDemat("1201000000001234", "1201000000001234"), "match");
 });
 
-test("the same last six digits match across different prefixes", () => {
-  assert.equal(matchDemat("0000123400001234", "1201000000001234"), "match");
+test("the same last six digits are not the same account", () => {
+  // Both end 1234, but the DP ID differs, so these are two accounts. The old
+  // last-six matcher called this a match and would silently move a portfolio.
+  assert.equal(matchDemat("0000123400001234", "1201000000001234"), "mismatch");
+});
+
+test("two clients of one DP are told apart", () => {
+  assert.equal(matchDemat("IN30302873183122", "IN30302811183122"), "mismatch");
+  assert.equal(matchDemat("IN30302873183122", "IN30302873183122"), "match");
+});
+
+test("a number that lost a digit is unknown, never repaired", () => {
+  assert.equal(matchDemat("201000000001234", "1201000000001234"), "unknown");
+});
+
+test("a broker client code is never a match", () => {
+  assert.equal(matchDemat("8504986299", "1201000000001234"), "unknown");
 });
 
 test("a different last six is a mismatch", () => {

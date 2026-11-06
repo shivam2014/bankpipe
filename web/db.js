@@ -7,6 +7,9 @@ import { dedupePlan, duplicateIds, reconcileChain, orderForChain, reorderByChain
 import { isSealed, sealBytes, openBytes } from "./dbatrest.js";
 import { receiptTotals } from "./receipt.js";
 import { assetShortIdentity } from "./asset-identity.js";
+import { boId } from "./bo-id.js";
+import { reconPositions, reconSummary } from "./recon.js";
+import { reconInputs } from "./recon-diagnostics.js";
 
 const DB_KEY = "bankpipe.db.v1";
 
@@ -83,10 +86,24 @@ function migrate(conn) {
     ["rate_bps", "INTEGER"], ["start_date", "TEXT"], ["maturity_date", "TEXT"],
     ["interest_paid_paise", "INTEGER"], ["meta", "TEXT"],
     ["ifsc", "TEXT"], ["branch", "TEXT"], ["address", "TEXT"], ["state", "TEXT"],
-    ["currency", "TEXT"]];
+    ["currency", "TEXT"], ["bo_id", "TEXT"], ["dp_id", "TEXT"], ["client_id", "TEXT"]];
   for (const [name, type] of add) {
     if (!have.has(name)) conn.run(`ALTER TABLE account ADD COLUMN ${name} ${type}`);
   }
+  // A demat account's identity is the BO ID the depository prints, not the
+  // string a person typed. Fill it once from whatever number the account already
+  // holds; a client code stays unset rather than becoming an identity.
+  try {
+    const rows = conn.exec(
+      "SELECT id, number FROM account WHERE bo_id IS NULL OR bo_id = ''");
+    for (const [id, number] of (rows[0]?.values || [])) {
+      const idn = boId(number);
+      if (idn.kind === "bo") {
+        conn.run("UPDATE account SET bo_id=?, dp_id=?, client_id=? WHERE id=?",
+          [idn.boId, idn.dpId, idn.clientId, id]);
+      }
+    }
+  } catch {}
   conn.run(`UPDATE account SET category = CASE
       WHEN type IN ('savings','current') OR type IS NULL OR type = '' THEN 'bank'
       WHEN type = 'fd' THEN 'fd'
@@ -423,7 +440,15 @@ export function makeStore(SQLlib, save) {
     const allowed = ["label", "bank", "number", "holder", "city", "type", "category",
       "subtype", "value_paise", "value_date", "notes", "principal_paise", "rate_bps",
       "start_date", "maturity_date", "interest_paid_paise", "meta", "ifsc", "branch",
-      "address", "state", "currency"];
+      "address", "state", "currency", "bo_id", "dp_id", "client_id"];
+    // The number is what a person edits; the BO ID is what the depository says.
+    // Recompute it on every change so an account can never keep a stale identity.
+    if (fields && fields.number !== undefined) {
+      const idn = boId(fields.number);
+      const known = idn.kind === "bo";
+      fields = { ...fields, bo_id: known ? idn.boId : "",
+        dp_id: known ? idn.dpId : "", client_id: known ? idn.clientId : "" };
+    }
     const keys = Object.keys(fields || {}).filter((k) => allowed.includes(k));
     if (!keys.length) return false;
     conn.run(`UPDATE account SET ${keys.map((k) => `${k}=?`).join(",")} WHERE id=?`,
@@ -1135,6 +1160,7 @@ export async function listAccounts() {
     + " a.category, a.subtype, a.value_paise, a.value_date, a.notes,"
     + " a.principal_paise, a.rate_bps, a.start_date, a.maturity_date,"
     + " a.interest_paid_paise, a.meta, a.ifsc, a.branch, a.address, a.state, a.currency,"
+    + " a.bo_id, a.dp_id, a.client_id,"
     + " (SELECT SUM(h.cost_paise) FROM holding h WHERE h.asset_id=a.id) AS holdings_cost,"
     + " (SELECT SUM(h.value_paise) FROM holding h WHERE h.asset_id=a.id) AS holdings_value,"
     + " (SELECT SUM(CASE WHEN h.value_paise IS NOT NULL AND h.cost_paise IS NOT NULL"
@@ -1363,6 +1389,46 @@ export async function replaceHoldings(assetId, rows, asOf) {
 export async function listHoldings(assetId) {
   if (!browserStore) await openDb();
   return browserStore.listHoldings(assetId);
+}
+
+// The audit for one demat: this asset's holdings against every other asset that
+// carries the same BO ID. A bond portfolio and a demat account are two views of
+// one account, so the comparison is only meaningful inside that pair. Without a
+// second statement there is nothing to compare, and the caller is told why
+// instead of being handed an empty report that reads like a clean one.
+export async function reconFor(assetId, today = new Date().toISOString().slice(0, 10)) {
+  const assets = await listAccounts();
+  const me = assets.find((a) => a.id === assetId);
+  if (!me) return null;
+  const idn = boId(me.number);
+  if (idn.kind !== "bo") {
+    return { asset: me, custodian: null, reason: idn.kind, ...reconSummary([]) };
+  }
+  const other = assets.find((a) => a.id !== me.id
+    && boId(a.number).boId === idn.boId);
+  if (!other) {
+    return { asset: me, custodian: null, reason: "no-second-statement",
+      ...reconSummary([]) };
+  }
+  // Bonds carry what was paid; a demat account carries what is held. If both are
+  // the same kind, guessing which is the depository would invert the audit.
+  const meSells = (me.category || "") === "bonds";
+  const otherSells = (other.category || "") === "bonds";
+  if (meSells === otherSells) {
+    return { asset: me, custodian: other, reason: "ambiguous-pair", ...reconSummary([]) };
+  }
+  const seller = meSells ? me : other;
+  const custodian = meSells ? other : me;
+  const lots = await listHoldings(seller.id);
+  const positions = await listHoldings(custodian.id);
+  const lines = reconPositions({
+    lots,
+    positions,
+    today,
+    asOf: String((custodian.value_date || "")).slice(0, 10),
+  });
+  return { asset: me, seller, custodian, reason: "ok", lines,
+    inputs: reconInputs(lots, positions), ...reconSummary(lines) };
 }
 
 export async function upsertHolding(assetId, holding) {
