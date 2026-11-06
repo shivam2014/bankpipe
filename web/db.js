@@ -10,6 +10,7 @@ import { assetShortIdentity } from "./asset-identity.js";
 import { boId } from "./bo-id.js";
 import { reconPositions, reconSummary } from "./recon.js";
 import { reconInputs } from "./recon-diagnostics.js";
+import { KEEP_KEY, KEEP_DEFAULT, clampKeep, keysToPrune } from "./snapshots.js";
 
 const DB_KEY = "bankpipe.db.v1";
 
@@ -225,7 +226,14 @@ async function idbDelete(key) {
 }
 
 const SNAPSHOT_PREFIX = "snapshot.";
-const SNAPSHOT_KEEP = 12;
+// How many snapshots stay on the device. The limit is a setting because each
+// snapshot is the whole database: twelve of a large ledger is a lot of a phone's
+// storage. The default is unchanged, so an existing install keeps behaving.
+function keepLimit() {
+  try {
+    return clampKeep(localStorage.getItem(KEEP_KEY));
+  } catch { return KEEP_DEFAULT; }
+}
 
 // Listeners run after every successful save. They are best-effort: a failing
 // listener must never break the write that triggered it.
@@ -246,7 +254,7 @@ export async function snapshotDb(label = "") {
     .toString(36).slice(2, 6)}`;
   await idbPut(key, { at, label: String(label || ""), data: saved });
   const all = await listDbSnapshots();
-  for (const old of all.slice(SNAPSHOT_KEEP)) await idbDelete(old.key);
+  for (const old of all.slice(keepLimit())) await idbDelete(old.key);
   return { key, at, bytes: saved.byteLength };
 }
 
@@ -273,6 +281,29 @@ export async function deleteDbSnapshot(key) {
   if (!String(key).startsWith(SNAPSHOT_PREFIX)) return false;
   await idbDelete(key);
   return true;
+}
+
+// Bulk delete for the settings page: one pass, and the count comes back so the
+// caller can say what happened instead of silently shrinking the list.
+export async function deleteDbSnapshots(keys = []) {
+  let removed = 0;
+  for (const key of keys || []) {
+    if (!String(key).startsWith(SNAPSHOT_PREFIX)) continue;
+    await idbDelete(key);
+    removed += 1;
+  }
+  return removed;
+}
+
+// Store the limit and prune to it at once, so the choice is applied on the same
+// screen the person made it.
+export async function setSnapshotKeep(value) {
+  const keep = clampKeep(value);
+  try { localStorage.setItem(KEEP_KEY, String(keep)); } catch {}
+  const all = await listDbSnapshots();
+  const prune = keysToPrune(all, keep);
+  for (const key of prune) await idbDelete(key);
+  return { keep, removed: prune.length };
 }
 
 export async function restoreDbSnapshot(key) {
