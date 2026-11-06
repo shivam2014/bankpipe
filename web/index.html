@@ -974,7 +974,7 @@ import { reorderLine } from "./reorder-line.js";
 import { balanceRunsFromSheet } from "./balance-formula.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
-import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, allocationGroups, allocationByClass, importFillPlan } from "./assets.js";
+import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, importFillPlan } from "./assets.js";
 import { buildFdGroups, fdHistoryValue, fdMatured, orderAccountsByFdTotal } from "./fd-view.js";
 import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
@@ -7189,7 +7189,7 @@ function renderAssets() {
   }
   const demo = DATA.accounts.map((a) => ({ ...a, category: categoryOf(a),
     facts: a.balance === null ? 0 : 1 }));
-  const groups = groupAssets(demo);
+  const groups = assetSections(demo);
   const holdings = Object.entries(DATA.holdings || {}).map(([cls, h]) => {
     const total = h.rows.reduce((t, r) => t + (r.value || 0), 0);
     return `<a class="srow" href="#" onclick="bpHolding(${jsArg(cls)});return false">
@@ -7218,7 +7218,7 @@ async function renderRealAssets(host) {
     const valued = assets.filter((a) => assetValue(a).paise !== null).length;
     const statements = assets.filter((a) => a.facts > 0).length;
     const allocCard = allocationCardHtml(assets, total);
-    const groups = groupAssets(assets);
+    const groups = assetSections(assets);
     const bankGroup = groups.find((g) => g.id === "bank") || null;
     const fdGroup = groups.find((g) => g.id === "fd") || null;
     const otherGroups = groups.filter((g) => g.id !== "bank" && g.id !== "fd");

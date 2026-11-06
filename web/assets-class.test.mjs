@@ -1,7 +1,7 @@
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { allocationByClass } from "./assets.js";
+import { allocationByClass, assetSections } from "./assets.js";
 
 const demat = (over) => ({
   id: "d1", label: "Demat", category: "demat", subtype: "equity",
@@ -49,6 +49,27 @@ test("a demat with no class totals falls back to its subtype", () => {
   const groups = allocationByClass([fund]);
   assert.equal(groups[0].id, "mf");
   assert.equal(groups[0].total, 50000);
+});
+
+test("a demat account is listed as equities and mutual funds, not demat", () => {
+  const assets = [
+    { id: "m1", label: "Axis mutual fund", category: "demat", subtype: "mutual fund",
+      holdings_count: 1, holdings_cost: 300000, holdings_value: 300000 },
+    { id: "m2", label: "Mirae mutual fund", category: "demat", subtype: "mutual fund",
+      holdings_count: 1, holdings_cost: 200000, holdings_value: 200000 },
+    { id: "e1", label: "ICICI demat", category: "demat", subtype: "equity",
+      holdings_count: 4, holdings_cost: 100000, holdings_value: 150000 },
+  ];
+  const sections = assetSections(assets);
+  const eq = sections.find((s) => s.id === "equity");
+  const mf = sections.find((s) => s.id === "mf");
+  assert.equal(eq.label, "Equities");
+  assert.equal(eq.rows.length, 1);
+  assert.equal(eq.total, 150000);
+  assert.equal(mf.label, "Mutual funds");
+  assert.equal(mf.rows.length, 2);
+  assert.equal(mf.total, 500000);
+  assert.equal(sections.some((s) => s.id === "demat"), false);
 });
 
 test("bank accounts and deposits keep their own group", () => {
