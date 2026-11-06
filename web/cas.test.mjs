@@ -109,6 +109,8 @@ const accounts = [
     number: "IN30302873183122" },
   { id: "d1", label: "Demat · ICICI", category: "demat",
     number: "IN30302873183122" },
+  { id: "m1", label: "Axis mutual fund", category: "demat", subtype: "mutual fund",
+    number: "IN30302873183122" },
   { id: "x1", label: "Bonds · someone else", category: "bonds",
     number: "1201090009140907" },
 ];
@@ -119,20 +121,33 @@ const parsed = {
     { isin: "INE00XL07015", kind: "bond", valuePaise: 100 },
     { isin: "INE964R07093", kind: "bond", valuePaise: 200 },
     { isin: "INE585B01010", kind: "equity", valuePaise: 50 },
+    { isin: "INF846K01EW2", kind: "mf", valuePaise: 70 },
   ],
 };
 
-test("bonds go to the bond account and shares to the demat account", () => {
+test("bonds go to the bond account, shares to the demat, funds to the folio", () => {
   const route = casRoute(parsed, accounts);
   assert.equal(route.demat, "IN30302873183122");
-  assert.equal(route.accounts.length, 2);
+  assert.equal(route.accounts.length, 3);
   const bond = route.groups.find((g) => g.kind === "bond");
   const equity = route.groups.find((g) => g.kind === "equity");
+  const mf = route.groups.find((g) => g.kind === "mf");
   assert.equal(bond.assetId, "b1");
   assert.equal(bond.count, 2);
   assert.equal(bond.valuePaise, 300);
   assert.equal(equity.assetId, "d1");
-  assert.equal(equity.count, 1);
+  assert.equal(mf.assetId, "m1");
+});
+
+test("a fund never lands on the share account when a folio exists", () => {
+  const route = casRoute(parsed, accounts);
+  assert.equal(route.groups.find((g) => g.kind === "mf").assetId, "m1");
+  assert.equal(route.groups.find((g) => g.kind === "equity").assetId, "d1");
+});
+
+test("a fund with no folio account is reported, not written to the demat", () => {
+  const route = casRoute(parsed, accounts.filter((a) => a.id !== "m1"));
+  assert.equal(route.homeless.some((g) => g.kind === "mf"), true);
 });
 
 test("a different demat on file is never written to", () => {
@@ -142,8 +157,7 @@ test("a different demat on file is never written to", () => {
 
 test("a class with no account is reported, not forced into another", () => {
   const route = casRoute(parsed, [accounts[0]]);
-  assert.equal(route.homeless.length, 1);
-  assert.equal(route.homeless[0].kind, "equity");
+  assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 2);
   assert.equal(route.groups.length, 1);
 });
 
@@ -151,5 +165,5 @@ test("an unreadable account number routes nowhere", () => {
   const route = casRoute({ demat: "", holdings: parsed.holdings }, accounts);
   assert.equal(route.accounts.length, 0);
   assert.equal(route.groups.length, 0);
-  assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 3);
+  assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 4);
 });

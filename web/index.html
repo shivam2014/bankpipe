@@ -974,7 +974,7 @@ import { reorderLine } from "./reorder-line.js";
 import { balanceRunsFromSheet } from "./balance-formula.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
-import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, allocationGroups, importFillPlan } from "./assets.js";
+import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, allocationGroups, allocationByClass, importFillPlan } from "./assets.js";
 import { buildFdGroups, fdHistoryValue, fdMatured, orderAccountsByFdTotal } from "./fd-view.js";
 import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
@@ -3709,7 +3709,10 @@ window.bpAlloc = (id) => {
     go("assets");
     return;
   }
-  id === "bank" ? window.bpBankGroup() : window.bpCategory(id);
+  // Shares and fund units are classes inside a demat, not categories of their
+  // own, so the drill-in lands on the account that holds them.
+  const target = id === "equity" || id === "mf" ? "demat" : id === "bond" ? "bonds" : id;
+  target === "bank" ? window.bpBankGroup() : window.bpCategory(target);
 };
 window.bpAssetDonutClick = (event) => {
   const el = document.getElementById("asset-donut");
@@ -7049,11 +7052,12 @@ function assetGroupsHtml(groups, onclickFor) {
   }).join("");
 }
 function focusAllocationCardHtml(assets, selectedId) {
-  const groups = allocationGroups(assets).filter((g) => g.total > 0);
+  const groups = allocationByClass(assets).filter((g) => g.total > 0);
   const total = totalAssets(assets);
   const selected = groups.find((g) => g.id === selectedId);
   if (!selected || !total) return "";
   const colors = { bank: "var(--green)", demat: "var(--s4)", bonds: "var(--s2)",
+    bond: "var(--s2)", equity: "var(--s4)", mf: "var(--s6)",
     gold: "var(--gold)", insurance: "var(--s5)", cash: "var(--s3)",
     property: "var(--s1)", other: "var(--muted)" };
   const base = colors[selected.id] || "var(--s1)";
@@ -7140,8 +7144,9 @@ window.bpFocusPieClick = (event) => {
   }
 };
 function allocationCardHtml(assets, total) {
-  const alloc = allocationGroups(assets).filter((g) => g.total > 0);
+  const alloc = allocationByClass(assets).filter((g) => g.total > 0);
   const classColor = { bank: "var(--green)", demat: "var(--s4)", bonds: "var(--s2)",
+    bond: "var(--s2)", equity: "var(--s4)", mf: "var(--s6)",
     gold: "var(--gold)", insurance: "var(--s5)" };
   const sum = alloc.reduce((t, x) => t + x.total, 0) || 1;
   let acc = 0;
