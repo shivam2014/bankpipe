@@ -50,3 +50,22 @@ export function toggleKey(selected, key) {
   else next.add(key);
   return next;
 }
+
+/**
+ * Which keys a bulk delete may remove. The live database is a different key
+ * entirely, so it can never be in this list; what this protects is the last
+ * snapshot, because a ledger with no local version and no off-device copy has
+ * nothing to fall back to. The newest row is the one kept.
+ * @param {Array<{key:string}>} list newest first, as listDbSnapshots returns it
+ * @param {Set<string>|Array<string>} selected
+ * @returns {{keys: string[], kept: string}}
+ */
+export function deletableKeys(list, selected) {
+  const rows = Array.isArray(list) ? list.filter((x) => x && x.key) : [];
+  const picked = selectedKeys(rows, selected);
+  if (!picked.length) return { keys: [], kept: "" };
+  const left = rows.map((x) => x.key).filter((key) => !picked.includes(key));
+  if (left.length) return { keys: picked, kept: "" };
+  const kept = rows[0].key;
+  return { keys: picked.filter((key) => key !== kept), kept };
+}
