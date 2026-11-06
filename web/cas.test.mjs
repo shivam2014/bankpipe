@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCas, casTotals } from "./cas.js";
+import { parseCas, casTotals, casRoute } from "./cas.js";
 
 // A synthetic page laid out like a depository statement: one heading line, then
 // a block of lines per holding. Fields sit at fixed x; the ISIN is printed on a
@@ -100,4 +100,56 @@ test("an unstated total is not a failure", () => {
   const res = casTotals({ holdings: [{ valuePaise: 100 }] }, null);
   assert.equal(res.ok, true);
   assert.equal(res.diffPaise, null);
+});
+
+// --- routing into the accounts already on file -----------------------------
+
+const accounts = [
+  { id: "b1", label: "Bonds · portfolio 1", category: "bonds",
+    number: "IN30302873183122" },
+  { id: "d1", label: "Demat · ICICI", category: "demat",
+    number: "IN30302873183122" },
+  { id: "x1", label: "Bonds · someone else", category: "bonds",
+    number: "1201090009140907" },
+];
+
+const parsed = {
+  demat: "IN30302873183122",
+  holdings: [
+    { isin: "INE00XL07015", kind: "bond", valuePaise: 100 },
+    { isin: "INE964R07093", kind: "bond", valuePaise: 200 },
+    { isin: "INE585B01010", kind: "equity", valuePaise: 50 },
+  ],
+};
+
+test("bonds go to the bond account and shares to the demat account", () => {
+  const route = casRoute(parsed, accounts);
+  assert.equal(route.demat, "IN30302873183122");
+  assert.equal(route.accounts.length, 2);
+  const bond = route.groups.find((g) => g.kind === "bond");
+  const equity = route.groups.find((g) => g.kind === "equity");
+  assert.equal(bond.assetId, "b1");
+  assert.equal(bond.count, 2);
+  assert.equal(bond.valuePaise, 300);
+  assert.equal(equity.assetId, "d1");
+  assert.equal(equity.count, 1);
+});
+
+test("a different demat on file is never written to", () => {
+  const route = casRoute(parsed, accounts);
+  assert.equal(route.groups.some((g) => g.assetId === "x1"), false);
+});
+
+test("a class with no account is reported, not forced into another", () => {
+  const route = casRoute(parsed, [accounts[0]]);
+  assert.equal(route.homeless.length, 1);
+  assert.equal(route.homeless[0].kind, "equity");
+  assert.equal(route.groups.length, 1);
+});
+
+test("an unreadable account number routes nowhere", () => {
+  const route = casRoute({ demat: "", holdings: parsed.holdings }, accounts);
+  assert.equal(route.accounts.length, 0);
+  assert.equal(route.groups.length, 0);
+  assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 3);
 });

@@ -6620,22 +6620,42 @@ window.bpCasFile = async (file) => {
         taken from this file.</div>`;
       return;
     }
+    const [{ casRoute }] = await Promise.all([import("./cas.js")]);
     const store = await import("./db.js");
-    const assets = (await store.listAccounts())
-      .filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
+    const assets = await store.listAccounts();
+    const route = casRoute(cas, assets);
+    window.bpCasRoute = route;
     const total = cas.holdings.reduce((t, h) => t + (Number(h.valuePaise) || 0), 0);
     const kinds = Object.entries(cas.sections || {})
       .map(([k, n]) => `${n} ${k === "mf" ? "fund" : k}${n === 1 ? "" : "s"}`).join(" · ");
+    const rows = route.groups.map((g) => {
+      const name = g.kind === "bond" ? "Bonds" : g.kind === "mf" ? "Funds" : "Equities";
+      return `<div class="muted" style="font-size:12px;margin-top:3px">
+        ${esc(name)} ${g.count} → <b>${esc(g.assetLabel || g.assetId)}</b></div>`;
+    }).join("");
+    const missing = route.homeless.reduce((t, g) => t + g.count, 0);
+    const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
+    const manual = !route.groups.length && targets.length
+      ? `<label class="field" style="margin-top:10px">No account on file matches this
+        statement. Write all of it into
+        <select id="cas-target">${targets.map((a) => `<option value="${esc(a.id)}">${
+          esc(a.label || a.id)}</option>`).join("")}</select></label>`
+      : "";
     host.innerHTML = `<div class="card pad" style="background:var(--hair)">
-      <b>${esc(cas.depository || "Demat")} · ${cas.holdings.length} holdings · ${money(total)}</b>
+      <b>${esc(cas.depository || "Demat")}${route.demat ? ` · …${esc(route.demat.slice(-4))}` : ""}
+        · ${cas.holdings.length} holdings · ${money(total)}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">${esc(kinds)}${
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
-      ${assets.length ? `<label class="field" style="margin-top:10px">Replace the holdings on
-        <select id="cas-target">${assets.map((a) => `<option value="${esc(a.id)}">${
-          esc(a.label || a.id)}</option>`).join("")}</select></label>
-        <button class="btn primary" onclick="bpCasImport()">Import into this account</button>`
+      ${rows}
+      ${missing ? `<div class="muted" style="font-size:12px;margin-top:6px;color:var(--red)">
+        ${missing} holding(s) have no account of their class on this demat, so they would not
+        be written.</div>` : ""}
+      ${route.groups.length || targets.length
+        ? `<button class="btn primary" style="margin-top:10px" onclick="bpCasImport()">
+          Import${route.groups.length ? " into these accounts" : ""}</button>`
         : `<div class="muted" style="font-size:12px;margin-top:8px">Add a demat account first,
           then import.</div>`}
+      ${manual}
     </div>`;
   } catch (e) {
     host.innerHTML = `<div class="muted" style="font-size:12.5px;color:var(--red)">${
@@ -6644,36 +6664,58 @@ window.bpCasFile = async (file) => {
 };
 window.bpCasImport = async () => {
   const cas = window.bpCasParsed;
-  const id = document.getElementById("cas-target")?.value || "";
+  const route = window.bpCasRoute || { groups: [], homeless: [] };
   const host = document.getElementById("cas-host");
-  if (!cas || !id) return;
-  if (!confirm(`Replace the holdings on this account with ${cas.holdings.length} rows from `
-    + `the ${cas.depository || "demat"} statement? A local version is saved first.`)) return;
+  if (!cas) return;
+  // One write per account, never one per class: two classes in the same demat
+  // account would otherwise replace each other.
+  const byAsset = new Map();
+  if (route.groups.length) {
+    for (const h of cas.holdings) {
+      const group = route.groups.find((g) => g.kind === h.kind);
+      if (!group) continue;
+      if (!byAsset.has(group.assetId)) byAsset.set(group.assetId, []);
+      byAsset.get(group.assetId).push(h);
+    }
+  } else {
+    const id = document.getElementById("cas-target")?.value || "";
+    if (id) byAsset.set(id, cas.holdings);
+  }
+  if (!byAsset.size) return;
+  const places = byAsset.size;
+  if (!confirm(`Write ${cas.holdings.length} holdings into ${places} account${places === 1 ? "" : "s"}`
+    + ` from the ${cas.depository || "demat"} statement? A local version is saved first.`)) return;
   try {
     const store = await import("./db.js");
     try { await store.snapshotDb("Before CAS import"); } catch (e) {}
     const today = new Date().toISOString().slice(0, 10);
-    const rows = cas.holdings.map((h) => ({
-      security_id: h.isin,
-      label: casHoldingLabel(h),
-      category: h.kind,
-      quantity: h.quantity,
-      cost_paise: null,
-      value_paise: h.valuePaise,
-      purchase_date: "",
-    }));
-    await store.replaceHoldings(id, rows, today);
-    const all = await store.listAccounts();
-    const asset = all.find((a) => a.id === id);
-    if (asset) {
-      await store.updateAccount(id, { meta: JSON.stringify({ ...metaOf(asset),
-        holdings_source: "cas", holdings_as_of: today,
-        holdings_file: cas.depository ? `${cas.depository} CAS` : "CAS" }) });
+    let written = 0;
+    for (const [assetId, holdings] of byAsset) {
+      const rows = holdings.map((h) => ({
+        security_id: h.isin,
+        label: casHoldingLabel(h),
+        category: h.kind,
+        quantity: h.quantity,
+        cost_paise: null,
+        value_paise: h.valuePaise,
+        purchase_date: "",
+      }));
+      await store.replaceHoldings(assetId, rows, today);
+      written += rows.length;
+      const asset = (await store.listAccounts()).find((a) => a.id === assetId);
+      if (asset) {
+        await store.updateAccount(assetId, { meta: JSON.stringify({ ...metaOf(asset),
+          holdings_source: "cas", holdings_as_of: today,
+          holdings_file: cas.depository ? `${cas.depository} CAS` : "CAS" }) });
+      }
     }
+    const skipped = route.homeless.reduce((t, g) => t + g.count, 0);
     window.bpCasParsed = null;
+    window.bpCasRoute = null;
     if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Imported ${
-      rows.length} holdings. Cost is missing until a broker report arrives, so gain stays blank
-      on purpose.</div>`;
+      written} holdings into ${places} account${places === 1 ? "" : "s"}.${
+      skipped ? ` ${skipped} had no matching account and were not written.` : ""}
+      Cost is missing until a broker report arrives, so gain stays blank on purpose.</div>`;
   } catch (e) {
     alert("Could not import the CAS: " + (e.message || e));
   }

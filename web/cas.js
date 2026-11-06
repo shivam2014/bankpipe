@@ -12,6 +12,8 @@
 // Pure: it reads text items (str, x, y) from pdf.js and returns data. No DOM, no
 // storage, no network.
 
+import { boId } from "./bo-id.js";
+
 const ISIN = /^IN[A-Z0-9]{10}$/;
 const DATE = /^\d{1,2}-[A-Za-z]{3}-\d{4}$/;
 const NUMBER = /^\d[\d,]*(\.\d+)?$/;
@@ -63,6 +65,13 @@ export function parseCas(pdf) {
   const text = items.map((i) => i.str).join(" ");
   const depository = /central depository/i.test(text) ? "CDSL"
     : /national securities depository/i.test(text) ? "NSDL" : "";
+  // The statement prints every account it covers. One demat per PAN is the
+  // common case, so the first BO ID that reads as an account is the one the
+  // holdings belong to. A second account would need its own page section.
+  const bo = (text.match(/\bIN\d{14}\b/g) || [])
+    .concat(text.match(/\b\d{16}\b/g) || [])
+    .map((raw) => boId(raw))
+    .find((id) => id.kind === "bo") || null;
 
   // Section of each item: the last heading above it on its page. Headings are
   // matched in reading order, so a bond table stays a bond table.
@@ -76,7 +85,7 @@ export function parseCas(pdf) {
 
   const isins = ordered.filter((i) => ISIN.test(i.str.toUpperCase().replace(/\s+/g, "")));
   if (!isins.length) {
-    return { depository, holdings: [], warnings: [{ code: "no_isin", count: 0 }],
+    return { depository, demat: bo ? bo.boId : "", holdings: [], warnings: [{ code: "no_isin", count: 0 }],
       sections: {}, counts: { rows: 0, quarantined: 0 } };
   }
 
@@ -134,8 +143,49 @@ export function parseCas(pdf) {
 
   const sections = {};
   for (const h of holdings) sections[h.kind] = (sections[h.kind] || 0) + 1;
-  return { depository, holdings, sections, warnings,
+  return { depository, demat: bo ? bo.boId : "", holdings, sections, warnings,
     counts: { rows: holdings.length, quarantined } };
+}
+
+/**
+ * Where each holding belongs. A CAS covers one demat but several classes, and
+ * this app keeps bonds and equities in separate accounts, so one target would
+ * either overwrite a class or force the person to import the same file twice.
+ * @param {{holdings: Array<object>, demat?: string}} parsed
+ * @param {Array<{id: string, label?: string, category?: string, number?: string}>} assets
+ * @returns {{demat: string, accounts: Array<object>, groups: Array<object>,
+ *   homeless: Array<object>}}
+ */
+export function casRoute(parsed, assets = []) {
+  const holdings = parsed?.holdings || [];
+  const bo = boId(parsed?.demat || "");
+  const accounts = bo.kind === "bo"
+    ? (assets || []).filter((a) => boId(a.number).boId === bo.boId)
+    : [];
+  const home = (kind) => {
+    const want = kind === "bond" ? "bonds" : "demat";
+    return accounts.find((a) => String(a.category || "") === want) || null;
+  };
+  const groups = new Map();
+  const homeless = new Map();
+  for (const holding of holdings) {
+    const target = home(holding.kind);
+    const bucket = target ? groups : homeless;
+    const key = target ? `${holding.kind}|${target.id}` : holding.kind;
+    if (!bucket.has(key)) {
+      bucket.set(key, { kind: holding.kind, assetId: target?.id || "",
+        assetLabel: target?.label || "", count: 0, valuePaise: 0 });
+    }
+    const row = bucket.get(key);
+    row.count += 1;
+    row.valuePaise += Number(holding.valuePaise) || 0;
+  }
+  return {
+    demat: bo.kind === "bo" ? bo.boId : "",
+    accounts,
+    groups: [...groups.values()],
+    homeless: [...homeless.values()],
+  };
 }
 
 /**
