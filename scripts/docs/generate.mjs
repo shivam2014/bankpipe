@@ -84,7 +84,14 @@ const RELATIONS = {
   "locker.account_id": ["ACCOUNT", "has"],
   "import_run.account_id": ["ACCOUNT", "for"],
 };
-const EXTERNAL_IDS = new Set(["holding.security_id", "setting.key"]);
+const EXTERNAL_IDS = new Set(["holding.security_id", "setting.key", "account.bo_id",
+  "account.dp_id", "account.client_id"]);
+
+// Pure helpers db.js uses that are not part of the storage/crypto/backup map.
+// They hold no state and reach no store, so drawing them would add a node per
+// helper without telling a reader anything about how the ledger is kept.
+const OMITTED = new Set(["receipt.js", "asset-identity.js", "bo-id.js",
+  "recon.js", "recon-diagnostics.js"]);
 
 // migrate() adds these in place. They are not in CREATE TABLE, so the diagram
 // has to merge them or it describes a database that no longer exists.
@@ -95,7 +102,9 @@ const EXTRA_COLUMNS = {
     ["rate_bps", "INTEGER"], ["start_date", "TEXT"], ["maturity_date", "TEXT"],
     ["interest_paid_paise", "INTEGER"], ["meta", "TEXT"], ["ifsc", "TEXT"],
     ["branch", "TEXT"], ["address", "TEXT"], ["state", "TEXT"], ["currency", "TEXT"],
+    ["bo_id", "TEXT"], ["dp_id", "TEXT"], ["client_id", "TEXT"],
   ],
+  import_run: [["batch", "TEXT"], ["receipt", "TEXT"]],
   holding: [
     ["rating", "TEXT"], ["frequency", "TEXT"], ["yield_bps", "INTEGER"],
     ["payout_paise", "INTEGER"], ["source", "TEXT"], ["rating_at_purchase", "TEXT"],
@@ -223,11 +232,13 @@ function moduleDiagram() {
   for (const file of Object.keys(MODULES)) {
     if (!existsSync(join(ROOT, "web", file))) fail(`module map names missing web/${file}`);
     const imported = importsOf(file);
-    const unknown = imported.filter((target) => !names.has(target));
+    const unknown = imported.filter((target) => !names.has(target)
+      && !OMITTED.has(target));
     if (unknown.length) {
       fail(`core module ${file} imports ${unknown.join(", ")} outside MODULES. Add it to the map or explain why it is omitted`);
     }
     for (const target of imported) {
+      if (!names.has(target)) continue;
       edges.push(`  ${file.replace(/\.js$/, "")}["${file}<br/>${MODULES[file][1]}"] --> ${target.replace(/\.js$/, "")}["${target}<br/>${MODULES[target][1]}"]`);
     }
   }
