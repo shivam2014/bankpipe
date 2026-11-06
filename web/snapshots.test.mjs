@@ -6,7 +6,7 @@ import { KEEP_DEFAULT, clampKeep, readKeep, keysToPrune, selectedKeys,
 
 const list = [{ key: "s4" }, { key: "s3" }, { key: "s2" }, { key: "s1" }];
 
-test("an unset or unknown limit falls back to twelve", () => {
+test("an unset or unknown limit falls back to four", () => {
   assert.equal(clampKeep(null), KEEP_DEFAULT);
   assert.equal(clampKeep(""), KEEP_DEFAULT);
   assert.equal(clampKeep("99"), KEEP_DEFAULT);

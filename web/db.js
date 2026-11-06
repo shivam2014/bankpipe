@@ -228,8 +228,8 @@ async function idbDelete(key) {
 
 const SNAPSHOT_PREFIX = "snapshot.";
 // How many snapshots stay on the device. The limit is a setting because each
-// snapshot is the whole database: twelve of a large ledger is a lot of a phone's
-// storage. The default is unchanged, so an existing install keeps behaving.
+// snapshot is the whole database: a dozen of a large ledger is a lot of a
+// phone's storage, so four is the default and the rest is the person's choice.
 function keepLimit() {
   try {
     return clampKeep(localStorage.getItem(KEEP_KEY));

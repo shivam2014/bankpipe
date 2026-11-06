@@ -6476,7 +6476,12 @@ window.bpLoadSnapshots = async () => {
     all.indeterminate = !all.checked && sel.size > 0;
   }
   const count = document.getElementById("snap-count");
-  if (count) count.textContent = sel.size ? `${sel.size} selected` : "";
+  if (count) {
+    const keep = readKeep(localStorage);
+    const over = list.length > keep ? `${list.length} saved · limit ${keep}` : "";
+    count.textContent = [sel.size ? `${sel.size} selected` : "", over]
+      .filter(Boolean).join(" · ");
+  }
   host.innerHTML = list.length ? list.map((x) => `<div class="snap-row">
       <input type="checkbox"${sel.has(x.key) ? " checked" : ""}
         aria-label="Select this snapshot" onchange="bpSnapToggle(${jsArg(x.key)})">
