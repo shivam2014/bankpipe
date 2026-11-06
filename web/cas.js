@@ -163,8 +163,18 @@ export function casRoute(parsed, assets = []) {
     ? (assets || []).filter((a) => boId(a.number).boId === bo.boId)
     : [];
   const home = (kind) => {
-    const want = kind === "bond" ? "bonds" : "demat";
-    return accounts.find((a) => String(a.category || "") === want) || null;
+    // Bonds live in a bond portfolio. Shares live in the demat account itself.
+    // Fund units are a folio, not a demat holding, and this app files them as a
+    // demat asset with the "mutual fund" subtype — so the subtype is what keeps
+    // a fund from landing on the share account and replacing it.
+    if (kind === "bond") {
+      return accounts.find((a) => String(a.category || "") === "bonds") || null;
+    }
+    const demat = accounts.filter((a) => String(a.category || "") === "demat");
+    const isFund = (a) => /mutual\s*fund|^mf$/i.test(String(a.subtype || ""));
+    return kind === "mf"
+      ? demat.find(isFund) || null
+      : demat.find((a) => !isFund(a)) || null;
   };
   const groups = new Map();
   const homeless = new Map();

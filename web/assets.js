@@ -95,6 +95,59 @@ export function allocationGroups(assets) {
   return groups;
 }
 
+// The allocation chart is about what the money is invested in, not about which
+// container holds it. Bonds inside a demat are still bonds, and fund units are
+// neither shares nor bonds, so `demat` and `bonds` containers are split by the
+// class of the holdings inside them.
+//
+// Each asset's parts are scaled to the value the rest of the app already shows
+// for it. A holding with no price must not make the ring disagree with the total
+// printed beside it, and a class with no recorded value falls back to the
+// container's own subtype rather than being dropped.
+export function allocationByClass(assets, byClass) {
+  const classOf = (a) => {
+    const id = a?.id;
+    const fromRows = byClass?.[id];
+    if (fromRows) return fromRows;
+    const bond = Number(a?.class_bond_value) || 0;
+    const equity = Number(a?.class_equity_value) || 0;
+    const mf = Number(a?.class_mf_value) || 0;
+    return { bond, equity, mf };
+  };
+  const base = allocationGroups(assets);
+  const out = [];
+  for (const group of base) {
+    if (group.id !== "bonds" && group.id !== "demat") { out.push(group); continue; }
+    const parts = { bond: { total: 0, rows: [] }, equity: { total: 0, rows: [] },
+      mf: { total: 0, rows: [] } };
+    for (const asset of group.rows) {
+      const worth = assetValue(asset).paise || 0;
+      const raw = classOf(asset);
+      const rawSum = raw.bond + raw.equity + raw.mf;
+      let share = raw;
+      if (!rawSum) {
+        const subtype = String(asset.subtype || "");
+        share = /mutual\s*fund/i.test(subtype) ? { bond: 0, equity: 0, mf: worth }
+          : group.id === "bonds" ? { bond: worth, equity: 0, mf: 0 }
+            : { bond: 0, equity: worth, mf: 0 };
+      }
+      const scale = rawSum ? worth / rawSum : 1;
+      for (const key of ["bond", "equity", "mf"]) {
+        if (!share[key]) continue;
+        parts[key].total += share[key] * scale;
+        if (!parts[key].rows.includes(asset)) parts[key].rows.push(asset);
+      }
+    }
+    const labels = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
+    for (const key of ["bond", "equity", "mf"]) {
+      if (!parts[key].total) continue;
+      out.push({ id: key, label: labels[key], total: Math.round(parts[key].total),
+        rows: parts[key].rows });
+    }
+  }
+  return out;
+}
+
 // What a broker's import can fill on an account without touching what the user
 // typed. A demat number is the account's identity, so it only goes in when the
 // field is empty; the same for the holder and the broker name.
