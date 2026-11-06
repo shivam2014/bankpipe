@@ -1,4 +1,5 @@
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { allocationByClass } from "./assets.js";
 
@@ -56,4 +57,18 @@ test("bank accounts and deposits keep their own group", () => {
   const groups = allocationByClass(assets);
   assert.equal(groups[0].id, "bank");
   assert.equal(groups[0].label, "Bank accounts & FDs");
+});
+
+// A colour variable that is referenced but never defined makes the whole
+// conic-gradient declaration invalid, and the ring disappears rather than
+// falling back. That is exactly how the fund slice blanked the donut.
+test("every allocation colour is defined in the stylesheet", () => {
+  const src = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const map = src.match(/const classColor = \{([\s\S]*?)\};/);
+  assert.ok(map, "classColor map not found");
+  const used = new Set([...map[1].matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]));
+  assert.ok(used.size > 0);
+  for (const name of used) {
+    assert.ok(src.includes(`${name}:`), `${name} is referenced but never defined`);
+  }
 });
