@@ -91,7 +91,7 @@ const EXTERNAL_IDS = new Set(["holding.security_id", "setting.key", "account.bo_
 // They hold no state and reach no store, so drawing them would add a node per
 // helper without telling a reader anything about how the ledger is kept.
 const OMITTED = new Set(["receipt.js", "asset-identity.js", "bo-id.js",
-  "recon.js", "recon-diagnostics.js"]);
+  "recon.js", "recon-diagnostics.js", "snapshots.js"]);
 
 // migrate() adds these in place. They are not in CREATE TABLE, so the diagram
 // has to merge them or it describes a database that no longer exists.
