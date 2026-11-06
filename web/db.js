@@ -10,7 +10,8 @@ import { assetShortIdentity } from "./asset-identity.js";
 import { boId } from "./bo-id.js";
 import { reconPositions, reconSummary } from "./recon.js";
 import { reconInputs } from "./recon-diagnostics.js";
-import { KEEP_KEY, KEEP_DEFAULT, clampKeep, keysToPrune } from "./snapshots.js";
+import { KEEP_KEY, KEEP_DEFAULT, clampKeep, keysToPrune, deletableKeys }
+  from "./snapshots.js";
 
 const DB_KEY = "bankpipe.db.v1";
 
@@ -279,20 +280,23 @@ export async function readDbSnapshot(key) {
 
 export async function deleteDbSnapshot(key) {
   if (!String(key).startsWith(SNAPSHOT_PREFIX)) return false;
+  // The last local version is the fallback when nothing has been restored or
+  // downloaded yet. Deleting it is never worth the click.
+  const all = await listDbSnapshots();
+  if (all.length <= 1 && all.some((x) => x.key === key)) return false;
   await idbDelete(key);
   return true;
 }
 
 // Bulk delete for the settings page: one pass, and the count comes back so the
-// caller can say what happened instead of silently shrinking the list.
+// caller can say what happened instead of silently shrinking the list. The live
+// database lives under a different key and is refused by the prefix guard;
+// the newest snapshot is kept when the selection would empty the list.
 export async function deleteDbSnapshots(keys = []) {
-  let removed = 0;
-  for (const key of keys || []) {
-    if (!String(key).startsWith(SNAPSHOT_PREFIX)) continue;
-    await idbDelete(key);
-    removed += 1;
-  }
-  return removed;
+  const all = await listDbSnapshots();
+  const { keys: go, kept } = deletableKeys(all, keys);
+  for (const key of go) await idbDelete(key);
+  return { removed: go.length, kept };
 }
 
 // Store the limit and prune to it at once, so the choice is applied on the same

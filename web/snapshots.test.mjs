@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { KEEP_DEFAULT, clampKeep, readKeep, keysToPrune, selectedKeys,
-  allSelected, toggleKey } from "./snapshots.js";
+  allSelected, toggleKey, deletableKeys } from "./snapshots.js";
 
 const list = [{ key: "s4" }, { key: "s3" }, { key: "s2" }, { key: "s1" }];
 
@@ -54,4 +55,41 @@ test("toggling returns a new set and does not mutate the old one", () => {
   assert.deepEqual([...after].sort(), ["a", "b"]);
   assert.deepEqual([...before], ["a"]);
   assert.deepEqual([...toggleKey(after, "a")].sort(), ["b"]);
+});
+
+test("a partial selection deletes only what was picked", () => {
+  const res = deletableKeys(list, new Set(["s2", "s4"]));
+  assert.deepEqual(res.keys.sort(), ["s2", "s4"]);
+  assert.equal(res.kept, "");
+});
+
+test("selecting everything still keeps the newest snapshot", () => {
+  const res = deletableKeys(list, new Set(["s1", "s2", "s3", "s4"]));
+  assert.deepEqual(res.keys.sort(), ["s1", "s2", "s3"]);
+  assert.equal(res.kept, "s4");
+});
+
+test("a single snapshot is never deleted by a bulk action", () => {
+  const one = [{ key: "only" }];
+  const res = deletableKeys(one, new Set(["only"]));
+  assert.deepEqual(res.keys, []);
+  assert.equal(res.kept, "only");
+});
+
+test("a selection with nothing in it deletes nothing", () => {
+  const res = deletableKeys(list, new Set());
+  assert.deepEqual(res.keys, []);
+  assert.equal(res.kept, "");
+});
+
+// The live database and the versions live in the same object store, so the only
+// thing separating them is the key. If these two ever overlap, a bulk delete
+// could reach the database the app is running on.
+test("the live database key can never look like a snapshot", () => {
+  const src = readFileSync(new URL("./db.js", import.meta.url), "utf8");
+  const dbKey = (src.match(/const DB_KEY = "([^"]+)"/) || [])[1];
+  const prefix = (src.match(/const SNAPSHOT_PREFIX = "([^"]+)"/) || [])[1];
+  assert.equal(dbKey, "bankpipe.db.v1");
+  assert.equal(prefix, "snapshot.");
+  assert.equal(dbKey.startsWith(prefix), false);
 });

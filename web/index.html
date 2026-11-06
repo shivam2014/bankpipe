@@ -6506,10 +6506,13 @@ window.bpSnapDeleteSelected = async () => {
     + "The current database is not affected.")) return;
   try {
     const store = await import("./db.js");
-    const removed = await store.deleteDbSnapshots(keys);
+    const res = await store.deleteDbSnapshots([...(window.bpSnapSel || [])]);
     window.bpSnapSel = new Set();
     const note = document.getElementById("snap-note");
-    if (note) note.textContent = `Deleted ${removed} snapshot${removed === 1 ? "" : "s"}.`;
+    if (note) note.textContent = res.removed
+      ? `Deleted ${res.removed} snapshot${res.removed === 1 ? "" : "s"}.`
+        + (res.kept ? " Kept the newest one." : "")
+      : "Kept the newest snapshot; at least one stays.";
     await window.bpLoadSnapshots();
   } catch (e) {
     alert("Could not delete: " + (e.message || e));
@@ -6679,7 +6682,13 @@ window.bpDeleteSnapshot = async (key) => {
   if (!confirm("Delete this local version?")) return;
   try {
     const store = await import("./db.js");
-    await store.deleteDbSnapshot(key);
+    const gone = await store.deleteDbSnapshot(key);
+    if (!gone) {
+      const note = document.getElementById("snap-note");
+      if (note) note.textContent = "Kept: at least one snapshot stays on this device.";
+      return;
+    }
+    window.bpSnapSel = new Set([...(window.bpSnapSel || [])].filter((k) => k !== key));
     await window.bpLoadSnapshots();
   } catch (e) {
     alert("Could not delete: " + (e.message || e));
