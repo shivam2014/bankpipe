@@ -2932,10 +2932,25 @@ function renderImport() {
     </div>
   </details>
 
+  <div class="card pad" style="margin-top:14px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h2 style="margin:0">Demat (CAS)</h2>
+      <span class="muted" style="font-size:11.5px">CDSL or NSDL</span></div>
+    <p class="muted" style="font-size:12.5px;margin:6px 0 10px">A consolidated account
+    statement lists what the depository actually holds: bonds, equities and funds. The PDF
+    password is usually your PAN in capitals. Holdings are written; cost stays with the
+    broker report.</p>
+    <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer">
+      Choose CAS PDF
+      <input type="file" accept=".pdf,application/pdf" style="display:none"
+        onchange="bpCasFile(this.files[0]);this.value=''">
+    </label>
+    <div id="cas-host" style="margin-top:10px"></div>
+  </div>
+
   <div class="muted" style="font-size:12.5px;margin-top:14px;line-height:1.8">
     Bond portfolios take their DigiFInn reports on the portfolio itself —
-    <a class="link" href="#" onclick="bpCategory('bonds');return false">open bond portfolios</a>.<br>
-    Demat CAS import is not built yet; it is the next reader.</div>`;
+    <a class="link" href="#" onclick="bpCategory('bonds');return false">open bond portfolios</a>.</div>`;
 }
 function slug(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 28)
@@ -6564,6 +6579,100 @@ window.bpDownloadSnapshot = async (key) => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (e) {
     alert("Could not download the snapshot: " + (e.message || e));
+  }
+};
+// A CAS holding becomes a holding row. The label carries the coupon and the
+// maturity because the bond card reads them from there, and the depository does
+// not give us a purchase date: cost stays missing until a broker report arrives.
+function casHoldingLabel(h) {
+  const name = String(h.label || h.isin).replace(/\s+/g, " ").trim();
+  if (h.kind !== "bond") return name;
+  if (/\d{1,2}\s+[A-Za-z]{3}\s+\d{4}/.test(name)) return name;
+  const when = h.maturity
+    ? new Date(`${h.maturity}T00:00:00Z`).toLocaleDateString("en-IN",
+      { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
+    : "";
+  const coupon = h.couponPct === null || h.couponPct === undefined ? "" : `${h.couponPct}% `;
+  return `${coupon}${name}${when ? ` ${when}` : ""}`.trim();
+}
+window.bpCasFile = async (file) => {
+  const host = document.getElementById("cas-host");
+  if (!host || !file) return;
+  host.innerHTML = `<div class="muted" style="font-size:12.5px">Reading the PDF…</div>`;
+  try {
+    const [{ extractPdf }, { parseCas }] = await Promise.all([
+      import("./pdf-statement.js"), import("./cas.js"),
+    ]);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const pdf = await extractPdf(bytes, {
+      onPassword: async ({ wrong }) => prompt(wrong
+        ? "That password did not open the PDF. Try again."
+        : "PDF password (usually your PAN in capitals)"),
+    });
+    const cas = parseCas(pdf);
+    window.bpCasParsed = cas;
+    if (!cas.holdings.length) {
+      host.innerHTML = `<div class="muted" style="font-size:12.5px">No holdings could be
+        read. ${cas.counts.quarantined} row(s) had no readable ISIN or value, so nothing was
+        taken from this file.</div>`;
+      return;
+    }
+    const store = await import("./db.js");
+    const assets = (await store.listAccounts())
+      .filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
+    const total = cas.holdings.reduce((t, h) => t + (Number(h.valuePaise) || 0), 0);
+    const kinds = Object.entries(cas.sections || {})
+      .map(([k, n]) => `${n} ${k === "mf" ? "fund" : k}${n === 1 ? "" : "s"}`).join(" · ");
+    host.innerHTML = `<div class="card pad" style="background:var(--hair)">
+      <b>${esc(cas.depository || "Demat")} · ${cas.holdings.length} holdings · ${money(total)}</b>
+      <div class="muted" style="font-size:12px;margin-top:4px">${esc(kinds)}${
+        cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
+      ${assets.length ? `<label class="field" style="margin-top:10px">Replace the holdings on
+        <select id="cas-target">${assets.map((a) => `<option value="${esc(a.id)}">${
+          esc(a.label || a.id)}</option>`).join("")}</select></label>
+        <button class="btn primary" onclick="bpCasImport()">Import into this account</button>`
+        : `<div class="muted" style="font-size:12px;margin-top:8px">Add a demat account first,
+          then import.</div>`}
+    </div>`;
+  } catch (e) {
+    host.innerHTML = `<div class="muted" style="font-size:12.5px;color:var(--red)">${
+      esc(e.message || e)}</div>`;
+  }
+};
+window.bpCasImport = async () => {
+  const cas = window.bpCasParsed;
+  const id = document.getElementById("cas-target")?.value || "";
+  const host = document.getElementById("cas-host");
+  if (!cas || !id) return;
+  if (!confirm(`Replace the holdings on this account with ${cas.holdings.length} rows from `
+    + `the ${cas.depository || "demat"} statement? A local version is saved first.`)) return;
+  try {
+    const store = await import("./db.js");
+    try { await store.snapshotDb("Before CAS import"); } catch (e) {}
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = cas.holdings.map((h) => ({
+      security_id: h.isin,
+      label: casHoldingLabel(h),
+      category: h.kind,
+      quantity: h.quantity,
+      cost_paise: null,
+      value_paise: h.valuePaise,
+      purchase_date: "",
+    }));
+    await store.replaceHoldings(id, rows, today);
+    const all = await store.listAccounts();
+    const asset = all.find((a) => a.id === id);
+    if (asset) {
+      await store.updateAccount(id, { meta: JSON.stringify({ ...metaOf(asset),
+        holdings_source: "cas", holdings_as_of: today,
+        holdings_file: cas.depository ? `${cas.depository} CAS` : "CAS" }) });
+    }
+    window.bpCasParsed = null;
+    if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Imported ${
+      rows.length} holdings. Cost is missing until a broker report arrives, so gain stays blank
+      on purpose.</div>`;
+  } catch (e) {
+    alert("Could not import the CAS: " + (e.message || e));
   }
 };
 window.bpDeleteSnapshot = async (key) => {
