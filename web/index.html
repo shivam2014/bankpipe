@@ -1034,9 +1034,7 @@ function saveTxns(rows) {
   return { kept, dup };
 }
 const GUIDES = {
-  broker: `<p style="margin:0 0 10px">Adds <b>average cost</b> to holdings you already have.
-    One file per broker, and again after each buy or sell.</p>
-    <details>
+  broker: `<details>
       <summary style="cursor:pointer;font-size:12.5px">Where to download it</summary>
       <ol style="margin:8px 0 0">
         <li><b>Zerodha</b> — Console → Portfolio → Holdings → XLSX</li>
@@ -2882,7 +2880,7 @@ function renderImport() {
 
   <div class="card pad">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0">Bank statement</h2>
+      <h2 style="margin:0">Import a file</h2>
       <span class="muted" style="font-size:11.5px">Last import ${lastImportShort()}</span></div>
     <div class="guide-tabs" id="gtabs">
       <button type="button" data-guide="bank" aria-selected="true">Bank statement</button>
