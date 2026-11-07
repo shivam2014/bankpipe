@@ -3601,6 +3601,8 @@ window.bpSectionToggle = (button) => {
   button.setAttribute("aria-expanded", open ? "false" : "true");
   const label = button.dataset.label || "section";
   button.setAttribute("aria-label", `${open ? "Expand" : "Collapse"} ${label}`);
+  const arrow = button.querySelector("span");
+  if (arrow) arrow.textContent = open ? "▸" : "▾";
   if (body) body.hidden = open;
 };
 window.bpCategory = (id) => { window.bpState = { ...(window.bpState || {}), category: id };
@@ -4399,20 +4401,23 @@ function accountSectionsHtml({
   activeFds = [], maturedFds = [], lockers = [], fdRow, currency = "", variant = "",
 }) {
   const slug = String(acc.id).replace(/[^A-Za-z0-9_-]/g, "-");
-  const section = ({ kind, label, amount, body = "", toggle = false, href = open }) => {
+  const section = ({ kind, label, amount, body = "", toggle = false, href = open,
+    expanded = true }) => {
     const id = `acct-${slug}-${kind}`;
     return `<div class="acct-sec">
       <div class="acct-sec-head${toggle ? "" : " no-toggle"}">
-        ${toggle ? `<button class="acct-sec-toggle" type="button" aria-expanded="true"
-          aria-controls="${id}" aria-label="Collapse ${label}" data-label="${label}"
-          onclick="bpSectionToggle(this)"><span aria-hidden="true">▾</span></button>`
+        ${toggle ? `<button class="acct-sec-toggle" type="button"
+          aria-expanded="${expanded ? "true" : "false"}"
+          aria-controls="${id}" aria-label="${expanded ? "Collapse" : "Expand"} ${label}"
+          data-label="${label}"
+          onclick="bpSectionToggle(this)"><span aria-hidden="true">${expanded ? "▾" : "▸"}</span></button>`
           : `<span class="acct-sec-spacer" aria-hidden="true"></span>`}
         <a class="subrow acct-sec-link" href="#" onclick="${href};return false">
           <span class="nm">${label}</span>
           <span class="amt">${amount}</span>
           <span class="pc">›</span></a>
       </div>
-      ${body ? `<div class="acct-sec-body" id="${id}">${body}</div>` : ""}
+      ${body ? `<div class="acct-sec-body" id="${id}"${expanded ? "" : " hidden"}>${body}</div>` : ""}
     </div>`;
   };
   const activeTotal = activeFds.reduce((sum, fd) => sum + (assetValue(fd).paise || 0), 0);
@@ -4434,6 +4439,7 @@ function accountSectionsHtml({
       kind: "fds", label: `Fixed deposits (${activeFds.length})`,
       amount: activeFds.length ? money(activeTotal, currency) : "—",
       toggle: true, href: openFds, body: fdBody,
+      expanded: activeFds.length > 0,
     }),
     section({
       kind: "lockers", label: `Lockers (${lockers.length})`,
@@ -4443,6 +4449,7 @@ function accountSectionsHtml({
       toggle: true, href: openLockers,
       body: lockers.length ? lockers.map((l) => lockerRowHtml(acc, l)).join("")
         : `<div class="muted acct-sec-empty">No lockers recorded. Use Add locker on the account page.</div>`,
+      expanded: lockers.length > 0,
     }),
   ];
   return `<div class="acct-sections${variant === "bank" ? " in-bank" : ""}">${parts.join("")}</div>`;
