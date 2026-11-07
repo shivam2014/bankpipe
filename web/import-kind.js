@@ -42,7 +42,9 @@ export function sniffKind({ name = "", text = "" } = {}) {
     if (BROKER_HEADER(body)) return "broker";
     if (BANK_HEADER(body)) return "bank";
   }
-  return guessKind(name);
+  // Nothing in the content decided it. Saying so lets the caller report an
+  // honest "guessed from the name" instead of claiming it read the file.
+  return "";
 }
 
 /** @param {string} name @returns {"bank"|"cas"|"broker"} */

@@ -8,10 +8,11 @@ test("a CAS is recognised by what its first page says", () => {
   assert.equal(sniffKind({ name: "download.pdf", text: page }), "cas");
 });
 
-test("a CDSL transaction file is a CAS even named TXN", () => {
-  assert.equal(sniffKind({ name: "SEP2026_AA06635090_TXN.pdf", text: "" }), "cas");
-  assert.equal(sniffKind({ name: "x.pdf",
+test("a CDSL transaction file is a CAS from its first page", () => {
+  assert.equal(sniffKind({ name: "SEP2026_AA06635090_TXN.pdf",
     text: "Central Depository Services (India) Limited e-CAS" }), "cas");
+  // With no readable content the name still decides, through guessKind.
+  assert.equal(guessKind("SEP2026_AA06635090_TXN.pdf"), "cas");
 });
 
 test("a broker holdings export is read from its header row", () => {
@@ -35,9 +36,9 @@ test("a bank statement that mentions NSDL stays a bank statement", () => {
   assert.equal(sniffKind({ name: "statement.csv", text: bank }), "bank");
 });
 
-test("nothing readable falls back to the name", () => {
-  assert.equal(sniffKind({ name: "NSDLe-CAS_SEP.pdf", text: "" }), "cas");
-  assert.equal(sniffKind({ name: "pnb-statement.csv", text: "" }), "bank");
+test("nothing readable reports no opinion instead of guessing", () => {
+  assert.equal(sniffKind({ name: "NSDLe-CAS_SEP.pdf", text: "" }), "");
+  assert.equal(sniffKind({ name: "whatever.csv", text: "hello,world\n1,2" }), "");
 });
 
 test("the name rules still mean what they meant", () => {
