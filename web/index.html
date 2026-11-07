@@ -992,6 +992,7 @@ import { dematCardHtml, dematLast4, dematMismatchLine, dematText,
 import { reconCardHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute } from "./cas.js";
+import { guessKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
@@ -2887,16 +2888,19 @@ function renderImport() {
 
   <div class="card pad">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0">Import a file</h2>
+      <h2 style="margin:0">Import</h2>
       <span class="muted" style="font-size:11.5px">Last import ${lastImportShort()}</span></div>
-    <div class="guide-tabs" id="gtabs">
-      <button type="button" data-guide="bank" aria-selected="true">Bank statement</button>
-      <button type="button" data-guide="broker" aria-selected="false">Holdings file</button>
-      <button type="button" data-guide="safety" aria-selected="false">Safety</button>
-    </div>
-    <div id="uploadHost"></div>
-    <div class="guide" id="guide">${GUIDES.bank}</div>
+    <p class="muted" style="margin:6px 0 10px;font-size:13px">Choose one or more files. The
+    app guesses what each one is; change any row before importing. Nothing is written until
+    you confirm.</p>
+    <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer">
+      Choose files
+      <input type="file" id="import-files" multiple
+        accept=".csv,.xlsx,.xlsm,.xls,.pdf" style="display:none">
+    </label>
+    <div id="import-queue" style="margin-top:10px"></div>
   </div>
+  <div id="import-panels"></div>
 
   <details class="adv">
     <summary>Advanced: replace everything from the family workbook</summary>
@@ -3363,40 +3367,17 @@ async function importWorkbook(file) {
 window.bpImportWorkbook = importWorkbook;
 
 function wireImport() {
-  const tabs = document.querySelectorAll("[data-guide]");
-  const pick = (name) => {
-    const b = [...tabs].find(x => x.dataset.guide === name);
-    if (!b || !GUIDES[name]) return;
-    tabs.forEach(x => x.setAttribute("aria-selected", x === b ? "true" : "false"));
-    document.getElementById("guide").innerHTML = GUIDES[name];
-    document.getElementById("uploadHost").innerHTML = uploadPanel(name);
-    if (name === "bank") wireBankUpload();
-  };
-  tabs.forEach(b => b.onclick = () => pick(b.dataset.guide));
-  pick(new URLSearchParams(location.search).get("guide") || "bank");
-  // The panel is rendered by pick(), so wire its inputs after it exists.
-  const wf = document.getElementById("wf");
-  if (wf) wf.onchange = async () => {
-    if (window.bpImportBusy) return;
-    if (!wf.files[0]) return;
-    window.bpImportBusy = true;
-    try { await importWorkbook(wf.files[0]); }
-    finally { window.bpImportBusy = false; }
-  };
-  const pf = document.getElementById("pf");
-  if (pf) pf.onchange = async () => {
-    const f = pf.files[0]; if (!f) return;
-    const note = document.getElementById("pfn");
-    try {
-      const obj = JSON.parse(await f.text());
-      if (!Array.isArray(obj.sheets)) throw new Error("no sheets array");
-      window.bpProfile = obj;
-      if (note) note.textContent = `Profile loaded: ${obj.sheets.length} sheets`;
-    } catch (e) {
-      window.bpProfile = null;
-      if (note) note.textContent = "Profile error: " + String(e.message || e);
-    }
-  };
+  const input = document.getElementById("import-files");
+  if (input) {
+    input.onchange = () => {
+      window.bpImportAdd([...(input.files || [])]);
+      input.value = "";
+    };
+  }
+  // A file can arrive from the URL (?guide=broker&import=...) as before, but the
+  // queue is the only path now: one list, one type per row, one confirmation.
+  if (!window.bpImportQueue) window.bpImportQueue = [];
+  window.bpImportRender();
 }
 function renderTransactions() {
   if ((localStorage.getItem("bp.mode") || "demo") === "real") {
@@ -6581,6 +6562,87 @@ function casHoldingLabel(h) {
   const coupon = h.couponPct === null || h.couponPct === undefined ? "" : `${h.couponPct}% `;
   return `${coupon}${name}${when ? ` ${when}` : ""}`.trim();
 }
+// One queue for every file. The type is guessed per row and can be changed per
+// row, because a bank CSV and a broker CSV look identical from the outside.
+window.bpImportQueue = window.bpImportQueue || [];
+window.bpImportAdd = (files) => {
+  for (const file of files || []) {
+    window.bpImportQueue.push({ file, kind: guessKind(file.name) });
+  }
+  window.bpImportRender();
+};
+window.bpImportKindSet = (index, kind) => {
+  const row = window.bpImportQueue[index];
+  if (row) row.kind = kind;
+  window.bpImportRender();
+};
+window.bpImportDrop = (index) => {
+  window.bpImportQueue.splice(index, 1);
+  window.bpImportRender();
+};
+window.bpImportRender = () => {
+  const host = document.getElementById("import-queue");
+  if (!host) return;
+  const rows = window.bpImportQueue || [];
+  if (!rows.length) { host.innerHTML = ""; return; }
+  const options = (kind) => IMPORT_KINDS.map((k) =>
+    `<option value="${k}"${k === kind ? " selected" : ""}>${esc(IMPORT_KIND_LABEL[k])}</option>`
+  ).join("");
+  const list = rows.map((r, i) => `<div style="display:grid;
+      grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;
+      padding:8px 0;border-top:1px solid var(--hair)">
+      <div style="min-width:0"><b style="font-size:13px">${esc(r.file.name)}</b><br>
+        <span class="muted" style="font-size:11.5px">${
+          Math.max(1, Math.round(r.file.size / 1024))} KB</span></div>
+      <select onchange="bpImportKindSet(${i}, this.value)"
+        style="font:inherit;font-size:12px;padding:4px 6px;border-radius:7px;
+        border:1px solid var(--line);background:var(--card)">${options(r.kind)}</select>
+      <button class="icon-btn" title="Remove this file"
+        onclick="bpImportDrop(${i})">✕</button>
+    </div>`).join("");
+  const counted = IMPORT_KINDS
+    .map((k) => [k, rows.filter((r) => r.kind === k).length])
+    .filter(([, n]) => n)
+    .map(([k, n]) => `${n} ${IMPORT_KIND_LABEL[k].toLowerCase()}`)
+    .join(" · ");
+  host.innerHTML = `${list}
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+      <button class="btn primary" onclick="bpImportRun()">Import ${rows.length}
+        file${rows.length === 1 ? "" : "s"}</button>
+      <span class="muted" style="font-size:12px">${esc(counted)}</span>
+    </div>`;
+};
+// One confirmation for the batch; each importer still shows its own review before
+// it writes, so a wrong type is caught at the file that caused it.
+window.bpImportRun = async () => {
+  const rows = window.bpImportQueue || [];
+  if (!rows.length) return;
+  const n = rows.length;
+  if (!confirm(`Import ${n} file${n === 1 ? "" : "s"}? Each one is read first, and you can
+still review it before anything is saved.`)) return;
+  const host = document.getElementById("import-panels");
+  if (!host) return;
+  const holdingsPanel = () => {
+    if (host.querySelector('[data-panel="holdings"]')) return;
+    host.insertAdjacentHTML("beforeend",
+      `<div data-panel="holdings">${uploadPanel("broker")}</div>`);
+  };
+  const banks = rows.filter((r) => r.kind === "bank").map((r) => r.file);
+  if (banks.length) {
+    if (!document.getElementById("f")) {
+      host.insertAdjacentHTML("beforeend", uploadPanel("bank"));
+      wireBankUpload();
+    }
+    await bpBatchAddFiles(banks);
+  }
+  for (const row of rows.filter((r) => r.kind !== "bank")) {
+    holdingsPanel();
+    if (row.kind === "cas") await window.bpCasFile(row.file);
+    else await window.bpHoldingsFile(row.file);
+  }
+  window.bpImportQueue = [];
+  window.bpImportRender();
+};
 window.bpHoldingsOrCas = (file) => {
   if (!file) return;
   return /\.pdf$/i.test(file.name || "") ? window.bpCasFile(file)
