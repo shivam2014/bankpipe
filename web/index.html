@@ -1045,20 +1045,23 @@ const GUIDES = {
       <li>The PDF password is your <b>PAN</b>. The app uses it only to open the file and never stores it.</li>
     </ol>
     <div class="note">CAS arrives monthly if there was a transaction; otherwise half-yearly. If the latest is older than 45 days, download a fresh one. CAS gives quantity and value, not average cost for equities — use the broker file for that.</div>`,
-  broker: `<h3>Broker holdings — average cost</h3>
-    <p>Use this file for <b>average cost</b>. CAS gives quantity; the broker export gives cost. Import it once, then again after you buy or sell.</p>
-    <div class="broker-row"><b>Zerodha</b><span>Console → Portfolio → Holdings → Download → XLSX. Open <a href="https://console.zerodha.com/" target="_blank" rel="noopener">console.zerodha.com</a>.</span></div>
-    <div class="broker-row"><b>Motilal</b><span>MO Investor → Portfolio → Holdings → Download XLSX / CSV.</span></div>
-    <div class="broker-row"><b>ICICI Direct</b><span>Portfolio → Holdings → Download.</span></div>
-    <div class="broker-row"><b>Upstox</b><span>Portfolio → Holdings → Download.</span></div>
-    <div class="broker-row"><b>Other</b><span>Use the broker’s portfolio export. If it has none, use CAS — it still covers the quantity.</span></div>
-    <div class="note">Use the <b>Holdings file</b> tab below with any of these exports. It reads
-    the file, shows what was added, removed or changed, and only then replaces the snapshot.</div>
-    <div class="note"><b>Bond portfolio:</b> open the bond portfolio → <b>Export CSV</b>, fill
-    <b>Rating</b> and <b>Current Value</b> in Excel, delete any matured rows, then import that
-    CSV here. The same file is your ongoing bond snapshot; the workbook is only the initial
-    history.</div>
-    <div class="danger"><b>Never enter your broker password, TOTP, or PIN here.</b> The export is enough. The app does not need a login.</div>`,
+  broker: `<p style="margin:0 0 10px">Adds <b>average cost</b> to holdings you already have.
+    One file per broker, and again after each buy or sell.</p>
+    <details>
+      <summary style="cursor:pointer;font-size:12.5px">Where to download it</summary>
+      <ol style="margin:8px 0 0">
+        <li><b>Zerodha</b> — Console → Portfolio → Holdings → XLSX</li>
+        <li><b>Motilal</b> — MO Investor → Portfolio → Holdings → XLSX / CSV</li>
+        <li><b>ICICI Direct</b> — Portfolio → Holdings → Download</li>
+        <li><b>Upstox</b> — Portfolio → Holdings → Download</li>
+        <li><b>Any other broker</b> — its portfolio export; without one, the CAS still
+          gives quantity</li>
+        <li><b>Bond portfolio</b> — open it → Export CSV → fill Rating and Current Value →
+          import that CSV here</li>
+      </ol>
+    </details>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Never enter a broker password,
+    TOTP or PIN. The export is enough.</p>`,
   bank: `<p>Use the bank’s own export — CSV, XLSX or a text-layer PDF — and check the account each file will go to before anything is saved.</p>
     <details>
       <summary style="cursor:pointer;font-size:12.5px">Where to download it</summary>
@@ -2910,8 +2913,8 @@ function renderImport() {
       <button type="button" data-guide="broker" aria-selected="false">Holdings file</button>
       <button type="button" data-guide="safety" aria-selected="false">Safety</button>
     </div>
-    <div class="guide" id="guide">${GUIDES.bank}</div>
     <div id="uploadHost"></div>
+    <div class="guide" id="guide">${GUIDES.bank}</div>
   </div>
 
   <details class="adv">
