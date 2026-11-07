@@ -1045,6 +1045,10 @@ const GUIDES = {
           gives quantity</li>
         <li><b>Bond portfolio</b> — open it → Export CSV → fill Rating and Current Value →
           import that CSV here</li>
+        <li><b>CAS (CDSL or NSDL)</b> — <a href="https://www.cdslindia.com/cas/logincas.aspx"
+          target="_blank" rel="noopener">cdslindia.com/cas</a> or
+          <a href="https://nsdlcas.nsdl.com/" target="_blank" rel="noopener">nsdlcas.nsdl.com</a>;
+          the PDF password is your PAN</li>
       </ol>
     </details>
     <p class="muted" style="font-size:12px;margin:10px 0 0">Never enter a broker password,
@@ -1084,11 +1088,13 @@ function uploadPanel(mode) {
   }
   if (mode === "broker") {
     return `<div class="card pad">
-      <h3 style="margin:0 0 4px;font-size:15px">Import a holdings file</h3>
-      <p class="muted" style="margin:0 0 10px;font-size:13px">CSV or XLSX from your broker.
-      Nothing is written until you have seen what changed.</p>
-      <input type="file" id="hf" accept=".csv,.xlsx,.xls"
-        onchange="bpHoldingsFile(this.files[0]);this.value=''">
+      <h3 style="margin:0 0 4px;font-size:15px">Add holdings</h3>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">A broker CSV or XLSX gives
+      quantity and <b>cost</b>. A CDSL or NSDL CAS PDF gives quantity and value across
+      <b>every demat</b>. Nothing is written until you have seen what changed.</p>
+      <input type="file" id="hf" accept=".csv,.xlsx,.xls,.pdf"
+        onchange="bpHoldingsOrCas(this.files[0]);this.value=''">
+      <div id="cas-host" style="margin-top:10px"></div>
       <details style="margin-top:12px">
         <summary style="cursor:pointer;font-size:12.5px">Or paste a table</summary>
         <p class="muted" style="font-size:12px;margin:6px 0 6px">Copy the holdings table
@@ -2908,33 +2914,6 @@ function renderImport() {
       <div id="wres"></div>
     </div>
   </details>
-
-  <div class="card pad" style="margin-top:14px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0">Demat (CAS)</h2>
-      <span class="muted" style="font-size:11.5px">CDSL or NSDL</span></div>
-    <p class="muted" style="font-size:12.5px;margin:6px 0 10px">A consolidated account
-    statement lists what the depository actually holds: bonds, equities and funds. Holdings
-    are written; cost stays with the broker report.</p>
-    <details style="margin:0 0 10px">
-      <summary style="cursor:pointer;font-size:12.5px">Where to download it</summary>
-      <ol style="margin:8px 0 0">
-        <li><b>CDSL</b> — <a href="https://www.cdslindia.com/cas/logincas.aspx"
-          target="_blank" rel="noopener">cdslindia.com/cas</a>: PAN, BO ID, date of birth</li>
-        <li><b>NSDL</b> — <a href="https://nsdlcas.nsdl.com/" target="_blank"
-          rel="noopener">nsdlcas.nsdl.com</a>: PAN and date of birth</li>
-        <li><b>DigiLocker</b> — CDSL or NSDL → Consolidated Account Statement</li>
-      </ol>
-      <p class="muted" style="font-size:12px;margin:8px 0 0">Download the original PDF, not a
-      printout. The password is your PAN; it opens the file and is never stored.</p>
-    </details>
-    <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer">
-      Choose CAS PDF
-      <input type="file" accept=".pdf,application/pdf" style="display:none"
-        onchange="bpCasFile(this.files[0]);this.value=''">
-    </label>
-    <div id="cas-host" style="margin-top:10px"></div>
-  </div>
 
   <div class="muted" style="font-size:12.5px;margin-top:14px;line-height:1.8">
     Bond portfolios take their DigiFInn reports on the portfolio itself —
@@ -6601,6 +6580,11 @@ function casHoldingLabel(h) {
   const coupon = h.couponPct === null || h.couponPct === undefined ? "" : `${h.couponPct}% `;
   return `${coupon}${name}${when ? ` ${when}` : ""}`.trim();
 }
+window.bpHoldingsOrCas = (file) => {
+  if (!file) return;
+  return /\.pdf$/i.test(file.name || "") ? window.bpCasFile(file)
+    : window.bpHoldingsFile(file);
+};
 window.bpCasFile = async (file) => {
   const host = document.getElementById("cas-host");
   if (!host || !file) return;
