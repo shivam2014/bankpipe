@@ -74,13 +74,22 @@ export function parseCas(pdf) {
     .find((id) => id.kind === "bo") || null;
 
   // Section of each item: the last heading above it on its page. Headings are
-  // matched in reading order, so a bond table stays a bond table.
+  // matched on the whole line, because a PDF splits "Equity Shares" into two
+  // items as often as it keeps them together, and an item-level match then misses
+  // the heading and files every following row under the previous section.
   const sectionAt = new Map();
   let current = "";
   const ordered = items.slice().sort((a, b) => b.y - a.y || a.x - b.x);
+  const lines = [];
   for (const item of ordered) {
-    for (const [re, name] of SECTIONS) if (re.test(item.str)) current = name;
-    sectionAt.set(item, current);
+    const last = lines[lines.length - 1];
+    if (last && Math.abs(last.y - item.y) <= 3) last.items.push(item);
+    else lines.push({ y: item.y, items: [item] });
+  }
+  for (const line of lines) {
+    const text = line.items.map((i) => i.str).join(" ");
+    for (const [re, name] of SECTIONS) if (re.test(text)) current = name;
+    for (const item of line.items) sectionAt.set(item, current);
   }
 
   const isins = ordered.filter((i) => ISIN.test(i.str.toUpperCase().replace(/\s+/g, "")));

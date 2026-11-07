@@ -82,6 +82,18 @@ test("a row with one number is quarantined, never guessed", () => {
   assert.equal(out.counts.quarantined, 1);
 });
 
+test("a heading split across two items still starts a section", () => {
+  // "Equity" and "Shares" arrive as separate items on the same line.
+  const split = [
+    [line([200, "Equity"], [260, "Shares"])],
+    [line([60, "INE585B01010"], [200, "MARUTI SUZUKI INDIA LTD"], [600, "5.00"],
+      [660, "5"], [730, "11,672.00"], [800, "58,360.00"])],
+  ];
+  const out = parseCas({ pages: [page(split)] });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].kind, "equity");
+});
+
 test("a page with no ISIN reports nothing instead of inventing rows", () => {
   const out = parseCas({ pages: [page([heading("Corporate Bonds")])] });
   assert.equal(out.holdings.length, 0);
