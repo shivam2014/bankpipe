@@ -15,7 +15,9 @@ export const IMPORT_KIND_LABEL = {
 /** @param {string} name @returns {"bank"|"cas"|"broker"} */
 export function guessKind(name) {
   const text = String(name || "").toLowerCase();
-  if (/consolidated|\bcas\b|e-?cas/.test(text)) return "cas";
+  // Depository names, the CDSL "…_TXN" export and its AA-numbered filename all
+  // mean the same thing even when the word CAS never appears in the name.
+  if (/consolidated|\bcas\b|e-?cas|nsdl|cdsl|_txn\b|aa\d{8}/.test(text)) return "cas";
   if (/holding|portfolio|tradebook|contract/.test(text)) return "broker";
   if (/statement|stmt|account/.test(text)) return "bank";
   if (/\.pdf$/.test(text)) return "bank";

@@ -6664,6 +6664,7 @@ window.bpCasFile = async (file) => {
     });
     const cas = parseCas(pdf);
     window.bpCasParsed = cas;
+    window.bpCasFile = file;
     if (!cas.holdings.length) {
       host.innerHTML = `<div class="muted" style="font-size:12.5px">No holdings could be
         read. ${cas.counts.quarantined} row(s) had no readable ISIN or value, so nothing was
@@ -6705,18 +6706,20 @@ window.bpCasFile = async (file) => {
     // A statement that produced no value at all did not parse: say so and give a
     // report that can be shared, instead of offering an Import button.
     const broken = total === 0;
+    // The report is always available: a parse can be wrong without being empty,
+    // and that is exactly the case worth debugging.
+    const shapeBlock = `<details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px">Shape report — safe to share</summary>
+        <pre style="font-size:11px;white-space:pre-wrap;margin:8px 0 0">${esc(shapeText)}</pre>
+      </details>`;
     host.innerHTML = `<div class="card pad" style="background:var(--hair)">
+      <div class="muted" style="font-size:11.5px;margin-bottom:2px">${esc(file.name || "CAS")}</div>
       <b>${esc(cas.depository || "Demat")}${route.demat ? ` · …${esc(route.demat.slice(-4))}` : ""}
         · ${cas.holdings.length} holdings · ${money(total)}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">${esc(kinds)}${
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
       ${broken ? `<div class="muted" style="font-size:12px;margin-top:8px;color:var(--red)">
-        This statement did not parse, so nothing will be written. The shape report below says
-        which columns arrived; no values are in it.</div>
-        <details style="margin-top:8px">
-          <summary style="cursor:pointer;font-size:12px">Shape report — safe to share</summary>
-          <pre style="font-size:11px;white-space:pre-wrap;margin:8px 0 0">${esc(shapeText)}</pre>
-        </details>` : ""}
+        This statement did not parse, so nothing will be written.</div>` : ""}
       ${rows}
       ${missing ? `<div class="muted" style="font-size:12px;margin-top:6px;color:var(--red)">
         ${missing} holding(s) have no account of their class on this demat.</div>` : ""}
@@ -6728,6 +6731,7 @@ window.bpCasFile = async (file) => {
           Import into these accounts</button>`
         : ""}
       ${broken ? "" : manual}
+      ${shapeBlock}
     </div>`;
   } catch (e) {
     host.innerHTML = `<div class="muted" style="font-size:12.5px;color:var(--red)">${

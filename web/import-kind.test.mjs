@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { guessKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 
-test("a CAS is recognised by name in either spelling", () => {
+test("the CDSL transaction export is a CAS even without the word", () => {
+  assert.equal(guessKind("SEP2026_AA06635090_TXN_unlocked.pdf"), "cas");
+  assert.equal(guessKind("CDSL_CAS_2026.pdf"), "cas");
   assert.equal(guessKind("NSDLe-CAS_116750635_SEP_2026.pdf"), "cas");
-  assert.equal(guessKind("CDSL_eCAS_sep_2026.pdf"), "cas");
-  assert.equal(guessKind("consolidated-account-statement.pdf"), "cas");
 });
 
 test("a broker export is recognised by its own words", () => {

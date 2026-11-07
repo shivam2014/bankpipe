@@ -65,11 +65,13 @@ export function parseCas(pdf) {
   const text = items.map((i) => i.str).join(" ");
   const depository = /central depository/i.test(text) ? "CDSL"
     : /national securities depository/i.test(text) ? "NSDL" : "";
-  // The statement prints every account it covers. One demat per PAN is the
-  // common case, so the first BO ID that reads as an account is the one the
-  // holdings belong to. A second account would need its own page section.
-  const bo = (text.match(/\bIN\d{14}\b/g) || [])
-    .concat(text.match(/\b\d{16}\b/g) || [])
+  // A statement prints the account across cells as often as in one run, so the
+  // spaces come out before the number is looked for. Without this an NSDL CAS
+  // reads as "no account number", which is the wrong answer for a file that
+  // names its account on page one.
+  const packed = text.replace(/\s+/g, "");
+  const bo = (packed.match(/IN\d{14}/g) || [])
+    .concat(packed.match(/\d{16}/g) || [])
     .map((raw) => boId(raw))
     .find((id) => id.kind === "bo") || null;
 
