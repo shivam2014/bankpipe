@@ -992,7 +992,7 @@ import { dematCardHtml, dematLast4, dematMismatchLine, dematText,
 import { reconCardHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute } from "./cas.js";
-import { guessKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
+import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
@@ -6567,13 +6567,44 @@ function casHoldingLabel(h) {
 window.bpImportQueue = window.bpImportQueue || [];
 window.bpImportAdd = (files) => {
   for (const file of files || []) {
-    window.bpImportQueue.push({ file, kind: guessKind(file.name) });
+    window.bpImportQueue.push({ file, kind: guessKind(file.name),
+      confidence: "name" });
   }
   window.bpImportRender();
+  (window.bpImportQueue || []).forEach((row, i) => {
+    if (row.confidence === "name") window.bpImportDetect(i);
+  });
+};
+// Read the file itself before trusting its name: a CSV header row or the first
+// page of a PDF says what the file is, and a name never does.
+window.bpImportDetect = async (index) => {
+  const row = window.bpImportQueue[index];
+  if (!row || row.confidence === "user") return;
+  const file = row.file;
+  try {
+    let text = "";
+    if (/\.(csv|txt)$/i.test(file.name)) {
+      text = (await file.text()).slice(0, 4000);
+    } else if (/\.pdf$/i.test(file.name)) {
+      const { extractPdf } = await import("./pdf-statement.js");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const pdf = await extractPdf(bytes, {});
+      text = (pdf.pages?.[0]?.items || []).map((it) => it.str).join(" ").slice(0, 4000);
+    }
+    if (!text) return;
+    const kind = sniffKind({ name: file.name, text });
+    if (window.bpImportQueue[index] !== row) return;
+    row.kind = kind;
+    row.confidence = "content";
+    window.bpImportRender();
+  } catch (e) {
+    // An encrypted PDF cannot be read without the password; the name stands in
+    // until the importer asks for it.
+  }
 };
 window.bpImportKindSet = (index, kind) => {
   const row = window.bpImportQueue[index];
-  if (row) row.kind = kind;
+  if (row) { row.kind = kind; row.confidence = "user"; }
   window.bpImportRender();
 };
 window.bpImportDrop = (index) => {
@@ -6593,10 +6624,16 @@ window.bpImportRender = () => {
       padding:8px 0;border-top:1px solid var(--hair)">
       <div style="min-width:0"><b style="font-size:13px">${esc(r.file.name)}</b><br>
         <span class="muted" style="font-size:11.5px">${
-          Math.max(1, Math.round(r.file.size / 1024))} KB</span></div>
-      <select onchange="bpImportKindSet(${i}, this.value)"
-        style="font:inherit;font-size:12px;padding:4px 6px;border-radius:7px;
-        border:1px solid var(--line);background:var(--card)">${options(r.kind)}</select>
+          Math.max(1, Math.round(r.file.size / 1024))} KB${
+          r.confidence === "content" ? " · read from the file"
+            : r.confidence === "name" ? " · guessed from the name" : ""}</span></div>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${r.confidence === "name"
+          ? `<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px;
+             background:var(--amber,#b7791f);color:#fff">Check</span>` : ""}
+        <select onchange="bpImportKindSet(${i}, this.value)"
+          style="font:inherit;font-size:12px;padding:4px 6px;border-radius:7px;
+          border:1px solid var(--line);background:var(--card)">${options(r.kind)}</select></div>
       <button class="icon-btn" title="Remove this file"
         onclick="bpImportDrop(${i})">✕</button>
     </div>`).join("");
