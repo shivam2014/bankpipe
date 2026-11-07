@@ -23,11 +23,21 @@ test("the FD and locker headers link to their card on the account page", () => {
 });
 
 test("expand and collapse are a separate control from the header link", () => {
-  assert.match(html, /class="acct-sec-toggle" type="button" aria-expanded="true"/);
+  assert.match(html, /class="acct-sec-toggle" type="button"/);
+  assert.match(html, /aria-expanded="\$\{expanded \? "true" : "false"\}"/);
   assert.match(html, /window\.bpSectionToggle = \(button\) =>/);
   assert.match(html, /const open = button\.getAttribute\("aria-expanded"\) !== "false"/);
   assert.match(html, /body\.hidden = open/);
   assert.match(html, /`\$\{open \? "Expand" : "Collapse"\} \$\{label\}`/);
+});
+
+// A section with nothing in it should not open into an empty message. The count
+// in the label decides: (0) starts collapsed, (1) or more starts open.
+test("an empty fixed-deposit or locker section starts collapsed", () => {
+  assert.match(html, /expanded: activeFds\.length > 0/);
+  assert.match(html, /expanded: lockers\.length > 0/);
+  assert.match(html, /\$\{expanded \? "" : " hidden"\}/);
+  assert.match(html, /const arrow = button\.querySelector\("span"\)/);
 });
 
 test("the account helper clears a previous scroll target", () => {
