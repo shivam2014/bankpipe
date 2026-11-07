@@ -6653,9 +6653,10 @@ window.bpCasFile = async (file) => {
   if (!host || !file) return;
   host.innerHTML = `<div class="muted" style="font-size:12.5px">Reading the PDF…</div>`;
   try {
-    const [{ extractPdf }, { parseCas }] = await Promise.all([
-      import("./pdf-statement.js"), import("./cas.js"),
-    ]);    const bytes = new Uint8Array(await file.arrayBuffer());
+    const [{ extractPdf }, { parseCas }, { casShape, casShapeText }] = await Promise.all([
+      import("./pdf-statement.js"), import("./cas.js"), import("./cas-shape.js"),
+    ]);
+    const bytes = new Uint8Array(await file.arrayBuffer());
     const pdf = await extractPdf(bytes, {
       onPassword: async ({ wrong }) => prompt(wrong
         ? "That password did not open the PDF. Try again."
@@ -6700,22 +6701,33 @@ window.bpCasFile = async (file) => {
           esc(a.label || a.id)}</option>`).join("")}</select></label>`
       : "";
     const nothing = !route.groups.length && !classes.length;
+    const shapeText = casShapeText(casShape(pdf, cas));
+    // A statement that produced no value at all did not parse: say so and give a
+    // report that can be shared, instead of offering an Import button.
+    const broken = total === 0;
     host.innerHTML = `<div class="card pad" style="background:var(--hair)">
       <b>${esc(cas.depository || "Demat")}${route.demat ? ` · …${esc(route.demat.slice(-4))}` : ""}
         · ${cas.holdings.length} holdings · ${money(total)}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">${esc(kinds)}${
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
+      ${broken ? `<div class="muted" style="font-size:12px;margin-top:8px;color:var(--red)">
+        This statement did not parse, so nothing will be written. The shape report below says
+        which columns arrived; no values are in it.</div>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:12px">Shape report — safe to share</summary>
+          <pre style="font-size:11px;white-space:pre-wrap;margin:8px 0 0">${esc(shapeText)}</pre>
+        </details>` : ""}
       ${rows}
       ${missing ? `<div class="muted" style="font-size:12px;margin-top:6px;color:var(--red)">
         ${missing} holding(s) have no account of their class on this demat.</div>` : ""}
-      ${createHint}
-      ${nothing ? `<div class="muted" style="font-size:12px;margin-top:8px">Nothing to write
-        from this file.</div>` : ""}
-      ${route.groups.length
+      ${broken ? "" : createHint}
+      ${nothing && !broken ? `<div class="muted" style="font-size:12px;margin-top:8px">Nothing
+        to write from this file.</div>` : ""}
+      ${route.groups.length && !broken
         ? `<button class="btn primary" style="margin-top:10px" onclick="bpCasImport()">
           Import into these accounts</button>`
         : ""}
-      ${manual}
+      ${broken ? "" : manual}
     </div>`;
   } catch (e) {
     host.innerHTML = `<div class="muted" style="font-size:12.5px;color:var(--red)">${
