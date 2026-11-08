@@ -137,18 +137,16 @@ const parsed = {
   ],
 };
 
-test("bonds go to the bond account, shares to the demat, funds to the folio", () => {
+test("bonds and shares land in the same demat account; funds stay a folio", () => {
   const route = casRoute(parsed, accounts);
   assert.equal(route.demat, "IN99990009183122");
-  assert.equal(route.accounts.length, 3);
   const bond = route.groups.find((g) => g.kind === "bond");
   const equity = route.groups.find((g) => g.kind === "equity");
   const mf = route.groups.find((g) => g.kind === "mf");
-  assert.equal(bond.assetId, "b1");
-  assert.equal(bond.count, 2);
-  assert.equal(bond.valuePaise, 300);
+  assert.equal(bond.assetId, "d1");
   assert.equal(equity.assetId, "d1");
   assert.equal(mf.assetId, "m1");
+  assert.equal(route.groups.length, 3);
 });
 
 test("a fund never lands on the share account when a folio exists", () => {
@@ -168,9 +166,10 @@ test("a different demat on file is never written to", () => {
 });
 
 test("a class with no account is reported, not forced into another", () => {
-  const route = casRoute(parsed, [accounts[0]]);
-  assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 2);
-  assert.equal(route.groups.length, 1);
+  const route = casRoute(parsed, [accounts[1]]);
+  assert.equal(route.groups.length, 2);
+  assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 1);
+  assert.equal(route.homeless[0].kind, "mf");
 });
 
 test("an unreadable account number routes nowhere", () => {

@@ -6736,15 +6736,15 @@ window.bpCasFile = async (file) => {
         ${esc(name)} ${g.count} → <b>${esc(g.assetLabel || g.assetId)}</b></div>`;
     }).join("");
     const missing = route.homeless.reduce((t, g) => t + g.count, 0);
-    const classes = [...new Set(route.homeless.map((g) => g.kind))];
+    // Two accounts at most: one demat for bonds and shares, one folio for funds.
+    const needDemat = route.homeless.some((g) => g.kind !== "mf");
+    const needFolio = route.homeless.some((g) => g.kind === "mf");
+    const needs = (needDemat ? 1 : 0) + (needFolio ? 1 : 0);
     const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
-    // One portfolio cannot hold bonds, shares and funds: they are three
-    // accounts. When the statement names a demat, offer to create exactly the
-    // accounts it needs rather than dumping every class into one.
-    const createHint = route.demat && classes.length
+    const createHint = route.demat && needs
       ? `<button class="btn primary" style="margin-top:10px"
-          onclick="bpCasCreateAndImport()">Create ${classes.length === 1 ? "the account"
-          : `${classes.length} accounts`} for this statement</button>`
+          onclick="bpCasCreateAndImport()">Create ${needs === 1 ? "the account"
+          : "the demat and folio accounts"} for this statement</button>`
       : "";
     const manual = !route.demat && targets.length
       ? `<label class="field" style="margin-top:10px">No account number in this PDF. Write all
@@ -6817,24 +6817,32 @@ window.bpCasCreateAndImport = async () => {
   const tail = route.demat ? route.demat.slice(-4) : "";
   const store = await import("./db.js");
   const made = [];
-  for (const kind of [...new Set(route.homeless.map((g) => g.kind))]) {
-    const label = kind === "bond" ? "Bonds" : kind === "mf" ? "Mutual funds" : "Equities";
-    const id = `cas-${kind}-${tail || Date.now().toString(36)}`;
+  const kinds = new Set(route.homeless.map((g) => g.kind));
+  // One demat account for bonds and shares, one folio account for funds. A fund
+  // is not a demat holding, so it must not share the demat's identity.
+  if ([...kinds].some((k) => k !== "mf")) {
+    const id = `cas-demat-${tail || Date.now().toString(36)}`;
     await store.createAccount({
-      id,
-      label: tail ? `${label} · …${tail}` : label,
-      category: kind === "bond" ? "bonds" : "demat",
-      subtype: kind === "bond" ? "bond" : kind === "mf" ? "mutual fund" : "equity",
-      type: kind === "bond" ? "bond" : kind === "mf" ? "mutual fund" : "equity",
+      id, label: tail ? `Demat · …${tail}` : "Demat account",
+      category: "demat", subtype: "equity", type: "equity",
       number: route.demat, holder: "",
     });
-    made.push(label);
+    made.push("Demat");
+  }
+  if (kinds.has("mf")) {
+    const id = `cas-folio-${tail || Date.now().toString(36)}`;
+    await store.createAccount({
+      id, label: tail ? `Mutual funds · …${tail}` : "Mutual funds",
+      category: "demat", subtype: "mutual fund", type: "mutual fund",
+      number: route.demat, holder: "",
+    });
+    made.push("Mutual funds");
   }
   window.bpCasRoute = casRoute(cas, await store.listAccounts());
   if (!window.bpCasRoute.groups.length) {
     const host = document.getElementById("cas-host");
     if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Created ${
-      made.join(", ")}. Import again to write the holdings.</div>`;
+      made.join(" and ")}. Import again to write the holdings.</div>`;
     return;
   }
   await window.bpCasImport();
@@ -7176,7 +7184,10 @@ function assetRow(a, onclick, overrideShown) {
     gold.sinceYear ? `since ${gold.sinceYear}` : "",
   ].filter(Boolean) : [];
   const identity = assetIdentity(a);
-  const sub = [identity.row, place, ...goldBits, maturedFd ? "matured" : ""]
+  // A demat account holds more than one class, and the row is the only place a
+  // reader can see that without opening it.
+  const mix = a.classNote ? [a.classNote] : [];
+  const sub = [identity.row, place, ...goldBits, ...mix, maturedFd ? "matured" : ""]
     .filter(Boolean).join(" · ") || "no details yet";
   // A long "principal only · rate and start date missing" note does not fit the
   // amount column; the FD detail carries the full explanation.

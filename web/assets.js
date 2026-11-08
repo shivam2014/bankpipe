@@ -76,14 +76,37 @@ export function assetSections(assets) {
   const list = assets || [];
   return groupAssets(list).flatMap((group) => {
     if (group.id !== "demat") return [group];
-    const isFund = (a) => /mutual\s*fund|^mf$/i.test(String(a.subtype || ""));
-    const funds = group.rows.filter(isFund);
-    const shares = group.rows.filter((a) => !isFund(a));
+    // A demat account is one place holding several classes. It is only named
+    // after a class when it holds just that one; a mixed account keeps its own
+    // heading and says what is inside it.
+    const only = (a) => {
+      const bond = Number(a.class_bond_value) || 0;
+      const equity = Number(a.class_equity_value) || 0;
+      const mf = Number(a.class_mf_value) || 0;
+      const kinds = [bond, equity, mf].filter((v) => v > 0).length;
+      if (kinds === 1) return bond ? "bond" : mf ? "mf" : "equity";
+      return kinds === 0 ? "empty" : "mixed";
+    };
+    const sections = { equity: [], mf: [], bond: [], mixed: [] };
+    for (const a of group.rows) sections[only(a)].push(a);
+    const note = (a) => {
+      const bits = [];
+      if (Number(a.class_bond_value) > 0) bits.push("bonds");
+      if (Number(a.class_equity_value) > 0) bits.push("equities");
+      if (Number(a.class_mf_value) > 0) bits.push("funds");
+      return bits.length > 1 ? bits.join(" · ") : "";
+    };
+    for (const a of [...sections.mixed, ...sections.bond, ...sections.equity, ...sections.mf]) {
+      const text = note(a);
+      if (text) a.classNote = text;
+    }
     return [
-      { id: "equity", label: "Equities", types: ["equity"], rows: shares,
-        total: totalAssets(shares) },
-      { id: "mf", label: "Mutual funds", types: ["mutual fund"], rows: funds,
-        total: totalAssets(funds) },
+      { id: "demat", label: "Demat accounts", rows: [...sections.mixed, ...sections.bond],
+        total: totalAssets([...sections.mixed, ...sections.bond]) },
+      { id: "equity", label: "Equities", rows: sections.equity,
+        total: totalAssets(sections.equity) },
+      { id: "mf", label: "Mutual funds", rows: sections.mf,
+        total: totalAssets(sections.mf) },
     ].filter((g) => g.rows.length);
   });
 }

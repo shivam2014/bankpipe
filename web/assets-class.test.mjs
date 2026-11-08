@@ -51,25 +51,21 @@ test("a demat with no class totals falls back to its subtype", () => {
   assert.equal(groups[0].total, 50000);
 });
 
-test("a demat account is listed as equities and mutual funds, not demat", () => {
-  const assets = [
-    { id: "m1", label: "Axis mutual fund", category: "demat", subtype: "mutual fund",
-      holdings_count: 1, holdings_cost: 300000, holdings_value: 300000 },
-    { id: "m2", label: "Mirae mutual fund", category: "demat", subtype: "mutual fund",
-      holdings_count: 1, holdings_cost: 200000, holdings_value: 200000 },
-    { id: "e1", label: "ICICI demat", category: "demat", subtype: "equity",
-      holdings_count: 4, holdings_cost: 100000, holdings_value: 150000 },
-  ];
-  const sections = assetSections(assets);
-  const eq = sections.find((s) => s.id === "equity");
-  const mf = sections.find((s) => s.id === "mf");
-  assert.equal(eq.label, "Equities");
-  assert.equal(eq.rows.length, 1);
-  assert.equal(eq.total, 150000);
-  assert.equal(mf.label, "Mutual funds");
-  assert.equal(mf.rows.length, 2);
-  assert.equal(mf.total, 500000);
-  assert.equal(sections.some((s) => s.id === "demat"), false);
+test("a demat account holding several classes keeps its own heading", () => {
+  const mixed = demat({ class_bond_value: 40000, class_equity_value: 60000,
+    holdings_value: 100000, holdings_cost: 100000 });
+  const sections = assetSections([mixed]);
+  assert.equal(sections.length, 1);
+  assert.equal(sections[0].label, "Demat accounts");
+  assert.equal(sections[0].rows[0].classNote, "bonds · equities");
+});
+
+test("a demat account holding only funds is listed as mutual funds", () => {
+  const fund = demat({ id: "m1", label: "Axis", subtype: "mutual fund",
+    class_mf_value: 50000, class_equity_value: null, holdings_value: 50000 });
+  const sections = assetSections([fund]);
+  assert.equal(sections[0].label, "Mutual funds");
+  assert.equal(sections[0].rows[0].classNote, undefined);
 });
 
 test("bank accounts and deposits keep their own group", () => {
