@@ -7213,6 +7213,9 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
   const demats = all.filter((a) => String(a.category || "") === "demat"
     && !/mutual\s*fund|^mf$/i.test(String(a.subtype || "")));
   const claimed = new Set();
+  // An account already matched by number belongs to another account in this same
+  // statement; it must never be stolen by the overlap test.
+  for (const a of route.accounts || []) if (a.assetId) claimed.add(a.assetId);
   const isinsOf = (bo) => new Set((cas.accounts || [])
     .find((a) => a.boId === bo)?.holdings.map((h) => String(h.isin || "").toUpperCase()) || []);
   for (const group of pending) {
