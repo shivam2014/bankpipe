@@ -6649,7 +6649,7 @@ window.bpImportRender = () => {
   const missing = rows.filter((r) => !r.kind).length;
   host.innerHTML = `${list}
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
-      <button class="btn primary" onclick="bpImportRun()">Import ${rows.length}
+      <button class="btn primary" onclick="bpImportRun()">Read ${rows.length}
         file${rows.length === 1 ? "" : "s"}</button>
       <span class="muted" style="font-size:12px">${missing
         ? `${missing} file${missing === 1 ? " needs" : "s need"} a type`
@@ -6668,8 +6668,9 @@ window.bpImportRun = async () => {
     return;
   }
   const n = rows.length;
-  if (!confirm(`Import ${n} file${n === 1 ? "" : "s"}? Each one is read first, and you can
-still review it before anything is saved.`)) return;
+  // No confirm here: pressing this only reads the files and shows their preview.
+  // The save happens later, at the importer's own button, and that is where a
+  // question belongs.
   const host = document.getElementById("import-panels");
   if (!host) return;
   const holdingsPanel = () => {
