@@ -118,7 +118,12 @@ export function assetSections(assets) {
         { ...asset, classPart: fund ? "mf" : "equity" }, assetValue(asset).paise);
       continue;
     }
-    add(cat, categoryLabel(cat), asset, assetValue(asset).paise);
+    // A bond portfolio and a bond inside a demat are the same class. Without
+    // this the two keys ("bonds" and "bond") became two sections, and the one
+    // carrying the portfolios sorted to the bottom of the page.
+    const key = cat === "bonds" ? "bond" : cat;
+    add(key, key === "bond" ? CLASS_LABELS.bond : categoryLabel(cat), asset,
+      assetValue(asset).paise);
   }
   return [...groups.values()]
     .sort((a, b) => (CLASS_ORDER[a.id] ?? 99) - (CLASS_ORDER[b.id] ?? 99));

@@ -79,6 +79,21 @@ test("a demat account holding only funds is listed as mutual funds", () => {
   assert.equal(sections[0].total, 50000);
 });
 
+test("a bond portfolio joins the demat bonds in one Bonds section", () => {
+  const sections = assetSections([
+    demat({ class_bond_value: 40000 }),
+    { id: "b1", label: "Bonds · portfolio 1", category: "bonds",
+      holdings_count: 2, holdings_cost: 100000, holdings_value: 100000 },
+    { id: "g1", label: "Gold", category: "gold", value_paise: 4 },
+  ]);
+  const bonds = sections.find((s) => s.id === "bond");
+  assert.ok(bonds, "one Bonds section");
+  assert.equal(bonds.label, "Bonds");
+  assert.equal(bonds.rows.length, 2);
+  assert.equal(bonds.total, 140000);
+  assert.deepEqual(sections.map((s) => s.id), ["bond", "gold"]);
+});
+
 test("sections read cash, then the demat classes, then gold and insurance", () => {
   const sections = assetSections([
     demat({ class_bond_value: 1, class_equity_value: 2, class_mf_value: 3 }),
