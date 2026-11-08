@@ -3,20 +3,37 @@
 // audited against: a seller report knows what was paid, never what is still
 // there.
 //
-// The two layouts differ, but both share one property worth relying on: an ISIN
-// appears once per holding, in vertical order, and every field of that holding
-// sits within the band between the ISIN before it and the ISIN after it. That is
-// the row rule here. Nothing is matched by name, and a row with no ISIN is
-// quarantined rather than guessed at.
+// A CAS is not one table. It prints a *transactions* table (ISIN, date, opening
+// balance, credit, debit, closing balance, stamp duty) and then a *holdings*
+// table (ISIN, quantity, price, value), often several of each on the same page.
+// Both contain ISINs, so anchoring on an ISIN alone reads a trade as a holding —
+// which is how a real CDSL statement produced 50 rows, 18 of them with no value
+// and every one of them a transaction line.
 //
-// Pure: it reads text items (str, x, y) from pdf.js and returns data. No DOM, no
-// storage, no network.
+// So the row unit here is the *table*: a header line is found by its labels
+// (ISIN, quantity, value), each ISIN is assigned to the nearest header above it,
+// and only holdings tables are read. A statement that carries no recognisable
+// header falls back to the older band rule, which serves layouts where a holding
+// is a block of lines around one ISIN.
+//
+// Numbers in these PDFs are right-aligned, so a column is keyed by the right
+// edge of its text, not the left. Reading by left edge is what made wide amounts
+// land in the price column.
+//
+// Pure: it reads text items (str, x, y, width) from pdf.js and returns data. No
+// DOM, no storage, no network.
 
 import { boId } from "./bo-id.js";
 
 const ISIN = /^IN[A-Z0-9]{10}$/;
 const DATE = /^\d{1,2}-[A-Za-z]{3}-\d{4}$/;
+const NUMERIC_DATE = /^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/;
 const NUMBER = /^\d[\d,]*(\.\d+)?$/;
+
+const VALUE_LABEL = /^value\b|value\s*in|valuation/i;
+const QUANTITY_LABEL = /no\.\s*of\s*(shares|bonds|units)|^quantity$|^current$|^bal$|^balance$|\(units\)/i;
+const ISIN_LABEL = /^isin\b/i;
+const LABEL = /isin|security|scheme|company|folio|arn|distributor|value|valuation|quantity|current|frozen|pledge|balance|op\.?\s*bal|cl\.?\s*bal|transaction|description|date|amount|nav|price|maturity|coupon|face|profit|loss|stamp|credit|debit|units/i;
 
 const tidy = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 
@@ -40,61 +57,175 @@ function isoDate(text) {
   return `${m[3]}-${String(month).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
 }
 
-// The three depository sections. A page repeats them, so a heading only matters
-// for the rows that follow it before the next heading.
-const SECTIONS = [
-  [/corporate\s*bonds?/i, "bond"],
-  [/equity\s*shares?/i, "equity"],
-  [/mutual\s*fund/i, "mf"],
-];
+// Some depositories print "29-11-2028" instead of "29-Nov-2028".
+function isoNumericDate(text) {
+  const m = String(text).match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (!m) return "";
+  return `${m[3]}-${String(m[2]).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+}
 
-/**
- * Read a CAS. Every holding is a band of items around one ISIN.
- * @param {{pages: Array<{items: Array<{str: string, x: number, y: number}>}>}} pdf
- * @returns {{depository: string, holdings: Array<object>, sections: object,
- *   warnings: Array<object>, counts: object}}
- */
-export function parseCas(pdf) {
+// A date cell can be split into its digits by the PDF's text layer.
+function isoAny(text) {
+  const s = String(text).replace(/\s+/g, "");
+  const direct = isoDate(s) || isoNumericDate(s);
+  if (direct) return direct;
+  const digits = s.match(/^(\d{2})(\d{2})(\d{4})$/);
+  return digits ? `${digits[3]}-${digits[2]}-${digits[1]}` : "";
+}
+
+const isIsin = (s) => ISIN.test(String(s).toUpperCase().replace(/\s+/g, ""));
+
+/** Flatten every page's text items, keeping the page and the right edge. */
+function itemsOf(pdf) {
   const items = [];
-  for (const page of pdf?.pages || []) {
-    for (const item of page.items || []) {
+  for (const [page, p] of (pdf?.pages || []).entries()) {
+    for (const item of p.items || []) {
       const str = tidy(item.str);
-      if (str) items.push({ str, x: Number(item.x) || 0, y: Number(item.y) || 0 });
+      if (!str) continue;
+      const x = Number(item.x) || 0;
+      const w = Number(item.width) || 0;
+      items.push({ str, x, right: x + w, w, y: Number(item.y) || 0, page });
     }
   }
-  const text = items.map((i) => i.str).join(" ");
-  const depository = /central depository/i.test(text) ? "CDSL"
-    : /national securities depository/i.test(text) ? "NSDL" : "";
-  // A statement prints the account across cells as often as in one run, so the
-  // spaces come out before the number is looked for. Without this an NSDL CAS
-  // reads as "no account number", which is the wrong answer for a file that
-  // names its account on page one.
-  const packed = text.replace(/\s+/g, "");
-  const bo = (packed.match(/IN\d{14}/g) || [])
-    .concat(packed.match(/\d{16}/g) || [])
-    .map((raw) => boId(raw))
-    .find((id) => id.kind === "bo") || null;
+  return items;
+}
 
-  // Section of each item: the last heading above it on its page. Headings are
-  // matched on the whole line, because a PDF splits "Equity Shares" into two
-  // items as often as it keeps them together, and an item-level match then misses
-  // the heading and files every following row under the previous section.
-  const sectionAt = new Map();
-  let current = "";
+function linesOf(pageItems, tolerance) {
+  const out = [];
+  for (const item of pageItems.slice().sort((a, b) => b.y - a.y || a.x - b.x)) {
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.y - item.y) <= tolerance) last.items.push(item);
+    else out.push({ y: item.y, items: [item] });
+  }
+  return out;
+}
+
+/**
+ * Every table header in the document. A header prints across up to three lines
+ * ("Value in (₹)" above "Current"), 12-20 apart, so label-only neighbours are
+ * merged before the columns are read.
+ * @param {Array<object>} items
+ * @returns {Array<{page: number, y: number, cols: Array<object>,
+ *   holdings: boolean, kind: string}>}
+ */
+function detectTables(items) {
+  const tables = [];
+  for (const page of new Set(items.map((i) => i.page))) {
+    const merged = [];
+    for (const line of linesOf(items.filter((i) => i.page === page), 10)) {
+      const hasIsin = line.items.some((i) => isIsin(i.str));
+      const labels = line.items.filter((i) => LABEL.test(i.str)).length;
+      const prev = merged[merged.length - 1];
+      if (prev && !prev.hasIsin && !hasIsin && Math.abs(prev.y - line.y) <= 20
+        && (labels >= 2 || prev.labels >= 2)) {
+        prev.items.push(...line.items);
+        prev.y = Math.min(prev.y, line.y);
+        prev.labels += labels;
+        continue;
+      }
+      merged.push({ y: line.y, items: line.items.slice(), hasIsin, labels });
+    }
+    for (const line of merged) {
+      if (line.hasIsin || line.labels < 2) continue;
+      const cols = line.items.filter((i) => /[A-Za-z\u0900-\u097F]/.test(i.str))
+        .sort((a, b) => a.x - b.x);
+      const holdings = cols.some((c) => ISIN_LABEL.test(c.str))
+        && cols.some((c) => VALUE_LABEL.test(c.str))
+        && cols.some((c) => QUANTITY_LABEL.test(c.str));
+      const kind = !holdings ? ""
+        : cols.some((c) => /^folio/i.test(c.str)) ? "mf"
+          : cols.some((c) => /^maturity/i.test(c.str) || /^coupon/i.test(c.str)) ? "bond"
+            : "equity";
+      tables.push({ page, y: line.y, cols, holdings, kind });
+    }
+  }
+  return tables;
+}
+
+/** Read every ISIN that sits under a holdings header. */
+function readTables(items, tables) {
+  const headerFor = (anchor) => tables
+    .filter((t) => t.page === anchor.page && t.y > anchor.y)
+    .sort((a, b) => a.y - b.y)[0]
+    || tables.filter((t) => t.page < anchor.page)
+      .sort((a, b) => b.page - a.page || b.y - a.y)[0]
+    || null;
+
+  const groups = new Map();
+  for (const anchor of items.filter((i) => isIsin(i.str))) {
+    const table = headerFor(anchor);
+    if (!table || !table.holdings) continue;
+    const key = `${table.page}:${Math.round(table.y)}`;
+    if (!groups.has(key)) groups.set(key, { table, rows: [] });
+    groups.get(key).rows.push(anchor);
+  }
+
+  const out = [];
+  for (const { table, rows } of groups.values()) {
+    rows.sort((a, b) => b.y - a.y);
+    const isinCol = table.cols.find((c) => ISIN_LABEL.test(c.str));
+    const colAt = (right) => {
+      let best = null;
+      for (const col of table.cols) if (col.x <= right + 1) best = col;
+      return best;
+    };
+    rows.forEach((anchor, index) => {
+      // A row is the band down to the next ISIN in the same table. One holding
+      // can print across three lines (scheme name, then units and NAV).
+      const high = index === 0 ? table.y + 4 : (rows[index - 1].y + anchor.y) / 2;
+      const low = index === rows.length - 1 ? anchor.y - 42 : (anchor.y + rows[index + 1].y) / 2;
+      const band = items.filter((i) => i.page === anchor.page && i.y <= high && i.y > low
+        && i !== anchor && i.x > 20);
+      const cells = band.filter((i) => NUMBER.test(i.str));
+      const perColumn = new Map();
+      for (const cell of cells) {
+        const col = colAt(cell.right);
+        // A BO ID line has a 16-digit number under the ISIN column; it is an
+        // account, not an amount, and must never become a value.
+        if (!col || col === isinCol) continue;
+        const prev = perColumn.get(col);
+        if (!prev || cell.right > prev.right) perColumn.set(col, cell);
+      }
+      const find = (re) => {
+        for (const [col, cell] of perColumn) if (re.test(col.str)) return cell;
+        return null;
+      };
+      const qtyCell = find(QUANTITY_LABEL);
+      const valueCell = find(VALUE_LABEL)
+        || [...perColumn.values()].sort((a, b) => b.right - a.right)[0]
+        || null;
+      if (!valueCell && !qtyCell) return;
+      // A date is text, not a number, so it is not in the column map.
+      const maturityCol = table.cols.find((c) => /maturity/i.test(c.str));
+      const dateCell = band.find((i) => isoAny(i.str)
+        && (!maturityCol || Math.abs(i.x - maturityCol.x) < 120))
+        || band.find((i) => isoAny(i.str)) || null;
+      const couponCell = find(/^coupon/i);
+      const faceCell = find(/face\s*value/i);
+      const isin = anchor.str.toUpperCase();
+      out.push({
+        isin,
+        label: "",
+        kind: table.kind,
+        quantity: qtyCell ? quantity(qtyCell.str) : null,
+        faceValuePaise: faceCell ? rupees(faceCell.str) : null,
+        pricePaise: null,
+        valuePaise: valueCell ? rupees(valueCell.str) : null,
+        maturity: dateCell ? isoAny(dateCell.str) : "",
+        couponPct: couponCell ? Number(couponCell.str.replace(/,/g, "")) : null,
+      });
+    });
+  }
+  return out;
+}
+
+/**
+ * The older rule: every holding is a band of items around one ISIN, between its
+ * neighbours. Kept for statements whose tables carry no usable header.
+ */
+function readBands(items) {
   const ordered = items.slice().sort((a, b) => b.y - a.y || a.x - b.x);
-  const lines = [];
-  for (const item of ordered) {
-    const last = lines[lines.length - 1];
-    if (last && Math.abs(last.y - item.y) <= 3) last.items.push(item);
-    else lines.push({ y: item.y, items: [item] });
-  }
-  for (const line of lines) {
-    const text = line.items.map((i) => i.str).join(" ");
-    for (const [re, name] of SECTIONS) if (re.test(text)) current = name;
-    for (const item of line.items) sectionAt.set(item, current);
-  }
-
-  const isins = ordered.filter((i) => ISIN.test(i.str.toUpperCase().replace(/\s+/g, "")));
+  const isins = ordered.filter((i) => isIsin(i.str));
   // The numeric columns of this document, learned from where its numbers sit.
   // A CAS is a fixed template, so one pass is enough to place every cell.
   const numericItems = items.filter((i) => NUMBER.test(i.str));
@@ -111,78 +242,132 @@ export function parseCas(pdf) {
     }
     return best;
   };
-  if (!isins.length) {
-    return { depository, demat: bo ? bo.boId : "", holdings: [], warnings: [{ code: "no_isin", count: 0 }],
-      sections: {}, counts: { rows: 0, quarantined: 0 } };
-  }
+  if (!isins.length) return { holdings: [], warnings: [], quarantined: 0 };
 
   // Band boundaries sit halfway between neighbouring ISINs, so a field printed
-  // a line above or below its ISIN still lands in the right holding.
-  const ys = isins.map((i) => i.y);
+  // a line above or below its ISIN still lands in the right holding. The band is
+  // per page: every page reuses the same y coordinates, and a band that ignores
+  // the page pulls another page's numbers into the row.
+  const byPage = new Map();
+  for (const anchor of isins) {
+    if (!byPage.has(anchor.page)) byPage.set(anchor.page, []);
+    byPage.get(anchor.page).push(anchor);
+  }
   const holdings = [];
   const warnings = [];
   let quarantined = 0;
 
-  isins.forEach((anchor, index) => {
-    const high = index === 0 ? ys[0] + (ys[0] - ys[1] || 40) / 2 : (ys[index - 1] + ys[index]) / 2;
-    const low = index === isins.length - 1
-      ? ys[index] - (ys[index - 1] - ys[index] || 40) / 2
-      : (ys[index] + ys[index + 1]) / 2;
-    const band = ordered.filter((i) => i.y <= high && i.y > low);
-    const isin = anchor.str.toUpperCase().replace(/\s+/g, "");
-    const numbers = band.filter((i) => NUMBER.test(i.str))
-      .sort((a, b) => a.x - b.x);
-    const date = band.find((i) => DATE.test(i.str));
-    const name = band.filter((i) => /[A-Za-z]{3}/.test(i.str)
-      && !ISIN.test(i.str.toUpperCase()) && !DATE.test(i.str))
-      .sort((a, b) => b.str.length - a.str.length)[0];
+  for (const pageAnchors of byPage.values()) {
+    pageAnchors.sort((a, b) => b.y - a.y);
+    const ys = pageAnchors.map((i) => i.y);
+    pageAnchors.forEach((anchor, index) => {
+      const high = index === 0 ? ys[0] + (ys[0] - ys[1] || 40) / 2 : (ys[index - 1] + ys[index]) / 2;
+      const low = index === pageAnchors.length - 1
+        ? ys[index] - (ys[index - 1] - ys[index] || 40) / 2
+        : (ys[index] + ys[index + 1]) / 2;
+      const band = ordered.filter((i) => i.page === anchor.page && i.y <= high && i.y > low);
+      const isin = anchor.str.toUpperCase().replace(/\s+/g, "");
+      const numbers = band.filter((i) => NUMBER.test(i.str))
+        .sort((a, b) => a.x - b.x);
+      const date = band.find((i) => DATE.test(i.str));
+      const name = band.filter((i) => /[A-Za-z]{3}/.test(i.str)
+        && !isIsin(i.str) && !DATE.test(i.str))
+        .sort((a, b) => b.str.length - a.str.length)[0];
 
-    // Numbers belong to the document's columns, not to the row. A cell that wraps
-    // into two text items ("1,00,752." + "60") would otherwise shift every field
-    // to its left, which is how 21 of 50 rows read with no value at all.
-    const perColumn = new Map();
-    for (const n of numbers) {
-      const key = nearestColumn(columnXs, n.x);
-      if (!perColumn.has(key)) perColumn.set(key, n);
-    }
-    const cells = [...perColumn.values()].sort((a, b) => a.x - b.x);
-    if (cells.length < 2) {
-      quarantined += 1;
-      warnings.push({ code: "short_row", count: 1, isin: "redacted" });
-      return;
-    }
-    // The coupon sits left of the maturity date; the four fields sit right of it.
-    // Leaving the coupon in the tail made a 10.32% bond read as 10.32 units.
-    const couponCell = date
-      ? cells.filter((i) => i.x < date.x).slice(-1)[0] : null;
-    const fields = couponCell ? cells.filter((i) => i !== couponCell) : cells;
-    const tail = fields.slice(-4).map((i) => i.str);
-    const quantityText = tail[0];
-    const faceText = tail.length >= 4 ? tail[1] : "";
-    const priceText = tail.length >= 2 ? tail[tail.length - 2] : "";
-    const valueText = tail[tail.length - 1];
-    // The row's own shape decides the class. A printed maturity date means a
-    // bond; a fund ISIN starts with INF; anything else is a share. Headings are
-    // bilingual and split across cells, and trusting them filed all seventeen
-    // holdings in a real statement as funds.
-    const kind = date ? "bond" : isin.startsWith("INF") ? "mf" : "equity";
-    holdings.push({
-      isin,
-      label: name ? tidy(name.str) : "",
-      kind,
-      quantity: quantity(quantityText),
-      faceValuePaise: faceText ? rupees(faceText) : null,
-      pricePaise: priceText ? rupees(priceText) : null,
-      valuePaise: rupees(valueText),
-      maturity: date ? isoDate(date.str) : "",
-      couponPct: couponCell ? Number(couponCell.str.replace(/,/g, "")) : null,
+      // Numbers belong to the document's columns, not to the row. A cell that wraps
+      // into two text items ("1,00,752." + "60") would otherwise shift every field
+      // to its left, which is how 21 of 50 rows read with no value at all.
+      const perColumn = new Map();
+      for (const n of numbers) {
+        const key = nearestColumn(columnXs, n.x);
+        if (!perColumn.has(key)) perColumn.set(key, n);
+      }
+      const cells = [...perColumn.values()].sort((a, b) => a.x - b.x);
+      if (cells.length < 2) {
+        quarantined += 1;
+        warnings.push({ code: "short_row", count: 1, isin: "redacted" });
+        return;
+      }
+      // The coupon sits left of the maturity date; the four fields sit right of it.
+      // Leaving the coupon in the tail made a 10.32% bond read as 10.32 units.
+      const couponCell = date
+        ? cells.filter((i) => i.x < date.x).slice(-1)[0] : null;
+      const fields = couponCell ? cells.filter((i) => i !== couponCell) : cells;
+      const tail = fields.slice(-4).map((i) => i.str);
+      const quantityText = tail[0];
+      const faceText = tail.length >= 4 ? tail[1] : "";
+      const priceText = tail.length >= 2 ? tail[tail.length - 2] : "";
+      const valueText = tail[tail.length - 1];
+      // The row's own shape decides the class. A printed maturity date means a
+      // bond; a fund ISIN starts with INF; anything else is a share. Headings are
+      // bilingual and split across cells, and trusting them filed all seventeen
+      // holdings in a real statement as funds.
+      const kind = date ? "bond" : isin.startsWith("INF") ? "mf" : "equity";
+      holdings.push({
+        isin,
+        label: name ? tidy(name.str) : "",
+        kind,
+        quantity: quantity(quantityText),
+        faceValuePaise: faceText ? rupees(faceText) : null,
+        pricePaise: priceText ? rupees(priceText) : null,
+        valuePaise: rupees(valueText),
+        maturity: date ? isoDate(date.str) : "",
+        couponPct: couponCell ? Number(couponCell.str.replace(/,/g, "")) : null,
+      });
     });
-  });
+  }
+  return { holdings, warnings, quarantined };
+}
 
+/**
+ * Read a CAS. Holdings tables are read by their own columns; a statement with no
+ * usable header falls back to the band rule.
+ * @param {{pages: Array<{items: Array<{str: string, x: number, y: number,
+ *   width?: number}>}>}} pdf
+ * @returns {{depository: string, holdings: Array<object>, sections: object,
+ *   warnings: Array<object>, counts: object}}
+ */
+export function parseCas(pdf) {
+  const items = itemsOf(pdf);
+  const text = items.map((i) => i.str).join(" ");
+  const depository = /central depository/i.test(text) ? "CDSL"
+    : /national securities depository/i.test(text) ? "NSDL" : "";
+  // A statement prints the account across cells as often as in one run, so the
+  // spaces come out before the number is looked for. Without this an NSDL CAS
+  // reads as "no account number", which is the wrong answer for a file that
+  // names its account on page one.
+  const packed = text.replace(/\s+/g, "");
+  const bo = (packed.match(/IN\d{14}/g) || [])
+    .concat(packed.match(/\d{16}/g) || [])
+    .map((raw) => boId(raw))
+    .find((id) => id.kind === "bo") || null;
+
+  const tables = detectTables(items);
+  let result = tables.some((t) => t.holdings)
+    ? { holdings: readTables(items, tables), warnings: [], quarantined: 0 }
+    : { holdings: [], warnings: [], quarantined: 0 };
+  if (!result.holdings.length) result = readBands(items);
+
+  // The same ISIN can appear in a transaction table and again in the holdings
+  // table, and a page break can repeat a row. One holding, one entry.
+  const byIsin = new Map();
+  for (const holding of result.holdings) {
+    const prev = byIsin.get(holding.isin);
+    if (!prev || (holding.valuePaise || 0) > (prev.valuePaise || 0)) {
+      byIsin.set(holding.isin, holding);
+    }
+  }
+  const holdings = [...byIsin.values()];
   const sections = {};
   for (const h of holdings) sections[h.kind] = (sections[h.kind] || 0) + 1;
-  return { depository, demat: bo ? bo.boId : "", holdings, sections, warnings,
-    counts: { rows: holdings.length, quarantined } };
+  return {
+    depository,
+    demat: bo ? bo.boId : "",
+    holdings,
+    sections,
+    warnings: result.warnings,
+    counts: { rows: holdings.length, quarantined: result.quarantined },
+  };
 }
 
 /**
