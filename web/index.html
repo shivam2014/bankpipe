@@ -1059,6 +1059,9 @@ const GUIDES = {
           gives quantity</li>
         <li><b>Bond portfolio</b> — open it → Export CSV → fill Rating and Current Value →
           import that CSV here</li>
+        <li><b>Mutual fund folios</b> — the CAMS or KFintech consolidated statement; its
+          folio, units and cost price the funds the CAS cannot see. Units held in a demat
+          come from the CAS plus the broker holdings export above.</li>
         <li><b>CAS (CDSL or NSDL)</b> — <a href="https://www.cdslindia.com/cas/logincas.aspx"
           target="_blank" rel="noopener">cdslindia.com/cas</a> or
           <a href="https://nsdlcas.nsdl.com/" target="_blank" rel="noopener">nsdlcas.nsdl.com</a>;
@@ -1103,9 +1106,10 @@ function uploadPanel(mode) {
   if (mode === "broker") {
     return `<div class="card pad">
       <h3 style="margin:0 0 4px;font-size:15px">Add holdings</h3>
-      <p class="muted" style="margin:0 0 10px;font-size:13px">A broker CSV or XLSX gives
-      quantity and <b>cost</b>. A CDSL or NSDL CAS PDF gives quantity and value across
-      <b>every demat</b>. Nothing is written until you have seen what changed.</p>
+      <p class="muted" style="margin:0 0 10px;font-size:13px">A depository CAS gives
+      <b>what you hold and where</b>. A broker or DigiFInn report gives <b>what it cost</b>.
+      Bring both and the app joins them by ISIN on import. Nothing is written until you have
+      seen what changed.</p>
       <input type="file" id="hf" accept=".csv,.xlsx,.xls,.pdf"
         onchange="bpHoldingsOrCas(this.files[0]);this.value=''">
       <div id="cas-host" style="margin-top:10px"></div>
@@ -2825,6 +2829,9 @@ window.bpDigiFinnSyncApply = async () => {
       });
       if (Object.keys(patch).length) await store.updateAccount(targetId, patch);
     }
+    // The portfolio may have arrived after the statements. Join it now, so the
+    // order two files are imported in does not matter.
+    await window.bpConsolidate();
     window.bpDigiFinnReports = null;
     window.bpDigiFinnSync = null;
     window.bpDigiFinnSyncTarget = "";
@@ -6953,7 +6960,7 @@ record and stops counting in net worth.` : ""}`)) return;
     alert("Could not attach the cost: " + (e.message || e));
   }
 };
-window.bpConsolidateBonds = async () => {
+window.bpConsolidate = async ({ ask = false } = {}) => {
   try {
     const store = await import("./db.js");
     const { planConsolidation, applyCost } = await import("./attach.js");
@@ -6961,21 +6968,44 @@ window.bpConsolidateBonds = async () => {
     const demats = assets.filter((a) => categoryOf(a) === "demat");
     const sources = assets.filter((a) => categoryOf(a) === "bonds"
       && !String(a.meta || "").includes("cost_only"));
-    if (!sources.length) return;
+    const retired = assets.filter((a) => categoryOf(a) === "bonds"
+      && String(a.meta || "").includes("cost_only"));
     const dematRows = [];
     for (const a of demats) {
       dematRows.push({ id: a.id, positions: await store.listHoldings(a.id) });
     }
+    // A portfolio names the demat it feeds: the one holding most of its lots.
+    const homeOf = (lots) => {
+      const count = new Map();
+      for (const lot of lots || []) {
+        const isin = String(lot.security_id || "").toUpperCase();
+        const demat = dematRows.find((d) => (d.positions || [])
+          .some((p) => String(p.security_id || "").toUpperCase() === isin));
+        if (demat) count.set(demat.id, (count.get(demat.id) || 0) + 1);
+      }
+      return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+    };
+    // Records retired before this link existed get one now, so the portfolio page
+    // can answer "which demat is this?" without re-importing anything.
+    for (const asset of retired) {
+      const meta = metaOf(asset);
+      if (meta.linked_asset) continue;
+      const linked = homeOf(await store.listHoldings(asset.id));
+      if (!linked) continue;
+      await store.updateAccount(asset.id, { meta: JSON.stringify({ ...meta,
+        linked_asset: linked, linked_label: assets.find((a) => a.id === linked)?.label || "" }) });
+    }
+    if (!sources.length) return { attached: 0, portfolios: 0, orphans: 0 };
     const sourceRows = [];
     for (const a of sources) sourceRows.push({ id: a.id, lots: await store.listHoldings(a.id) });
     const plan = planConsolidation({ demats: dematRows, sources: sourceRows });
     const n = plan.updates.length;
-    if (!n) { alert("Nothing to attach: no demat bond matches a portfolio lot."); return; }
-    if (!confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"} across ${demats.length}
+    if (!n) return { attached: 0, portfolios: 0, orphans: 0 };
+    if (ask && !confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"} across ${demats.length}
 demat accounts? ${plan.retire.length} bond portfolio${plan.retire.length === 1 ? "" : "s"} become
 cost records and stop counting in net worth.${plan.stats.orphan
   ? ` ${plan.stats.orphan} bond${plan.stats.orphan === 1 ? " is" : "s are"} in no demat and stop
-counting too.` : ""}`)) return;
+counting too.` : ""}`)) return null;
     const today = new Date().toISOString().slice(0, 10);
     for (const demat of dematRows) {
       const mine = plan.updates.filter((u) => u.assetId === demat.id);
@@ -6983,17 +7013,23 @@ counting too.` : ""}`)) return;
       const merged = applyCost(demat.positions, mine);
       await store.replaceHoldings(demat.id, merged, today);
     }
+    // A portfolio names the demat it feeds: the one holding most of its lots.
     for (const id of plan.retire) {
       const asset = (await store.listAccounts()).find((a) => a.id === id);
       if (!asset) continue;
+      const linked = homeOf(sourceRows.find((s) => s.id === id)?.lots || []);
+      const label = assets.find((a) => a.id === linked)?.label || "";
       await store.updateAccount(id, { meta: JSON.stringify({ ...metaOf(asset),
-        cost_only: "1" }) });
+        cost_only: "1", linked_asset: linked, linked_label: label }) });
     }
-    window.bpAsset(demats[0].id);
+    if (ask) window.bpAsset(demats[0].id);
+    return { attached: n, portfolios: plan.retire.length, orphans: plan.stats.orphan };
   } catch (e) {
-    alert("Could not consolidate the bonds: " + (e.message || e));
+    if (ask) alert("Could not consolidate the bonds: " + (e.message || e));
+    return { attached: 0, portfolios: 0, orphans: 0 };
   }
 };
+window.bpConsolidateBonds = async () => { await window.bpConsolidate({ ask: true }); };
 window.bpCasCreateAndImport = async () => {
   const cas = window.bpCasParsed;
   const route = window.bpCasRoute;
@@ -7057,15 +7093,29 @@ window.bpCasImport = async () => {
     const today = new Date().toISOString().slice(0, 10);
     let written = 0;
     for (const [assetId, holdings] of byAsset) {
-      const rows = holdings.map((h) => ({
-        security_id: h.isin,
-        label: casHoldingLabel(h),
-        category: h.kind,
-        quantity: h.quantity,
-        cost_paise: null,
-        value_paise: h.valuePaise,
-        purchase_date: "",
-      }));
+      // A new statement must not wipe the cost a portfolio already gave this
+      // account. The units may move; the price per unit stays.
+      const prior = new Map();
+      for (const old of await store.listHoldings(assetId)) {
+        if (old.cost_paise === null || old.cost_paise === undefined) continue;
+        prior.set(String(old.security_id || "").toUpperCase(), old);
+      }
+      const rows = holdings.map((h) => {
+        const old = prior.get(String(h.isin || "").toUpperCase());
+        const qty = Number(h.quantity) || 0;
+        const oldQty = old ? Number(old.quantity) || 0 : 0;
+        const carried = old && qty > 0 && oldQty > 0
+          ? Math.round(Number(old.cost_paise) * (qty / oldQty)) : null;
+        return {
+          security_id: h.isin,
+          label: casHoldingLabel(h),
+          category: h.kind,
+          quantity: h.quantity,
+          cost_paise: carried,
+          value_paise: h.valuePaise,
+          purchase_date: carried && old ? old.purchase_date || "" : "",
+        };
+      });
       await store.replaceHoldings(assetId, rows, today);
       written += rows.length;
       const asset = (await store.listAccounts()).find((a) => a.id === assetId);
@@ -7076,12 +7126,18 @@ window.bpCasImport = async () => {
       }
     }
     const skipped = route.homeless.reduce((t, g) => t + g.count, 0);
+    // A statement says what is held; a portfolio says what it cost. Attaching
+    // happens on import, so a later statement still picks up the cost already on
+    // file and a later portfolio lands on the holdings already there.
+    const auto = await window.bpConsolidate();
     window.bpCasParsed = null;
     window.bpCasRoute = null;
     if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Imported ${
       written} holdings into ${places} account${places === 1 ? "" : "s"}.${
-      skipped ? ` ${skipped} had no matching account and were not written.` : ""}
-      Cost is missing until a broker report arrives, so gain stays blank on purpose.</div>`;
+      skipped ? ` ${skipped} had no matching account and were not written.` : ""}${
+      auto.attached ? ` Cost and purchase dates attached to ${auto.attached} bond${
+        auto.attached === 1 ? "" : "s"} from ${auto.portfolios} portfolio${
+        auto.portfolios === 1 ? "" : "s"}.` : " Cost is missing until a broker report arrives, so gain stays blank on purpose."}</div>`;
   } catch (e) {
     alert("Could not import the CAS: " + (e.message || e));
   }

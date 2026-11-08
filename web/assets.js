@@ -46,7 +46,13 @@ export function assetValue(asset) {
   const meta = (() => {
     try { return JSON.parse(asset?.meta || "{}") || {}; } catch (e) { return {}; }
   })();
-  if (meta.cost_only) return { paise: null, source: "cost record · not counted" };
+  if (meta.cost_only) {
+    // A cost record says where its lots went, so the portfolio page answers
+    // "which demat is this?" without the reader opening another screen.
+    return { paise: null, source: meta.linked_label
+      ? `cost record · linked to ${meta.linked_label} · not counted`
+      : "cost record · not counted" };
+  }
   // A class row is one part of a demat account, not the whole account.
   if (asset?.classPart) {
     const part = Number(asset[`class_${asset.classPart}_value`]) || 0;
