@@ -6652,7 +6652,7 @@ window.bpImportRender = () => {
       <button class="btn primary" onclick="bpImportRun()">Import ${rows.length}
         file${rows.length === 1 ? "" : "s"}</button>
       <span class="muted" style="font-size:12px">${missing
-        ? `${missing} file${missing === 1 ? "" : "s"} need a type`
+        ? `${missing} file${missing === 1 ? " needs" : "s need"} a type`
         : esc(counted)}</span>
     </div>`;
 };
