@@ -7060,9 +7060,15 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
       const home = homeOf(await store.listHoldings(asset.id));
       if (!home.primary) continue;
       const label = home.labels.join(" + ");
-      if (meta.linked_asset === home.primary && meta.linked_label === label) continue;
-      await store.updateAccount(asset.id, { meta: JSON.stringify({ ...meta,
-        linked_asset: home.primary, linked_label: label }) });
+      const linked = assets.find((a) => a.id === home.primary);
+      const patch = {};
+      if (!String(asset.bank || "").trim()) patch.bank = "DigiFInn";
+      if (!String(asset.number || "").trim() && linked) patch.number = linked.number || "";
+      if (meta.linked_asset === home.primary && meta.linked_label === label
+        && !Object.keys(patch).length) continue;
+      await store.updateAccount(asset.id, { ...patch, meta: JSON.stringify({ ...meta,
+        linked_asset: home.primary, linked_label: label,
+        depository: meta.depository || metaOf(linked).depository || "" }) });
     }
     if (!sources.length) return { attached: 0, portfolios: 0, orphans: 0, added: 0 };
     const sourceRows = [];
