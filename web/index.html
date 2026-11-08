@@ -6761,7 +6761,9 @@ window.bpCasFile = async (file) => {
     const shapeBlock = `<details style="margin-top:8px">
         <summary style="cursor:pointer;font-size:12px">Shape report — safe to share</summary>
         <pre style="font-size:11px;white-space:pre-wrap;margin:8px 0 0">${esc(shapeText)}</pre>
+        <button class="mini-btn" style="margin-top:6px" onclick="bpCopyCasShape(this)">Copy</button>
       </details>`;
+    window.bpCasShapeText = shapeText;
     host.innerHTML = `<div class="card pad" style="background:var(--hair)">
       <div class="muted" style="font-size:11.5px;margin-bottom:2px">${esc(file.name || "CAS")}</div>
       <b>${esc(cas.depository || "Demat")}${route.demat ? ` · …${esc(route.demat.slice(-4))}` : ""}
@@ -6792,6 +6794,19 @@ window.bpCasFile = async (file) => {
 // shares and funds in separate accounts. Creating those accounts from the
 // statement is the honest alternative to forcing three kinds of money into one
 // portfolio the person already had.
+window.bpCopyCasShape = async (btn) => {
+  const text = window.bpCasShapeText || "";
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    if (btn) {
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+    }
+  } catch (e) {
+    alert(text);
+  }
+};
 window.bpCasCreateAndImport = async () => {
   const cas = window.bpCasParsed;
   const route = window.bpCasRoute;
