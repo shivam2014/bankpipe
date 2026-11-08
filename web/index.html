@@ -6914,6 +6914,8 @@ window.bpAttachFill = async () => {
       quantities differ is left alone.</div>
       ${ready ? `<button class="btn primary" style="margin-top:10px"
         onclick="bpAttachCost()">Attach cost to ${ready} bond${ready === 1 ? "" : "s"}</button>` : ""}
+      <button class="btn" style="margin-top:10px;margin-left:8px"
+        onclick="bpConsolidateBonds()">Consolidate across demats</button>
       ${plan.skipped.length && !ready ? `<div class="muted" style="font-size:12px;margin-top:8px">
         Nothing matched: ${plan.skipped.map((s) => s.reason).filter((v, i, a) => a.indexOf(v) === i).join(", ")}.</div>` : ""}
     </div>`;
@@ -6949,6 +6951,47 @@ record and stops counting in net worth.` : ""}`)) return;
     window.bpAsset(state.id);
   } catch (e) {
     alert("Could not attach the cost: " + (e.message || e));
+  }
+};
+window.bpConsolidateBonds = async () => {
+  try {
+    const store = await import("./db.js");
+    const { planConsolidation, applyCost } = await import("./attach.js");
+    const assets = await store.listAccounts();
+    const demats = assets.filter((a) => categoryOf(a) === "demat");
+    const sources = assets.filter((a) => categoryOf(a) === "bonds"
+      && !String(a.meta || "").includes("cost_only"));
+    if (!sources.length) return;
+    const dematRows = [];
+    for (const a of demats) {
+      dematRows.push({ id: a.id, positions: await store.listHoldings(a.id) });
+    }
+    const sourceRows = [];
+    for (const a of sources) sourceRows.push({ id: a.id, lots: await store.listHoldings(a.id) });
+    const plan = planConsolidation({ demats: dematRows, sources: sourceRows });
+    const n = plan.updates.length;
+    if (!n) { alert("Nothing to attach: no demat bond matches a portfolio lot."); return; }
+    if (!confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"} across ${demats.length}
+demat accounts? ${plan.retire.length} bond portfolio${plan.retire.length === 1 ? "" : "s"} become
+cost records and stop counting in net worth.${plan.stats.orphan
+  ? ` ${plan.stats.orphan} bond${plan.stats.orphan === 1 ? " is" : "s are"} in no demat and stop
+counting too.` : ""}`)) return;
+    const today = new Date().toISOString().slice(0, 10);
+    for (const demat of dematRows) {
+      const mine = plan.updates.filter((u) => u.assetId === demat.id);
+      if (!mine.length) continue;
+      const merged = applyCost(demat.positions, mine);
+      await store.replaceHoldings(demat.id, merged, today);
+    }
+    for (const id of plan.retire) {
+      const asset = (await store.listAccounts()).find((a) => a.id === id);
+      if (!asset) continue;
+      await store.updateAccount(id, { meta: JSON.stringify({ ...metaOf(asset),
+        cost_only: "1" }) });
+    }
+    window.bpAsset(demats[0].id);
+  } catch (e) {
+    alert("Could not consolidate the bonds: " + (e.message || e));
   }
 };
 window.bpCasCreateAndImport = async () => {

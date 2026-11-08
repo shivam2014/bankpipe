@@ -75,6 +75,70 @@ export function coverageBySource(sources = [], matched = []) {
 }
 
 /**
+ * Consolidate cost across every demat at once. The statements say what is held
+ * and where; the portfolios say what it cost. A bond held in two demats shares
+ * its cost by quantity, and a lot larger than the holding (part sold) gives up
+ * only the part still held.
+ * @param {{demats?: Array<{id: string, positions: Array<object>}>,
+ *   sources?: Array<{id: string, lots: Array<object>}>}} input
+ * @returns {{updates: Array<object>, stats: object, retire: string[]}}
+ */
+export function planConsolidation({ demats = [], sources = [] } = {}) {
+  const lots = (sources || []).flatMap((s) => (s.lots || [])
+    .map((lot) => ({ ...lot, source: s.id })));
+  const byIsin = new Map();
+  for (const lot of lots) {
+    const isin = clean(lot.security_id);
+    if (!isin) continue;
+    if (!byIsin.has(isin)) byIsin.set(isin, []);
+    byIsin.get(isin).push(lot);
+  }
+  const held = new Map();
+  for (const demat of demats || []) {
+    for (const position of demat.positions || []) {
+      const isin = clean(position.security_id);
+      if (!isin) continue;
+      held.set(isin, (held.get(isin) || 0) + num(position.quantity));
+    }
+  }
+  const updates = [];
+  const stats = { exact: 0, prorata: 0, noLot: 0, alreadyPriced: 0, orphan: 0 };
+  for (const isin of byIsin.keys()) if (!held.has(isin)) stats.orphan += 1;
+  for (const demat of demats || []) {
+    for (const position of demat.positions || []) {
+      const isin = clean(position.security_id);
+      if (!isin) continue;
+      if (position.cost_paise !== null && position.cost_paise !== undefined) {
+        stats.alreadyPriced += 1;
+        continue;
+      }
+      const group = byIsin.get(isin);
+      const heldQty = num(position.quantity);
+      if (!group || !(heldQty > 0)) { stats.noLot += 1; continue; }
+      const lotQty = group.reduce((t, l) => t + num(l.quantity), 0);
+      const lotCost = group.reduce((t, l) => t + num(l.cost_paise), 0);
+      if (!(lotQty > 0)) { stats.noLot += 1; continue; }
+      // Every held unit carries the same share of the lot's cost; when the
+      // statement shows fewer units than the lot (part sold) the rest drops out.
+      const base = Math.max(lotQty, held.get(isin) || 0);
+      const dates = group.map((l) => String(l.purchase_date || "")).filter(Boolean).sort();
+      updates.push({
+        assetId: demat.id,
+        security_id: isin,
+        cost_paise: Math.round(lotCost * (heldQty / base)),
+        purchase_date: dates[0] || "",
+      });
+      if (Math.abs(lotQty - (held.get(isin) || 0)) < 1e-6) stats.exact += 1;
+      else stats.prorata += 1;
+    }
+  }
+  const retire = (sources || [])
+    .filter((s) => (s.lots || []).some((l) => held.has(clean(l.security_id))))
+    .map((s) => s.id);
+  return { updates, stats, retire };
+}
+
+/**
  * Merge the cost updates into the position rows, so the caller can write the
  * whole snapshot back without losing the fields it does not own.
  * @param {Array<object>} positions

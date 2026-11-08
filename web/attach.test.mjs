@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachCost, applyCost, coverageBySource } from "./attach.js";
+import { attachCost, applyCost, coverageBySource, planConsolidation } from "./attach.js";
 
 const pos = (isin, quantity, cost = null) =>
   ({ security_id: isin, quantity, cost_paise: cost });
@@ -88,4 +88,52 @@ test("a portfolio is retired only when every one of its lots landed", () => {
 
 test("a portfolio with no lots is never retired", () => {
   assert.deepEqual(coverageBySource([{ id: "p1", lots: [] }], []), [{ id: "p1", fully: false }]);
+});
+
+// --- consolidating several demats --------------------------------------------
+
+test("a bond held in two demats shares its cost by quantity", () => {
+  const plan = planConsolidation({
+    demats: [
+      { id: "cdsl", positions: [{ security_id: "INE1", quantity: 6, cost_paise: null }] },
+      { id: "nsdl", positions: [{ security_id: "INE1", quantity: 4, cost_paise: null }] },
+    ],
+    sources: [{ id: "p1", lots: [{ security_id: "INE1", quantity: 10, cost_paise: 100000 }] }],
+  });
+  assert.equal(plan.updates.length, 2);
+  assert.equal(plan.updates.find((u) => u.assetId === "cdsl").cost_paise, 60000);
+  assert.equal(plan.updates.find((u) => u.assetId === "nsdl").cost_paise, 40000);
+  assert.equal(plan.stats.exact, 2);
+  assert.deepEqual(plan.retire, ["p1"]);
+});
+
+test("a lot larger than the holding gives up only the part still held", () => {
+  const plan = planConsolidation({
+    demats: [{ id: "cdsl", positions: [{ security_id: "INE2", quantity: 20, cost_paise: null }] }],
+    sources: [{ id: "p1", lots: [{ security_id: "INE2", quantity: 30, cost_paise: 300000 }] }],
+  });
+  assert.equal(plan.updates[0].cost_paise, 200000);
+  assert.equal(plan.stats.prorata, 1);
+});
+
+test("a portfolio bond held in no demat is counted as gone, not as an asset", () => {
+  const plan = planConsolidation({
+    demats: [{ id: "cdsl", positions: [{ security_id: "INE2", quantity: 5, cost_paise: null }] }],
+    sources: [{ id: "p1", lots: [
+      { security_id: "INE2", quantity: 5, cost_paise: 5000 },
+      { security_id: "INE9", quantity: 5, cost_paise: 9000 },
+    ] }],
+  });
+  assert.equal(plan.stats.orphan, 1);
+  assert.deepEqual(plan.retire, ["p1"]);
+  assert.equal(plan.updates.length, 1);
+});
+
+test("a bond that already has a cost is left alone", () => {
+  const plan = planConsolidation({
+    demats: [{ id: "cdsl", positions: [{ security_id: "INE2", quantity: 5, cost_paise: 123 }] }],
+    sources: [{ id: "p1", lots: [{ security_id: "INE2", quantity: 5, cost_paise: 5000 }] }],
+  });
+  assert.equal(plan.updates.length, 0);
+  assert.equal(plan.stats.alreadyPriced, 1);
 });
