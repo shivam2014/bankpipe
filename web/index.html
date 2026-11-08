@@ -6945,7 +6945,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       ${broken ? `<div class="muted" style="font-size:12px;margin-top:8px;color:var(--red)">
         This statement did not parse, so nothing will be written.</div>` : ""}
       ${rows}
-      ${missing ? `<div class="muted" style="font-size:12px;margin-top:6px;${
+      ${missing && !newAccounts.length ? `<div class="muted" style="font-size:12px;margin-top:6px;${
         route.demat ? "" : "color:var(--red)"}">${route.demat
         ? (route.groups.length
           ? `${missing} holding(s) have no account in their class yet.`
@@ -6955,7 +6955,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       ${broken ? "" : createHint}
       ${nothing && !broken ? `<div class="muted" style="font-size:12px;margin-top:8px">Nothing
         to write from this file.</div>` : ""}
-      ${route.groups.length && !broken
+      ${route.groups.length && !broken && !newAccounts.length
         ? `<button class="btn primary" style="margin-top:10px" onclick="bpCasImport('${hostId}')">
           Import into these accounts</button>`
         : ""}
