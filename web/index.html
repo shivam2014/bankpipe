@@ -6834,7 +6834,10 @@ window.bpCasFile = async (file) => {
       ${rows}
       ${missing ? `<div class="muted" style="font-size:12px;margin-top:6px;${
         route.demat ? "" : "color:var(--red)"}">${route.demat
-        ? `${missing} holding(s) need an account for their class — the button below creates them.`
+        ? (route.groups.length
+          ? `${missing} holding(s) have no account in their class yet.`
+          : `No account on file for …${esc(route.demat.slice(-4))} yet — this statement
+             names it, so the button below creates it.`)
         : `${missing} holding(s) have no account of their class on this demat.`}</div>` : ""}
       ${broken ? "" : createHint}
       ${nothing && !broken ? `<div class="muted" style="font-size:12px;margin-top:8px">Nothing
