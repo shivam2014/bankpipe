@@ -2306,6 +2306,30 @@ window.bpHoldingsPreview = async (id) => {
   window.bpHoldingsTarget = id;
   const store = await import("./db.js");
   const before = await store.listHoldings(id);
+  const asset = (await store.listAccounts()).find((a) => a.id === id);
+  // A file that arrived after a statement is a cost file, not a second opinion
+  // on the units: the depository said how many, the broker says what they cost.
+  const fromStatement = String(metaOf(asset).holdings_source || "") === "cas";
+  if (fromStatement) {
+    const { planConsolidation } = await import("./attach.js");
+    const plan = planConsolidation({ demats: [{ id, positions: before }],
+      sources: [{ id: "file", lots: rows }] });
+    host.innerHTML = `<div class="card pad">
+      <b>${rows.length} holdings in ${esc(window.bpHoldingsFileName || "the file")}</b>
+      <div class="muted" style="font-size:12.5px;margin-top:6px">This account was filled from a
+      depository statement, so the units and values stay as the statement reported them. The
+      file supplies <b>cost and purchase date</b> by ISIN.</div>
+      <div class="stats" style="margin-top:10px">
+        <div><div class="k">Cost to attach</div><div class="v">${plan.updates.length}</div></div>
+        <div><div class="k">No match</div><div class="v">${plan.stats.noLot}</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn primary" onclick="bpHoldingsApply(${jsArg(id)})">Attach cost from this file</button>
+        <button class="btn" onclick="go('import')">Cancel</button>
+      </div>
+    </div>`;
+    return;
+  }
   const diff = diffHoldings(before, rows);
   const sum = (list, f) => list.reduce((t, r) => t + (Number(r[f]) || 0), 0);
   const rowHtml = (r, cls, sign, detail) => `<div class="hd-row ${cls}">
@@ -2351,8 +2375,6 @@ window.bpHoldingsPreview = async (id) => {
 window.bpHoldingsApply = async (id) => {
   const rows = window.bpHoldingsRows || [];
   if (!rows.length) return;
-  if (!confirm(`Replace the holdings on this asset with ${rows.length} rows from `
-    + `${window.bpHoldingsFileName || "the file"}? A local version is saved first.`)) return;
   try {
     const store = await import("./db.js");
     const all = await store.listAccounts();
@@ -2360,11 +2382,33 @@ window.bpHoldingsApply = async (id) => {
     if (!asset) throw new Error("asset not found");
     const cat = categoryOf(asset);
     const today = new Date().toISOString().slice(0, 10);
+    const meta = metaOf(asset);
+    // Against a statement-derived account this file is a cost source: it never
+    // rewrites the units the depository reported.
+    if (String(meta.holdings_source || "") === "cas") {
+      const { planConsolidation, applyCost } = await import("./attach.js");
+      const before = await store.listHoldings(id);
+      const plan = planConsolidation({ demats: [{ id, positions: before }],
+        sources: [{ id: "file", lots: rows }] });
+      if (!plan.updates.length) {
+        alert("No ISIN in this file matches the holdings on this account.");
+        return;
+      }
+      try { await store.snapshotDb("Before attaching cost"); } catch (e) {}
+      await store.replaceHoldings(id, applyCost(before, plan.updates), today);
+      await store.updateAccount(id, { meta: JSON.stringify({ ...meta,
+        cost_source: window.bpHoldingsFileName || "", cost_as_of: today }) });
+      window.bpHoldingsRows = null;
+      window.bpHoldingsFileName = null;
+      window.bpAsset(id);
+      return;
+    }
+    if (!confirm(`Replace the holdings on this asset with ${rows.length} rows from `
+      + `${window.bpHoldingsFileName || "the file"}? A local version is saved first.`)) return;
     try { await store.snapshotDb("Before holdings import"); } catch (e) {}
     const filled = rows.map((r) => ({ ...r,
       category: r.category || (cat === "bonds" ? "bond" : "equity") }));
     await store.replaceHoldings(id, filled, today);
-    const meta = metaOf(asset);
     await store.updateAccount(id, { meta: JSON.stringify({ ...meta,
       holdings_source: "import", holdings_as_of: today,
       holdings_file: window.bpHoldingsFileName || "" }) });
