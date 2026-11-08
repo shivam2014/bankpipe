@@ -6837,6 +6837,23 @@ window.bpHoldingsOrCas = (file) => {
   return /\.pdf$/i.test(file.name || "") ? window.bpCasFile(file)
     : window.bpHoldingsFile(file);
 };
+// "MOTILAL OSWAL FINANCIAL SERVICES LIMITED" is a label, not a name a person
+// uses. The account row says "Motilal Oswal".
+function shortDp(name) {
+  const stop = /^(limited|ltd|financial|services|broking|securities|private|pvt)$/i;
+  const words = String(name || "").split(/\s+/).filter((w) => w && !stop.test(w));
+  const seen = new Set();
+  const picked = [];
+  for (const word of words) {
+    const key = word.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picked.push(word);
+    if (picked.length === 2) break;
+  }
+  return picked.map((w) => w[0] + w.slice(1).toLowerCase()).join(" ");
+}
+
 window.bpCasFile = async (file, hostId = "cas-host") => {
   const host = document.getElementById(hostId);
   if (!host || !file) return;
@@ -6877,18 +6894,26 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         const many = { bond: "bonds", equity: "equities", mf: "funds" }[k] || `${one}s`;
         return `${n} ${n === 1 ? one : many}`;
       }).join(" · ");
-    const rows = route.groups.map((g) => {
-      const name = g.kind === "bond" ? "Bonds" : g.kind === "mf" ? "Funds" : "Equities";
-      return `<div class="muted" style="font-size:12px;margin-top:3px">
-        ${esc(name)} ${g.count} → <b>${esc(g.assetLabel || g.assetId)}</b></div>`;
+    // One line per demat account the statement covers, because the accounts are
+    // the thing a person recognises: "Motilal Oswal …0907 holds the bonds".
+    const rows = (route.accounts || []).map((a) => {
+      const tail = a.boId ? `…${a.boId.slice(-4)}` : "";
+      const mine = [...route.groups, ...route.homeless].filter((g) =>
+        String(g.boId || "") === String(a.boId || ""));
+      const kinds = mine.map((g) => `${
+        g.kind === "bond" ? "Bonds" : g.kind === "mf" ? "Funds" : "Equities"} ${g.count}`).join(" · ");
+      const name = a.dpName ? shortDp(a.dpName) : (cas.depository || "Demat");
+      const dest = a.assetId ? `<b>${esc(a.assetLabel || a.assetId)}</b>` : "<b>new account</b>";
+      return `<div class="muted" style="font-size:12px;margin-top:4px">
+        <b style="color:var(--ink)">${esc(name)} ${esc(tail)}</b> — ${kinds} → ${dest}</div>`;
     }).join("");
     const missing = route.homeless.reduce((t, g) => t + g.count, 0);
-    // One account: the demat the statement names, holding every class it lists.
-    const needs = route.homeless.length ? 1 : 0;
+    const newAccounts = [...new Set(route.homeless.map((g) => g.boId).filter(Boolean))];
     const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
-    const createHint = route.demat && needs
+    const createHint = newAccounts.length
       ? `<button class="btn primary" style="margin-top:10px"
-          onclick="bpCasCreateAndImport('${hostId}')">Create the demat account for this statement</button>`
+          onclick="bpCasCreateAndImport('${hostId}')">Create ${newAccounts.length} demat account${
+            newAccounts.length === 1 ? "" : "s"} and import</button>`
       : "";
     const manual = !route.demat && targets.length
       ? `<label class="field" style="margin-top:10px">No account number in this PDF. Write all
@@ -6896,7 +6921,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         <select id="cas-target-${hostId}">${targets.map((a) => `<option value="${esc(a.id)}">${
           esc(a.label || a.id)}</option>`).join("")}</select></label>`
       : "";
-    const nothing = !route.groups.length && !needs;
+    const nothing = !route.groups.length && !newAccounts.length;
     const shapeText = casShapeText(casShape(pdf, cas));
     // A statement that produced no value at all did not parse: say so and give a
     // report that can be shared, instead of offering an Import button.
@@ -6911,8 +6936,10 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     window.bpCasShapeText = shapeText;
     host.innerHTML = `<div class="card pad" style="background:var(--hair)">
       <div class="muted" style="font-size:11.5px;margin-bottom:2px">${esc(file.name || "CAS")}</div>
-      <b>${esc(cas.depository || "Demat")}${route.demat ? ` · …${esc(route.demat.slice(-4))}` : ""}
-        · ${cas.holdings.length} holdings · ${money(total)}</b>
+      <b>${esc(cas.depository || "Demat")} · ${
+        (route.accounts || []).length || 1} account${
+        (route.accounts || []).length === 1 ? "" : "s"} · ${cas.holdings.length} holdings
+        · ${money(total)}${cas.asOf ? ` · as on ${esc(cas.asOf)}` : ""}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">${esc(kinds)}${
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
       ${broken ? `<div class="muted" style="font-size:12px;margin-top:8px;color:var(--red)">
@@ -7173,19 +7200,54 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
   const cas = card.cas || window.bpCasParsed;
   const route = card.route || window.bpCasRoute;
   if (!cas || !route) return;
-  const tail = route.demat ? route.demat.slice(-4) : "";
   const store = await import("./db.js");
-  // One account, because one demat holds every class it lists.
-  const id = `cas-demat-${tail || Date.now().toString(36)}`;
-  // The row has to say where the account is held. The depository is known from
-  // the statement; the DP name needs its own field, which comes next.
   const where = cas.depository || "";
-  await store.createAccount({
-    id, label: tail ? `Demat · ${where ? `${where} ` : ""}…${tail}` : "Demat account",
-    category: "demat", subtype: "equity", type: "equity",
-    number: route.demat, holder: "",
-    meta: JSON.stringify({ depository: cas.depository || "" }),
-  });
+  // A consolidated statement can name more than one demat. Each becomes its own
+  // account, labelled with the DP that holds it, because that is how a person
+  // recognises them on a statement.
+  const pending = [...new Map((route.homeless || [])
+    .filter((g) => g.boId)
+    .map((g) => [g.boId, g])).values()];
+  let all = await store.listAccounts();
+  const demats = all.filter((a) => String(a.category || "") === "demat"
+    && !/mutual\s*fund|^mf$/i.test(String(a.subtype || "")));
+  const claimed = new Set();
+  const isinsOf = (bo) => new Set((cas.accounts || [])
+    .find((a) => a.boId === bo)?.holdings.map((h) => String(h.isin || "").toUpperCase()) || []);
+  for (const group of pending) {
+    const tail = group.boId.slice(-4);
+    const dp = shortDp(group.dpName);
+    const label = `Demat · ${dp || where || "demat"} · …${tail}`;
+    // An account this same statement filled before under a shorter number is the
+    // same account, not a new one: relabel it and keep its history.
+    const byId = demats.find((a) => a.id === `cas-demat-${tail}` && !claimed.has(a.id));
+    let twin = byId || null;
+    if (!twin) {
+      const mine = isinsOf(group.boId);
+      for (const a of demats) {
+        if (claimed.has(a.id)) continue;
+        if (boId(a.number).boId === group.boId) { twin = a; break; }
+        const rows = await store.listHoldings(a.id);
+        const theirs = new Set(rows.map((r) => String(r.security_id || "").toUpperCase()));
+        if (!mine.size || !theirs.size) continue;
+        let hit = 0;
+        for (const isin of mine) if (theirs.has(isin)) hit += 1;
+        if (hit / mine.size >= 0.8) { twin = a; break; }
+      }
+    }
+    if (twin) {
+      claimed.add(twin.id);
+      if (boId(twin.number).boId !== group.boId || twin.label !== label) {
+        await store.updateAccount(twin.id, { number: group.boId, label });
+      }
+      continue;
+    }
+    await store.createAccount({
+      id: `cas-demat-${tail}`, label, category: "demat", subtype: "equity",
+      type: "equity", number: group.boId, holder: "",
+      meta: JSON.stringify({ depository: where, dp: group.dpName || "" }),
+    });
+  }
   window.bpCasRoute = casRoute(cas, await store.listAccounts());
   if (card) card.route = window.bpCasRoute;
   if (!window.bpCasRoute.groups.length) {
@@ -7207,7 +7269,9 @@ window.bpCasImport = async (key = "cas-host") => {
   const byAsset = new Map();
   if (route.groups.length) {
     for (const h of cas.holdings) {
-      const group = route.groups.find((g) => g.kind === h.kind);
+      // Match the account as well as the class: two demats can both hold bonds.
+      const group = route.groups.find((g) => g.kind === h.kind
+        && (!h.account || !g.boId || String(g.boId) === String(h.account)));
       if (!group) continue;
       if (!byAsset.has(group.assetId)) byAsset.set(group.assetId, []);
       byAsset.get(group.assetId).push(h);

@@ -180,7 +180,7 @@ function detectTables(items) {
 }
 
 /** Read every ISIN that sits under a holdings header. */
-function readTables(items, tables) {
+function readTables(items, tables, headers = []) {
   const headerFor = (anchor) => tables
     .filter((t) => t.page === anchor.page && t.y > anchor.y)
     .sort((a, b) => a.y - b.y)[0]
@@ -201,6 +201,7 @@ function readTables(items, tables) {
   for (const { table, rows } of groups.values()) {
     rows.sort((a, b) => b.y - a.y);
     const isinCol = table.cols.find((c) => ISIN_LABEL.test(c.str));
+    const owner = accountFor(table, headers);
     const colAt = (right) => {
       let best = null;
       for (const col of table.cols) if (col.x <= right + 1) best = col;
@@ -251,6 +252,8 @@ function readTables(items, tables) {
         isin,
         label: "",
         kind: table.kind,
+        account: owner?.boId || "",
+        dpName: owner?.dpName || "",
         quantity: qtyCell ? quantity(qtyCell.str) : null,
         faceValuePaise: faceCell ? rupees(faceCell.str) : null,
         pricePaise: null,
@@ -364,6 +367,61 @@ function readBands(items) {
 }
 
 /**
+ * The demat accounts a CAS prints. One consolidated statement covers every
+ * account held for the PAN, so a CDSL file can carry a Zerodha account and a
+ * Motilal Oswal account side by side; reading them as one put the bonds in the
+ * broker that only held the shares.
+ * @param {Array<object>} items
+ * @returns {Array<{page: number, y: number, boId: string, dpName: string}>}
+ */
+function accountHeaders(items) {
+  const out = [];
+  for (const page of new Set(items.map((i) => i.page))) {
+    const lines = [];
+    for (const item of items.filter((i) => i.page === page).sort((a, b) => b.y - a.y || a.x - b.x)) {
+      const last = lines[lines.length - 1];
+      if (last && Math.abs(last.y - item.y) <= 3) last.items.push(item);
+      else lines.push({ y: item.y, items: [item] });
+    }
+    for (const line of lines) {
+      line.text = line.items.slice().sort((a, b) => a.x - b.x).map((i) => i.str).join(" ");
+    }
+    lines.forEach((line, index) => {
+      if (!/DP\s*(?:ID|Id|Name)|Client\s*Id|BO\s*ID/i.test(line.text)) return;
+      // The DP ID and Client ID can print on the next line, so a small window is
+      // read as well; the BO ID itself is always on the line that names it.
+      const near = [line.text, ...lines.slice(Math.max(0, index - 3), index)
+        .concat(lines.slice(index + 1, index + 4)).map((l) => l.text)].join(" ");
+      const packed = near.replace(/\s+/g, "");
+      const own = line.text.replace(/\s+/g, "");
+      const direct = own.match(/IN\d{14}|\d{16}/) || packed.match(/IN\d{14}|\d{16}/);
+      const dp = packed.match(/DP(?:ID|Id):?([A-Z]{0,2}\d{6,8})/i);
+      const client = packed.match(/Client(?:ID|Id):?(\d{6,8})/i);
+      let raw = /BO\s*ID/i.test(line.text) && direct ? direct[0] : "";
+      if (!raw && dp && client) raw = `${dp[1]}${client[1]}`;
+      const id = raw ? boId(raw) : null;
+      if (!id || id.kind !== "bo") return;
+      if (out.some((h) => h.boId === id.boId && h.page === page && Math.abs(h.y - line.y) < 3)) return;
+      const names = line.text.match(/[A-Z][A-Za-z&.,()'-]*(?:\s+[A-Z][A-Za-z&.,()'-]*){1,6}\s+(?:LIMITED|LTD)/g) || [];
+      out.push({ page, y: line.y, boId: id.boId,
+        dpName: names.sort((a, b) => b.length - a.length)[0] || "" });
+    });
+  }
+  return out;
+}
+
+/** The account named nearest above a table: later page first, then smallest y. */
+function accountFor(table, headers) {
+  let best = null;
+  for (const h of headers) {
+    if (h.page > table.page) continue;
+    if (h.page === table.page && h.y <= table.y) continue;
+    if (!best || h.page > best.page || (h.page === best.page && h.y < best.y)) best = h;
+  }
+  return best;
+}
+
+/**
  * Read a CAS. Holdings tables are read by their own columns; a statement with no
  * usable header falls back to the band rule.
  * @param {{pages: Array<{items: Array<{str: string, x: number, y: number,
@@ -387,8 +445,9 @@ export function parseCas(pdf) {
     .find((id) => id.kind === "bo") || null;
 
   const tables = detectTables(items);
+  const headers = accountHeaders(items);
   let result = tables.some((t) => t.holdings)
-    ? { holdings: readTables(items, tables), warnings: [], quarantined: 0 }
+    ? { holdings: readTables(items, tables, headers), warnings: [], quarantined: 0 }
     : { holdings: [], warnings: [], quarantined: 0 };
   if (!result.holdings.length) result = readBands(items);
 
@@ -402,13 +461,26 @@ export function parseCas(pdf) {
     }
   }
   const holdings = [...byIsin.values()];
+  // One statement can hold several demat accounts; each keeps its own.
+  const byAccount = new Map();
+  for (const holding of holdings) {
+    const id = holding.account || "";
+    if (!id) continue;
+    if (!byAccount.has(id)) {
+      byAccount.set(id, { boId: id, depository, dpName: holding.dpName || "",
+        holdings: [] });
+    }
+    byAccount.get(id).holdings.push(holding);
+  }
+  const accounts = [...byAccount.values()];
   const sections = {};
   for (const h of holdings) sections[h.kind] = (sections[h.kind] || 0) + 1;
   return {
     depository,
-    demat: bo ? bo.boId : "",
+    demat: accounts[0]?.boId || (bo ? bo.boId : ""),
     asOf: asOfDate(text),
     holdings,
+    accounts,
     sections,
     warnings: result.warnings,
     counts: { rows: holdings.length, quarantined: result.quarantined },
@@ -425,37 +497,40 @@ export function parseCas(pdf) {
  *   homeless: Array<object>}}
  */
 export function casRoute(parsed, assets = []) {
-  const holdings = parsed?.holdings || [];
-  const bo = boId(parsed?.demat || "");
-  const accounts = bo.kind === "bo"
-    ? (assets || []).filter((a) => boId(a.number).boId === bo.boId)
-    : [];
-  const home = (kind) => {
-    // A demat account holds bonds, shares and any dematerialised fund units.
-    // The CAS prints folio-held funds in their own section; those are the only
-    // ones that are not in the demat, and a row alone cannot prove which it is.
-    // So a CAS writes into the account it names, and the class stays on the row.
-    void kind;
-    return accounts.find((a) => String(a.category || "") === "demat"
-      && !/mutual\s*fund|^mf$/i.test(String(a.subtype || ""))) || null;
-  };
+  const list = parsed?.accounts?.length
+    ? parsed.accounts
+    : [{ boId: parsed?.demat || "", dpName: "", holdings: parsed?.holdings || [] }];
   const groups = new Map();
   const homeless = new Map();
-  for (const holding of holdings) {
-    const target = home(holding.kind);
-    const bucket = target ? groups : homeless;
-    const key = target ? `${holding.kind}|${target.id}` : holding.kind;
-    if (!bucket.has(key)) {
-      bucket.set(key, { kind: holding.kind, assetId: target?.id || "",
-        assetLabel: target?.label || "", count: 0, valuePaise: 0 });
+  const homes = [];
+  for (const account of list) {
+    const id = boId(account.boId || "");
+    const key = id.kind === "bo" ? id.boId : "";
+    const asset = key
+      ? (assets || []).find((a) => String(a.category || "") === "demat"
+        && !/mutual\s*fund|^mf$/i.test(String(a.subtype || ""))
+        && boId(a.number).boId === key) || null
+      : null;
+    if (key) {
+      homes.push({ boId: key, dpName: account.dpName || "", assetId: asset?.id || "",
+        assetLabel: asset?.label || "", count: account.holdings.length });
     }
-    const row = bucket.get(key);
-    row.count += 1;
-    row.valuePaise += Number(holding.valuePaise) || 0;
+    for (const holding of account.holdings) {
+      const bucket = asset ? groups : homeless;
+      const bucketKey = asset ? `${holding.kind}|${asset.id}` : `${holding.kind}|${key || "folio"}`;
+      if (!bucket.has(bucketKey)) {
+        bucket.set(bucketKey, { kind: holding.kind, assetId: asset?.id || "",
+          assetLabel: asset?.label || "", boId: key, dpName: account.dpName || "",
+          count: 0, valuePaise: 0 });
+      }
+      const row = bucket.get(bucketKey);
+      row.count += 1;
+      row.valuePaise += Number(holding.valuePaise) || 0;
+    }
   }
   return {
-    demat: bo.kind === "bo" ? bo.boId : "",
-    accounts,
+    demat: homes[0]?.boId || "",
+    accounts: homes,
     groups: [...groups.values()],
     homeless: [...homeless.values()],
   };
