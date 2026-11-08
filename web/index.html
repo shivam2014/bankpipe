@@ -6990,10 +6990,18 @@ window.bpCasImport = async () => {
   }
   if (!byAsset.size) return;
   const places = byAsset.size;
-  if (!confirm(`Write ${cas.holdings.length} holdings into ${places} account${places === 1 ? "" : "s"}`
-    + ` from the ${cas.depository || "demat"} statement? A local version is saved first.`)) return;
   try {
     const store = await import("./db.js");
+    // A question is only worth asking when an answer can differ. Writing into an
+    // account that holds nothing replaces nothing, and the receipt above has
+    // already shown what is going in.
+    let replacing = 0;
+    for (const assetId of byAsset.keys()) {
+      replacing += (await store.listHoldings(assetId)).length;
+    }
+    if (replacing && !confirm(`Replace ${replacing} existing holding${
+      replacing === 1 ? "" : "s"} with ${cas.holdings.length} from the ${
+      cas.depository || "demat"} statement? A local version is saved first.`)) return;
     try { await store.snapshotDb("Before CAS import"); } catch (e) {}
     const today = new Date().toISOString().slice(0, 10);
     let written = 0;
