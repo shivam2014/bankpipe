@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachCost, applyCost, coverageBySource, planConsolidation, planCostFile } from "./attach.js";
+import { attachCost, applyCost, coverageBySource, planConsolidation, planCostFile, planFreshLots } from "./attach.js";
 
 const pos = (isin, quantity, cost = null) =>
   ({ security_id: isin, quantity, cost_paise: cost });
@@ -189,4 +189,37 @@ test("a file older than the statement never overrides it", () => {
   });
   assert.equal(out.added, 0);
   assert.equal(out.rows.length, 1);
+});
+
+// --- lots bought after the statement ----------------------------------------
+
+test("a lot bought after the statement is kept as held", () => {
+  const add = planFreshLots({
+    positions: [held("INE1", 8)],
+    lots: [
+      { security_id: "INE1", quantity: 8, cost_paise: 80000, purchase_date: "2026-05-01" },
+      { security_id: "INE2", quantity: 5, cost_paise: 50000, purchase_date: "2026-11-05" },
+    ],
+    asOf: "2026-10-31",
+  });
+  assert.equal(add.length, 1);
+  assert.equal(add[0].security_id, "INE2");
+});
+
+test("a lot already on the demat is never added twice", () => {
+  const add = planFreshLots({
+    positions: [held("INE2", 5)],
+    lots: [{ security_id: "INE2", quantity: 5, cost_paise: 50000, purchase_date: "2026-11-05" }],
+    asOf: "2026-10-31",
+  });
+  assert.equal(add.length, 0);
+});
+
+test("an undated lot is never assumed to be new", () => {
+  const add = planFreshLots({
+    positions: [],
+    lots: [{ security_id: "INE2", quantity: 5, cost_paise: 50000, purchase_date: "" }],
+    asOf: "2026-10-31",
+  });
+  assert.equal(add.length, 0);
 });

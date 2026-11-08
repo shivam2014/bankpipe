@@ -139,6 +139,27 @@ export function planConsolidation({ demats = [], sources = [] } = {}) {
 }
 
 /**
+ * Lots bought after a statement's date. The statement could not have seen them,
+ * so they are assumed still held and are added to the demat rather than treated
+ * as missing.
+ * @param {{positions?: Array<object>, lots?: Array<object>, asOf?: string}} input
+ * @returns {Array<object>}
+ */
+export function planFreshLots({ positions = [], lots = [], asOf = "" } = {}) {
+  const held = new Set((positions || []).map((p) => clean(p.security_id)));
+  const seen = new Set();
+  const out = [];
+  for (const lot of lots || []) {
+    const isin = clean(lot.security_id);
+    if (!isin || held.has(isin) || seen.has(isin)) continue;
+    if (!asOf || !lot.purchase_date || String(lot.purchase_date) <= asOf) continue;
+    seen.add(isin);
+    out.push({ ...lot });
+  }
+  return out;
+}
+
+/**
  * Merge a cost file into an account filled from a statement.
  *
  * The statement is a snapshot of one day. A file that carries dated purchases

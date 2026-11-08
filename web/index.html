@@ -6795,10 +6795,20 @@ window.bpImportRun = async () => {
     }
     await bpBatchAddFiles(banks);
   }
+  let slot = 0;
   for (const row of rows.filter((r) => r.kind !== "bank")) {
-    holdingsPanel();
-    if (row.kind === "cas") await window.bpCasFile(row.file);
-    else await window.bpHoldingsFile(row.file);
+    if (row.kind === "cas") {
+      // One preview per file, so a batch of statements shows a batch of receipts.
+      const hostId = `cas-host-${slot++}`;
+      if (!document.getElementById(hostId)) {
+        host.insertAdjacentHTML("beforeend",
+          `<div class="card pad" id="${hostId}" style="margin-bottom:12px"></div>`);
+      }
+      await window.bpCasFile(row.file, hostId);
+    } else {
+      holdingsPanel();
+      await window.bpHoldingsFile(row.file);
+    }
   }
   window.bpImportQueue = [];
   window.bpImportRender();
@@ -6808,8 +6818,8 @@ window.bpHoldingsOrCas = (file) => {
   return /\.pdf$/i.test(file.name || "") ? window.bpCasFile(file)
     : window.bpHoldingsFile(file);
 };
-window.bpCasFile = async (file) => {
-  const host = document.getElementById("cas-host");
+window.bpCasFile = async (file, hostId = "cas-host") => {
+  const host = document.getElementById(hostId);
   if (!host || !file) return;
   host.innerHTML = `<div class="muted" style="font-size:12.5px">Reading the PDF…</div>`;
   try {
@@ -6824,7 +6834,8 @@ window.bpCasFile = async (file) => {
     });
     const cas = parseCas(pdf);
     window.bpCasParsed = cas;
-    window.bpCasFile = file;
+    // Never store the File on this name: it is the function the next file calls.
+    window.bpCasCurrentFile = file;
     if (!cas.holdings.length) {
       host.innerHTML = `<div class="muted" style="font-size:12.5px">No holdings could be
         read. ${cas.counts.quarantined} row(s) had no readable ISIN or value, so nothing was
@@ -6836,6 +6847,10 @@ window.bpCasFile = async (file) => {
     const assets = await store.listAccounts();
     const route = casRoute(cas, assets);
     window.bpCasRoute = route;
+    // Every file keeps its own preview and its own Import button: two statements
+    // read in one batch must not overwrite each other's receipt.
+    window.bpCasCards = window.bpCasCards || {};
+    window.bpCasCards[hostId] = { cas, route, file };
     const total = cas.holdings.reduce((t, h) => t + (Number(h.valuePaise) || 0), 0);
     const kinds = Object.entries(cas.sections || {})
       .map(([k, n]) => {
@@ -6854,12 +6869,12 @@ window.bpCasFile = async (file) => {
     const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
     const createHint = route.demat && needs
       ? `<button class="btn primary" style="margin-top:10px"
-          onclick="bpCasCreateAndImport()">Create the demat account for this statement</button>`
+          onclick="bpCasCreateAndImport('${hostId}')">Create the demat account for this statement</button>`
       : "";
     const manual = !route.demat && targets.length
       ? `<label class="field" style="margin-top:10px">No account number in this PDF. Write all
         of it into
-        <select id="cas-target">${targets.map((a) => `<option value="${esc(a.id)}">${
+        <select id="cas-target-${hostId}">${targets.map((a) => `<option value="${esc(a.id)}">${
           esc(a.label || a.id)}</option>`).join("")}</select></label>`
       : "";
     const nothing = !route.groups.length && !needs;
@@ -6895,7 +6910,7 @@ window.bpCasFile = async (file) => {
       ${nothing && !broken ? `<div class="muted" style="font-size:12px;margin-top:8px">Nothing
         to write from this file.</div>` : ""}
       ${route.groups.length && !broken
-        ? `<button class="btn primary" style="margin-top:10px" onclick="bpCasImport()">
+        ? `<button class="btn primary" style="margin-top:10px" onclick="bpCasImport('${hostId}')">
           Import into these accounts</button>`
         : ""}
       ${broken ? "" : manual}
@@ -7008,7 +7023,7 @@ record and stops counting in net worth.` : ""}`)) return;
 window.bpConsolidate = async ({ ask = false } = {}) => {
   try {
     const store = await import("./db.js");
-    const { planConsolidation, applyCost } = await import("./attach.js");
+    const { planConsolidation, applyCost, planFreshLots } = await import("./attach.js");
     const assets = await store.listAccounts();
     const demats = assets.filter((a) => categoryOf(a) === "demat");
     const sources = assets.filter((a) => categoryOf(a) === "bonds"
@@ -7049,21 +7064,58 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
       await store.updateAccount(asset.id, { meta: JSON.stringify({ ...meta,
         linked_asset: home.primary, linked_label: label }) });
     }
-    if (!sources.length) return { attached: 0, portfolios: 0, orphans: 0 };
+    if (!sources.length) return { attached: 0, portfolios: 0, orphans: 0, added: 0 };
     const sourceRows = [];
     for (const a of sources) sourceRows.push({ id: a.id, lots: await store.listHoldings(a.id) });
+    // A statement only knows the units of its own day. Anything bought after
+    // that day is assumed still held, so it is added to the demat rather than
+    // disappearing with the portfolio that recorded it.
+    const asOfOf = (dematId) => {
+      const asset = assets.find((a) => a.id === dematId);
+      return String(metaOf(asset).holdings_as_of || "");
+    };
+    const fresh = new Map();
+    for (const source of sourceRows) {
+      const home = homeOf(source.lots);
+      const target = home.primary || "";
+      const asOf = asOfOf(target);
+      if (!target || !asOf) continue;
+      const demat = dematRows.find((d) => d.id === target);
+      if (!demat) continue;
+      const add = planFreshLots({ positions: demat.positions, lots: source.lots, asOf });
+      if (add.length) fresh.set(target, [...(fresh.get(target) || []), ...add]);
+    }
+    let added = 0;
+    for (const [dematId, lots] of fresh) {
+      const demat = dematRows.find((d) => d.id === dematId);
+      if (!demat) continue;
+      for (const lot of lots) {
+        demat.positions.push({
+          security_id: lot.security_id,
+          label: lot.label || "",
+          category: "bond",
+          quantity: lot.quantity,
+          cost_paise: lot.cost_paise ?? null,
+          // No statement has priced it yet; cost is the honest number until one does.
+          value_paise: lot.cost_paise ?? null,
+          purchase_date: lot.purchase_date || "",
+        });
+        added += 1;
+      }
+    }
     const plan = planConsolidation({ demats: dematRows, sources: sourceRows });
     const n = plan.updates.length;
-    if (!n) return { attached: 0, portfolios: 0, orphans: 0 };
+    if (!n && !added) return { attached: 0, portfolios: 0, orphans: 0, added: 0 };
     if (ask && !confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"} across ${demats.length}
-demat accounts? ${plan.retire.length} bond portfolio${plan.retire.length === 1 ? "" : "s"} become
+demat accounts?${added ? ` ${added} bought after the statement date will be added.` : ""}
+${plan.retire.length} bond portfolio${plan.retire.length === 1 ? "" : "s"} become
 cost records and stop counting in net worth.${plan.stats.orphan
   ? ` ${plan.stats.orphan} bond${plan.stats.orphan === 1 ? " is" : "s are"} in no demat and stop
 counting too.` : ""}`)) return null;
     const today = new Date().toISOString().slice(0, 10);
     for (const demat of dematRows) {
       const mine = plan.updates.filter((u) => u.assetId === demat.id);
-      if (!mine.length) continue;
+      if (!mine.length && !fresh.has(demat.id)) continue;
       const merged = applyCost(demat.positions, mine);
       await store.replaceHoldings(demat.id, merged, today);
     }
@@ -7072,21 +7124,29 @@ counting too.` : ""}`)) return null;
       const asset = (await store.listAccounts()).find((a) => a.id === id);
       if (!asset) continue;
       const home = homeOf(sourceRows.find((s) => s.id === id)?.lots || []);
-      await store.updateAccount(id, { meta: JSON.stringify({ ...metaOf(asset),
-        cost_only: "1", linked_asset: home.primary,
-        linked_label: home.labels.join(" + ") }) });
+      const linked = assets.find((a) => a.id === home.primary);
+      const meta = metaOf(asset);
+      // The portfolio is reached through DigiFInn and held at the demat it feeds.
+      // Filling those two fields is what makes the account describe itself.
+      const patch = {};
+      if (!String(asset.bank || "").trim()) patch.bank = "DigiFInn";
+      if (!String(asset.number || "").trim() && linked) patch.number = linked.number || "";
+      await store.updateAccount(id, { ...patch, meta: JSON.stringify({ ...meta,
+        cost_only: "1", linked_asset: home.primary, linked_label: home.labels.join(" + "),
+        depository: meta.depository || metaOf(linked).depository || "" }) });
     }
     if (ask) window.bpAsset(demats[0].id);
-    return { attached: n, portfolios: plan.retire.length, orphans: plan.stats.orphan };
+    return { attached: n, portfolios: plan.retire.length, orphans: plan.stats.orphan, added };
   } catch (e) {
     if (ask) alert("Could not consolidate the bonds: " + (e.message || e));
-    return { attached: 0, portfolios: 0, orphans: 0 };
+    return { attached: 0, portfolios: 0, orphans: 0, added: 0 };
   }
 };
 window.bpConsolidateBonds = async () => { await window.bpConsolidate({ ask: true }); };
-window.bpCasCreateAndImport = async () => {
-  const cas = window.bpCasParsed;
-  const route = window.bpCasRoute;
+window.bpCasCreateAndImport = async (key = "cas-host") => {
+  const card = (window.bpCasCards || {})[key] || {};
+  const cas = card.cas || window.bpCasParsed;
+  const route = card.route || window.bpCasRoute;
   if (!cas || !route) return;
   const tail = route.demat ? route.demat.slice(-4) : "";
   const store = await import("./db.js");
@@ -7102,18 +7162,20 @@ window.bpCasCreateAndImport = async () => {
     meta: JSON.stringify({ depository: cas.depository || "" }),
   });
   window.bpCasRoute = casRoute(cas, await store.listAccounts());
+  if (card) card.route = window.bpCasRoute;
   if (!window.bpCasRoute.groups.length) {
-    const host = document.getElementById("cas-host");
+    const host = document.getElementById(key);
     if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Created the
       demat account. Import again to write the holdings.</div>`;
     return;
   }
-  await window.bpCasImport();
+  await window.bpCasImport(key);
 };
-window.bpCasImport = async () => {
-  const cas = window.bpCasParsed;
-  const route = window.bpCasRoute || { groups: [], homeless: [] };
-  const host = document.getElementById("cas-host");
+window.bpCasImport = async (key = "cas-host") => {
+  const card = (window.bpCasCards || {})[key] || {};
+  const cas = card.cas || window.bpCasParsed;
+  const route = card.route || window.bpCasRoute || { groups: [], homeless: [] };
+  const host = document.getElementById(key);
   if (!cas) return;
   // One write per account, never one per class: two classes in the same demat
   // account would otherwise replace each other.
@@ -7126,7 +7188,7 @@ window.bpCasImport = async () => {
       byAsset.get(group.assetId).push(h);
     }
   } else {
-    const id = document.getElementById("cas-target")?.value || "";
+    const id = document.getElementById(`cas-target-${key}`)?.value || "";
     if (id) byAsset.set(id, cas.holdings);
   }
   if (!byAsset.size) return;
@@ -7201,6 +7263,7 @@ window.bpCasImport = async () => {
     const auto = await window.bpConsolidate();
     window.bpCasParsed = null;
     window.bpCasRoute = null;
+    delete window.bpCasCards?.[key];
     if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Imported ${
       written} holdings into ${places} account${places === 1 ? "" : "s"}.${
       skipped ? ` ${skipped} had no matching account and were not written.` : ""}${
