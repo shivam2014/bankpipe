@@ -6786,7 +6786,11 @@ window.bpCasFile = async (file) => {
     window.bpCasRoute = route;
     const total = cas.holdings.reduce((t, h) => t + (Number(h.valuePaise) || 0), 0);
     const kinds = Object.entries(cas.sections || {})
-      .map(([k, n]) => `${n} ${k === "mf" ? "fund" : k}${n === 1 ? "" : "s"}`).join(" · ");
+      .map(([k, n]) => {
+        const one = { bond: "bond", equity: "equity", mf: "fund" }[k] || k;
+        const many = { bond: "bonds", equity: "equities", mf: "funds" }[k] || `${one}s`;
+        return `${n} ${n === 1 ? one : many}`;
+      }).join(" · ");
     const rows = route.groups.map((g) => {
       const name = g.kind === "bond" ? "Bonds" : g.kind === "mf" ? "Funds" : "Equities";
       return `<div class="muted" style="font-size:12px;margin-top:3px">
@@ -6806,7 +6810,7 @@ window.bpCasFile = async (file) => {
         <select id="cas-target">${targets.map((a) => `<option value="${esc(a.id)}">${
           esc(a.label || a.id)}</option>`).join("")}</select></label>`
       : "";
-    const nothing = !route.groups.length && !classes.length;
+    const nothing = !route.groups.length && !needs;
     const shapeText = casShapeText(casShape(pdf, cas));
     // A statement that produced no value at all did not parse: say so and give a
     // report that can be shared, instead of offering an Import button.
