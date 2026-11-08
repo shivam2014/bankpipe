@@ -7092,6 +7092,7 @@ window.bpCasImport = async () => {
     try { await store.snapshotDb("Before CAS import"); } catch (e) {}
     const today = new Date().toISOString().slice(0, 10);
     let written = 0;
+    let carriedCount = 0;
     for (const [assetId, holdings] of byAsset) {
       // A new statement must not wipe the cost a portfolio already gave this
       // account. The units may move; the price per unit stays.
@@ -7106,6 +7107,7 @@ window.bpCasImport = async () => {
         const oldQty = old ? Number(old.quantity) || 0 : 0;
         const carried = old && qty > 0 && oldQty > 0
           ? Math.round(Number(old.cost_paise) * (qty / oldQty)) : null;
+        if (carried) carriedCount += 1;
         return {
           security_id: h.isin,
           label: casHoldingLabel(h),
@@ -7137,7 +7139,8 @@ window.bpCasImport = async () => {
       skipped ? ` ${skipped} had no matching account and were not written.` : ""}${
       auto.attached ? ` Cost and purchase dates attached to ${auto.attached} bond${
         auto.attached === 1 ? "" : "s"} from ${auto.portfolios} portfolio${
-        auto.portfolios === 1 ? "" : "s"}.` : " Cost is missing until a broker report arrives, so gain stays blank on purpose."}</div>`;
+        auto.portfolios === 1 ? "" : "s"}.` : carriedCount ? ` Cost and purchase dates kept
+        for ${carriedCount} bond${carriedCount === 1 ? "" : "s"} already on file.` : " Cost is missing until a broker report arrives, so gain stays blank on purpose."}</div>`;
   } catch (e) {
     alert("Could not import the CAS: " + (e.message || e));
   }
