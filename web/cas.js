@@ -95,6 +95,22 @@ export function parseCas(pdf) {
   }
 
   const isins = ordered.filter((i) => ISIN.test(i.str.toUpperCase().replace(/\s+/g, "")));
+  // The numeric columns of this document, learned from where its numbers sit.
+  // A CAS is a fixed template, so one pass is enough to place every cell.
+  const numericItems = items.filter((i) => NUMBER.test(i.str));
+  const columnXs = [];
+  for (const item of numericItems.slice().sort((a, b) => a.x - b.x)) {
+    const near = columnXs.find((x) => Math.abs(x - item.x) <= 18);
+    if (near === undefined) columnXs.push(item.x);
+  }
+  columnXs.sort((a, b) => a - b);
+  const nearestColumn = (xs, x) => {
+    let best = 0;
+    for (let i = 0; i < xs.length; i++) {
+      if (Math.abs(xs[i] - x) < Math.abs(xs[best] - x)) best = i;
+    }
+    return best;
+  };
   if (!isins.length) {
     return { depository, demat: bo ? bo.boId : "", holdings: [], warnings: [{ code: "no_isin", count: 0 }],
       sections: {}, counts: { rows: 0, quarantined: 0 } };
@@ -121,23 +137,30 @@ export function parseCas(pdf) {
       && !ISIN.test(i.str.toUpperCase()) && !DATE.test(i.str))
       .sort((a, b) => b.str.length - a.str.length)[0];
 
-    // Four numbers, left to right: quantity, face value, price, value. A row
-    // with fewer than two is unreadable, and guessing which number is which is
-    // how a portfolio ends up with a face value of 30.
-    if (numbers.length < 2) {
+    // Numbers belong to the document's columns, not to the row. A cell that wraps
+    // into two text items ("1,00,752." + "60") would otherwise shift every field
+    // to its left, which is how 21 of 50 rows read with no value at all.
+    const perColumn = new Map();
+    for (const n of numbers) {
+      const key = nearestColumn(columnXs, n.x);
+      if (!perColumn.has(key)) perColumn.set(key, n);
+    }
+    const cells = [...perColumn.values()].sort((a, b) => a.x - b.x);
+    if (cells.length < 2) {
       quarantined += 1;
       warnings.push({ code: "short_row", count: 1, isin: "redacted" });
       return;
     }
-    const tail = numbers.slice(-4).map((i) => i.str);
-    const quantityText = tail.length >= 4 ? tail[0] : tail[0];
+    // The coupon sits left of the maturity date; the four fields sit right of it.
+    // Leaving the coupon in the tail made a 10.32% bond read as 10.32 units.
+    const couponCell = date
+      ? cells.filter((i) => i.x < date.x).slice(-1)[0] : null;
+    const fields = couponCell ? cells.filter((i) => i !== couponCell) : cells;
+    const tail = fields.slice(-4).map((i) => i.str);
+    const quantityText = tail[0];
     const faceText = tail.length >= 4 ? tail[1] : "";
     const priceText = tail.length >= 2 ? tail[tail.length - 2] : "";
     const valueText = tail[tail.length - 1];
-    // The coupon sits left of the maturity date; the fields right of it are
-    // quantity, face, price and value.
-    const coupon = date
-      ? numbers.filter((i) => i.x < date.x).slice(-1)[0] : null;
     // The row's own shape decides the class. A printed maturity date means a
     // bond; a fund ISIN starts with INF; anything else is a share. Headings are
     // bilingual and split across cells, and trusting them filed all seventeen
@@ -152,7 +175,7 @@ export function parseCas(pdf) {
       pricePaise: priceText ? rupees(priceText) : null,
       valuePaise: rupees(valueText),
       maturity: date ? isoDate(date.str) : "",
-      couponPct: coupon ? Number(coupon.str.replace(/,/g, "")) : null,
+      couponPct: couponCell ? Number(couponCell.str.replace(/,/g, "")) : null,
     });
   });
 
