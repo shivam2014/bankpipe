@@ -138,11 +138,15 @@ export function parseCas(pdf) {
     // quantity, face, price and value.
     const coupon = date
       ? numbers.filter((i) => i.x < date.x).slice(-1)[0] : null;
-    const kind = sectionAt.get(anchor) || (isin.startsWith("INF") ? "mf" : "equity");
+    // The row's own shape decides the class. A printed maturity date means a
+    // bond; a fund ISIN starts with INF; anything else is a share. Headings are
+    // bilingual and split across cells, and trusting them filed all seventeen
+    // holdings in a real statement as funds.
+    const kind = date ? "bond" : isin.startsWith("INF") ? "mf" : "equity";
     holdings.push({
       isin,
       label: name ? tidy(name.str) : "",
-      kind: kind === "bond" && date ? "bond" : kind === "bond" ? "bond" : kind,
+      kind,
       quantity: quantity(quantityText),
       faceValuePaise: faceText ? rupees(faceText) : null,
       pricePaise: priceText ? rupees(priceText) : null,
