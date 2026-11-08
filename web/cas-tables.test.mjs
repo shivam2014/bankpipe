@@ -86,6 +86,23 @@ test("a folio table is read as mutual funds, not as equities", () => {
   assert.equal(out.holdings[0].valuePaise, 32453601);
 });
 
+test("a fund value is settled by units x NAV, not by the profit column", () => {
+  // The fund header prints "Value in" and "Current" over the same column, with a
+  // profit column after it. The identity picks the right cell.
+  const out = parseCas({ pages: [page([
+    text("ISIN UCC", 15, 400), text("Folio No.", 219, 400), text("No. of Units", 269, 400),
+    text("NAV per", 441, 400), text("Value in", 492, 400),
+    text("Profit/(Loss)", 543, 400),
+    text("INF999900287", 15, 360), text("SOME FUND", 107, 360),
+    money("12345", 257, 360), money("1234.567", 317, 360),
+    money("45.6789", 482, 360), money("56,393.66", 537, 360),
+    money("9,00,000.00", 592, 360),
+  ])] });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].kind, "mf");
+  assert.equal(out.holdings[0].valuePaise, 5639366);
+});
+
 test("a bond table names its maturity and coupon", () => {
   const out = parseCas({ pages: [page([
     text("ISIN", 50, 400), text("ISIN Name", 127, 400), text("Coupon / Rate", 217, 400),

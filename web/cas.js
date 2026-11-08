@@ -90,6 +90,32 @@ function itemsOf(pdf) {
   return items;
 }
 
+// A fund row prints units and NAV beside its value, and the statement computes
+// that value as units x NAV. Finding the cell that satisfies the product is
+// independent of the bilingual headings, which print two labels per column.
+function fundValue(cells) {
+  // Fewer than four numbers is a plain row, not a fund row (units, NAV, value
+  // and at least one more); the identity is too easy to satisfy by accident.
+  if (cells.length < 4) return null;
+  const amount = (c) => Number(String(c.str).replace(/,/g, ""));
+  const ordered = cells.slice().sort((a, b) => (amount(b) || 0) - (amount(a) || 0));
+  for (const candidate of ordered) {
+    const target = amount(candidate);
+    if (!(target > 0) || target > 1e12) continue;
+    for (const units of cells) {
+      const u = amount(units);
+      if (!(u > 1) || u >= target) continue;
+      for (const nav of cells) {
+        if (nav === units) continue;
+        const n = amount(nav);
+        if (!(n > 1) || n >= target) continue;
+        if (Math.abs(u * n - target) <= Math.max(1, target * 0.005)) return candidate;
+      }
+    }
+  }
+  return null;
+}
+
 function linesOf(pageItems, tolerance) {
   const out = [];
   for (const item of pageItems.slice().sort((a, b) => b.y - a.y || a.x - b.x)) {
@@ -191,7 +217,14 @@ function readTables(items, tables) {
         return null;
       };
       const qtyCell = find(QUANTITY_LABEL);
+      // A folio table prints "Current" for the value and "Bal" for the units,
+      // beside a profit column. Two of those columns can share a heading in the
+      // bilingual header, so a fund's value is settled by the identity the
+      // statement itself uses: units x NAV is the value it prints. Whichever
+      // cell satisfies that is the value, whatever the heading says.
+      const fundCell = table.kind === "mf" ? fundValue(cells) : null;
       const valueCell = find(VALUE_LABEL)
+        || fundCell
         || [...perColumn.values()].sort((a, b) => b.right - a.right)[0]
         || null;
       if (!valueCell && !qtyCell) return;
