@@ -8608,6 +8608,9 @@ function assetDetailCard(a) {
       ["bank", "Broker", a.bank],
       ["number", "Demat account", a.number],
       ["depository", "Held at", meta.depository || ""],
+      // A cost record is no longer a place bonds sit; it says which demat holds
+      // them, so the two boxes on the Assets page stop looking unrelated.
+      ...(meta.linked_label ? [["linked", "Linked to", meta.linked_label]] : []),
       ["holder", "Owner", a.holder],
       ["notes", "Notes", a.notes],
     ]
@@ -8625,7 +8628,10 @@ function assetDetailCard(a) {
       ["notes", "Notes", a.notes],
     ].filter(([field]) => detailsFor(cat).includes(field)))
     .filter(([, , v]) => v !== undefined);
-  const row = ([field, label, v]) => `<div class="kv-row" data-field="${field}"
+  const row = ([field, label, v]) => field === "linked"
+    ? `<div class="kv-row" data-field="linked"><div class="k">${label}</div>
+      <div class="v"><span class="vv">${v ? esc(v) : "—"}</span></div></div>`
+    : `<div class="kv-row" data-field="${field}"
       data-value="${esc(v || "")}">
     <div class="k">${label}</div>
     <div class="v"><span class="vv${field === "number" || field === "ifsc" ? " bp-sensitive" : ""}"
