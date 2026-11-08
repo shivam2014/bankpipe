@@ -75,6 +75,17 @@ function isoAny(text) {
 
 const isIsin = (s) => ISIN.test(String(s).toUpperCase().replace(/\s+/g, ""));
 
+// A statement is a snapshot, and its own date is the one that decides which
+// snapshot is newer. "as on 30-09-2026" is printed beside the total.
+function asOfDate(text) {
+  const numeric = String(text).match(/\bas on\s+(\d{1,2})[-/](\d{1,2})[-/](\d{4})/i);
+  if (numeric) {
+    return `${numeric[3]}-${String(numeric[2]).padStart(2, "0")}-${String(numeric[1]).padStart(2, "0")}`;
+  }
+  const named = String(text).match(/\bas on\s+(\d{1,2})[- ]([A-Za-z]{3})[- ](\d{4})/i);
+  return named ? isoDate(`${named[1]}-${named[2]}-${named[3]}`) : "";
+}
+
 /** Flatten every page's text items, keeping the page and the right edge. */
 function itemsOf(pdf) {
   const items = [];
@@ -396,6 +407,7 @@ export function parseCas(pdf) {
   return {
     depository,
     demat: bo ? bo.boId : "",
+    asOf: asOfDate(text),
     holdings,
     sections,
     warnings: result.warnings,

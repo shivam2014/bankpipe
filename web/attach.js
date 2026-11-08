@@ -139,6 +139,48 @@ export function planConsolidation({ demats = [], sources = [] } = {}) {
 }
 
 /**
+ * Merge a cost file into an account filled from a statement.
+ *
+ * The statement is a snapshot of one day. A file that carries dated purchases
+ * can therefore say two different things:
+ *  - a unit the statement no longer lists was sold, so the statement wins;
+ *  - a unit bought after the statement's date is simply too new to appear in
+ *    it, so the file wins and the unit is added.
+ * @param {{positions?: Array<object>, rows?: Array<object>, asOf?: string}} input
+ * @returns {{rows: Array<object>, attached: number, added: number, stale: number}}
+ */
+export function planCostFile({ positions = [], rows = [], asOf = "" } = {}) {
+  const plan = planConsolidation({
+    demats: [{ id: "account", positions }],
+    sources: [{ id: "file", lots: rows }],
+  });
+  const merged = applyCost(positions, plan.updates);
+  const held = new Set((positions || []).map((p) => clean(p.security_id)));
+  const missing = (rows || []).filter((r) => r && r.security_id && !held.has(clean(r.security_id)));
+  const newer = missing.filter((r) => !asOf || String(r.purchase_date || "") > asOf);
+  const added = newer.map((r) => {
+    const isin = clean(r.security_id);
+    return {
+      security_id: isin,
+      label: r.label || "",
+      category: r.category || (/^INF/.test(isin) ? "mf" : "equity"),
+      quantity: r.quantity === undefined ? null : r.quantity,
+      cost_paise: r.cost_paise === undefined ? null : r.cost_paise,
+      // No statement has priced it yet, so it carries its cost until one does.
+      value_paise: r.value_paise === undefined || r.value_paise === null
+        ? (r.cost_paise === undefined ? null : r.cost_paise) : r.value_paise,
+      purchase_date: r.purchase_date || "",
+    };
+  });
+  return {
+    rows: [...merged, ...added],
+    attached: plan.updates.length,
+    added: added.length,
+    stale: missing.length - added.length,
+  };
+}
+
+/**
  * Merge the cost updates into the position rows, so the caller can write the
  * whole snapshot back without losing the fields it does not own.
  * @param {Array<object>} positions

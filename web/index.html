@@ -2311,17 +2311,18 @@ window.bpHoldingsPreview = async (id) => {
   // on the units: the depository said how many, the broker says what they cost.
   const fromStatement = String(metaOf(asset).holdings_source || "") === "cas";
   if (fromStatement) {
-    const { planConsolidation } = await import("./attach.js");
-    const plan = planConsolidation({ demats: [{ id, positions: before }],
-      sources: [{ id: "file", lots: rows }] });
+    const { planCostFile } = await import("./attach.js");
+    const plan = planCostFile({ positions: before, rows,
+      asOf: String(metaOf(asset).holdings_as_of || "") });
     host.innerHTML = `<div class="card pad">
       <b>${rows.length} holdings in ${esc(window.bpHoldingsFileName || "the file")}</b>
       <div class="muted" style="font-size:12.5px;margin-top:6px">This account was filled from a
-      depository statement, so the units and values stay as the statement reported them. The
-      file supplies <b>cost and purchase date</b> by ISIN.</div>
+      depository statement, so the units and values stay as the statement reported them — unless
+      the file has a purchase dated after it, which the statement could not have seen.</div>
       <div class="stats" style="margin-top:10px">
-        <div><div class="k">Cost to attach</div><div class="v">${plan.updates.length}</div></div>
-        <div><div class="k">No match</div><div class="v">${plan.stats.noLot}</div></div>
+        <div><div class="k">Cost to attach</div><div class="v">${plan.attached}</div></div>
+        <div><div class="k">Bought after the statement</div><div class="v">${plan.added}</div></div>
+        <div><div class="k">Older, ignored</div><div class="v">${plan.stale}</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
         <button class="btn primary" onclick="bpHoldingsApply(${jsArg(id)})">Attach cost from this file</button>
@@ -2386,16 +2387,16 @@ window.bpHoldingsApply = async (id) => {
     // Against a statement-derived account this file is a cost source: it never
     // rewrites the units the depository reported.
     if (String(meta.holdings_source || "") === "cas") {
-      const { planConsolidation, applyCost } = await import("./attach.js");
+      const { planCostFile } = await import("./attach.js");
       const before = await store.listHoldings(id);
-      const plan = planConsolidation({ demats: [{ id, positions: before }],
-        sources: [{ id: "file", lots: rows }] });
-      if (!plan.updates.length) {
-        alert("No ISIN in this file matches the holdings on this account.");
+      const plan = planCostFile({ positions: before, rows,
+        asOf: String(meta.holdings_as_of || "") });
+      if (!plan.attached && !plan.added) {
+        alert("Nothing in this file is newer than the statement, and no ISIN matches it.");
         return;
       }
       try { await store.snapshotDb("Before attaching cost"); } catch (e) {}
-      await store.replaceHoldings(id, applyCost(before, plan.updates), today);
+      await store.replaceHoldings(id, plan.rows, today);
       await store.updateAccount(id, { meta: JSON.stringify({ ...meta,
         cost_source: window.bpHoldingsFileName || "", cost_as_of: today }) });
       window.bpHoldingsRows = null;
@@ -7146,11 +7147,14 @@ window.bpCasImport = async () => {
     const today = new Date().toISOString().slice(0, 10);
     let written = 0;
     let carriedCount = 0;
+    let keptNewer = 0;
+    const asOf = cas.asOf || today;
     for (const [assetId, holdings] of byAsset) {
       // A new statement must not wipe the cost a portfolio already gave this
       // account. The units may move; the price per unit stays.
+      const existing = await store.listHoldings(assetId);
       const prior = new Map();
-      for (const old of await store.listHoldings(assetId)) {
+      for (const old of existing) {
         if (old.cost_paise === null || old.cost_paise === undefined) continue;
         prior.set(String(old.security_id || "").toUpperCase(), old);
       }
@@ -7171,12 +7175,22 @@ window.bpCasImport = async () => {
           purchase_date: carried && old ? old.purchase_date || "" : "",
         };
       });
+      // A statement is a snapshot of one day. A unit bought after that day is
+      // not missing from the account, it is too new to be on the paper.
+      const stamped = new Set(holdings.map((h) => String(h.isin || "").toUpperCase()));
+      for (const old of existing) {
+        const isin = String(old.security_id || "").toUpperCase();
+        if (!isin || stamped.has(isin)) continue;
+        if (!old.purchase_date || old.purchase_date <= asOf) continue;
+        rows.push({ ...old });
+        keptNewer += 1;
+      }
       await store.replaceHoldings(assetId, rows, today);
       written += rows.length;
       const asset = (await store.listAccounts()).find((a) => a.id === assetId);
       if (asset) {
         await store.updateAccount(assetId, { meta: JSON.stringify({ ...metaOf(asset),
-          holdings_source: "cas", holdings_as_of: today,
+          holdings_source: "cas", holdings_as_of: asOf,
           holdings_file: cas.depository ? `${cas.depository} CAS` : "CAS" }) });
       }
     }
@@ -7193,7 +7207,9 @@ window.bpCasImport = async () => {
       auto.attached ? ` Cost and purchase dates attached to ${auto.attached} bond${
         auto.attached === 1 ? "" : "s"} from ${auto.portfolios} portfolio${
         auto.portfolios === 1 ? "" : "s"}.` : carriedCount ? ` Cost and purchase dates kept
-        for ${carriedCount} bond${carriedCount === 1 ? "" : "s"} already on file.` : " Cost is missing until a broker report arrives, so gain stays blank on purpose."}</div>`;
+        for ${carriedCount} bond${carriedCount === 1 ? "" : "s"} already on file.` : " Cost is missing until a broker report arrives, so gain stays blank on purpose."}${
+      keptNewer ? ` ${keptNewer} holding${keptNewer === 1 ? "" : "s"} bought after the statement
+        date were kept.` : ""}</div>`;
   } catch (e) {
     alert("Could not import the CAS: " + (e.message || e));
   }

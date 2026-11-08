@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachCost, applyCost, coverageBySource, planConsolidation } from "./attach.js";
+import { attachCost, applyCost, coverageBySource, planConsolidation, planCostFile } from "./attach.js";
 
 const pos = (isin, quantity, cost = null) =>
   ({ security_id: isin, quantity, cost_paise: cost });
@@ -136,4 +136,57 @@ test("a bond that already has a cost is left alone", () => {
   });
   assert.equal(plan.updates.length, 0);
   assert.equal(plan.stats.alreadyPriced, 1);
+});
+
+// --- a statement and a later file --------------------------------------------
+
+const held = (id, qty, extra = {}) => ({ security_id: id, quantity: qty,
+  cost_paise: null, purchase_date: "", ...extra });
+
+test("a unit the statement no longer lists counts as sold", () => {
+  const out = planCostFile({
+    positions: [held("INE1", 8)],
+    rows: [{ security_id: "INE1", quantity: 10, cost_paise: 100000,
+      purchase_date: "2026-05-01" }],
+    asOf: "2026-10-31",
+  });
+  assert.equal(out.rows.length, 1);
+  assert.equal(out.added, 0);
+  assert.equal(out.rows[0].cost_paise, 80000);
+});
+
+test("a purchase after the statement date is added, not dropped", () => {
+  const out = planCostFile({
+    positions: [held("INE1", 8)],
+    rows: [
+      { security_id: "INE1", quantity: 8, cost_paise: 80000, purchase_date: "2026-05-01" },
+      { security_id: "INE2", quantity: 5, cost_paise: 50000, purchase_date: "2026-11-05" },
+    ],
+    asOf: "2026-10-31",
+  });
+  assert.equal(out.added, 1);
+  const row = out.rows.find((r) => r.security_id === "INE2");
+  assert.equal(row.quantity, 5);
+  assert.equal(row.cost_paise, 50000);
+  assert.equal(row.value_paise, 50000);
+});
+
+test("an undated holding the statement does not list is left alone", () => {
+  const out = planCostFile({
+    positions: [held("INE1", 8)],
+    rows: [{ security_id: "INE2", quantity: 5, cost_paise: 50000, purchase_date: "" }],
+    asOf: "2026-10-31",
+  });
+  assert.equal(out.added, 0);
+  assert.equal(out.stale, 1);
+});
+
+test("a file older than the statement never overrides it", () => {
+  const out = planCostFile({
+    positions: [held("INE1", 8)],
+    rows: [{ security_id: "INE2", quantity: 5, cost_paise: 50000, purchase_date: "2026-09-01" }],
+    asOf: "2026-10-31",
+  });
+  assert.equal(out.added, 0);
+  assert.equal(out.rows.length, 1);
 });
