@@ -822,10 +822,22 @@ function go(name, opts = {}) {
   b.setAttribute("aria-current", b.dataset.v === name ? "page" : "false"));
   document.getElementById("view").innerHTML = views[name]();
   if (name === "import") wireImport();
-  if (name === "asset") setTimeout(() => {
-    if (window.bpAssetKinds) window.bpAssetKinds();
-    if (window.bpReconFill) window.bpReconFill();
-  }, 0);
+  if (name === "asset") {
+    // The account page paints asynchronously, so the card is not in the DOM when
+    // this runs. Wait for it, bounded, instead of firing once into nothing.
+    const fill = (left) => {
+      const ready = document.getElementById("attach-card")
+        || document.getElementById("recon-card");
+      if (ready) {
+        for (const hook of ["bpAssetKinds", "bpAttachFill", "bpReconFill"]) {
+          try { window[hook]?.(); } catch (e) {}
+        }
+        return;
+      }
+      if (left > 0) setTimeout(() => fill(left - 1), 50);
+    };
+    setTimeout(() => fill(20), 0);
+  }
   if (name === "verify") wireVerify();
   if (name === "settings") setTimeout(() => {
     if (window.bpMarkMode) window.bpMarkMode();
@@ -6852,6 +6864,78 @@ window.bpCopyCasShape = async (btn) => {
     alert(text);
   }
 };
+// Attaching what was paid onto what is held. The bond portfolios stay as the
+// record of cost; once their lots are on the demat they stop counting, so the
+// same bond is not in net worth twice.
+window.bpAttachFill = async () => {
+  const host = document.getElementById("attach-card");
+  const id = window.bpState?.asset || window.bpState?.assetView || "";
+  if (!host || !id) return;
+  try {
+    const store = await import("./db.js");
+    const assets = await store.listAccounts();
+    const me = assets.find((a) => a.id === id);
+    if (!me || categoryOf(me) !== "demat") { host.innerHTML = ""; return; }
+    const positions = (await store.listHoldings(id)).filter((h) => h.category === "bond");
+    const missing = positions.filter((h) => h.cost_paise === null);
+    if (!positions.length) { host.innerHTML = ""; return; }
+    const sources = assets.filter((a) => categoryOf(a) === "bonds"
+      && !String(a.meta || "").includes("cost_only"));
+    if (!sources.length) {
+      host.innerHTML = missing.length
+        ? "" : `<div class="card pad" style="margin-bottom:14px"><h2 style="margin:0">Cost</h2>
+            <div class="muted" style="font-size:12.5px;margin-top:5px">Every bond here has a
+            cost recorded.</div></div>`;
+      return;
+    }
+    const lots = (await Promise.all(sources.map((a) => store.listHoldings(a.id)))).flat();
+    const { attachCost } = await import("./attach.js");
+    const plan = attachCost({ positions: missing, lots });
+    const ready = plan.updates.length;
+    host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+        <h2 style="margin:0">Cost from ${sources.length === 1 ? "the bond portfolio"
+          : `${sources.length} bond portfolios`}</h2>
+        <span class="muted" style="font-size:11.5px">${ready} of ${missing.length} match</span></div>
+      <div class="muted" style="font-size:12.5px;margin-top:5px">Quantity comes from the
+      depository; cost and purchase date come from DigiFInn, joined by ISIN. A bond whose
+      quantities differ is left alone.</div>
+      ${ready ? `<button class="btn primary" style="margin-top:10px"
+        onclick="bpAttachCost()">Attach cost to ${ready} bond${ready === 1 ? "" : "s"}</button>` : ""}
+      ${plan.skipped.length && !ready ? `<div class="muted" style="font-size:12px;margin-top:8px">
+        Nothing matched: ${plan.skipped.map((s) => s.reason).filter((v, i, a) => a.indexOf(v) === i).join(", ")}.</div>` : ""}
+    </div>`;
+    window.bpAttachPlan = { id, sources: sources.map((a) => a.id), plan };
+  } catch (e) {
+    host.innerHTML = `<div class="muted" style="font-size:12px;color:var(--red)">${
+      String(e.message || e)}</div>`;
+  }
+};
+window.bpAttachCost = async () => {
+  const state = window.bpAttachPlan;
+  if (!state) return;
+  const n = state.plan.updates.length;
+  if (!confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"}? The bond portfolio becomes a
+cost record and stops counting in net worth.`)) return;
+  try {
+    const store = await import("./db.js");
+    const { applyCost } = await import("./attach.js");
+    const today = new Date().toISOString().slice(0, 10);
+    const positions = await store.listHoldings(state.id);
+    const merged = applyCost(positions, state.plan.updates);
+    await store.replaceHoldings(state.id, merged, today);
+    for (const sourceId of state.sources) {
+      const asset = (await store.listAccounts()).find((a) => a.id === sourceId);
+      if (!asset) continue;
+      await store.updateAccount(sourceId, { meta: JSON.stringify({ ...metaOf(asset),
+        cost_only: "1" }) });
+    }
+    window.bpAttachPlan = null;
+    window.bpAsset(state.id);
+  } catch (e) {
+    alert("Could not attach the cost: " + (e.message || e));
+  }
+};
 window.bpCasCreateAndImport = async () => {
   const cas = window.bpCasParsed;
   const route = window.bpCasRoute;
@@ -8459,6 +8543,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? positionCard(a, holdings) : ""}
   ${a ? assetFocusCard(a) : ""}
   ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
+  ${a && cat === "demat" ? `<div id="attach-card"></div>` : ""}
   ${a ? assetDetailCard(a) : ""}
   ${a && (cat === "bonds" || cat === "demat") ? `<div id="recon-card"></div>` : ""}
   ${a ? valuationCard(a) : ""}

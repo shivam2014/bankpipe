@@ -41,6 +41,12 @@ export function typesFor(id) {
 // The page asks one function for a value, so FD accrual, gold PnL and bank
 // balances cannot drift apart between screens.
 export function assetValue(asset) {
+  // A cost record is not a holding: after its lots are attached to the demat
+  // account, counting it again would put the same bond in net worth twice.
+  const meta = (() => {
+    try { return JSON.parse(asset?.meta || "{}") || {}; } catch (e) { return {}; }
+  })();
+  if (meta.cost_only) return { paise: null, source: "cost record · not counted" };
   // A class row is one part of a demat account, not the whole account.
   if (asset?.classPart) {
     const part = Number(asset[`class_${asset.classPart}_value`]) || 0;
