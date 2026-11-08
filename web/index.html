@@ -7204,33 +7204,32 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
   const { boId } = await import("./bo-id.js");
   const where = cas.depository || "";
   // A consolidated statement can name more than one demat. Each becomes its own
-  // account, labelled with the DP that holds it, because that is how a person
-  // recognises them on a statement.
-  const pending = [...new Map((route.homeless || [])
-    .filter((g) => g.boId)
-    .map((g) => [g.boId, g])).values()];
-  let all = await store.listAccounts();
-  const demats = all.filter((a) => String(a.category || "") === "demat"
-    && !/mutual\s*fund|^mf$/i.test(String(a.subtype || "")));
-  const claimed = new Set();
-  // An account already matched by number belongs to another account in this same
-  // statement; it must never be stolen by the overlap test.
-  for (const a of route.accounts || []) if (a.assetId) claimed.add(a.assetId);
+  // account; a legacy account that only ever held the same securities under a
+  // shorter number is relabelled rather than duplicated. The loop re-routes after
+  // every pass because relabelling one account changes what the next one is.
   const isinsOf = (bo) => new Set((cas.accounts || [])
     .find((a) => a.boId === bo)?.holdings.map((h) => String(h.isin || "").toUpperCase()) || []);
-  for (const group of pending) {
-    const tail = group.boId.slice(-4);
-    const dp = shortDp(group.dpName);
-    const label = `Demat · ${dp || where || "demat"} · …${tail}`;
-    // An account this same statement filled before under a shorter number is the
-    // same account, not a new one: relabel it and keep its history.
-    const byId = demats.find((a) => a.id === `cas-demat-${tail}` && !claimed.has(a.id));
-    let twin = byId || null;
-    if (!twin) {
+  for (let pass = 0; pass < 4; pass += 1) {
+    const current = casRoute(cas, await store.listAccounts());
+    const pending = [...new Map((current.homeless || [])
+      .filter((g) => g.boId)
+      .map((g) => [g.boId, g])).values()];
+    if (!pending.length) { window.bpCasRoute = current; break; }
+    const all = await store.listAccounts();
+    const demats = all.filter((a) => String(a.category || "") === "demat"
+      && !/mutual\s*fund|^mf$/i.test(String(a.subtype || "")));
+    // An account already matched by number belongs to another account in this
+    // statement; the overlap test must never steal it.
+    const claimed = new Set((current.accounts || [])
+      .filter((a) => a.assetId).map((a) => a.assetId));
+    for (const group of pending) {
+      const tail = group.boId.slice(-4);
+      const dp = shortDp(group.dpName);
+      const label = `Demat · ${dp || where || "demat"} · …${tail}`;
+      let twin = null;
       const mine = isinsOf(group.boId);
       for (const a of demats) {
         if (claimed.has(a.id)) continue;
-        if (boId(a.number).boId === group.boId) { twin = a; break; }
         const rows = await store.listHoldings(a.id);
         const theirs = new Set(rows.map((r) => String(r.security_id || "").toUpperCase()));
         if (!mine.size || !theirs.size) continue;
@@ -7238,19 +7237,22 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
         for (const isin of mine) if (theirs.has(isin)) hit += 1;
         if (hit / mine.size >= 0.8) { twin = a; break; }
       }
-    }
-    if (twin) {
-      claimed.add(twin.id);
-      if (boId(twin.number).boId !== group.boId || twin.label !== label) {
+      if (twin) {
+        claimed.add(twin.id);
         await store.updateAccount(twin.id, { number: group.boId, label });
+        continue;
       }
-      continue;
+      const base = `cas-demat-${tail}`;
+      let id = base;
+      let n = 2;
+      while (all.some((a) => a.id === id)) id = `${base}-${n++}`;
+      await store.createAccount({
+        id, label, category: "demat", subtype: "equity", type: "equity",
+        number: group.boId, holder: "",
+        meta: JSON.stringify({ depository: where, dp: group.dpName || "" }),
+      });
+      all.push({ id, label, number: group.boId, category: "demat" });
     }
-    await store.createAccount({
-      id: `cas-demat-${tail}`, label, category: "demat", subtype: "equity",
-      type: "equity", number: group.boId, holder: "",
-      meta: JSON.stringify({ depository: where, dp: group.dpName || "" }),
-    });
   }
   window.bpCasRoute = casRoute(cas, await store.listAccounts());
   if (card) card.route = window.bpCasRoute;
