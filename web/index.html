@@ -7107,7 +7107,11 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
       const linked = assets.find((a) => a.id === home.primary);
       const patch = {};
       if (!String(asset.bank || "").trim()) patch.bank = "DigiFInn";
-      if (!String(asset.number || "").trim() && linked) patch.number = linked.number || "";
+      // The number follows the demat it is linked to; the link is derived, so a
+      // corrected demat number must not leave the portfolio quoting the old one.
+      if (linked && String(asset.number || "").trim() !== String(linked.number || "").trim()) {
+        patch.number = linked.number || "";
+      }
       if (meta.linked_asset === home.primary && meta.linked_label === label
         && !Object.keys(patch).length) continue;
       await store.updateAccount(asset.id, { ...patch, meta: JSON.stringify({ ...meta,
