@@ -7201,6 +7201,7 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
   const route = card.route || window.bpCasRoute;
   if (!cas || !route) return;
   const store = await import("./db.js");
+  const { boId } = await import("./bo-id.js");
   const where = cas.depository || "";
   // A consolidated statement can name more than one demat. Each becomes its own
   // account, labelled with the DP that holds it, because that is how a person
