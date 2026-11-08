@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachCost, applyCost, coverageBySource, planConsolidation, planCostFile, planFreshLots } from "./attach.js";
+import { attachCost, applyCost, coverageBySource, planConsolidation, planCostFile, planFreshLots, planSnapshot } from "./attach.js";
 
 const pos = (isin, quantity, cost = null) =>
   ({ security_id: isin, quantity, cost_paise: cost });
@@ -222,4 +222,58 @@ test("an undated lot is never assumed to be new", () => {
     asOf: "2026-10-31",
   });
   assert.equal(add.length, 0);
+});
+
+// --- an undated snapshot -----------------------------------------------------
+
+const snap = (id, qty, extra = {}) => ({ security_id: id, quantity: qty,
+  cost_paise: null, value_paise: null, purchase_date: "", ...extra });
+
+test("a newer snapshot wins on quantity, even with no dates", () => {
+  const out = planSnapshot({
+    positions: [held("INE1", 100, { cost_paise: 18000000 })],
+    rows: [snap("INE1", 150, { value_paise: 30000000 })],
+    fileAsOf: "2026-11-09",
+    statementAsOf: "2026-09-30",
+  });
+  assert.equal(out.mode, "reconcile");
+  assert.equal(out.rows[0].quantity, 150);
+  assert.equal(out.rows[0].value_paise, 30000000);
+  // the 50 new units have no known cost, so the known cost is kept
+  assert.equal(out.rows[0].cost_paise, 18000000);
+});
+
+test("a smaller snapshot drops the sold part and its cost", () => {
+  const out = planSnapshot({
+    positions: [held("INE1", 100, { cost_paise: 18000000 })],
+    rows: [snap("INE1", 80)],
+    fileAsOf: "2026-11-09",
+    statementAsOf: "2026-09-30",
+  });
+  assert.equal(out.rows[0].quantity, 80);
+  assert.equal(out.rows[0].cost_paise, 14400000);
+});
+
+test("a snapshot adds what the statement could not see, and drops what it lost", () => {
+  const out = planSnapshot({
+    positions: [held("INE1", 100), held("INE2", 5)],
+    rows: [snap("INE1", 100), snap("INE3", 10, { value_paise: 250000 })],
+    fileAsOf: "2026-11-09",
+    statementAsOf: "2026-09-30",
+  });
+  assert.equal(out.added, 1);
+  assert.equal(out.removed, 1);
+  assert.deepEqual(out.rows.map((r) => r.security_id).sort(), ["INE1", "INE3"]);
+});
+
+test("a snapshot older than the statement only supplies cost", () => {
+  const out = planSnapshot({
+    positions: [held("INE1", 100)],
+    rows: [snap("INE1", 150, { cost_paise: 27000000 })],
+    fileAsOf: "2026-09-01",
+    statementAsOf: "2026-09-30",
+  });
+  assert.equal(out.mode, "cost");
+  assert.equal(out.rows[0].quantity, 100);
+  assert.equal(out.rows[0].cost_paise, 18000000);
 });

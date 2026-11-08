@@ -127,12 +127,15 @@ export function parseDate(raw) {
     else if (month > 12) { [day, month] = [month, day]; }
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
-  m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3,9})[\s-]+(\d{4})$/);
+  m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3,9})[\s-]+(\d{2,4})$/);
   if (m) {
     const months = ["jan", "feb", "mar", "apr", "may", "jun",
       "jul", "aug", "sep", "oct", "nov", "dec"];
     const month = months.indexOf(m[2].slice(0, 3).toLowerCase()) + 1;
-    if (month) return `${m[3]}-${String(month).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+    // A two-digit year must not reach `new Date`, which reads it in local time and
+    // then shifts the day when it is turned back into UTC.
+    const year = Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]);
+    if (month) return `${year}-${String(month).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
   }
   const d = new Date(s);
   return isNaN(d) ? "" : d.toISOString().slice(0, 10);

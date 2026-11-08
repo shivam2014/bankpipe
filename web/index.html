@@ -2311,21 +2311,37 @@ window.bpHoldingsPreview = async (id) => {
   // on the units: the depository said how many, the broker says what they cost.
   const fromStatement = String(metaOf(asset).holdings_source || "") === "cas";
   if (fromStatement) {
-    const { planCostFile } = await import("./attach.js");
-    const plan = planCostFile({ positions: before, rows,
-      asOf: String(metaOf(asset).holdings_as_of || "") });
+    const { planSnapshot } = await import("./attach.js");
+    const meta = metaOf(asset);
+    const statementAsOf = String(meta.holdings_as_of || "");
+    const today = new Date().toISOString().slice(0, 10);
+    // A broker export often has no date of its own. The day it was exported is
+    // the honest default, and the person can correct it before applying.
+    const fileAsOf = String(window.bpHoldingsAsOf || today);
+    const plan = planSnapshot({ positions: before, rows, fileAsOf, statementAsOf });
+    const reconcile = plan.mode === "reconcile";
     host.innerHTML = `<div class="card pad">
       <b>${rows.length} holdings in ${esc(window.bpHoldingsFileName || "the file")}</b>
-      <div class="muted" style="font-size:12.5px;margin-top:6px">This account was filled from a
-      depository statement, so the units and values stay as the statement reported them — unless
-      the file has a purchase dated after it, which the statement could not have seen.</div>
+      <label class="field" style="margin-top:8px">As on
+        <input type="date" id="h-asof" value="${esc(fileAsOf)}"
+          onchange="window.bpHoldingsAsOf=this.value;bpHoldingsPreview(${jsArg(id)})">
+      </label>
+      <div class="muted" style="font-size:12.5px;margin-top:6px">${reconcile
+        ? `This file is newer than the statement (${esc(statementAsOf)}), so its quantities
+           are the newer truth for this account: units it adds were bought, units it drops
+           were sold, and cost follows the units.`
+        : `This file is not newer than the statement (${esc(statementAsOf || "no date")}), so
+           it only supplies <b>cost and purchase date</b>; the units stay as the statement
+           reported them. Units bought after that date are added.`}</div>
       <div class="stats" style="margin-top:10px">
-        <div><div class="k">Cost to attach</div><div class="v">${plan.attached}</div></div>
-        <div><div class="k">Bought after the statement</div><div class="v">${plan.added}</div></div>
-        <div><div class="k">Older, ignored</div><div class="v">${plan.stale}</div></div>
+        <div><div class="k">New</div><div class="v">${plan.added}</div></div>
+        <div><div class="k">Gone</div><div class="v">${plan.removed}</div></div>
+        <div><div class="k">Quantity changed</div><div class="v">${plan.changed}</div></div>
+        <div><div class="k">Cost attached</div><div class="v">${plan.attached}</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn primary" onclick="bpHoldingsApply(${jsArg(id)})">Attach cost from this file</button>
+        <button class="btn primary" onclick="bpHoldingsApply(${jsArg(id)})">${
+          reconcile ? "Apply this snapshot" : "Attach cost from this file"}</button>
         <button class="btn" onclick="go('import')">Cancel</button>
       </div>
     </div>`;
@@ -2387,20 +2403,23 @@ window.bpHoldingsApply = async (id) => {
     // Against a statement-derived account this file is a cost source: it never
     // rewrites the units the depository reported.
     if (String(meta.holdings_source || "") === "cas") {
-      const { planCostFile } = await import("./attach.js");
+      const { planSnapshot } = await import("./attach.js");
       const before = await store.listHoldings(id);
-      const plan = planCostFile({ positions: before, rows,
-        asOf: String(meta.holdings_as_of || "") });
-      if (!plan.attached && !plan.added) {
+      const statementAsOf = String(meta.holdings_as_of || "");
+      const fileAsOf = String(window.bpHoldingsAsOf || today);
+      const plan = planSnapshot({ positions: before, rows, fileAsOf, statementAsOf });
+      if (plan.mode === "cost" && !plan.attached && !plan.rows.length) {
         alert("Nothing in this file is newer than the statement, and no ISIN matches it.");
         return;
       }
-      try { await store.snapshotDb("Before attaching cost"); } catch (e) {}
+      try { await store.snapshotDb("Before applying a holdings file"); } catch (e) {}
       await store.replaceHoldings(id, plan.rows, today);
       await store.updateAccount(id, { meta: JSON.stringify({ ...meta,
-        cost_source: window.bpHoldingsFileName || "", cost_as_of: today }) });
+        cost_source: window.bpHoldingsFileName || "", cost_as_of: today,
+        ...(plan.mode === "reconcile" ? { holdings_as_of: fileAsOf } : {}) }) });
       window.bpHoldingsRows = null;
       window.bpHoldingsFileName = null;
+      window.bpHoldingsAsOf = null;
       window.bpAsset(id);
       return;
     }

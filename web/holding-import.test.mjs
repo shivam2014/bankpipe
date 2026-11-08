@@ -64,3 +64,10 @@ test("diffs added, removed and changed holdings", () => {
   assert.equal(d.changed[0].after.quantity, 12);
   assert.equal(d.unchanged, 1);
 });
+
+// A broker report prints "26-Oct-26". Reading it through `new Date` shifted it a
+// day in IST, which is enough to change which snapshot is newer.
+test("a two-digit year in a dated name is not shifted by the timezone", () => {
+  assert.equal(parseDate("26-Oct-26"), "2026-10-26");
+  assert.equal(parseDate("01-Jan-25"), "2025-01-01");
+});

@@ -202,6 +202,81 @@ export function planCostFile({ positions = [], rows = [], asOf = "" } = {}) {
 }
 
 /**
+ * Merge a holdings snapshot into an account filled from a statement.
+ *
+ * A broker export often carries quantities and market values but no date and no
+ * cost. Its date is then the day it was exported, which the caller supplies. If
+ * that is newer than the statement, the snapshot is the newer truth for that
+ * demat: units it adds were bought, units it drops were sold. If it is older,
+ * only cost may be taken from it — the statement still owns the quantities.
+ * @param {{positions?: Array<object>, rows?: Array<object>, fileAsOf?: string,
+ *   statementAsOf?: string}} input
+ * @returns {{rows: Array<object>, mode: "reconcile"|"cost", added: number,
+ *   removed: number, changed: number, attached: number}}
+ */
+export function planSnapshot({ positions = [], rows = [], fileAsOf = "",
+  statementAsOf = "" } = {}) {
+  const byIsin = new Map();
+  for (const row of positions || []) {
+    const isin = clean(row.security_id);
+    if (isin) byIsin.set(isin, row);
+  }
+  const newer = !!fileAsOf && (!statementAsOf || fileAsOf > statementAsOf);
+  if (!newer) {
+    const plan = planCostFile({ positions, rows, asOf: statementAsOf });
+    return { rows: plan.rows, mode: "cost", added: 0, removed: 0, changed: 0,
+      attached: plan.attached };
+  }
+  const seen = new Set();
+  const out = [];
+  let added = 0;
+  let changed = 0;
+  for (const row of rows || []) {
+    const isin = clean(row.security_id);
+    if (!isin) continue;
+    seen.add(isin);
+    const prev = byIsin.get(isin);
+    const qty = row.quantity === undefined ? null : row.quantity;
+    if (!prev) {
+      added += 1;
+      out.push({
+        security_id: isin,
+        label: row.label || "",
+        category: row.category || (/^INF/.test(isin) ? "mf" : "equity"),
+        quantity: qty,
+        cost_paise: row.cost_paise === undefined ? null : row.cost_paise,
+        value_paise: row.value_paise === undefined ? null : row.value_paise,
+        purchase_date: row.purchase_date || "",
+      });
+      continue;
+    }
+    // Cost follows the units: a smaller holding gives up the sold part, a larger
+    // one keeps the cost that is known and leaves the new units unpriced.
+    const prevQty = Number(prev.quantity) || 0;
+    const prevCost = prev.cost_paise === null || prev.cost_paise === undefined
+      ? null : Number(prev.cost_paise);
+    let cost = row.cost_paise === undefined || row.cost_paise === null
+      ? prevCost : Number(row.cost_paise);
+    if (cost !== null && prevQty > 0 && qty !== null && qty < prevQty) {
+      cost = Math.round(cost * (qty / prevQty));
+    }
+    if (qty !== null && prevQty !== 0 && qty !== prevQty) changed += 1;
+    out.push({
+      security_id: isin,
+      label: row.label || prev.label || "",
+      category: prev.category || row.category || "equity",
+      quantity: qty === null ? prev.quantity : qty,
+      cost_paise: cost,
+      value_paise: row.value_paise === undefined || row.value_paise === null
+        ? prev.value_paise : row.value_paise,
+      purchase_date: prev.purchase_date || row.purchase_date || "",
+    });
+  }
+  const removed = [...byIsin.keys()].filter((isin) => !seen.has(isin)).length;
+  return { rows: out, mode: "reconcile", added, removed, changed, attached: 0 };
+}
+
+/**
  * Merge the cost updates into the position rows, so the caller can write the
  * whole snapshot back without losing the fields it does not own.
  * @param {Array<object>} positions
