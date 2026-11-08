@@ -58,6 +58,23 @@ export function attachCost({ positions = [], lots = [] } = {}) {
 }
 
 /**
+ * Which cost sources are fully represented in the matched positions. A source
+ * with even one unmatched lot has to keep counting: retiring it would drop that
+ * bond's value from net worth without ever putting its cost on a depository row.
+ * @param {Array<{id: string, lots: Array<object>}>} sources
+ * @param {string[]} matched ISINs that found a position
+ * @returns {Array<{id: string, fully: boolean}>}
+ */
+export function coverageBySource(sources = [], matched = []) {
+  const hit = new Set((matched || []).map(clean));
+  return (sources || []).map((source) => ({
+    id: source.id,
+    fully: (source.lots || []).length > 0
+      && (source.lots || []).every((lot) => hit.has(clean(lot.security_id))),
+  }));
+}
+
+/**
  * Merge the cost updates into the position rows, so the caller can write the
  * whole snapshot back without losing the fields it does not own.
  * @param {Array<object>} positions

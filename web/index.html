@@ -6895,9 +6895,14 @@ window.bpAttachFill = async () => {
             cost recorded.</div></div>`;
       return;
     }
-    const lots = (await Promise.all(sources.map((a) => store.listHoldings(a.id)))).flat();
-    const { attachCost } = await import("./attach.js");
+    const lotsBySource = [];
+    for (const source of sources) {
+      lotsBySource.push({ id: source.id, lots: await store.listHoldings(source.id) });
+    }
+    const lots = lotsBySource.flatMap((s) => s.lots);
+    const { attachCost, coverageBySource } = await import("./attach.js");
     const plan = attachCost({ positions: missing, lots });
+    const coverage = coverageBySource(lotsBySource, plan.matched);
     const ready = plan.updates.length;
     host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
@@ -6912,7 +6917,7 @@ window.bpAttachFill = async () => {
       ${plan.skipped.length && !ready ? `<div class="muted" style="font-size:12px;margin-top:8px">
         Nothing matched: ${plan.skipped.map((s) => s.reason).filter((v, i, a) => a.indexOf(v) === i).join(", ")}.</div>` : ""}
     </div>`;
-    window.bpAttachPlan = { id, sources: sources.map((a) => a.id), plan };
+    window.bpAttachPlan = { id, sources: coverage, plan };
   } catch (e) {
     host.innerHTML = `<div class="muted" style="font-size:12px;color:var(--red)">${
       String(e.message || e)}</div>`;
@@ -6922,8 +6927,10 @@ window.bpAttachCost = async () => {
   const state = window.bpAttachPlan;
   if (!state) return;
   const n = state.plan.updates.length;
-  if (!confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"}? The bond portfolio becomes a
-cost record and stops counting in net worth.`)) return;
+  const retiring = (state.sources || []).filter((s) => s.fully).length;
+  if (!confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"}?${
+    retiring ? ` ${retiring} bond portfolio${retiring === 1 ? "" : "s"} becomes a cost
+record and stops counting in net worth.` : ""}`)) return;
   try {
     const store = await import("./db.js");
     const { applyCost } = await import("./attach.js");
@@ -6931,10 +6938,11 @@ cost record and stops counting in net worth.`)) return;
     const positions = await store.listHoldings(state.id);
     const merged = applyCost(positions, state.plan.updates);
     await store.replaceHoldings(state.id, merged, today);
-    for (const sourceId of state.sources) {
-      const asset = (await store.listAccounts()).find((a) => a.id === sourceId);
+    for (const source of state.sources || []) {
+      if (!source.fully) continue;
+      const asset = (await store.listAccounts()).find((a) => a.id === source.id);
       if (!asset) continue;
-      await store.updateAccount(sourceId, { meta: JSON.stringify({ ...metaOf(asset),
+      await store.updateAccount(source.id, { meta: JSON.stringify({ ...metaOf(asset),
         cost_only: "1" }) });
     }
     window.bpAttachPlan = null;

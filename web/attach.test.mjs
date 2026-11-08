@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachCost, applyCost } from "./attach.js";
+import { attachCost, applyCost, coverageBySource } from "./attach.js";
 
 const pos = (isin, quantity, cost = null) =>
   ({ security_id: isin, quantity, cost_paise: cost });
@@ -70,4 +70,22 @@ test("a position with no update is returned untouched", () => {
   const positions = [pos("INE999900108", 100)];
   const [row] = applyCost(positions, []);
   assert.equal(row.cost_paise, null);
+});
+
+// --- retiring a cost portfolio ---------------------------------------------
+
+test("a portfolio is retired only when every one of its lots landed", () => {
+  const sources = [
+    { id: "p1", lots: [{ security_id: "INE1" }, { security_id: "INE2" }] },
+    { id: "p2", lots: [{ security_id: "INE3" }] },
+  ];
+  const cov = coverageBySource(sources, ["ine1", "INE2"].map((s) => s.toUpperCase()));
+  assert.deepEqual(cov, [
+    { id: "p1", fully: true },
+    { id: "p2", fully: false },
+  ]);
+});
+
+test("a portfolio with no lots is never retired", () => {
+  assert.deepEqual(coverageBySource([{ id: "p1", lots: [] }], []), [{ id: "p1", fully: false }]);
 });
