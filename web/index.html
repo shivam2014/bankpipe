@@ -6567,12 +6567,14 @@ function casHoldingLabel(h) {
 window.bpImportQueue = window.bpImportQueue || [];
 window.bpImportAdd = (files) => {
   for (const file of files || []) {
-    window.bpImportQueue.push({ file, kind: guessKind(file.name),
-      confidence: "name" });
+    // Nothing is preselected from the name alone: a wrong default is invisible,
+    // and the person clicks Import without ever reading it. An empty row forces
+    // the one decision only they can make.
+    window.bpImportQueue.push({ file, kind: "", confidence: "name" });
   }
   window.bpImportRender();
   (window.bpImportQueue || []).forEach((row, i) => {
-    if (row.confidence === "name") window.bpImportDetect(i);
+    if (!row.kind) window.bpImportDetect(i);
   });
 };
 // Read the file itself before trusting its name: a CSV header row or the first
@@ -6617,9 +6619,10 @@ window.bpImportRender = () => {
   if (!host) return;
   const rows = window.bpImportQueue || [];
   if (!rows.length) { host.innerHTML = ""; return; }
-  const options = (kind) => IMPORT_KINDS.map((k) =>
-    `<option value="${k}"${k === kind ? " selected" : ""}>${esc(IMPORT_KIND_LABEL[k])}</option>`
-  ).join("");
+  const options = (kind) => `<option value=""${kind ? "" : " selected"}>Choose the type…</option>`
+    + IMPORT_KINDS.map((k) =>
+      `<option value="${k}"${k === kind ? " selected" : ""}>${esc(IMPORT_KIND_LABEL[k])}</option>`
+    ).join("");
   const list = rows.map((r, i) => `<div style="display:grid;
       grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;
       padding:8px 0;border-top:1px solid var(--hair)">
@@ -6643,11 +6646,14 @@ window.bpImportRender = () => {
     .filter(([, n]) => n)
     .map(([k, n]) => `${n} ${IMPORT_KIND_LABEL[k].toLowerCase()}`)
     .join(" · ");
+  const missing = rows.filter((r) => !r.kind).length;
   host.innerHTML = `${list}
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
       <button class="btn primary" onclick="bpImportRun()">Import ${rows.length}
         file${rows.length === 1 ? "" : "s"}</button>
-      <span class="muted" style="font-size:12px">${esc(counted)}</span>
+      <span class="muted" style="font-size:12px">${missing
+        ? `${missing} file${missing === 1 ? "" : "s"} need a type`
+        : esc(counted)}</span>
     </div>`;
 };
 // One confirmation for the batch; each importer still shows its own review before
@@ -6655,6 +6661,12 @@ window.bpImportRender = () => {
 window.bpImportRun = async () => {
   const rows = window.bpImportQueue || [];
   if (!rows.length) return;
+  const untyped = rows.filter((r) => !r.kind);
+  if (untyped.length) {
+    alert(`Choose a type for ${untyped.map((r) => r.file.name).join(", ")}. `
+      + "The app could not tell from the file itself.");
+    return;
+  }
   const n = rows.length;
   if (!confirm(`Import ${n} file${n === 1 ? "" : "s"}? Each one is read first, and you can
 still review it before anything is saved.`)) return;
