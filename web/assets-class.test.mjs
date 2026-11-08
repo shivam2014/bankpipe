@@ -1,7 +1,7 @@
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { allocationByClass, assetSections } from "./assets.js";
+import { allocationByClass, assetSections, assetValue } from "./assets.js";
 
 const demat = (over) => ({
   id: "d1", label: "Demat", category: "demat", subtype: "equity",
@@ -51,13 +51,24 @@ test("a demat with no class totals falls back to its subtype", () => {
   assert.equal(groups[0].total, 50000);
 });
 
-test("a demat account holding several classes keeps its own heading", () => {
+test("one demat account appears under each class it holds", () => {
   const mixed = demat({ class_bond_value: 40000, class_equity_value: 60000,
     holdings_value: 100000, holdings_cost: 100000 });
   const sections = assetSections([mixed]);
-  assert.equal(sections.length, 1);
-  assert.equal(sections[0].label, "Demat accounts");
-  assert.equal(sections[0].rows[0].classNote, "bonds · equities");
+  const bonds = sections.find((s) => s.id === "bond");
+  const equities = sections.find((s) => s.id === "equity");
+  assert.equal(bonds.label, "Bonds");
+  assert.equal(bonds.total, 40000);
+  assert.equal(bonds.rows[0].id, "d1");
+  assert.equal(equities.total, 60000);
+  assert.equal(equities.rows[0].id, "d1");
+  assert.equal(sections.some((s) => s.id === "demat"), false);
+});
+
+test("a class row values only its own part of the account", () => {
+  const mixed = demat({ class_bond_value: 40000, class_equity_value: 60000 });
+  const row = assetSections([mixed]).find((s) => s.id === "bond").rows[0];
+  assert.equal(assetValue(row).paise, 40000);
 });
 
 test("a demat account holding only funds is listed as mutual funds", () => {
@@ -65,7 +76,16 @@ test("a demat account holding only funds is listed as mutual funds", () => {
     class_mf_value: 50000, class_equity_value: null, holdings_value: 50000 });
   const sections = assetSections([fund]);
   assert.equal(sections[0].label, "Mutual funds");
-  assert.equal(sections[0].rows[0].classNote, undefined);
+  assert.equal(sections[0].total, 50000);
+});
+
+test("class sections are ordered bank, bonds, equities, funds, gold", () => {
+  const sections = assetSections([
+    demat({ class_bond_value: 1, class_equity_value: 2, class_mf_value: 3 }),
+    { id: "s1", label: "PNB", category: "bank", type: "savings", value_paise: 9 },
+    { id: "g1", label: "Gold", category: "gold", value_paise: 4 },
+  ]);
+  assert.deepEqual(sections.map((s) => s.id), ["bank", "bond", "equity", "mf", "gold"]);
 });
 
 test("bank accounts and deposits keep their own group", () => {

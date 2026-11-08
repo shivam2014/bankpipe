@@ -178,14 +178,13 @@ export function casRoute(parsed, assets = []) {
     ? (assets || []).filter((a) => boId(a.number).boId === bo.boId)
     : [];
   const home = (kind) => {
-    // A demat account holds bonds and shares together: same depository, same BO
-    // ID, same DP. Only a fund folio is a different place, because it sits with
-    // the RTA under the PAN and never enters the demat unless it is dematerialised.
-    const demat = accounts.filter((a) => String(a.category || "") === "demat");
-    const isFund = (a) => /mutual\s*fund|^mf$/i.test(String(a.subtype || ""));
-    return kind === "mf"
-      ? demat.find(isFund) || null
-      : demat.find((a) => !isFund(a)) || null;
+    // A demat account holds bonds, shares and any dematerialised fund units.
+    // The CAS prints folio-held funds in their own section; those are the only
+    // ones that are not in the demat, and a row alone cannot prove which it is.
+    // So a CAS writes into the account it names, and the class stays on the row.
+    void kind;
+    return accounts.find((a) => String(a.category || "") === "demat"
+      && !/mutual\s*fund|^mf$/i.test(String(a.subtype || ""))) || null;
   };
   const groups = new Map();
   const homeless = new Map();

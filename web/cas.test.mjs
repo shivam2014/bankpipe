@@ -137,27 +137,23 @@ const parsed = {
   ],
 };
 
-test("bonds and shares land in the same demat account; funds stay a folio", () => {
+test("every class lands in the one demat account the statement names", () => {
   const route = casRoute(parsed, accounts);
   assert.equal(route.demat, "IN99990009183122");
-  const bond = route.groups.find((g) => g.kind === "bond");
-  const equity = route.groups.find((g) => g.kind === "equity");
-  const mf = route.groups.find((g) => g.kind === "mf");
-  assert.equal(bond.assetId, "d1");
-  assert.equal(equity.assetId, "d1");
-  assert.equal(mf.assetId, "m1");
   assert.equal(route.groups.length, 3);
+  for (const group of route.groups) assert.equal(group.assetId, "d1");
+  assert.equal(route.homeless.length, 0);
 });
 
-test("a fund never lands on the share account when a folio exists", () => {
+test("a fund lands in the demat account, not a folio guess", () => {
   const route = casRoute(parsed, accounts);
-  assert.equal(route.groups.find((g) => g.kind === "mf").assetId, "m1");
-  assert.equal(route.groups.find((g) => g.kind === "equity").assetId, "d1");
+  assert.equal(route.groups.find((g) => g.kind === "mf").assetId, "d1");
 });
 
-test("a fund with no folio account is reported, not written to the demat", () => {
-  const route = casRoute(parsed, accounts.filter((a) => a.id !== "m1"));
-  assert.equal(route.homeless.some((g) => g.kind === "mf"), true);
+test("with no demat account every class is reported, none is written", () => {
+  const route = casRoute(parsed, [accounts[0]]);
+  assert.equal(route.groups.length, 0);
+  assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 4);
 });
 
 test("a different demat on file is never written to", () => {
@@ -167,9 +163,8 @@ test("a different demat on file is never written to", () => {
 
 test("a class with no account is reported, not forced into another", () => {
   const route = casRoute(parsed, [accounts[1]]);
-  assert.equal(route.groups.length, 2);
-  assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 1);
-  assert.equal(route.homeless[0].kind, "mf");
+  assert.equal(route.groups.length, 3);
+  assert.equal(route.homeless.length, 0);
 });
 
 test("an unreadable account number routes nowhere", () => {

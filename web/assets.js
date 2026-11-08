@@ -41,6 +41,11 @@ export function typesFor(id) {
 // The page asks one function for a value, so FD accrual, gold PnL and bank
 // balances cannot drift apart between screens.
 export function assetValue(asset) {
+  // A class row is one part of a demat account, not the whole account.
+  if (asset?.classPart) {
+    const part = Number(asset[`class_${asset.classPart}_value`]) || 0;
+    return { paise: part || null, source: "from the depository" };
+  }
   const cat = categoryOf(asset);
   // A matured FD is history, not a current holding. Its money has either been
   // credited or is waiting to be reinvested; it must not inflate net worth.
@@ -68,47 +73,47 @@ export function groupAssets(assets) {
   }).filter((g) => g.rows.length);
 }
 
-// The Assets page groups by what a person is looking at, not by the box it sits
-// in. A demat account holds shares and fund units, and calling that one section
-// "Demat" hid which of the two a row was. Allocation keeps the container split
-// (allocationByClass), so this only changes the list.
+// The Assets page groups by class, because that is the question a person asks:
+// how much is in bonds, in shares, in funds. The account is the row's identity,
+// not its group — a demat that holds bonds and shares appears under both, named
+// on each row, so the split is visible instead of hidden behind "Demat".
+const CLASS_LABELS = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
+const CLASS_ORDER = { bank: 0, fd: 1, bond: 2, equity: 3, mf: 4, gold: 5,
+  cash: 6, insurance: 7, property: 8, other: 9 };
+
 export function assetSections(assets) {
   const list = assets || [];
-  return groupAssets(list).flatMap((group) => {
-    if (group.id !== "demat") return [group];
-    // A demat account is one place holding several classes. It is only named
-    // after a class when it holds just that one; a mixed account keeps its own
-    // heading and says what is inside it.
-    const only = (a) => {
-      const bond = Number(a.class_bond_value) || 0;
-      const equity = Number(a.class_equity_value) || 0;
-      const mf = Number(a.class_mf_value) || 0;
-      const kinds = [bond, equity, mf].filter((v) => v > 0).length;
-      if (kinds === 1) return bond ? "bond" : mf ? "mf" : "equity";
-      return kinds === 0 ? "empty" : "mixed";
-    };
-    const sections = { equity: [], mf: [], bond: [], mixed: [] };
-    for (const a of group.rows) sections[only(a)].push(a);
-    const note = (a) => {
-      const bits = [];
-      if (Number(a.class_bond_value) > 0) bits.push("bonds");
-      if (Number(a.class_equity_value) > 0) bits.push("equities");
-      if (Number(a.class_mf_value) > 0) bits.push("funds");
-      return bits.length > 1 ? bits.join(" · ") : "";
-    };
-    for (const a of [...sections.mixed, ...sections.bond, ...sections.equity, ...sections.mf]) {
-      const text = note(a);
-      if (text) a.classNote = text;
+  const groups = new Map();
+  const add = (key, label, row, total) => {
+    if (!groups.has(key)) groups.set(key, { id: key, label, rows: [], total: 0 });
+    const group = groups.get(key);
+    group.rows.push(row);
+    group.total += Number(total) || 0;
+  };
+  for (const asset of list) {
+    const cat = categoryOf(asset);
+    if (cat === "demat") {
+      const parts = [
+        ["bond", Number(asset.class_bond_value) || 0],
+        ["equity", Number(asset.class_equity_value) || 0],
+        ["mf", Number(asset.class_mf_value) || 0],
+      ].filter(([, value]) => value > 0);
+      if (parts.length) {
+        for (const [part, value] of parts) {
+          add(part, CLASS_LABELS[part], { ...asset, classPart: part }, value);
+        }
+        continue;
+      }
+      // No holdings, or holdings with no value: keep it where its subtype says.
+      const fund = /mutual\s*fund|^mf$/i.test(String(asset.subtype || ""));
+      add(fund ? "mf" : "equity", CLASS_LABELS[fund ? "mf" : "equity"],
+        { ...asset, classPart: fund ? "mf" : "equity" }, assetValue(asset).paise);
+      continue;
     }
-    return [
-      { id: "demat", label: "Demat accounts", rows: [...sections.mixed, ...sections.bond],
-        total: totalAssets([...sections.mixed, ...sections.bond]) },
-      { id: "equity", label: "Equities", rows: sections.equity,
-        total: totalAssets(sections.equity) },
-      { id: "mf", label: "Mutual funds", rows: sections.mf,
-        total: totalAssets(sections.mf) },
-    ].filter((g) => g.rows.length);
-  });
+    add(cat, categoryLabel(cat), asset, assetValue(asset).paise);
+  }
+  return [...groups.values()]
+    .sort((a, b) => (CLASS_ORDER[a.id] ?? 99) - (CLASS_ORDER[b.id] ?? 99));
 }
 
 // The allocation card is about where the money sits, so fixed deposits are

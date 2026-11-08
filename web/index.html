@@ -4844,6 +4844,51 @@ function shortDateLabel(v) {
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))
     .toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit", timeZone: "UTC" });
 }
+// What is inside a demat account, by class. A flat list of seventeen holdings
+// hides that a third of the money is in bonds; the split belongs above the list,
+// drawn the same way as the allocation ring so the two read as one language.
+function accountMixHtml(a) {
+  const parts = [
+    ["Bonds", Number(a?.class_bond_value) || 0, "var(--s2)"],
+    ["Equities", Number(a?.class_equity_value) || 0, "var(--s4)"],
+    ["Mutual funds", Number(a?.class_mf_value) || 0, "var(--s6)"],
+  ].filter(([, value]) => value > 0);
+  if (parts.length < 2) return "";
+  const total = parts.reduce((t, [, value]) => t + value, 0);
+  let acc = 0;
+  const stops = parts.map(([, value, colour]) => {
+    const from = (acc / total) * 100;
+    acc += value;
+    return `${colour} ${from}% ${(acc / total) * 100}%`;
+  }).join(", ");
+  const compact = (paise) => {
+    const rupees = Math.round(paise / 100);
+    if (rupees >= 10000000) return `₹${(rupees / 10000000).toFixed(1)}Cr`;
+    if (rupees >= 100000) return `₹${(rupees / 100000).toFixed(1)}L`;
+    if (rupees >= 1000) return `₹${(rupees / 1000).toFixed(0)}k`;
+    return `₹${rupees}`;
+  };
+  const rows = parts.map(([label, value, colour]) => `<div class="kv-row">
+      <div class="k"><span style="display:inline-block;width:8px;height:8px;border-radius:99px;
+        background:${colour};margin-right:7px"></span>${label}</div>
+      <div class="v">${money(value)}
+        <span class="muted" style="font-size:11.5px">${Math.round((value * 100) / total)}%</span>
+      </div></div>`).join("");
+  return `<div class="card pad" style="margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <h2 style="margin:0">Inside this account</h2>
+      <span class="muted" style="font-size:11.5px">${money(total)}</span></div>
+    <div style="display:flex;gap:16px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <div class="donut" style="width:112px;height:112px;background:conic-gradient(${stops})">
+        <div class="donut-hole" style="width:70px;height:70px">
+          <div class="k">Total</div>
+          <div class="v" style="font-size:13px">${compact(total)}</div>
+        </div>
+      </div>
+      <div class="kv" style="flex:1;min-width:180px">${rows}</div>
+    </div>
+  </div>`;
+}
 function renderAssetView() {
   const id = window.bpState?.assetView || "";
   renderAssetViewAsync(document.getElementById("view"), id);
@@ -6736,15 +6781,12 @@ window.bpCasFile = async (file) => {
         ${esc(name)} ${g.count} → <b>${esc(g.assetLabel || g.assetId)}</b></div>`;
     }).join("");
     const missing = route.homeless.reduce((t, g) => t + g.count, 0);
-    // Two accounts at most: one demat for bonds and shares, one folio for funds.
-    const needDemat = route.homeless.some((g) => g.kind !== "mf");
-    const needFolio = route.homeless.some((g) => g.kind === "mf");
-    const needs = (needDemat ? 1 : 0) + (needFolio ? 1 : 0);
+    // One account: the demat the statement names, holding every class it lists.
+    const needs = route.homeless.length ? 1 : 0;
     const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
     const createHint = route.demat && needs
       ? `<button class="btn primary" style="margin-top:10px"
-          onclick="bpCasCreateAndImport()">Create ${needs === 1 ? "the account"
-          : "the demat and folio accounts"} for this statement</button>`
+          onclick="bpCasCreateAndImport()">Create the demat account for this statement</button>`
       : "";
     const manual = !route.demat && targets.length
       ? `<label class="field" style="margin-top:10px">No account number in this PDF. Write all
@@ -6816,33 +6858,22 @@ window.bpCasCreateAndImport = async () => {
   if (!cas || !route) return;
   const tail = route.demat ? route.demat.slice(-4) : "";
   const store = await import("./db.js");
-  const made = [];
-  const kinds = new Set(route.homeless.map((g) => g.kind));
-  // One demat account for bonds and shares, one folio account for funds. A fund
-  // is not a demat holding, so it must not share the demat's identity.
-  if ([...kinds].some((k) => k !== "mf")) {
-    const id = `cas-demat-${tail || Date.now().toString(36)}`;
-    await store.createAccount({
-      id, label: tail ? `Demat · …${tail}` : "Demat account",
-      category: "demat", subtype: "equity", type: "equity",
-      number: route.demat, holder: "",
-    });
-    made.push("Demat");
-  }
-  if (kinds.has("mf")) {
-    const id = `cas-folio-${tail || Date.now().toString(36)}`;
-    await store.createAccount({
-      id, label: tail ? `Mutual funds · …${tail}` : "Mutual funds",
-      category: "demat", subtype: "mutual fund", type: "mutual fund",
-      number: route.demat, holder: "",
-    });
-    made.push("Mutual funds");
-  }
+  // One account, because one demat holds every class it lists.
+  const id = `cas-demat-${tail || Date.now().toString(36)}`;
+  // The row has to say where the account is held. The depository is known from
+  // the statement; the DP name needs its own field, which comes next.
+  const where = cas.depository || "";
+  await store.createAccount({
+    id, label: tail ? `Demat · ${where ? `${where} ` : ""}…${tail}` : "Demat account",
+    category: "demat", subtype: "equity", type: "equity",
+    number: route.demat, holder: "",
+    meta: JSON.stringify({ depository: cas.depository || "" }),
+  });
   window.bpCasRoute = casRoute(cas, await store.listAccounts());
   if (!window.bpCasRoute.groups.length) {
     const host = document.getElementById("cas-host");
-    if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Created ${
-      made.join(" and ")}. Import again to write the holdings.</div>`;
+    if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Created the
+      demat account. Import again to write the holdings.</div>`;
     return;
   }
   await window.bpCasImport();
@@ -7091,9 +7122,12 @@ async function renderCategory() {
   try {
     const store = await import("./db.js");
     const assets = await store.listAccounts();
-    const rows = assets.filter((a) => categoryOf(a) === id);
+    // The list is the class, not the asset category: bonds inside a demat belong
+    // on the Bonds page even though the account is a demat.
+    const section = assetSections(assets).find((s) => s.id === (id === "bonds" ? "bond" : id));
+    const rows = section?.rows || [];
     const stale = staleImport(assets);
-    const total = totalAssets(rows);
+    const total = section?.total || 0;
     const valued = rows.filter((a) => assetValue(a).paise !== null);
     const unvalued = rows.filter((a) => assetValue(a).paise === null);
     const why = id === "other"
@@ -7184,10 +7218,15 @@ function assetRow(a, onclick, overrideShown) {
     gold.sinceYear ? `since ${gold.sinceYear}` : "",
   ].filter(Boolean) : [];
   const identity = assetIdentity(a);
+  // A demat row has to say where it is held: the depository is half the identity,
+  // and "…8646" alone cannot tell NSDL from CDSL or one DP from another.
+  const meta = (() => { try { return JSON.parse(a.meta || "{}"); } catch (e) { return {}; } })();
+  const held = cat === "demat" || cat === "bonds"
+    ? [meta.depository, meta.dp_name].filter(Boolean).join(" · ") : "";
   // A demat account holds more than one class, and the row is the only place a
   // reader can see that without opening it.
   const mix = a.classNote ? [a.classNote] : [];
-  const sub = [identity.row, place, ...goldBits, ...mix, maturedFd ? "matured" : ""]
+  const sub = [held, identity.row, place, ...goldBits, ...mix, maturedFd ? "matured" : ""]
     .filter(Boolean).join(" · ") || "no details yet";
   // A long "principal only · rate and start date missing" note does not fit the
   // amount column; the FD detail carries the full explanation.
@@ -7232,9 +7271,13 @@ function assetGroupsHtml(groups, onclickFor) {
   }).join("");
 }
 function focusAllocationCardHtml(assets, selectedId) {
-  const groups = allocationByClass(assets).filter((g) => g.total > 0);
+  // The category page is about a class, and a class can live inside a demat
+  // account. Reading the sections — not the raw asset categories — is what keeps
+  // the ring, the total and the rows talking about the same money.
+  const sections = assetSections(assets);
+  const key = selectedId === "bonds" ? "bond" : selectedId;
+  const selected = sections.find((s) => s.id === key);
   const total = totalAssets(assets);
-  const selected = groups.find((g) => g.id === selectedId);
   if (!selected || !total) return "";
   const colors = { bank: "var(--green)", demat: "var(--s4)", bonds: "var(--s2)",
     bond: "var(--s2)", equity: "var(--s4)", mf: "var(--s6)",
@@ -7246,13 +7289,17 @@ function focusAllocationCardHtml(assets, selectedId) {
   const unvalued = selected.rows.filter((a) => !(assetValue(a).paise > 0));
   const tint = (i, n) => n <= 1 ? base
     : `color-mix(in srgb, ${base} ${Math.round(95 - (i * 55) / Math.max(1, n - 1))}%, var(--card))`;
-  // The ring is this category alone, split by its assets. Drawing the rest of
-  // net worth as a grey band made a bonds page look like a page about everything
-  // else — 74% grey — and pushed the one number that matters off the ring.
-  const slices = valued.length
-    ? valued.map((x, i) => ({ value: x.v, color: tint(i, valued.length),
-        group: selected.id, asset: x.a.id }))
-    : [{ value: selected.total, color: base, group: selected.id, asset: "" }];
+  // The ring is a share of net worth, the same way the Bank accounts page draws
+  // it: this category in its own colour, everything else in grey. A ring that is
+  // 100% one colour tells the eye the opposite of "gold is 5%".
+  const listed = valued.map((x, i) => ({ value: x.v, color: tint(i, valued.length),
+    group: selected.id, asset: x.a.id }));
+  const rest = Math.max(0, total - selected.total);
+  const slices = rest > 0
+    ? [...listed, { value: rest, color: "color-mix(in srgb, var(--muted) 16%, var(--card))",
+      group: "", asset: "__rest" }]
+    : listed.length ? listed
+      : [{ value: selected.total, color: base, group: selected.id, asset: "" }];
   const stops = sunArc(slices, 0, 100, 0.7);
   window.bpFocusPie = sunPlace(slices, 0, 100, 0.7).map((p) => ({ group: p.item.group,
     asset: p.item.asset || "", from: p.start, to: p.end }));
@@ -7265,16 +7312,22 @@ function focusAllocationCardHtml(assets, selectedId) {
     return `bpAsset(${jsArg(a.id)})`;
   };
   const rows = valued.map((x, i) => {
-    const pct = ((x.v * 100) / selected.total).toFixed(1);
+    const pct = total ? ((x.v * 100) / total).toFixed(1) : "0.0";
     return `<a class="legend-row" href="#" onclick="${openFor(x.a)};return false">
       <span class="dot" style="background:${tint(i, valued.length)}"></span>
       <span class="nm">${esc(x.a.label || x.a.bank || x.a.id)}</span>
       <span class="amt">${money(x.v)}</span>
       <span class="pct">${pct}%</span></a>`;
   }).join("");
-  const rest = total - selected.total;
-  const restPct = 100 - selPct;
-  const restNames = groups.filter((g) => g.id !== selectedId)
+  const restPct = total ? Math.round((Math.max(0, total - selected.total) * 100) / total * 10) / 10 : 0;
+  const restRow = restPct > 0
+    ? `<a class="legend-row" href="#" onclick="go('home');return false">
+        <span class="dot" style="background:color-mix(in srgb, var(--muted) 16%, var(--card))"></span>
+        <span class="nm">Other assets</span>
+        <span class="amt">${money(Math.max(0, total - selected.total))}</span>
+        <span class="pct">${restPct}%</span></a>`
+    : "";
+  const restNames = sections.filter((g) => g.id !== key)
     .map((g) => String(g.label || ""));
   const words = restNames.length <= 1 ? restNames.join("")
     : `${restNames.slice(0, -1).join(", ")} and ${restNames[restNames.length - 1]}`;
@@ -7288,11 +7341,12 @@ function focusAllocationCardHtml(assets, selectedId) {
     </div>
     <div style="flex:1;min-width:250px">
       <h2 class="sr-only">${esc(selected.label)} by asset</h2>
-      <div class="donut-legend">${rows || `<div class="muted" style="font-size:12px">No valued assets in this category.</div>`}</div>
+      <div class="donut-legend">${rows ? rows + restRow : `<div class="muted" style="font-size:12px">No valued assets in this category.</div>`}</div>
       ${unvalued.length ? `<div class="muted" style="font-size:11.5px;margin-top:7px">${unvalued.length}
         without a value, so not in the ring.</div>` : ""}
       ${valued.length > 1 ? `<div class="muted" style="font-size:11px;margin-top:8px">
-        Percentages are of ${esc(selected.label.toLowerCase())}.</div>` : ""}
+        Percentages are of net worth. Grey is everything outside
+        ${esc(selected.label.toLowerCase())}.</div>` : ""}
       ${rest > 0 ? `<div class="muted" style="font-size:11.5px;margin-top:4px">
         The other ${restPct}% of net worth, ${DATA ? DATA.currency : "₹"}${compact(rest)},
         is in ${esc(words)}.
@@ -7312,6 +7366,7 @@ window.bpFocusPieClick = (event) => {
   const pct = (((Math.atan2(dy, dx) * 180) / Math.PI) + 90 + 360) % 360 / 3.6;
   const seg = segs.find((s) => pct >= s.from && pct <= s.to);
   if (!seg) return;
+  if (seg.asset === "__rest") { go("home"); return; }
   if (seg.asset) {
     const a = window.bpFocusRows?.get(seg.asset);
     if (!a) return;
@@ -7991,12 +8046,48 @@ function holdingsCard(allRows, assetId) {
           ? "—" : money(h.cost_paise)}</div></div>`).join("")}
     </details>` : ""}</div>`;
 }
+// A demat account's holdings arrive as one list, but the statement groups them:
+// bonds, shares, fund units. Grouping here keeps the page and the paper telling
+// the same story, and each group carries its own subtotal.
+function holdingClass(row) {
+  const cat = String(row?.category || "").toLowerCase();
+  if (cat === "bond") return "bond";
+  if (cat === "mf" || cat === "mutual fund") return "mf";
+  if (/^INF/.test(String(row?.security_id || ""))) return "mf";
+  return "equity";
+}
+function simpleHoldings(rows) {
+  const total = rows.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
+  return `<div class="card pad" style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <b style="font-size:13.5px">${rows.length} holding${rows.length === 1 ? "" : "s"}</b>
+      <span class="muted" style="font-size:12px">${money(total)}</span></div>
+    <div style="margin-top:6px">${rows.map((r) => `<div class="kv-row">
+        <div class="k">${esc(r.label || r.security_id || "—")}<br>
+          <span class="muted" style="font-size:11px">${esc(r.security_id || "")}</span></div>
+        <div class="v">${r.quantity ?? "—"} u
+          <span class="muted" style="font-size:11.5px">${money(r.value_paise)}</span></div>
+      </div>`).join("")}</div>
+  </div>`;
+}
 function holdingsBlock(rows, assetId) {
   if (!rows || !rows.length) return "";
   window.bpBondRows = rows;
   window.bpBondAsset = assetId;
   if (!window.bpBondSortState) window.bpBondSortState = { key: "maturity", dir: 1 };
-  return `<div id="bond-holdings">${holdingsCard(rows, assetId)}</div>`;
+  const groups = { bond: [], equity: [], mf: [] };
+  for (const row of rows) groups[holdingClass(row)].push(row);
+  const filled = Object.entries(groups).filter(([, list]) => list.length);
+  if (filled.length < 2) return `<div id="bond-holdings">${holdingsCard(rows, assetId)}</div>`;
+  const labels = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
+  const total = (list) => list.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
+  const html = filled.map(([kind, list]) => `<div style="display:flex;
+      justify-content:space-between;align-items:baseline;margin:16px 0 8px">
+      <h2 style="margin:0;font-size:15px">${labels[kind]}</h2>
+      <span class="muted" style="font-size:12px">${money(total(list))}</span></div>
+    ${kind === "bond" ? `<div id="bond-holdings">${holdingsCard(list, assetId)}</div>`
+      : simpleHoldings(list)}`).join("");
+  return html;
 }
 window.bpBondSort = (key) => {
   const cur = window.bpBondSortState || { key: "maturity", dir: 1 };
@@ -8367,6 +8458,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
     ${esc(categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
   ${a ? positionCard(a, holdings) : ""}
   ${a ? assetFocusCard(a) : ""}
+  ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
   ${a ? assetDetailCard(a) : ""}
   ${a && (cat === "bonds" || cat === "demat") ? `<div id="recon-card"></div>` : ""}
   ${a ? valuationCard(a) : ""}
