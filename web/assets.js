@@ -84,8 +84,10 @@ export function groupAssets(assets) {
 // not its group — a demat that holds bonds and shares appears under both, named
 // on each row, so the split is visible instead of hidden behind "Demat".
 const CLASS_LABELS = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
-const CLASS_ORDER = { bank: 0, fd: 1, bond: 2, equity: 3, mf: 4, gold: 5,
-  cash: 6, insurance: 7, property: 8, other: 9 };
+// The order a person reads a balance sheet in: cash first, then everything a
+// demat holds grouped together, then the things held outside one.
+const CLASS_ORDER = { bank: 0, fd: 1, bond: 2, mf: 3, equity: 4, gold: 5,
+  insurance: 6, cash: 7, property: 8, other: 9 };
 
 export function assetSections(assets) {
   const list = assets || [];

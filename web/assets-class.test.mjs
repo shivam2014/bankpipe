@@ -79,13 +79,15 @@ test("a demat account holding only funds is listed as mutual funds", () => {
   assert.equal(sections[0].total, 50000);
 });
 
-test("class sections are ordered bank, bonds, equities, funds, gold", () => {
+test("sections read cash, then the demat classes, then gold and insurance", () => {
   const sections = assetSections([
     demat({ class_bond_value: 1, class_equity_value: 2, class_mf_value: 3 }),
     { id: "s1", label: "PNB", category: "bank", type: "savings", value_paise: 9 },
     { id: "g1", label: "Gold", category: "gold", value_paise: 4 },
+    { id: "i1", label: "LIC", category: "insurance", value_paise: 5 },
   ]);
-  assert.deepEqual(sections.map((s) => s.id), ["bank", "bond", "equity", "mf", "gold"]);
+  assert.deepEqual(sections.map((s) => s.id),
+    ["bank", "bond", "mf", "equity", "gold", "insurance"]);
 });
 
 test("bank accounts and deposits keep their own group", () => {

@@ -7302,16 +7302,19 @@ function assetRow(a, onclick, overrideShown) {
     gold.sinceYear ? `since ${gold.sinceYear}` : "",
   ].filter(Boolean) : [];
   const identity = assetIdentity(a);
+  // A class row is one part of an account, so the row says which account holds
+  // it. Without that, three identical-looking rows have no visible owner.
+  const heldIn = a.classPart
+    ? `Held here · ${[a.bank, a.number, a.holder].filter(Boolean).join(" · ")}`
+    : "";
   // A demat row has to say where it is held: the depository is half the identity,
   // and "…8646" alone cannot tell NSDL from CDSL or one DP from another.
   const meta = (() => { try { return JSON.parse(a.meta || "{}"); } catch (e) { return {}; } })();
-  const held = cat === "demat" || cat === "bonds"
+  const held = !a.classPart && (cat === "demat" || cat === "bonds")
     ? [meta.depository, meta.dp_name].filter(Boolean).join(" · ") : "";
-  // A demat account holds more than one class, and the row is the only place a
-  // reader can see that without opening it.
   const mix = a.classNote ? [a.classNote] : [];
-  const sub = [held, identity.row, place, ...goldBits, ...mix, maturedFd ? "matured" : ""]
-    .filter(Boolean).join(" · ") || "no details yet";
+  const sub = [heldIn, held, a.classPart ? "" : identity.row, place, ...goldBits, ...mix,
+    maturedFd ? "matured" : ""].filter(Boolean).join(" · ") || "no details yet";
   // A long "principal only · rate and start date missing" note does not fit the
   // amount column; the FD detail carries the full explanation.
   const source = cat === "fd" && /principal only/i.test(shown.source)
