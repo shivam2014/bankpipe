@@ -6974,26 +6974,35 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     for (const a of demats) {
       dematRows.push({ id: a.id, positions: await store.listHoldings(a.id) });
     }
-    // A portfolio names the demat it feeds: the one holding most of its lots.
+    // A portfolio names the demats that hold its lots, not just the biggest one:
+    // a portfolio bought before the split can feed both accounts.
     const homeOf = (lots) => {
       const count = new Map();
       for (const lot of lots || []) {
         const isin = String(lot.security_id || "").toUpperCase();
-        const demat = dematRows.find((d) => (d.positions || [])
-          .some((p) => String(p.security_id || "").toUpperCase() === isin));
-        if (demat) count.set(demat.id, (count.get(demat.id) || 0) + 1);
+        for (const demat of dematRows) {
+          if (!(demat.positions || []).some((p) =>
+            String(p.security_id || "").toUpperCase() === isin)) continue;
+          count.set(demat.id, (count.get(demat.id) || 0) + 1);
+        }
       }
-      return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+      const rows = [...count.entries()].sort((a, b) => b[1] - a[1]);
+      return {
+        primary: rows[0]?.[0] || "",
+        labels: rows.map(([id]) => assets.find((a) => a.id === id)?.label || id)
+          .filter(Boolean),
+      };
     };
     // Records retired before this link existed get one now, so the portfolio page
     // can answer "which demat is this?" without re-importing anything.
     for (const asset of retired) {
       const meta = metaOf(asset);
-      if (meta.linked_asset) continue;
-      const linked = homeOf(await store.listHoldings(asset.id));
-      if (!linked) continue;
+      const home = homeOf(await store.listHoldings(asset.id));
+      if (!home.primary) continue;
+      const label = home.labels.join(" + ");
+      if (meta.linked_asset === home.primary && meta.linked_label === label) continue;
       await store.updateAccount(asset.id, { meta: JSON.stringify({ ...meta,
-        linked_asset: linked, linked_label: assets.find((a) => a.id === linked)?.label || "" }) });
+        linked_asset: home.primary, linked_label: label }) });
     }
     if (!sources.length) return { attached: 0, portfolios: 0, orphans: 0 };
     const sourceRows = [];
@@ -7017,10 +7026,10 @@ counting too.` : ""}`)) return null;
     for (const id of plan.retire) {
       const asset = (await store.listAccounts()).find((a) => a.id === id);
       if (!asset) continue;
-      const linked = homeOf(sourceRows.find((s) => s.id === id)?.lots || []);
-      const label = assets.find((a) => a.id === linked)?.label || "";
+      const home = homeOf(sourceRows.find((s) => s.id === id)?.lots || []);
       await store.updateAccount(id, { meta: JSON.stringify({ ...metaOf(asset),
-        cost_only: "1", linked_asset: linked, linked_label: label }) });
+        cost_only: "1", linked_asset: home.primary,
+        linked_label: home.labels.join(" + ") }) });
     }
     if (ask) window.bpAsset(demats[0].id);
     return { attached: n, portfolios: plan.retire.length, orphans: plan.stats.orphan };
