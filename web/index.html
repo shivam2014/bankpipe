@@ -7072,10 +7072,8 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     const { planConsolidation, applyCost, planFreshLots } = await import("./attach.js");
     const assets = await store.listAccounts();
     const demats = assets.filter((a) => categoryOf(a) === "demat");
-    const sources = assets.filter((a) => categoryOf(a) === "bonds"
-      && !String(a.meta || "").includes("cost_only"));
-    const retired = assets.filter((a) => categoryOf(a) === "bonds"
-      && String(a.meta || "").includes("cost_only"));
+    const sources = assets.filter((a) => categoryOf(a) === "bonds");
+    const retired = sources.filter((a) => String(a.meta || "").includes("cost_only"));
     const dematRows = [];
     for (const a of demats) {
       dematRows.push({ id: a.id, positions: await store.listHoldings(a.id) });
