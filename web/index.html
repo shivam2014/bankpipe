@@ -8277,12 +8277,16 @@ async function renderRealAssets(host) {
           <div class="pc">▾</div></summary>
         <div class="bank-subs">${rows}</div></details>`;
     };
+    const bankOpen = groupOpenState().bank !== false;
     const bankSection = bankGroup || (showFdsOnly && fdGroups.length)
-      ? `<div style="display:flex;justify-content:space-between;
-        align-items:baseline;gap:12px;flex-wrap:wrap;margin-top:22px">
-        <h2 id="bank-fds" style="margin:0">Bank accounts &amp; FDs</h2>
-        <div class="muted" style="font-size:13px">${money(
-          showFdsOnly ? activeFdTotal : bankTotal)}</div></div>
+      ? `<details class="asset-group" data-group="bank"${bankOpen ? " open" : ""}
+        ontoggle="bpGroupToggle('bank', this.open)">
+        <summary>
+          <span class="caret" aria-hidden="true"></span>
+          <h2 id="bank-fds">Bank accounts &amp; FDs</h2>
+          <span class="grp-right"><span class="muted" style="font-size:13px">${money(
+            showFdsOnly ? activeFdTotal : bankTotal)}</span></span>
+        </summary>
       <div class="stat-chips">
         ${showFdsOnly ? "" : `<span class="stat-chip">Savings
           <b>₹${compact(bankGroup?.total || 0)}</b></span>`}
@@ -8327,7 +8331,7 @@ async function renderRealAssets(host) {
           </details>` : ""}</div>
       </div>` : ""}
       </div>`}
-      ` : "";
+      </details>` : "";
     const actions = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
       <button class="btn" onclick="bpAssetNew('bank')">Add bank account</button>
       <button class="btn" onclick="bpAssetNew()">Add other asset</button>
