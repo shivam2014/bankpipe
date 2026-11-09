@@ -209,8 +209,9 @@ function readTables(items, tables, headers = []) {
     };
     rows.forEach((anchor, index) => {
       // A row is the band down to the next ISIN in the same table. One holding
-      // can print across three lines (scheme name, then units and NAV).
-      const high = index === 0 ? table.y + 4 : (rows[index - 1].y + anchor.y) / 2;
+      // can print across three lines (scheme name, then units and NAV). The
+      // header itself is excluded, or its labels are read as the scheme name.
+      const high = index === 0 ? table.y - 1 : (rows[index - 1].y + anchor.y) / 2;
       const low = index === rows.length - 1 ? anchor.y - 42 : (anchor.y + rows[index + 1].y) / 2;
       const band = items.filter((i) => i.page === anchor.page && i.y <= high && i.y > low
         && i !== anchor && i.x > 20);
@@ -247,16 +248,44 @@ function readTables(items, tables, headers = []) {
         || band.find((i) => isoAny(i.str)) || null;
       const couponCell = find(/^coupon/i);
       const faceCell = find(/face\s*value/i);
+      // A folio prints its number and what was invested in it, beside the
+      // valuation. The number is text, and the cost is the "Invested" cell.
+      const folioCol = table.kind === "mf"
+        ? table.cols.find((c) => /^folio/i.test(c.str)) : null;
+      const folioCell = folioCol
+        ? band.filter((i) => colAt(i.right) === folioCol)
+          .sort((a, b) => b.str.length - a.str.length)[0] || null
+        : null;
+      const costCell = table.kind === "mf" && valueCell
+        ? cells.filter((c) => c.right < valueCell.right)
+          .sort((a, b) => b.right - a.right)[0] || null
+        : null;
+      // The scheme name is every text line in the band; "CFGP - Mirae Asset
+      // Liquid Fund" names Mirae, whatever column the statement puts it in.
+      const nameCells = table.kind === "mf"
+        ? band.filter((i) => /[A-Za-z]{2}/.test(i.str) && !NUMBER.test(i.str)
+          && !i.str.startsWith("(")
+          && !/^(value|units?|unit in|in|of|total|cost|invested|nav|scheme|name|folio|arn|balance|distributors?|profit|loss|current|regular|direct|amount|terms)\b/i.test(i.str))
+          .sort((a, b) => b.y - a.y || a.x - b.x)
+        : [];
+      const label = table.kind === "mf" ? tidy(nameCells.map((i) => i.str).join(" ")) : "";
+      const amc = table.kind === "mf"
+        ? (label.match(/[A-Za-z]{3,}/g) || []).find((w) =>
+          !/^(cfgp|fund|plan|direct|regular|growth|scheme|name|asset|equity|liquid|cash|formerly|the|and)$/i.test(w)) || ""
+        : "";
       const isin = anchor.str.toUpperCase();
       out.push({
         isin,
-        label: "",
+        label,
         kind: table.kind,
         account: owner?.boId || "",
         dpName: owner?.dpName || "",
+        folio: folioCell ? tidy(folioCell.str) : "",
+        amc,
         quantity: qtyCell ? quantity(qtyCell.str) : null,
         faceValuePaise: faceCell ? rupees(faceCell.str) : null,
         pricePaise: null,
+        costPaise: costCell ? rupees(costCell.str) : null,
         valuePaise: valueCell ? rupees(valueCell.str) : null,
         maturity: dateCell ? isoAny(dateCell.str) : "",
         couponPct: couponCell ? Number(couponCell.str.replace(/,/g, "")) : null,
