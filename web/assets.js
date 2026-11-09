@@ -105,6 +105,12 @@ export function assetSections(assets) {
     group.total += Number(total) || 0;
   };
   for (const asset of list) {
+    // A cost record is the price paid for bonds that sit in a demat. It holds
+    // nothing and is worth nothing, so it is not an asset row; the Assets page
+    // lists these separately, below everything else.
+    let meta = {};
+    try { meta = JSON.parse(asset?.meta || "{}") || {}; } catch (e) { meta = {}; }
+    if (meta.cost_only) continue;
     const cat = categoryOf(asset);
     if (cat === "demat") {
       const parts = [

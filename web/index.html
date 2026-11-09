@@ -8000,6 +8000,21 @@ async function renderRealAssets(host) {
     const bankGroup = groups.find((g) => g.id === "bank") || null;
     const fdGroup = groups.find((g) => g.id === "fd") || null;
     const otherGroups = groups.filter((g) => g.id !== "bank" && g.id !== "fd");
+    const costRecords = assets.filter((a) => {
+      try { return !!JSON.parse(a.meta || "{}").cost_only; } catch (e) { return false; }
+    });
+    const costRecordsHtml = costRecords.length ? `<details style="margin-top:16px">
+      <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">Cost records (${costRecords.length}) — not counted</summary>
+      <div class="muted" style="font-size:12px;margin:8px 0 4px">What you paid, kept so a gain can be shown. The bonds themselves sit in the demat accounts above.</div>
+      ${costRecords.map((a) => {
+        let meta = {};
+        try { meta = JSON.parse(a.meta || "{}") || {}; } catch (e) { meta = {}; }
+        return `<div class="kv-row" role="button" tabindex="0" style="cursor:pointer"
+            onclick="bpAsset(${jsArg(a.id)})" onkeydown="if(event.key==='Enter')bpAsset(${jsArg(a.id)})">
+          <div class="k">${esc(a.label || a.id)}</div>
+          <div class="v" style="font-size:12px">${esc(meta.linked_label || "linked to a demat")}</div></div>`;
+      }).join("")}
+    </details>` : "";
     const fdLinks = await linkFds(store, bankGroups(assets));
     const lockerMap = new Map(await Promise.all(
       (bankGroup?.rows || []).map(async (acc) =>
@@ -9028,6 +9043,11 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? `<div class="muted" style="margin:-10px 0 14px;font-size:12px">Editing
     ${esc(/mutual\s*fund|^mf$/i.test(String(a?.subtype || "")) ? "mutual fund"
       : cat === "bonds" ? "bond portfolio" : categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
+  ${a && (() => { try { return JSON.parse(a.meta || "{}").cost_only; } catch (e) { return false; } })()
+    ? `<div class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px">
+        <b>A cost record, not an account.</b> It holds no securities and is not counted in net worth.
+        The bonds it paid for sit in ${esc((() => { try { return JSON.parse(a.meta || "{}").linked_label; } catch (e) { return ""; } })() || "a demat account")}.
+        Its only job is to keep the purchase cost and dates so a gain can be shown.</div>` : ""}
   ${a ? positionCard(a, holdings) : ""}
   ${a ? assetFocusCard(a) : ""}
   ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
