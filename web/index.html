@@ -5092,10 +5092,10 @@ async function renderAssetViewAsync(host, id) {
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
         <h2 style="margin:0">FD details</h2>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn" onclick="bpAsset(${jsArg(a.id)})">Edit FD</button>
+          <button class="btn" onclick="bpAsset(${jsArg(a.id)})">Edit</button>
           ${bankKey ? `<button class="btn" onclick="bpBankView(${jsArg(bankKey)})">Bank view</button>` : ""}
           <button class="btn" style="border-color:var(--red);color:var(--red)"
-            onclick="bpAssetDelete(${jsArg(a.id)})">Delete FD</button>
+            onclick="bpAssetDelete(${jsArg(a.id)})">Delete</button>
         </div>
       </div>
       <div class="stats" style="margin-top:12px">
@@ -5602,7 +5602,7 @@ function renderAccount() {
             <div class="menu-pop">
               <button onclick="bpAsset(${jsArg(account.id)})">Edit all fields</button>
               <button onclick="bpDuplicates(${jsArg(account.id)})">Review duplicate transactions</button>
-              <button class="danger" onclick="bpAssetDelete(${jsArg(account.id)})">Delete account</button>
+              <button class="danger" onclick="bpAssetDelete(${jsArg(account.id)})">Delete</button>
             </div>
           </details>
         </div>
@@ -9027,7 +9027,8 @@ function assetForm(a, factCount, defaultCat, holdings) {
   const heading = a ? (a.label || a.bank || a.id) : "Add an asset";
   return `<h1>${esc(heading)}</h1>
   ${a ? `<div class="muted" style="margin:-10px 0 14px;font-size:12px">Editing
-    ${esc(categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
+    ${esc(/mutual\s*fund|^mf$/i.test(String(a?.subtype || "")) ? "mutual fund"
+      : cat === "bonds" ? "bond portfolio" : categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
   ${a ? positionCard(a, holdings) : ""}
   ${a ? assetFocusCard(a) : ""}
   ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
@@ -9037,7 +9038,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? valuationCard(a) : ""}
   ${a && cat === "bonds" ? digiFinnCardHtml(a) : ""}
   ${a ? holdingsBlock(holdings, id) : ""}
-  ${a ? `<details class="all-fields"><summary>All fields, category and delete</summary>` : ""}
+  ${a ? `<details class="all-fields"><summary>All fields and category</summary>` : ""}
   <div class="card pad"${a ? ' style="margin-top:10px"' : ""}>
     <p class="muted" style="margin-top:0;font-size:13px">${a
       ? "Changes stay on this device."
@@ -9194,8 +9195,6 @@ function assetForm(a, factCount, defaultCat, holdings) {
       <button class="btn" onclick="go('assets')">Cancel</button>
       ${factCount ? `<button class="btn" onclick="bpAccount(${jsArg(id)})">View ${factCount} transactions</button>` : ""}
       ${a && cat === "bank" ? `<button class="btn" onclick="go('logins')">Bank logins</button>` : ""}
-      ${a ? `<button class="btn" style="border-color:var(--red);color:var(--red);margin-left:auto"
-        onclick="bpAssetDelete(${jsArg(id)})">Delete</button>` : ""}
     </div>
     <details class="how-values"><summary>How values are calculated</summary>
       <div class="muted">For gold, net worth uses the
