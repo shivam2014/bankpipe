@@ -37,6 +37,19 @@ const LABEL = /isin|security|scheme|company|folio|arn|distributor|value|valuatio
 
 const tidy = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 
+// A fund scheme name shares its band with the expense-ratio paragraph in some
+// statements, and a PDF line break can duplicate "Fund" or leave a stray ")".
+// Keep the name; drop the boilerplate.
+export function cleanFundLabel(value) {
+  let s = String(value ?? "");
+  s = s.split(/\bGrand Total\b|\bTotal Expense Ratio\b|\bAnnuali[sz]ed\b|\bExpense Ratio\b/i)[0];
+  s = s.replace(/\bFund\s+Fund\b/gi, "Fund");
+  s = s.replace(/\s*\)\s*[-–]\s*/g, " - ");
+  s = s.replace(/\s*\)\s*$/g, "");
+  s = s.replace(/\s*[-–]\s*$/g, "");
+  return tidy(s);
+}
+
 function rupees(text) {
   const n = Number(String(text).replace(/,/g, ""));
   return Number.isFinite(n) ? Math.round(n * 100) : null;
@@ -296,7 +309,7 @@ function readTables(items, tables, headers = []) {
           && !/^(value|units?|unit in|in|of|total|cost|invested|nav|scheme|name|folio|arn|balance|distributors?|profit|loss|current|regular|direct|amount|terms)\b/i.test(i.str))
           .sort((a, b) => b.y - a.y || a.x - b.x)
         : [];
-      const label = table.kind === "mf" ? tidy(nameCells.map((i) => i.str).join(" ")) : "";
+      const label = table.kind === "mf" ? cleanFundLabel(tidy(nameCells.map((i) => i.str).join(" "))) : "";
       const amc = table.kind === "mf"
         ? (label.match(/[A-Za-z]{3,}/g) || []).find((w) =>
           !/^(cfgp|fund|plan|direct|regular|growth|scheme|name|asset|equity|liquid|cash|formerly|the|and)$/i.test(w)) || ""

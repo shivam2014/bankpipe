@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCas, casTotals, casRoute } from "./cas.js";
+import { parseCas, casTotals, casRoute, cleanFundLabel } from "./cas.js";
+
+test("a fund name stops before the expense-ratio paragraph", () => {
+  assert.equal(cleanFundLabel("Mirae Asset Cash Management Fund ) - Grand Total Average Total Expense Ratio above represents the average of annualized total expense charged in the respective schemes during the half-year period within"), "Mirae Asset Cash Management Fund");
+  assert.equal(cleanFundLabel("Mirae Asset Large and Midcap Fund Fund) - Regular Plan"),
+    "Mirae Asset Large and Midcap Fund - Regular Plan");
+  assert.equal(cleanFundLabel("Parag Parikh Flexi Cap Fund - Direct Plan - Growth"),
+    "Parag Parikh Flexi Cap Fund - Direct Plan - Growth");
+});
 
 // A synthetic page laid out like a depository statement: one heading line, then
 // a block of lines per holding. Fields sit at fixed x; the ISIN is printed on a
