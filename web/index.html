@@ -7228,7 +7228,16 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     }
     const plan = planConsolidation({ demats: dematRows, sources: sourceRows });
     const n = plan.updates.length;
-    if (!n && !added) return { attached: 0, portfolios: 0, orphans: 0, added: 0 };
+    // A closed position is not a holding. A statement prints it at zero units,
+    // and leaving it on the account made a matured bond look live, kept its ISIN
+    // "held" so the portfolio could never merge, and put the same security on
+    // two pages. Drop it here, whether or not cost changed.
+    const closedPosition = (p) => p.quantity !== null && p.quantity !== undefined
+      && Number.isFinite(Number(p.quantity)) && Number(p.quantity) <= 0
+      && !(Number(p.value_paise) > 0);
+    const closedCount = dematRows.reduce((t, d) =>
+      t + (d.positions || []).filter(closedPosition).length, 0);
+    if (!n && !added && !closedCount) return { attached: 0, portfolios: 0, orphans: 0, added: 0 };
     if (ask && !confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"} across ${demats.length}
 demat accounts?${added ? ` ${added} bought after the statement date will be added.` : ""}
 ${plan.retire.length} bond portfolio${plan.retire.length === 1 ? "" : "s"} become
@@ -7238,8 +7247,9 @@ counting too.` : ""}`)) return null;
     const today = new Date().toISOString().slice(0, 10);
     for (const demat of dematRows) {
       const mine = plan.updates.filter((u) => u.assetId === demat.id);
-      if (!mine.length && !fresh.has(demat.id)) continue;
-      const merged = applyCost(demat.positions, mine);
+      const merged = applyCost(demat.positions, mine).filter((p) => !closedPosition(p));
+      if (!mine.length && !fresh.has(demat.id)
+        && merged.length === demat.positions.length) continue;
       await store.replaceHoldings(demat.id, merged, today);
     }
     // A portfolio names the demat it feeds: the one holding most of its lots.
@@ -7368,8 +7378,17 @@ window.bpCasImport = async (key = "cas-host") => {
   // One write per account, never one per class: two classes in the same demat
   // account would otherwise replace each other.
   const byAsset = new Map();
+  // A statement prints closed positions too (a bond that matured in the period,
+  // a share that was sold out). Writing them as holdings made the same security
+  // appear twice: once here at zero units and once in the portfolio that cost
+  // it. They are history, not holdings, so they are not written and never count
+  // as a reason to keep a portfolio separate.
+  const closed = (h) => h.quantity !== null && h.quantity !== undefined
+    && Number.isFinite(Number(h.quantity)) && Number(h.quantity) <= 0
+    && !(Number(h.valuePaise) > 0);
   if (route.groups.length) {
     for (const h of cas.holdings) {
+      if (closed(h)) continue;
       // Match the account as well as the class: two demats can both hold bonds,
       // and a folio belongs to the account named after its AMC.
       const group = route.groups.find((g) => g.kind === h.kind
@@ -7386,7 +7405,7 @@ window.bpCasImport = async (key = "cas-host") => {
     }
   } else {
     const id = document.getElementById(`cas-target-${key}`)?.value || "";
-    if (id) byAsset.set(id, cas.holdings);
+    if (id) byAsset.set(id, cas.holdings.filter((h) => !closed(h)));
   }
   if (!byAsset.size) return;
   const places = byAsset.size;

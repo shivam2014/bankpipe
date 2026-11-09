@@ -224,6 +224,36 @@ test("an undated lot is never assumed to be new", () => {
   assert.equal(add.length, 0);
 });
 
+test("a position closed at zero units is not a position", () => {
+  const add = planFreshLots({
+    positions: [held("INE1", 8), held("INE2", 0)],
+    lots: [{ security_id: "INE2", quantity: 5, cost_paise: 50000, purchase_date: "2026-11-05" }],
+    asOf: "2026-10-31",
+  });
+  assert.equal(add.length, 1);
+  assert.equal(add[0].security_id, "INE2");
+});
+
+test("a closed position cannot absorb a portfolio's cost", () => {
+  const plan = planConsolidation({
+    demats: [{ id: "cdsl", positions: [{ security_id: "INE2", quantity: 0, cost_paise: null }] }],
+    sources: [{ id: "p1", lots: [{ security_id: "INE2", quantity: 20, cost_paise: 200000 }] }],
+  });
+  assert.equal(plan.updates.length, 0);
+  assert.equal(plan.stats.orphan, 1);
+  assert.deepEqual(plan.retire, []);
+});
+
+test("a cost file adds the lot a closed position could not take", () => {
+  const out = planCostFile({
+    positions: [held("INE1", 8), held("INE2", 0)],
+    rows: [{ security_id: "INE2", quantity: 5, cost_paise: 50000, purchase_date: "2026-11-05" }],
+    asOf: "2026-10-31",
+  });
+  assert.equal(out.added, 1);
+  assert.equal(out.rows.find((r) => r.security_id === "INE2").cost_paise, 50000);
+});
+
 // --- an undated snapshot -----------------------------------------------------
 
 const snap = (id, qty, extra = {}) => ({ security_id: id, quantity: qty,

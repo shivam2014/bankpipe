@@ -7,6 +7,12 @@
 
 const clean = (v) => String(v ?? "").trim().toUpperCase();
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+// A statement prints closed positions too: a bond that matured during the
+// period, an equity that was sold out. Those rows are a history, not a holding,
+// and treating them as held blocks the portfolio's lot from merging into the
+// account and leaves the same security listed twice.
+const alive = (row) => row?.quantity === null || row?.quantity === undefined
+  || !Number.isFinite(Number(row.quantity)) || Number(row.quantity) > 0;
 
 /**
  * @param {{positions?: Array<object>, lots?: Array<object>}} input
@@ -97,7 +103,7 @@ export function planConsolidation({ demats = [], sources = [] } = {}) {
   for (const demat of demats || []) {
     for (const position of demat.positions || []) {
       const isin = clean(position.security_id);
-      if (!isin) continue;
+      if (!isin || !alive(position)) continue;
       held.set(isin, (held.get(isin) || 0) + num(position.quantity));
     }
   }
@@ -107,7 +113,7 @@ export function planConsolidation({ demats = [], sources = [] } = {}) {
   for (const demat of demats || []) {
     for (const position of demat.positions || []) {
       const isin = clean(position.security_id);
-      if (!isin) continue;
+      if (!isin || !alive(position)) continue;
       if (position.cost_paise !== null && position.cost_paise !== undefined) {
         stats.alreadyPriced += 1;
         continue;
@@ -146,7 +152,7 @@ export function planConsolidation({ demats = [], sources = [] } = {}) {
  * @returns {Array<object>}
  */
 export function planFreshLots({ positions = [], lots = [], asOf = "" } = {}) {
-  const held = new Set((positions || []).map((p) => clean(p.security_id)));
+  const held = new Set((positions || []).filter(alive).map((p) => clean(p.security_id)));
   const seen = new Set();
   const out = [];
   for (const lot of lots || []) {
@@ -175,8 +181,8 @@ export function planCostFile({ positions = [], rows = [], asOf = "" } = {}) {
     demats: [{ id: "account", positions }],
     sources: [{ id: "file", lots: rows }],
   });
-  const merged = applyCost(positions, plan.updates);
-  const held = new Set((positions || []).map((p) => clean(p.security_id)));
+  const merged = applyCost(positions, plan.updates).filter(alive);
+  const held = new Set((positions || []).filter(alive).map((p) => clean(p.security_id)));
   const missing = (rows || []).filter((r) => r && r.security_id && !held.has(clean(r.security_id)));
   const newer = missing.filter((r) => !asOf || String(r.purchase_date || "") > asOf);
   const added = newer.map((r) => {
@@ -219,7 +225,7 @@ export function planSnapshot({ positions = [], rows = [], fileAsOf = "",
   const byIsin = new Map();
   for (const row of positions || []) {
     const isin = clean(row.security_id);
-    if (isin) byIsin.set(isin, row);
+    if (isin && alive(row)) byIsin.set(isin, row);
   }
   const newer = !!fileAsOf && (!statementAsOf || fileAsOf > statementAsOf);
   if (!newer) {
