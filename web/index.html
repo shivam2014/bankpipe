@@ -9324,7 +9324,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
           <label class="field">Realised gain so far (${DATA ? DATA.currency : "₹"})
             <input id="d-realised" value="${moneyIn(meta.realised_gain_paise)}" placeholder="0.00" inputmode="decimal"></label>
         </div>
-        <div class="subform" data-cat="demat" ${lean && hasHoldings ? 'style="display:none"' : show("demat")}>
+        <div class="subform" data-cat="demat" ${lean && hasHoldings ? 'data-lean-hide="1"' : ""} ${show("demat")}>
           <label class="field">Invested (buy value)
             <input id="d-invested" value="${moneyIn(meta.buy_value_paise)}" placeholder="5,00,000.00" inputmode="decimal"></label>
           <label class="field">Current value
@@ -9877,9 +9877,12 @@ window.bpFieldView = () => {
   const panel = document.getElementById("s-ifsc-derived");
   const derived = !!panel && panel.style.display !== "none";
   const showInputs = !linked && !derived;
+  // A demat's broker lives in the Account details card, and a branch, city or
+  // state has no meaning there. The form must not un-hide them on load.
+  const lean = !!window.bpState?.asset && ["demat", "bonds"].includes(cat);
   for (const id of ["s-inst", "s-branch", "s-city", "s-state", "s-address"]) {
     const label = document.getElementById(id)?.closest("label");
-    if (label) label.style.display = showInputs ? "" : "none";
+    if (label) label.style.display = lean || !showInputs ? "none" : "";
   }
 };
 // The report that fed this portfolio knows the demat number and the holder's
@@ -10222,7 +10225,8 @@ window.bpAssetKinds = (keep) => {
   const ownerLabel = document.getElementById("s-owner-label");
   if (ownerLabel) ownerLabel.textContent = ["bank", "fd"].includes(cat) ? "Account holder" : "Owner";
   document.querySelectorAll("#s-details .subform").forEach((el) => {
-    el.style.display = el.dataset.cat.split(" ").includes(cat) ? "" : "none";
+    el.style.display = el.dataset.leanHide ? "none"
+      : (el.dataset.cat.split(" ").includes(cat) ? "" : "none");
   });
   document.querySelectorAll("#s-details [data-only]").forEach((el) => {
     el.style.display = el.dataset.only.split(" ").includes(cat) ? "" : "none";
