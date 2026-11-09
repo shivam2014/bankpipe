@@ -1452,8 +1452,8 @@ export async function reconFor(assetId, today = new Date().toISOString().slice(0
     Promise.all(sellers.map((s) => listHoldings(s.id))),
     Promise.all(demats.map((d) => listHoldings(d.id))),
   ]);
-  const lots = saleRows.flat();
-  const positions = heldRows.flat();
+  const lots = saleRows.flat().filter((r) => String(r.category || "") === "bond");
+  const positions = heldRows.flat().filter((r) => String(r.category || "") === "bond");
   const lines = reconPositions({
     lots,
     positions,
