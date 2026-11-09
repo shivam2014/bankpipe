@@ -7233,10 +7233,16 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     // A closed position is not a holding. A statement prints it at zero units,
     // and leaving it on the account made a matured bond look live, kept its ISIN
     // "held" so the portfolio could never merge, and put the same security on
-    // two pages. Drop it here, whether or not cost changed.
+    // two pages. It is dropped, unless its label carries a maturity in the past:
+    // that row is history, and belongs in the page's "Matured bonds" group.
+    const maturedRow = (p) => {
+      const parsed = parseBondLabel(p.label);
+      const maturity = String(p.maturity || parsed?.maturity || "");
+      return !!maturity && maturity < today;
+    };
     const closedPosition = (p) => p.quantity !== null && p.quantity !== undefined
       && Number.isFinite(Number(p.quantity)) && Number(p.quantity) <= 0
-      && !(Number(p.value_paise) > 0);
+      && !(Number(p.value_paise) > 0) && !maturedRow(p);
     const closedCount = dematRows.reduce((t, d) =>
       t + (d.positions || []).filter(closedPosition).length, 0);
     // A portfolio whose every live lot is now on a demat has done its job. It is
@@ -7245,6 +7251,29 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     // stays visible: its cost has nowhere to land.
     const absorb = new Set(absorbableSources({ sources: sourceRows,
       demats: dematRows, today }));
+    // Its matured lots move to the demat as closed rows (zero units, zero
+    // value). They are not counted, but they keep the purchase and maturity
+    // dates the portfolio was the only record of.
+    const history = new Map();
+    for (const id of absorb) {
+      const source = sourceRows.find((s) => s.id === id);
+      const home = homeOf(source?.lots || [], assets.find((a) => a.id === id));
+      const demat = dematRows.find((d) => d.id === home.primary);
+      if (!demat) continue;
+      const have = new Set(demat.positions
+        .map((p) => String(p.security_id || "").toUpperCase()));
+      for (const lot of source.lots || []) {
+        const parsed = parseBondLabel(lot.label);
+        const maturity = String(lot.maturity || parsed?.maturity || "");
+        if (!maturity || maturity >= today) continue;
+        const isin = String(lot.security_id || "").toUpperCase();
+        if (!isin || have.has(isin)) continue;
+        have.add(isin);
+        history.set(demat.id, [...(history.get(demat.id) || []), {
+          ...lot, category: "bond", quantity: 0, value_paise: 0,
+        }]);
+      }
+    }
     if (!n && !added && !closedCount && !absorb.size) {
       return { attached: 0, portfolios: 0, orphans: 0, added: 0, absorbed: 0 };
     }
@@ -7259,8 +7288,10 @@ ${stranded === 1 ? "it" : "them"} is in no demat.` : ""}${plan.stats.orphan
 counting too.` : ""}`)) return null;
     for (const demat of dematRows) {
       const mine = plan.updates.filter((u) => u.assetId === demat.id);
-      const merged = applyCost(demat.positions, mine).filter((p) => !closedPosition(p));
-      if (!mine.length && !fresh.has(demat.id)
+      const hist = history.get(demat.id) || [];
+      const merged = [...applyCost(demat.positions, mine)
+        .filter((p) => !closedPosition(p)), ...hist];
+      if (!mine.length && !fresh.has(demat.id) && !hist.length
         && merged.length === demat.positions.length) continue;
       await store.replaceHoldings(demat.id, merged, today);
     }
@@ -7399,13 +7430,18 @@ window.bpCasImport = async (key = "cas-host") => {
   // account would otherwise replace each other.
   const byAsset = new Map();
   // A statement prints closed positions too (a bond that matured in the period,
-  // a share that was sold out). Writing them as holdings made the same security
-  // appear twice: once here at zero units and once in the portfolio that cost
-  // it. They are history, not holdings, so they are not written and never count
-  // as a reason to keep a portfolio separate.
-  const closed = (h) => h.quantity !== null && h.quantity !== undefined
-    && Number.isFinite(Number(h.quantity)) && Number(h.quantity) <= 0
-    && !(Number(h.valuePaise) > 0);
+  // a share that was sold out). Writing them as live holdings made the same
+  // security appear twice: once at zero units and once in the portfolio that
+  // cost it. They are dropped, unless the label carries a maturity in the past:
+  // that row is history and belongs in the page's "Matured bonds" group.
+  const importDay = new Date().toISOString().slice(0, 10);
+  const closed = (h) => {
+    if (!(h.quantity !== null && h.quantity !== undefined
+      && Number.isFinite(Number(h.quantity)) && Number(h.quantity) <= 0
+      && !(Number(h.valuePaise) > 0))) return false;
+    const maturity = (parseBondLabel(casHoldingLabel(h)) || {}).maturity || "";
+    return !(maturity && maturity < importDay);
+  };
   if (route.groups.length) {
     for (const h of cas.holdings) {
       if (closed(h)) continue;

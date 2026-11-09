@@ -15,9 +15,10 @@ const FACES = [1000, 5000, 10000, 25000, 50000, 100000, 200000, 500000, 1000000]
 export function parseBondLabel(label) {
   const text = String(label || "");
   const coupon = text.match(/(\d+(?:\.\d+)?)\s*%/);
-  const date = text.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
+  const date = text.match(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{4})/);
   if (!coupon || !date) return null;
-  const month = MONTHS[date[2].toUpperCase()];
+  // "Sept", "September" and "Sep" are the same month; three letters are enough.
+  const month = MONTHS[date[2].toUpperCase().slice(0, 3)];
   if (!month) return null;
   return {
     couponPct: Number(coupon[1]),

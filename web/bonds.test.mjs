@@ -9,6 +9,11 @@ test("parses the coupon and maturity from a bond label", () => {
   assert.equal(p.maturity, "2026-12-31");
 });
 
+test("a four-letter month still names the same date", () => {
+  assert.equal(parseBondLabel("9.95% INE999900066 26 Sept 2026").maturity, "2026-09-26");
+  assert.equal(parseBondLabel("9.95% TEST 26 September 2026").maturity, "2026-09-26");
+});
+
 test("infers the face value from the cost per unit", () => {
   assert.equal(inferFace(9982008, 1), 100000);
   assert.equal(inferFace(20574470, 1), 200000);
