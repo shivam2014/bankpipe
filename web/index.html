@@ -8938,9 +8938,15 @@ function assetDetailCard(a) {
         onclick="bpInlineEdit('${field}')">✎</button>
     </div></div>`;
   return `<div class="card pad" style="margin-bottom:14px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <h2 style="margin:0">Details</h2>
-      <span class="muted" style="font-size:11.5px">Click a value to edit it</span></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="muted" style="font-size:11.5px">Click a value to edit it</span>
+        <button class="btn" style="border-color:var(--red);color:var(--red)"
+          onclick="bpAssetDelete(${jsArg(a.id)})">Delete${
+            atDemat ? (cat === "bonds" ? " portfolio" : " account") : ""}</button>
+      </div>
+    </div>
     <div class="kv" style="margin-top:6px">${rows.map(row).join("")}</div>
     ${atDemat && window.bpAssetDemat
       && (!String(a.number || "").trim() || !String(a.holder || "").trim())
@@ -10198,8 +10204,12 @@ window.bpAssetDelete = async (id) => {
   const store = await import("./db.js");
   const { account, totals } = await store.accountDetail(id);
   const n = totals?.n || 0;
+  // A demat account carries its holdings, not transactions. Saying so before the
+  // delete is the difference between a considered action and an accident.
+  const held = (await store.listHoldings(id)).length;
   const what = `${account?.label || id}${account?.number ? ` (${account.number})` : ""}`
-    + `${n ? ` and its ${n} imported transactions` : ""}`;
+    + `${held ? ` and its ${held} holding${held === 1 ? "" : "s"}` : ""}`
+    + `${n ? ` and its ${n} imported transaction${n === 1 ? "" : "s"}` : ""}`;
   const fds = (await store.listAccounts()).filter((a) => categoryOf(a) === "fd"
     && metaOf(a).linked_account_id === id).length;
   if (!confirm(`Delete ${what}?\n\n`
