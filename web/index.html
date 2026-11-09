@@ -9194,8 +9194,9 @@ function assetForm(a, factCount, defaultCat, holdings) {
   // A demat's identity is the card above: name, number, broker, owner and notes
   // are edited there. The form keeps only what that card cannot edit, so the same
   // fields are not asked for twice.
-  const lean = !!a && ["demat", "bonds"].includes(cat);
-  const leanHide = lean ? 'style="display:none"' : "";
+  const lean = !!a && cat === "demat";
+  const hideIdentity = !!a && ["demat", "bonds"].includes(cat);
+  const leanHide = hideIdentity ? 'style="display:none"' : "";
   const hasHoldings = (holdings || []).length > 0;
   const show = (cats) => cats.split(" ").includes(cat) ? "" : 'style="display:none"';
   const moneyIn = (v) => (v === null || v === undefined || v === "") ? "" : inr(v);
@@ -9220,9 +9221,8 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? valuationCard(a) : ""}
   ${a && cat === "bonds" ? digiFinnCardHtml(a) : ""}
   ${a ? holdingsBlock(holdings, id) : ""}
-  ${a ? `<details class="all-fields"><summary>${cat === "demat"
-    ? "Category and kind" : "All fields and category"}</summary>` : ""}
-  <div class="card pad"${a ? ' style="margin-top:10px"' : ""}>
+  ${a && !lean ? `<details class="all-fields"><summary>All fields and category</summary>` : ""}
+  <div class="card pad"${a ? ` style="margin-top:10px${lean ? ";display:none" : ""}"` : ""}>
     ${lean ? "" : `<p class="muted" style="margin-top:0;font-size:13px">${a
       ? "Changes stay on this device."
       : "A bank account, fixed deposit, demat account, bond, gold, cash, property or insurance policy."}</p>`}
@@ -9388,7 +9388,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
     latest balance. Cash, property and accounts without a statement use the value and date
     you enter. FD and bond values are calculated from the principal, rate and dates. Gold
     and equity use the prices or values you enter.</div></details>
-  </div>${a ? "</details>" : ""}`;
+  </div>${a && !lean ? "</details>" : ""}`;
 }
 function bondLabelParts(h) {
   const p = parseBondLabel(h?.label);
