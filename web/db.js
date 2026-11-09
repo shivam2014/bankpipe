@@ -1454,6 +1454,14 @@ export async function reconFor(assetId, today = new Date().toISOString().slice(0
   ]);
   const lots = saleRows.flat().filter((r) => String(r.category || "") === "bond");
   const positions = heldRows.flat().filter((r) => String(r.category || "") === "bond");
+  // Once a portfolio is merged into its demat, its cost lives on the position
+  // rows and there is no second record to audit against. Reporting every bond as
+  // "no purchase record" against an empty set would be a false alarm, so say
+  // there is nothing to compare and leave the card out.
+  if (!lots.length) {
+    return { asset: me, seller: null, custodian: me, reason: "no-cost-source",
+      lines: [], inputs: reconInputs([], positions), ...reconSummary([]) };
+  }
   const lines = reconPositions({
     lots,
     positions,

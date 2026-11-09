@@ -10075,6 +10075,7 @@ window.bpReconFill = async () => {
   try {
     const store = await import("./db.js");
     const result = await store.reconFor(id);
+    if (result?.reason === "no-cost-source") { host.innerHTML = ""; return; }
     host.innerHTML = reconCardHtml(result, {
       money,
       shapeText: result ? reconShapeText(reconShape(result)) : "",
