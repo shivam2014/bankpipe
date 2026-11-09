@@ -259,12 +259,15 @@ function readTables(items, tables, headers = []) {
       // statement itself uses: units x NAV is the value it prints. Whichever
       // cell satisfies that is the value, whatever the heading says.
       const fundCell = table.kind === "mf" ? fundValue(cells) : null;
-      // For a fund, the cell that satisfies units x NAV is the valuation; the
-      // profit column sits beside it and is easy to take by accident.
-      const valueCell = (table.kind === "mf" ? fundCell : null)
-        || find(VALUE_LABEL)
-        || [...perColumn.values()].sort((a, b) => b.right - a.right)[0]
-        || null;
+      // Funds: the cell that satisfies units x NAV. Bonds and equities: the last
+      // money column is the value, whatever the header calls it, which survives a
+      // renamed or inserted column better than matching a label.
+      const valueCell = table.kind === "mf"
+        ? (fundCell
+          || find(VALUE_LABEL)
+          || [...perColumn.values()].sort((a, b) => b.right - a.right)[0]
+          || null)
+        : [...perColumn.values()].sort((a, b) => b.right - a.right)[0] || null;
       if (!valueCell && !qtyCell) return;
       // A date is text, not a number, so it is not in the column map.
       const maturityCol = table.cols.find((c) => /maturity/i.test(c.str));
