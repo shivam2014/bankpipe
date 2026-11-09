@@ -1016,7 +1016,7 @@ import { dematCardHtml, dematLast4, dematMismatchLine, dematText,
   syncPreviewCardHtml } from "./demat-card.js";
 import { reconCardHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
-import { casRoute, cleanFundLabel } from "./cas.js";
+import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
@@ -7385,18 +7385,19 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
       // A folio gets an account named after its AMC, joined by name, not by BO ID.
       if (group.kind === "mf") {
         const amc = String(group.amc || "").trim();
+        const amcFull = String(group.amcFull || "").trim() || amc;
         if (!amc || done.has(amc.toLowerCase())) continue;
         done.add(amc.toLowerCase());
         if (all.some((a) => /mutual\s*fund|^mf$/i.test(String(a.subtype || ""))
           && String(a.label || "").toLowerCase().includes(amc.toLowerCase()))) continue;
-        const name = amc[0].toUpperCase() + amc.slice(1).toLowerCase();
+        const name = amc.replace(/\b\w/g, (c) => c.toUpperCase());
         const base = `mf-${amc.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
         let id = base;
         let n = 2;
         while (all.some((a) => a.id === id)) id = `${base}-${n++}`;
-        await store.createAccount({ id, label: `${name} mutual fund`,
+        await store.createAccount({ id, label: `${name} mutual fund`, bank: amcFull,
           category: "demat", subtype: "mutual fund", type: "mf", number: "",
-          holder: owner, meta: JSON.stringify({ source: "cas", amc }) });
+          holder: owner, meta: JSON.stringify({ source: "cas", amc, amc_full: amcFull }) });
         all.push({ id, label: `${name} mutual fund`, subtype: "mutual fund", category: "demat" });
         continue;
       }
@@ -7882,7 +7883,9 @@ function assetRow(a, onclick, overrideShown) {
   // from another. A folio says which AMC keeps it.
   const isMf = cat === "demat" && /mutual\s*fund|^mf$/i.test(String(a.subtype || ""));
   const depository = String(meta.depository || "").trim();
-  const dp = shortDp(meta.dp || a.bank || "");
+  const dp = isMf
+    ? (String(meta.amc || "").trim() || shortAmcName(a.bank || ""))
+    : shortDp(meta.dp || a.bank || "");
   const tail = /^[A-Z0-9]{10,}$/i.test(String(a.number || ""))
     ? `…${String(a.number).slice(-4)}` : "";
   const where = cat === "demat"
@@ -9814,6 +9817,25 @@ function renderAsset() {
     // The focused ring on an asset page needs its siblings, so keep the list.
     const accounts = await store.listAccounts();
     const enriched = accounts.find((x) => x.id === id);
+    // A folio account created before the AMC was read from the statement kept
+    // the first word of the scheme ("Mirae") where a broker would sit. Name the
+    // fund house from the holdings once, so the card says Mirae Asset Mutual
+    // Fund and the label says Mirae Asset.
+    if (enriched && categoryOf(enriched) === "demat"
+      && /mutual\s*fund|^mf$/i.test(String(enriched.subtype || ""))) {
+      const current = String(enriched.bank || "").trim();
+      if (!/mutual fund$/i.test(current)) {
+        const sample = holdings.map((h) => h.label).find(Boolean) || "";
+        const full = fullAmcName(fundHouseFromLabel(sample));
+        if (full) {
+          const short = shortAmcName(full);
+          await store.updateAccount(id, { bank: full, label: `${short} mutual fund`,
+            meta: JSON.stringify({ ...metaOf(enriched), amc: short, amc_full: full }) });
+          enriched.bank = full;
+          enriched.label = `${short} mutual fund`;
+        }
+      }
+    }
     window.bpAssetsForFocus = accounts;
     host.innerHTML = assetForm(enriched ? { ...account, ...enriched } : account,
       totals?.n || 0, undefined, holdings);

@@ -44,10 +44,53 @@ export function cleanFundLabel(value) {
   let s = String(value ?? "");
   s = s.split(/\bGrand Total\b|\bTotal Expense Ratio\b|\bAnnuali[sz]ed\b|\bExpense Ratio\b/i)[0];
   s = s.replace(/\bFund\s+Fund\b/gi, "Fund");
+  s = s.replace(/\(formerly.*$/i, " ");
   s = s.replace(/\s*\)\s*[-–]\s*/g, " - ");
   s = s.replace(/\s*\)\s*$/g, "");
   s = s.replace(/\s*[-–]\s*$/g, "");
   return tidy(s);
+}
+
+// The first word of a scheme is the fund house only by luck ("Mirae",
+// "Aditya"). The AMC name is the prefix before the first scheme word:
+// "Mirae Asset | Large and Midcap Fund" names Mirae Asset Mutual Fund.
+const SCHEME_WORD = /\b(Large|Mid|Small|Multi|Flexi|ELSS|Liquid|Cash|Overnight|Money|Ultra|Short|Long|Gilt|Credit|Corporate|Banking|Infrastructure|Tax|Savings|Dynamic|Balanced|Hybrid|Index|Equity|Debt|Value|Growth|Dividend|Monthly|Income|Arbitrage|Bluechip|Emerging|Focused|Contra|Children|Retirement|Conservative|Aggressive|Frontline)\b/i;
+export function fundHouseFromLabel(value) {
+  const text = String(value || "").replace(/\(formerly[^)]*\)/gi, " ")
+    .replace(/\s+/g, " ").trim();
+  const hit = text.match(SCHEME_WORD);
+  let prefix = hit ? text.slice(0, hit.index) : text;
+  prefix = prefix.replace(/[-–]\s*$/, "").replace(/\s+/g, " ").trim();
+  if (!prefix) return "";
+  return /mutual fund$/i.test(prefix) ? prefix : `${prefix} Mutual Fund`;
+}
+export function fullAmcName(value) {
+  const s = tidy(value);
+  if (!s) return "";
+  return /mutual$/i.test(s) ? `${s} Fund` : s;
+}
+export function shortAmcName(value) {
+  return tidy(String(value || "").replace(/\s+mutual(?:\s+fund)?\s*$/i, ""));
+}
+
+// The AMC line sits above a CDSL folio table. NSDL prints it in the holder
+// details beside the folio number instead, so both are read.
+function amcFor(table, items) {
+  const hit = items.filter((i) => i.page === table.page && i.y > table.y
+    && /^AMC\s*Name\s*:/i.test(i.str))
+    .sort((a, b) => a.y - b.y)[0];
+  return hit ? tidy(String(hit.str).replace(/^AMC\s*Name\s*:\s*/i, "")) : "";
+}
+function amcByFolio(items) {
+  const out = new Map();
+  const folios = items.filter((i) => /^\d{6,}(?:\/\d+)?$/.test(i.str));
+  for (const amc of items) {
+    if (!/mutual(?:\s+fund)?\s*$/i.test(amc.str || "") || String(amc.str).length > 60) continue;
+    const near = folios.filter((f) => f.page === amc.page && Math.abs(f.y - amc.y) < 40)
+      .sort((a, b) => Math.abs(a.y - amc.y) - Math.abs(b.y - amc.y))[0];
+    if (near) out.set(near.str, tidy(amc.str));
+  }
+  return out;
 }
 
 function rupees(text) {
@@ -196,6 +239,7 @@ function detectTables(items) {
 
 /** Read every ISIN that sits under a holdings header. */
 function readTables(items, tables, headers = []) {
+  const amcMap = amcByFolio(items);
   const headerFor = (anchor) => tables
     .filter((t) => t.page === anchor.page && t.y > anchor.y)
     .sort((a, b) => a.y - b.y)[0]
@@ -310,9 +354,14 @@ function readTables(items, tables, headers = []) {
           .sort((a, b) => b.y - a.y || a.x - b.x)
         : [];
       const label = table.kind === "mf" ? cleanFundLabel(tidy(nameCells.map((i) => i.str).join(" "))) : "";
+      const folio = folioCell ? tidy(folioCell.str) : "";
+      const fullAmc = table.kind === "mf"
+        ? fullAmcName(amcFor(table, items) || amcMap.get(folio) || fundHouseFromLabel(label))
+        : "";
       const amc = table.kind === "mf"
-        ? (label.match(/[A-Za-z]{3,}/g) || []).find((w) =>
-          !/^(cfgp|fund|plan|direct|regular|growth|scheme|name|asset|equity|liquid|cash|formerly|the|and)$/i.test(w)) || ""
+        ? (fullAmc ? shortAmcName(fullAmc)
+          : (label.match(/[A-Za-z]{3,}/g) || []).find((w) =>
+            !/^(cfgp|fund|plan|direct|regular|growth|scheme|name|asset|equity|liquid|cash|formerly|the|and)$/i.test(w)) || "")
         : "";
       const isin = anchor.str.toUpperCase();
       out.push({
@@ -321,8 +370,9 @@ function readTables(items, tables, headers = []) {
         kind: table.kind,
         account: owner?.boId || "",
         dpName: owner?.dpName || "",
-        folio: folioCell ? tidy(folioCell.str) : "",
+        folio,
         amc,
+        amcFull: fullAmc,
         quantity: qtyCell ? quantity(qtyCell.str) : null,
         faceValuePaise: faceCell ? rupees(faceCell.str) : null,
         pricePaise: null,
@@ -640,6 +690,7 @@ export function casRoute(parsed, assets = []) {
         bucket.set(bucketKey, { kind: holding.kind, assetId: target?.id || "",
           assetLabel: target?.label || "", boId: isFolio ? "" : key,
           amc: isFolio ? holding.amc || "" : "", folio: isFolio,
+          amcFull: isFolio ? holding.amcFull || "" : "",
           dpName: account.dpName || "", count: 0, valuePaise: 0 });
       }
       const row = bucket.get(bucketKey);

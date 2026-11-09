@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCas, casTotals, casRoute, cleanFundLabel } from "./cas.js";
+import { parseCas, casTotals, casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
 
 test("a fund name stops before the expense-ratio paragraph", () => {
   assert.equal(cleanFundLabel("Mirae Asset Cash Management Fund ) - Grand Total Average Total Expense Ratio above represents the average of annualized total expense charged in the respective schemes during the half-year period within"), "Mirae Asset Cash Management Fund");
@@ -8,6 +8,21 @@ test("a fund name stops before the expense-ratio paragraph", () => {
     "Mirae Asset Large and Midcap Fund - Regular Plan");
   assert.equal(cleanFundLabel("Parag Parikh Flexi Cap Fund - Direct Plan - Growth"),
     "Parag Parikh Flexi Cap Fund - Direct Plan - Growth");
+  assert.equal(cleanFundLabel("Aditya Birla Sun Life Large Cap Fund - Growth-Regular Plan(formerly known as Aditya Birla Sun Life Frontline Equity Fund"),
+    "Aditya Birla Sun Life Large Cap Fund - Growth-Regular Plan");
+});
+
+test("the AMC is the prefix before the first scheme word", () => {
+  assert.equal(fundHouseFromLabel("Mirae Asset Cash Management Fund"), "Mirae Asset Mutual Fund");
+  assert.equal(fundHouseFromLabel("Mirae Asset Large and Midcap Fund - Regular Plan"),
+    "Mirae Asset Mutual Fund");
+  assert.equal(fundHouseFromLabel("Axis ELSS- Tax Saver Fund - Regular Growth"),
+    "Axis Mutual Fund");
+  assert.equal(fundHouseFromLabel("Aditya Birla Sun Life Large Cap Fund - Growth-Regular Plan"),
+    "Aditya Birla Sun Life Mutual Fund");
+  assert.equal(fullAmcName("Aditya Birla Sun Life Mutual"), "Aditya Birla Sun Life Mutual Fund");
+  assert.equal(shortAmcName("Mirae Asset Mutual Fund"), "Mirae Asset");
+  assert.equal(shortAmcName("Axis Mutual Fund"), "Axis");
 });
 
 // A synthetic page laid out like a depository statement: one heading line, then
