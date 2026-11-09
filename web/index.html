@@ -7290,13 +7290,20 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     }
     const stranded = plan.retire.length - [...absorb].filter((id) =>
       plan.retire.includes(id)).length;
-    if (ask && !confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"} across ${demats.length}
-demat accounts?${added ? ` ${added} bought after the statement date will be added.` : ""}
-${absorb.size} bond portfolio${absorb.size === 1 ? "" : "s"} merge into the demat and
-disappear.${stranded ? ` ${stranded} stay as a cost record because a live bond in
-${stranded === 1 ? "it" : "them"} is in no demat.` : ""}${plan.stats.orphan
-  ? ` ${plan.stats.orphan} bond${plan.stats.orphan === 1 ? " is" : "s are"} in no demat and stop
-counting too.` : ""}`)) return null;
+    if (ask) {
+      // Say only what will happen. The old line counted every demat (fund folios
+      // included), announced "attach cost to 0 bonds", and called matured lots
+      // "in no demat" — three false alarms in one sentence.
+      const said = [];
+      said.push(absorb.size
+        ? `Merge ${absorb.size} bond portfolio${absorb.size === 1 ? "" : "s"} into the demat accounts?`
+        : "Consolidate the bonds?");
+      if (n) said.push(`${n} unpriced bond${n === 1 ? "" : "s"} will take cost and purchase date from the portfolios.`);
+      if (added) said.push(`${added} bought after the statement date will be added.`);
+      if (stranded) said.push(`${stranded} portfolio${stranded === 1 ? " stays" : "s stay"} as a cost record: a live bond in ${stranded === 1 ? "it" : "them"} is in no demat.`);
+      said.push("Each bond is then listed once, on its demat account. A local snapshot is saved first.");
+      if (!confirm(said.join(" "))) return null;
+    }
     for (const demat of dematRows) {
       const mine = plan.updates.filter((u) => u.assetId === demat.id);
       const hist = history.get(demat.id) || [];
