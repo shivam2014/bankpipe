@@ -6894,42 +6894,60 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         const many = { bond: "bonds", equity: "equities", mf: "funds" }[k] || `${one}s`;
         return `${n} ${n === 1 ? one : many}`;
       }).join(" · ");
-    // One line per demat account the statement covers, because the accounts are
-    // the thing a person recognises: "Motilal Oswal …0907 holds the bonds".
-    const rows = (route.accounts || []).map((a) => {
-      const tail = a.boId ? `…${a.boId.slice(-4)}` : "";
-      const mine = [...route.groups, ...route.homeless].filter((g) =>
-        String(g.boId || "") === String(a.boId || ""));
-      const kinds = mine.map((g) => `${
-        g.kind === "bond" ? "Bonds" : g.kind === "mf" ? "Funds" : "Equities"} ${g.count}`).join(" · ");
-      const name = a.dpName ? shortDp(a.dpName) : (cas.depository || "Demat");
-      const dest = a.assetId ? `<b>${esc(a.assetLabel || a.assetId)}</b>` : "<b>new account</b>";
-      return `<div class="muted" style="font-size:12px;margin-top:4px">
-        <b style="color:var(--ink)">${esc(name)} ${esc(tail)}</b> — ${kinds} → ${dest}</div>`;
-    }).join("");
-    const folioGroups = [...route.groups, ...route.homeless]
-      .filter((g) => g.kind === "mf" && g.folio);
-    const folioRows = folioGroups.map((g) => `<div class="muted" style="font-size:12px;margin-top:4px">
-        <b style="color:var(--ink)">${esc(g.amc || "Folio")} folio${g.count === 1 ? "" : "s"}</b>
-        — Funds ${g.count} → ${g.assetId ? `<b>${esc(g.assetLabel || g.assetId)}</b>` : "<b>new account</b>"}</div>`).join("");
+    // One tick per account: a demat (BO ID) or a folio account (AMC). Rows are
+    // never ticked on their own, so every imported account still equals the
+    // total the statement printed for it.
+    const valueOf = (bo) => cas.holdings
+      .filter((h) => String(h.account || "") === String(bo || ""))
+      .reduce((t, h) => t + (Number(h.valuePaise) || 0), 0);
+    const units = (route.accounts || []).map((a) => ({
+      key: `bo:${a.boId}`,
+      label: `${a.dpName ? shortDp(a.dpName) : (cas.depository || "Demat")} ${a.boId ? `…${a.boId.slice(-4)}` : ""}`,
+      count: a.count, valuePaise: valueOf(a.boId), assetId: a.assetId,
+    }));
+    const folioSeen = new Map();
+    for (const g of [...route.groups, ...route.homeless].filter((x) => x.kind === "mf" && x.folio)) {
+      const amc = String(g.amc || "Folio");
+      const key = `mf:${amc.toLowerCase()}`;
+      if (!folioSeen.has(key)) {
+        folioSeen.set(key, { key, label: `${amc} mutual fund`, count: 0,
+          valuePaise: 0, assetId: g.assetId });
+      }
+      const unit = folioSeen.get(key);
+      unit.count += g.count;
+      unit.valuePaise += Number(g.valuePaise) || 0;
+    }
+    units.push(...folioSeen.values());
+    const cardState = window.bpCasCards[hostId];
+    cardState.units = units;
+    if (!cardState.picked) cardState.picked = new Set(units.map((u) => u.key));
+    const unitRows = units.map((u) => `<label style="display:flex;gap:8px;align-items:baseline;
+        font-size:12.5px;margin-top:6px;cursor:pointer">
+        <input type="checkbox" data-unit="${esc(u.key)}" style="margin-top:2px"
+          ${cardState.picked.has(u.key) ? "checked" : ""}
+          onchange="bpCasPick('${hostId}')">
+        <span><b style="color:var(--ink)">${esc(u.label)}</b> · ${u.count} holding${
+          u.count === 1 ? "" : "s"} · ${money(u.valuePaise)}${
+          u.assetId ? "" : " · <i>new account</i>"}</span></label>`).join("");
+    const rows = "";
+    const folioRows = "";
     const missing = route.homeless.reduce((t, g) => t + g.count, 0);
-    const newDemat = [...new Set(route.homeless.filter((g) => g.boId).map((g) => g.boId))];
-    const newFolio = [...new Set(route.homeless.filter((g) => g.kind === "mf" && g.folio && g.amc)
-      .map((g) => String(g.amc).toLowerCase()))];
-    const newAccounts = [...newDemat, ...newFolio];
+    const picked = cardState.picked;
+    const unitKey = (g) => (g.kind === "mf" && g.folio)
+      ? `mf:${String(g.amc || "").toLowerCase()}` : `bo:${String(g.boId || "")}`;
+    const newAccounts = [...new Set(route.homeless
+      .filter((g) => picked.has(unitKey(g)))
+      .map((g) => unitKey(g)))];
     const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
-    const createHint = newAccounts.length
-      ? `<button class="btn primary" style="margin-top:10px"
-          onclick="bpCasCreateAndImport('${hostId}')">Create ${newAccounts.length} account${
-            newAccounts.length === 1 ? "" : "s"} and import</button>`
-      : "";
+    const createHint = "";
+    const canImport = units.some((u) => picked.has(u.key));
     const manual = !route.demat && targets.length
       ? `<label class="field" style="margin-top:10px">No account number in this PDF. Write all
         of it into
         <select id="cas-target-${hostId}">${targets.map((a) => `<option value="${esc(a.id)}">${
           esc(a.label || a.id)}</option>`).join("")}</select></label>`
       : "";
-    const nothing = !route.groups.length && !newAccounts.length;
+    const nothing = !units.length;
     const shapeText = casShapeText(casShape(pdf, cas));
     // A statement that produced no value at all did not parse: say so and give a
     // report that can be shared, instead of offering an Import button.
@@ -6952,9 +6970,8 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
       ${broken ? `<div class="muted" style="font-size:12px;margin-top:8px;color:var(--red)">
         This statement did not parse, so nothing will be written.</div>` : ""}
-      ${rows}
-      ${folioRows}
-      ${missing && !newAccounts.length ? `<div class="muted" style="font-size:12px;margin-top:6px;${
+      ${unitRows}
+      ${missing && !canImport ? `<div class="muted" style="font-size:12px;margin-top:6px;${
         route.demat ? "" : "color:var(--red)"}">${route.demat
         ? (route.groups.length
           ? `${missing} holding(s) have no account in their class yet.`
@@ -6964,9 +6981,9 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       ${broken ? "" : createHint}
       ${nothing && !broken ? `<div class="muted" style="font-size:12px;margin-top:8px">Nothing
         to write from this file.</div>` : ""}
-      ${route.groups.length && !broken && !newAccounts.length
-        ? `<button class="btn primary" style="margin-top:10px" onclick="bpCasImport('${hostId}')">
-          Import into these accounts</button>`
+      ${canImport && !broken
+        ? `<button class="btn primary" style="margin-top:10px" onclick="bpCasCreateAndImport('${hostId}')">
+          Import selected</button>`
         : ""}
       ${broken ? "" : manual}
       ${shapeBlock}
@@ -6980,6 +6997,13 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
 // shares and funds in separate accounts. Creating those accounts from the
 // statement is the honest alternative to forcing three kinds of money into one
 // portfolio the person already had.
+window.bpCasPick = (key) => {
+  const card = (window.bpCasCards || {})[key];
+  const host = document.getElementById(key);
+  if (!card || !host) return;
+  const boxes = [...host.querySelectorAll("input[data-unit]")];
+  card.picked = new Set(boxes.filter((b) => b.checked).map((b) => b.getAttribute("data-unit")));
+};
 window.bpCopyCasShape = async (btn) => {
   const text = window.bpCasShapeText || "";
   if (!text) return;
@@ -7232,7 +7256,11 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
     const claimed = new Set((current.accounts || [])
       .filter((a) => a.assetId).map((a) => a.assetId));
     const done = new Set();
+    const unitKey = (g) => (g.kind === "mf" && g.folio)
+      ? `mf:${String(g.amc || "").toLowerCase()}` : `bo:${String(g.boId || "")}`;
     for (const group of homeless) {
+      // Only the accounts the person ticked are created.
+      if (card.picked && !card.picked.has(unitKey(group))) continue;
       // A folio gets an account named after its AMC, joined by name, not by BO ID.
       if (group.kind === "mf") {
         const amc = String(group.amc || "").trim();
@@ -7312,6 +7340,10 @@ window.bpCasImport = async (key = "cas-host") => {
           ? String(g.amc || "").toLowerCase() === String(h.amc || "").toLowerCase()
           : (!h.account || !g.boId || String(g.boId) === String(h.account))));
       if (!group) continue;
+      // An account the person unticked is left exactly as it was.
+      const pickedKey = (group.kind === "mf" && group.folio)
+        ? `mf:${String(group.amc || "").toLowerCase()}` : `bo:${String(group.boId || "")}`;
+      if (card.picked && !card.picked.has(pickedKey)) continue;
       if (!byAsset.has(group.assetId)) byAsset.set(group.assetId, []);
       byAsset.get(group.assetId).push(h);
     }
