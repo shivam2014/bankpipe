@@ -6907,12 +6907,20 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       return `<div class="muted" style="font-size:12px;margin-top:4px">
         <b style="color:var(--ink)">${esc(name)} ${esc(tail)}</b> — ${kinds} → ${dest}</div>`;
     }).join("");
+    const folioGroups = [...route.groups, ...route.homeless]
+      .filter((g) => g.kind === "mf" && g.folio);
+    const folioRows = folioGroups.map((g) => `<div class="muted" style="font-size:12px;margin-top:4px">
+        <b style="color:var(--ink)">${esc(g.amc || "Folio")} folio${g.count === 1 ? "" : "s"}</b>
+        — Funds ${g.count} → ${g.assetId ? `<b>${esc(g.assetLabel || g.assetId)}</b>` : "<b>new account</b>"}</div>`).join("");
     const missing = route.homeless.reduce((t, g) => t + g.count, 0);
-    const newAccounts = [...new Set(route.homeless.map((g) => g.boId).filter(Boolean))];
+    const newDemat = [...new Set(route.homeless.filter((g) => g.boId).map((g) => g.boId))];
+    const newFolio = [...new Set(route.homeless.filter((g) => g.kind === "mf" && g.folio && g.amc)
+      .map((g) => String(g.amc).toLowerCase()))];
+    const newAccounts = [...newDemat, ...newFolio];
     const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
     const createHint = newAccounts.length
       ? `<button class="btn primary" style="margin-top:10px"
-          onclick="bpCasCreateAndImport('${hostId}')">Create ${newAccounts.length} demat account${
+          onclick="bpCasCreateAndImport('${hostId}')">Create ${newAccounts.length} account${
             newAccounts.length === 1 ? "" : "s"} and import</button>`
       : "";
     const manual = !route.demat && targets.length
@@ -6945,6 +6953,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       ${broken ? `<div class="muted" style="font-size:12px;margin-top:8px;color:var(--red)">
         This statement did not parse, so nothing will be written.</div>` : ""}
       ${rows}
+      ${folioRows}
       ${missing && !newAccounts.length ? `<div class="muted" style="font-size:12px;margin-top:6px;${
         route.demat ? "" : "color:var(--red)"}">${route.demat
         ? (route.groups.length
@@ -7213,10 +7222,8 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
     .find((a) => a.boId === bo)?.holdings.map((h) => String(h.isin || "").toUpperCase()) || []);
   for (let pass = 0; pass < 4; pass += 1) {
     const current = casRoute(cas, await store.listAccounts());
-    const pending = [...new Map((current.homeless || [])
-      .filter((g) => g.boId)
-      .map((g) => [g.boId, g])).values()];
-    if (!pending.length) { window.bpCasRoute = current; break; }
+    const homeless = current.homeless || [];
+    if (!homeless.length) { window.bpCasRoute = current; break; }
     const all = await store.listAccounts();
     const demats = all.filter((a) => String(a.category || "") === "demat"
       && !/mutual\s*fund|^mf$/i.test(String(a.subtype || "")));
@@ -7224,7 +7231,28 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
     // statement; the overlap test must never steal it.
     const claimed = new Set((current.accounts || [])
       .filter((a) => a.assetId).map((a) => a.assetId));
-    for (const group of pending) {
+    const done = new Set();
+    for (const group of homeless) {
+      // A folio gets an account named after its AMC, joined by name, not by BO ID.
+      if (group.kind === "mf") {
+        const amc = String(group.amc || "").trim();
+        if (!amc || done.has(amc.toLowerCase())) continue;
+        done.add(amc.toLowerCase());
+        if (all.some((a) => /mutual\s*fund|^mf$/i.test(String(a.subtype || ""))
+          && String(a.label || "").toLowerCase().includes(amc.toLowerCase()))) continue;
+        const name = amc[0].toUpperCase() + amc.slice(1).toLowerCase();
+        const base = `mf-${amc.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+        let id = base;
+        let n = 2;
+        while (all.some((a) => a.id === id)) id = `${base}-${n++}`;
+        await store.createAccount({ id, label: `${name} mutual fund`,
+          category: "demat", subtype: "mutual fund", type: "mf", number: "",
+          holder: "", meta: JSON.stringify({ source: "cas", amc }) });
+        all.push({ id, label: `${name} mutual fund`, subtype: "mutual fund", category: "demat" });
+        continue;
+      }
+      if (!group.boId || done.has(group.boId)) continue;
+      done.add(group.boId);
       const tail = group.boId.slice(-4);
       const dp = shortDp(group.dpName);
       const label = `Demat · ${dp || where || "demat"} · …${tail}`;
@@ -7277,9 +7305,12 @@ window.bpCasImport = async (key = "cas-host") => {
   const byAsset = new Map();
   if (route.groups.length) {
     for (const h of cas.holdings) {
-      // Match the account as well as the class: two demats can both hold bonds.
+      // Match the account as well as the class: two demats can both hold bonds,
+      // and a folio belongs to the account named after its AMC.
       const group = route.groups.find((g) => g.kind === h.kind
-        && (!h.account || !g.boId || String(g.boId) === String(h.account)));
+        && (h.kind === "mf" && h.folio
+          ? String(g.amc || "").toLowerCase() === String(h.amc || "").toLowerCase()
+          : (!h.account || !g.boId || String(g.boId) === String(h.account))));
       if (!group) continue;
       if (!byAsset.has(group.assetId)) byAsset.set(group.assetId, []);
       byAsset.get(group.assetId).push(h);
@@ -7329,7 +7360,7 @@ window.bpCasImport = async (key = "cas-host") => {
           label: casHoldingLabel(h),
           category: h.kind,
           quantity: h.quantity,
-          cost_paise: carried,
+          cost_paise: carried ?? (h.costPaise ?? null),
           value_paise: h.valuePaise,
           purchase_date: carried && old ? old.purchase_date || "" : "",
         };
@@ -7348,7 +7379,13 @@ window.bpCasImport = async (key = "cas-host") => {
       written += rows.length;
       const asset = (await store.listAccounts()).find((a) => a.id === assetId);
       if (asset) {
-        await store.updateAccount(assetId, { meta: JSON.stringify({ ...metaOf(asset),
+        const meta = metaOf(asset);
+        // A folio account's value now comes from its units, so the old manual
+        // number must not linger and count a second time if the rows move again.
+        if (/mutual\s*fund|^mf$/i.test(String(asset.subtype || ""))) {
+          delete meta.current_value_paise;
+        }
+        await store.updateAccount(assetId, { meta: JSON.stringify({ ...meta,
           holdings_source: "cas", holdings_as_of: asOf,
           holdings_file: cas.depository ? `${cas.depository} CAS` : "CAS" }) });
       }

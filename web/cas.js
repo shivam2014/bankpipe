@@ -532,6 +532,14 @@ export function casRoute(parsed, assets = []) {
   const groups = new Map();
   const homeless = new Map();
   const homes = [];
+  // A folio is identified by its AMC and folio number, never by a BO ID. Its
+  // account is the one named after the AMC.
+  const folioHome = (holding) => {
+    const amc = String(holding.amc || "").toLowerCase();
+    if (!amc) return null;
+    return (assets || []).find((a) => /mutual\s*fund|^mf$/i.test(String(a.subtype || ""))
+      && String(a.label || "").toLowerCase().includes(amc)) || null;
+  };
   for (const account of list) {
     const id = boId(account.boId || "");
     const key = id.kind === "bo" ? id.boId : "";
@@ -545,12 +553,17 @@ export function casRoute(parsed, assets = []) {
         assetLabel: asset?.label || "", count: account.holdings.length });
     }
     for (const holding of account.holdings) {
-      const bucket = asset ? groups : homeless;
-      const bucketKey = asset ? `${holding.kind}|${asset.id}` : `${holding.kind}|${key || "folio"}`;
+      const isFolio = holding.kind === "mf" && !!holding.folio;
+      const target = isFolio ? folioHome(holding) : asset;
+      const bucket = target ? groups : homeless;
+      const bucketKey = target
+        ? `${holding.kind}|${target.id}`
+        : (isFolio ? `mf|folio:${holding.amc || "unknown"}` : `${holding.kind}|${key || "folio"}`);
       if (!bucket.has(bucketKey)) {
-        bucket.set(bucketKey, { kind: holding.kind, assetId: asset?.id || "",
-          assetLabel: asset?.label || "", boId: key, dpName: account.dpName || "",
-          count: 0, valuePaise: 0 });
+        bucket.set(bucketKey, { kind: holding.kind, assetId: target?.id || "",
+          assetLabel: target?.label || "", boId: isFolio ? "" : key,
+          amc: isFolio ? holding.amc || "" : "", folio: isFolio,
+          dpName: account.dpName || "", count: 0, valuePaise: 0 });
       }
       const row = bucket.get(bucketKey);
       row.count += 1;

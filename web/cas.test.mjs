@@ -173,3 +173,37 @@ test("an unreadable account number routes nowhere", () => {
   assert.equal(route.groups.length, 0);
   assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 4);
 });
+
+// --- folios belong to an AMC, not to a demat ---------------------------------
+
+test("a folio routes to its AMC account, not into the demat", () => {
+  const parsed = {
+    depository: "CDSL",
+    demat: "9999000001140907",
+    accounts: [{
+      boId: "9999000001140907", dpName: "MOTILAL OSWAL FINANCIAL SERVICES LIMITED",
+      holdings: [
+        { isin: "INE000000001", kind: "bond", valuePaise: 100 },
+        { isin: "INF999900287", kind: "mf", valuePaise: 200, folio: "123/4", amc: "Mirae" },
+      ],
+    }],
+    holdings: [
+      { isin: "INE000000001", kind: "bond", valuePaise: 100 },
+      { isin: "INF999900287", kind: "mf", valuePaise: 200, folio: "123/4", amc: "Mirae" },
+    ],
+  };
+  const withFolio = [
+    { id: "d1", label: "Demat · Motilal · …0907", category: "demat",
+      number: "9999000001140907" },
+    { id: "m1", label: "Mirae mutual fund", category: "demat", subtype: "mutual fund" },
+  ];
+  const route = casRoute(parsed, withFolio);
+  assert.equal(route.groups.find((g) => g.kind === "bond").assetId, "d1");
+  assert.equal(route.groups.find((g) => g.kind === "mf").assetId, "m1");
+
+  // With no AMC account the folio is homeless, and its AMC travels with it.
+  const route2 = casRoute(parsed, [withFolio[0]]);
+  const folio = route2.homeless.find((g) => g.kind === "mf");
+  assert.equal(folio.amc, "Mirae");
+  assert.equal(folio.folio, true);
+});
