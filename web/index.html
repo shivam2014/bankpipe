@@ -394,6 +394,7 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .bond-market b.neg{color:var(--red)}.bond-market b.pos{color:var(--green)}
 .bond-cards{display:none;flex-direction:column;gap:8px;margin-top:10px}
 .matured-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.holding-cards{display:flex;flex-direction:column;gap:8px;margin-top:10px}
 .bond-card{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card)}
 .bond-card-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
 .bond-card .bond-name{font-size:13px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
@@ -8781,24 +8782,51 @@ function holdingClass(row) {
   if (/^INF/.test(String(row?.security_id || ""))) return "mf";
   return "equity";
 }
-function simpleHoldings(rows, kind = "") {
+function holdingCardHtml(row, kind = "") {
+  const mf = kind === "mf";
+  const qty = row.quantity === null || row.quantity === undefined ? null : Number(row.quantity);
+  const cost = row.cost_paise === null || row.cost_paise === undefined ? null : Number(row.cost_paise);
+  const value = row.value_paise === null || row.value_paise === undefined ? null : Number(row.value_paise);
+  const gain = value !== null && cost !== null ? value - cost : null;
+  const unit = qty !== null && qty > 0 && value !== null ? value / qty : null;
+  const name = mf ? cleanFundLabel(row.label) : (row.label || "");
+  const moneyOrDash = (x) => x === null ? "—" : money(x);
+  const cell = (k, val, cls = "") => `<div><span class="k">${k}</span>
+    <span class="v ${cls}">${val}</span></div>`;
+  const gainText = gain === null ? "—" : gain === 0 ? money(0)
+    : `${gain < 0 ? "−" : "+"}${money(Math.abs(gain))}`;
+  return `<div class="bond-card">
+    <div class="bond-card-head"><div><div class="bond-name">${esc(name || row.security_id || "—")}</div>
+      <div class="sub">${esc(row.security_id || "no ISIN")}</div></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span class="bond-rating">${mf ? "Fund" : "Equity"}</span></div></div>
+    <div class="bond-grid">
+      ${cell(mf ? "NAV" : "Price per unit", unit === null ? "—" : money(unit))}
+      ${cell("Units", qty === null ? "—" : qty)}
+      ${cell("Purchase date", row.purchase_date ? dateLabel(row.purchase_date) : "—")}
+      ${cell("Invested", moneyOrDash(cost))}
+      ${cell("Current value", moneyOrDash(value))}
+      ${cell("Gain", gainText, gain === null || gain === 0 ? "" : gain < 0 ? "neg" : "pos")}
+    </div>
+    <div class="bond-market">${value === null
+      ? "Value not recorded. Import a statement to price this holding."
+      : `Value ${money(value)}<span class="sep">·</span>${gain === null
+        ? "gain not known" : `gain ${gain < 0 ? "−" : gain > 0 ? "+" : ""}${money(Math.abs(gain || 0))}`}`}</div>
+  </div>`;
+}
+function holdingCards(rows, kind = "", { header = true } = {}) {
+  const cards = rows.map((r) => holdingCardHtml(r, kind)).join("");
+  if (!header) return `<div class="holding-cards">${cards}</div>`;
   const value = rows.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
   const invested = rows.reduce((t, r) => t + (Number(r.cost_paise) || 0), 0);
-  const labelOf = (r) => kind === "mf" ? cleanFundLabel(r.label) : (r.label || "");
   const bits = [`${rows.length} holding${rows.length === 1 ? "" : "s"}`,
     invested ? `invested ${money(invested)}` : "",
     value ? `market value ${money(value)}` : ""].filter(Boolean).join(" · ");
   return `<div class="card pad" style="margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-      <b style="font-size:13.5px">Holdings</b>
+      <h2 style="margin:0;font-size:15px">Holdings</h2>
       <span class="muted" style="font-size:12px">${bits}</span></div>
-    <div style="margin-top:6px">${rows.map((r) => `<div class="kv-row">
-        <div class="k">${esc(labelOf(r) || r.security_id || "—")}<br>
-          <span class="muted" style="font-size:11px">${esc(r.security_id || "")}</span></div>
-        <div class="v">${r.quantity ?? "—"} u
-          <span class="muted" style="font-size:11.5px">${money(r.value_paise)}</span></div>
-      </div>`).join("")}</div>
-  </div>`;
+    <div class="holding-cards">${cards}</div></div>`;
 }
 function holdingsBlock(rows, assetId) {
   if (!rows || !rows.length) return "";
@@ -8812,7 +8840,7 @@ function holdingsBlock(rows, assetId) {
     const kind = filled[0]?.[0] || "bond";
     return kind === "bond"
       ? `<div id="bond-holdings">${holdingsCard(rows, assetId)}</div>`
-      : simpleHoldings(rows, kind);
+      : holdingCards(rows, kind);
   }
   const labels = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
   const total = (list) => list.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
@@ -8821,7 +8849,7 @@ function holdingsBlock(rows, assetId) {
       <h2 style="margin:0;font-size:15px">${labels[kind]}</h2>
       <span class="muted" style="font-size:12px">${money(total(list))}</span></div>
     ${kind === "bond" ? `<div id="bond-holdings">${holdingsCard(list, assetId)}</div>`
-      : simpleHoldings(list, kind)}`).join("");
+      : holdingCards(list, kind, { header: false })}`).join("");
   return html;
 }
 window.bpBondSort = (key) => {
