@@ -6897,14 +6897,19 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     // One tick per account: a demat (BO ID) or a folio account (AMC). Rows are
     // never ticked on their own, so every imported account still equals the
     // total the statement printed for it.
-    const valueOf = (bo) => cas.holdings
-      .filter((h) => String(h.account || "") === String(bo || ""))
-      .reduce((t, h) => t + (Number(h.valuePaise) || 0), 0);
-    const units = (route.accounts || []).map((a) => ({
-      key: `bo:${a.boId}`,
-      label: `${a.dpName ? shortDp(a.dpName) : (cas.depository || "Demat")} ${a.boId ? `…${a.boId.slice(-4)}` : ""}`,
-      count: a.count, valuePaise: valueOf(a.boId), assetId: a.assetId,
-    }));
+    const dematRowsOf = (bo) => cas.holdings
+      .filter((h) => String(h.account || "") === String(bo || "")
+        && !(h.kind === "mf" && h.folio));
+    const units = (route.accounts || []).map((a) => {
+      const mine = dematRowsOf(a.boId);
+      return {
+        key: `bo:${a.boId}`,
+        label: `${a.dpName ? shortDp(a.dpName) : (cas.depository || "Demat")} ${a.boId ? `…${a.boId.slice(-4)}` : ""}`,
+        count: mine.length,
+        valuePaise: mine.reduce((t, h) => t + (Number(h.valuePaise) || 0), 0),
+        assetId: a.assetId,
+      };
+    });
     const folioSeen = new Map();
     for (const g of [...route.groups, ...route.homeless].filter((x) => x.kind === "mf" && x.folio)) {
       const amc = String(g.amc || "Folio");
