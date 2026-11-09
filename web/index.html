@@ -7131,7 +7131,11 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     }
     // A portfolio names the demats that hold its lots, not just the biggest one:
     // a portfolio bought before the split can feed both accounts.
-    const homeOf = (lots) => {
+    // Which demat a portfolio feeds. A link once made is never re-guessed; then
+    // the demat number the report itself printed; only then the securities it
+    // holds. Recomputing by overlap alone made the answer depend on the order
+    // files arrived in.
+    const homeOf = (lots, asset) => {
       const count = new Map();
       for (const lot of lots || []) {
         const isin = String(lot.security_id || "").toUpperCase();
@@ -7142,17 +7146,31 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
         }
       }
       const rows = [...count.entries()].sort((a, b) => b[1] - a[1]);
+      const meta = metaOf(asset || {});
+      let primary = "";
+      if (meta.linked_asset && dematRows.some((d) => d.id === meta.linked_asset)) {
+        primary = meta.linked_asset;
+      }
+      if (!primary) {
+        const wanted = boId(meta.demat || asset?.number || "").boId;
+        if (wanted) {
+          const hit = dematRows.find((d) =>
+            boId(assets.find((a) => a.id === d.id)?.number || "").boId === wanted);
+          if (hit) primary = hit.id;
+        }
+      }
+      if (!primary) primary = rows[0]?.[0] || "";
+      const ids = [...new Set([primary, ...rows.map(([id]) => id)])].filter(Boolean);
       return {
-        primary: rows[0]?.[0] || "",
-        labels: rows.map(([id]) => assets.find((a) => a.id === id)?.label || id)
-          .filter(Boolean),
+        primary,
+        labels: ids.map((id) => assets.find((a) => a.id === id)?.label || id),
       };
     };
     // Records retired before this link existed get one now, so the portfolio page
     // can answer "which demat is this?" without re-importing anything.
     for (const asset of retired) {
       const meta = metaOf(asset);
-      const home = homeOf(await store.listHoldings(asset.id));
+      const home = homeOf(await store.listHoldings(asset.id), asset);
       if (!home.primary) continue;
       const label = home.labels.join(" + ");
       const linked = assets.find((a) => a.id === home.primary);
@@ -7181,7 +7199,7 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     };
     const fresh = new Map();
     for (const source of sourceRows) {
-      const home = homeOf(source.lots);
+      const home = homeOf(source.lots, assets.find((a) => a.id === source.id));
       const target = home.primary || "";
       const asOf = asOfOf(target);
       if (!target || !asOf) continue;
@@ -7228,7 +7246,7 @@ counting too.` : ""}`)) return null;
     for (const id of plan.retire) {
       const asset = (await store.listAccounts()).find((a) => a.id === id);
       if (!asset) continue;
-      const home = homeOf(sourceRows.find((s) => s.id === id)?.lots || []);
+      const home = homeOf(sourceRows.find((s) => s.id === id)?.lots || [], asset);
       const linked = assets.find((a) => a.id === home.primary);
       const meta = metaOf(asset);
       // The portfolio is reached through DigiFInn and held at the demat it feeds.
