@@ -220,7 +220,7 @@ label.field textarea{resize:vertical;min-height:58px}
   align-items:baseline;gap:10px;margin-top:22px}
 .asset-group > summary::-webkit-details-marker{display:none}
 .asset-group > summary:hover h2{color:var(--ink)}
-.asset-group > summary h2{margin-right:auto}
+.asset-group > summary h2{margin:0 auto 0 0}
 .asset-group .grp-right{display:inline-flex;align-items:baseline;gap:8px}
 .asset-group .caret{width:0;height:0;align-self:center;flex:0 0 auto;
   border-top:4px solid transparent;border-bottom:4px solid transparent;
@@ -7939,7 +7939,7 @@ function assetGroupsHtml(groups, onclickFor) {
       ontoggle="bpGroupToggle(${jsArg(g.id)}, this.open)">
       <summary>
         <span class="caret" aria-hidden="true"></span>
-        <h2 style="margin:0">${g.label}</h2>
+        <h2>${g.label}</h2>
         <span class="grp-right">
           ${g.total ? `<span class="muted" style="font-size:13px">${money(g.total)}</span>` : ""}
         </span>
