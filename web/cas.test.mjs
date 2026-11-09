@@ -74,6 +74,35 @@ test("a bond row is read even when its ISIN sits on the third line", () => {
   assert.equal(b.couponPct, 9.25);
 });
 
+test("a fund's invested is the Total Cost column, not the NAV", () => {
+  const header = line([40, "ISIN"], [110, "Scheme Name"], [300, "Folio No."],
+    [360, "No. of Units"], [430, "Average Cost Per Unit"], [500, "Total Cost"],
+    [560, "NAV per unit"], [620, "Value in (₹)"]);
+  const row = line([40, "INF999900170"], [110, "Axis ELSS- Tax Saver Fund - Regular Growth"],
+    [300, "91062983856"], [360, "3,384.424"], [430, "70.9195"], [500, "2,40,021.76"],
+    [560, "92.6537"], [620, "3,13,579.41"]);
+  const out = parseCas({ pages: [page([[header], [row]])] });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].costPaise, 24002176);
+  assert.equal(out.holdings[0].valuePaise, 31357941);
+  assert.equal(out.holdings[0].amc, "Axis");
+  assert.equal(out.holdings[0].amcFull, "Axis Mutual Fund");
+});
+
+test("a fund's invested uses the Cumulative Amount Invested column", () => {
+  const header = line([40, "ISIN"], [110, "Scheme Name"], [300, "Folio No."],
+    [360, "Closing Bal (Units)"], [430, "NAV"], [500, "Cumulative Amount Invested (INR)"],
+    [620, "Valuation"]);
+  const row = line([40, "INF999900162"], [110, "Mirae Asset Cash Management Fund"],
+    [300, "705270289"], [360, "109.932"], [430, "2952.1523"], [500, "3,00,000.00"],
+    [620, "3,24,536.01"]);
+  const total = line([500, "3,00,000.00"], [620, "3,24,536.01"]);
+  const out = parseCas({ pages: [page([[header], [row], [total]])] });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].costPaise, 30000000);
+  assert.equal(out.holdings[0].valuePaise, 32453601);
+});
+
 test("the Depository is named from the statement, not guessed", () => {
   const cdsl = page([heading("Central Depository Services (India) Limited"),
     heading("Corporate Bonds"), bondA]);

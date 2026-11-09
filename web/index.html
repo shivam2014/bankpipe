@@ -7531,7 +7531,10 @@ window.bpCasImport = async (key = "cas-host") => {
           label: casHoldingLabel(h),
           category: h.kind,
           quantity: h.quantity,
-          cost_paise: carried ?? (h.costPaise ?? null),
+          // The statement's own invested amount wins over a value carried from a
+          // previous import: a fund's cost column is now read correctly, and a
+          // re-import is how an older, wrong cost gets corrected.
+          cost_paise: h.costPaise ?? carried ?? null,
           value_paise: h.valuePaise,
           purchase_date: carried && old ? old.purchase_date || "" : "",
         };

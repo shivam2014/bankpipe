@@ -33,7 +33,7 @@ const NUMBER = /^\d[\d,]*(\.\d+)?$/;
 const VALUE_LABEL = /^value\b|value\s*in|valuation/i;
 const QUANTITY_LABEL = /no\.\s*of\s*(shares|bonds|units)|^quantity$|^current$|^bal$|^balance$|\(units\)/i;
 const ISIN_LABEL = /^isin\b/i;
-const LABEL = /isin|security|scheme|company|folio|arn|distributor|value|valuation|quantity|current|frozen|pledge|balance|op\.?\s*bal|cl\.?\s*bal|transaction|description|date|amount|nav|price|maturity|coupon|face|profit|loss|stamp|credit|debit|units/i;
+const LABEL = /isin|security|scheme|company|folio|arn|distributor|value|valuation|quantity|current|frozen|pledge|balance|op\.?\s*bal|cl\.?\s*bal|transaction|description|date|amount|nav|price|maturity|coupon|face|profit|loss|stamp|credit|debit|units|cost|invest/i;
 
 const tidy = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 
@@ -160,7 +160,7 @@ function itemsOf(pdf) {
 // A fund row prints units and NAV beside its value, and the statement computes
 // that value as units x NAV. Finding the cell that satisfies the product is
 // independent of the bilingual headings, which print two labels per column.
-function fundValue(cells) {
+function fundParts(cells) {
   // Fewer than four numbers is a plain row, not a fund row (units, NAV, value
   // and at least one more); the identity is too easy to satisfy by accident.
   if (cells.length < 4) return null;
@@ -178,11 +178,25 @@ function fundValue(cells) {
         if (nav === units) continue;
         const n = amount(nav);
         if (!(n > 0) || Math.abs(n - 1) < 1e-9) continue;
-        if (Math.abs(u * n - target) <= Math.max(1, target * 0.005)) return candidate;
+        if (Math.abs(u * n - target) <= Math.max(1, target * 0.005)) {
+          return { value: candidate, units, nav };
+        }
       }
     }
   }
   return null;
+}
+
+// The invested amount is the nearest money to the left of the value, skipping
+// the units and NAV that produced the value. That pair is known from the
+// units x NAV identity; a column heading ("Total Cost", "Cumulative Amount
+// Invested") is split across items and cannot be trusted as a key.
+function fundCostCell(cells, valueCell, parts) {
+  if (!valueCell) return null;
+  const skip = new Set([parts?.units, parts?.nav].filter(Boolean));
+  return cells.filter((c) => c !== valueCell && !skip.has(c)
+    && c.right < valueCell.right - 0.5)
+    .sort((a, b) => b.right - a.right)[0] || null;
 }
 
 function linesOf(pageItems, tolerance) {
@@ -315,12 +329,12 @@ function readTables(items, tables, headers = []) {
       // bilingual header, so a fund's value is settled by the identity the
       // statement itself uses: units x NAV is the value it prints. Whichever
       // cell satisfies that is the value, whatever the heading says.
-      const fundCell = table.kind === "mf" ? fundValue(cells) : null;
+      const fund = table.kind === "mf" ? fundParts(cells) : null;
       // Funds: the cell that satisfies units x NAV. Bonds and equities: the last
       // money column is the value, whatever the header calls it, which survives a
       // renamed or inserted column better than matching a label.
       const valueCell = table.kind === "mf"
-        ? (fundCell
+        ? (fund?.value
           || find(VALUE_LABEL)
           || [...perColumn.values()].sort((a, b) => b.right - a.right)[0]
           || null)
@@ -341,10 +355,8 @@ function readTables(items, tables, headers = []) {
         ? band.filter((i) => colAt(i.right) === folioCol)
           .sort((a, b) => b.str.length - a.str.length)[0] || null
         : null;
-      const costCell = table.kind === "mf" && valueCell
-        ? cells.filter((c) => c.right < valueCell.right)
-          .sort((a, b) => b.right - a.right)[0] || null
-        : null;
+      const costCell = table.kind === "mf"
+        ? fundCostCell(cells, valueCell, fund) : null;
       // The scheme name is every text line in the band; "CFGP - Mirae Asset
       // Liquid Fund" names Mirae, whatever column the statement puts it in.
       const nameCells = table.kind === "mf"
