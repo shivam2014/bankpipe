@@ -211,8 +211,15 @@ function readTables(items, tables, headers = []) {
       // A row is the band down to the next ISIN in the same table. One holding
       // can print across three lines (scheme name, then units and NAV). The
       // header itself is excluded, or its labels are read as the scheme name.
-      const high = index === 0 ? table.y - 1 : (rows[index - 1].y + anchor.y) / 2;
-      const low = index === rows.length - 1 ? anchor.y - 42 : (anchor.y + rows[index + 1].y) / 2;
+      const high = index === 0 ? table.y + 4 : (rows[index - 1].y + anchor.y) / 2;
+      // A table ends with a Sub Total line. The last row must stop above it, or
+      // the total is read as that row's value.
+      const totalLine = items.filter((i) => i.page === anchor.page && i.y < anchor.y
+        && i.y > anchor.y - 90 && /^(sub\s*total|total)$/i.test(i.str))
+        .sort((a, b) => b.y - a.y)[0];
+      const low = index === rows.length - 1
+        ? (totalLine ? totalLine.y + 2 : anchor.y - 42)
+        : (anchor.y + rows[index + 1].y) / 2;
       const band = items.filter((i) => i.page === anchor.page && i.y <= high && i.y > low
         && i !== anchor && i.x > 20);
       const cells = band.filter((i) => NUMBER.test(i.str));
@@ -553,7 +560,12 @@ export function casRoute(parsed, assets = []) {
         assetLabel: asset?.label || "", count: account.holdings.length });
     }
     for (const holding of account.holdings) {
-      const isFolio = holding.kind === "mf" && !!holding.folio;
+      // Route a folio only when the row is complete enough to stand alone: a
+      // folio number and units. An NSDL row whose units did not parse stays in
+      // the demat, where its value still sums to the account's total, instead of
+      // being written into a folio account with a value picked from the wrong cell.
+      const isFolio = holding.kind === "mf" && !!holding.folio
+        && Number(holding.quantity) > 0;
       const target = isFolio ? folioHome(holding) : asset;
       const bucket = target ? groups : homeless;
       const bucketKey = target

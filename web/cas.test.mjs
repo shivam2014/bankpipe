@@ -184,12 +184,12 @@ test("a folio routes to its AMC account, not into the demat", () => {
       boId: "9999000001140907", dpName: "MOTILAL OSWAL FINANCIAL SERVICES LIMITED",
       holdings: [
         { isin: "INE000000001", kind: "bond", valuePaise: 100 },
-        { isin: "INF999900287", kind: "mf", valuePaise: 200, folio: "123/4", amc: "Mirae" },
+        { isin: "INF999900287", kind: "mf", valuePaise: 200, quantity: 10, folio: "123/4", amc: "Mirae" },
       ],
     }],
     holdings: [
       { isin: "INE000000001", kind: "bond", valuePaise: 100 },
-      { isin: "INF999900287", kind: "mf", valuePaise: 200, folio: "123/4", amc: "Mirae" },
+      { isin: "INF999900287", kind: "mf", valuePaise: 200, quantity: 10, folio: "123/4", amc: "Mirae" },
     ],
   };
   const withFolio = [
@@ -206,4 +206,21 @@ test("a folio routes to its AMC account, not into the demat", () => {
   const folio = route2.homeless.find((g) => g.kind === "mf");
   assert.equal(folio.amc, "Mirae");
   assert.equal(folio.folio, true);
+});
+
+test("a folio without units stays in the demat until it is complete", () => {
+  const parsed = {
+    depository: "NSDL",
+    demat: "IN99990009183122",
+    accounts: [{
+      boId: "IN99990009183122", dpName: "NSDL",
+      holdings: [{ isin: "INF000000009", kind: "mf", valuePaise: 900, folio: "9/9", amc: "Axis" }],
+    }],
+    holdings: [],
+  };
+  const route = casRoute(parsed, [
+    { id: "d1", label: "Demat · NSDL", category: "demat", number: "IN99990009183122" },
+  ]);
+  assert.equal(route.groups.find((g) => g.kind === "mf").assetId, "d1");
+  assert.equal(route.homeless.length, 0);
 });
