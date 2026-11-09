@@ -9111,7 +9111,7 @@ function assetDetailCard(a) {
     </div></div>`;
   return `<div class="card pad" style="margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-      <h2 style="margin:0">Details</h2>
+      <h2 style="margin:0">${atDemat ? "Account details" : "Details"}</h2>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span class="muted" style="font-size:11.5px">Click a value to edit it</span>
         <button class="btn" style="border-color:var(--red);color:var(--red)"
@@ -9191,6 +9191,12 @@ function assetForm(a, factCount, defaultCat, holdings) {
     .filter((x) => categoryOf(x) === "bank")
     .sort((x, y) => String(x.label || x.bank || "").localeCompare(String(y.label || y.bank || "")));
   const numberLabel = numberLabelFor(cat);
+  // A demat's identity is the card above: name, number, broker, owner and notes
+  // are edited there. The form keeps only what that card cannot edit, so the same
+  // fields are not asked for twice.
+  const lean = !!a && ["demat", "bonds"].includes(cat);
+  const leanHide = lean ? 'style="display:none"' : "";
+  const hasHoldings = (holdings || []).length > 0;
   const show = (cats) => cats.split(" ").includes(cat) ? "" : 'style="display:none"';
   const moneyIn = (v) => (v === null || v === undefined || v === "") ? "" : inr(v);
   const id = a ? a.id : "";
@@ -9214,11 +9220,12 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? valuationCard(a) : ""}
   ${a && cat === "bonds" ? digiFinnCardHtml(a) : ""}
   ${a ? holdingsBlock(holdings, id) : ""}
-  ${a ? `<details class="all-fields"><summary>All fields and category</summary>` : ""}
+  ${a ? `<details class="all-fields"><summary>${cat === "demat"
+    ? "Category and kind" : "All fields and category"}</summary>` : ""}
   <div class="card pad"${a ? ' style="margin-top:10px"' : ""}>
-    <p class="muted" style="margin-top:0;font-size:13px">${a
+    ${lean ? "" : `<p class="muted" style="margin-top:0;font-size:13px">${a
       ? "Changes stay on this device."
-      : "A bank account, fixed deposit, demat account, bond, gold, cash, property or insurance policy."}</p>
+      : "A bank account, fixed deposit, demat account, bond, gold, cash, property or insurance policy."}</p>`}
     ${!a && prefill.accountId ? `<div class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px">
       This fixed deposit will be linked to
       <b>${esc(prefill.accountLabel || prefill.bank || "this account")}</b>${(() => {
@@ -9227,7 +9234,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
       })()}${prefill.accountLabel && prefill.bank && prefill.bank !== prefill.accountLabel
         ? ` <span class="muted">(${esc(prefill.bank)})</span>` : ""} when you save it.</div>` : ""}
     <div class="form">
-      <label class="field"><span id="s-name-label">${cat === "bank" ? "Your name for this account" : "Name"}</span>
+      <label class="field" ${leanHide}><span id="s-name-label">${cat === "bank" ? "Your name for this account" : "Name"}</span>
         <input id="s-name" value="${esc(a ? a.label || "" : "")}" placeholder="Optional — e.g. BOB savings …0595" autocomplete="off"
           oninput="bpNameDirtyNow()">
         <span class="muted" id="s-name-hint" style="font-size:11px;font-weight:400"></span></label>
@@ -9237,10 +9244,10 @@ function assetForm(a, factCount, defaultCat, holdings) {
       <label class="field" id="s-kind-wrap" ${["demat", "gold", "insurance"].includes(cat) ? "" : 'style="display:none"'}>Kind
         <select id="s-kind" onchange="bpNamePreview()">${kinds.map((t) =>
           `<option value="${t}" ${t === sub ? "selected" : ""}>${t[0].toUpperCase() + t.slice(1)}</option>`).join("")}</select></label>
-      <label class="field"><span id="s-number-label">${numberLabel}</span>
+      <label class="field" ${leanHide}><span id="s-number-label">${numberLabel}</span>
         <input id="s-number" value="${esc(a ? a.number || "" : "")}" placeholder="Account number, FD or policy number" autocomplete="off"
           oninput="bpNamePreview()"></label>
-      <label class="field"><span id="s-owner-label">${["bank", "fd"].includes(cat) ? "Account holder" : "Owner"}</span>
+      <label class="field" ${leanHide}><span id="s-owner-label">${["bank", "fd"].includes(cat) ? "Account holder" : "Owner"}</span>
         <input id="s-owner" value="${esc(a ? a.holder || "" : prefill.holder || "")}" placeholder="Name on the account" autocomplete="off"></label>
       <div class="wide" id="s-fd-link-wrap" data-only="fd" ${cat === "fd" ? "" : 'style="display:none"'}>
         <label class="field">This deposit sits in
@@ -9276,16 +9283,16 @@ function assetForm(a, factCount, defaultCat, holdings) {
           <div style="margin-top:8px"><button class="mini-btn" onclick="bpIfscEdit()">Edit a field</button></div>
         </div>
       </div>
-      <label class="field">${cat === "bonds" ? "Demat broker" : cat === "gold" ? "Dealer or bank" : "Bank, broker or locker"}
+      <label class="field" ${leanHide}>${cat === "bonds" ? "Demat broker" : cat === "gold" ? "Dealer or bank" : "Bank, broker or locker"}
         <input id="s-inst" value="${esc(a ? a.bank || "" : prefill.bank || "")}" placeholder="HDFC Bank" autocomplete="off"
           oninput="bpNamePreview()"></label>
-      <label class="field">Branch name
+      <label class="field" ${leanHide}>Branch name
         <input id="s-branch" value="${esc(a ? a.branch || "" : "")}" placeholder="Pitampura" autocomplete="off"></label>
-      <label class="field">City or branch
+      <label class="field" ${leanHide}>City or branch
         <input id="s-city" value="${esc(a ? a.city || "" : "")}" placeholder="New Delhi" autocomplete="off"></label>
-      <label class="field">State
+      <label class="field" ${leanHide}>State
         <input id="s-state" value="${esc(a ? a.state || "" : "")}" placeholder="Delhi" autocomplete="off"></label>
-      <label class="field wide">Branch address
+      <label class="field wide" ${leanHide}>Branch address
         <input id="s-address" value="${esc(a ? a.address || "" : "")}" placeholder="Filled from the IFSC lookup, or type it" autocomplete="off"></label>
 
       <div id="s-details" class="wide">
@@ -9317,7 +9324,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
           <label class="field">Realised gain so far (${DATA ? DATA.currency : "₹"})
             <input id="d-realised" value="${moneyIn(meta.realised_gain_paise)}" placeholder="0.00" inputmode="decimal"></label>
         </div>
-        <div class="subform" data-cat="demat" ${show("demat")}>
+        <div class="subform" data-cat="demat" ${lean && hasHoldings ? 'style="display:none"' : show("demat")}>
           <label class="field">Invested (buy value)
             <input id="d-invested" value="${moneyIn(meta.buy_value_paise)}" placeholder="5,00,000.00" inputmode="decimal"></label>
           <label class="field">Current value
@@ -9362,7 +9369,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
             </div>
           </div>`}
 
-      <label class="field wide">Notes
+      <label class="field wide" ${leanHide}>Notes
         <textarea id="s-notes" placeholder="22k, two chains">${esc(a ? a.notes || "" : "")}</textarea></label>
     </div>
     <div id="aerr" style="color:var(--red);font-size:12.5px;margin-top:10px"></div>
