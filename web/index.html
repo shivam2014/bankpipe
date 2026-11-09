@@ -6926,6 +6926,9 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const cardState = window.bpCasCards[hostId];
     cardState.units = units;
     if (!cardState.picked) cardState.picked = new Set(units.map((u) => u.key));
+    // The statement names its holder. That is the one field the file can default
+    // for the person importing, and it can be corrected before anything is written.
+    if (cardState.owner === undefined) cardState.owner = cas.holder || "";
     const unitRows = units.map((u) => `<label style="display:flex;gap:8px;align-items:baseline;
         font-size:12.5px;margin-top:6px;cursor:pointer">
         <input type="checkbox" data-unit="${esc(u.key)}" style="margin-top:2px"
@@ -6975,6 +6978,10 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         · ${money(total)}${cas.asOf ? ` · as on ${esc(cas.asOf)}` : ""}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">${esc(kinds)}${
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
+      <label class="field" style="margin-top:8px">Belongs to
+        <input id="cas-owner-${hostId}" value="${esc(cardState.owner || "")}"
+          placeholder="Account holder"
+          oninput="bpCasOwner('${hostId}', this.value)"></label>
       ${broken ? `<div class="muted" style="font-size:12px;margin-top:8px;color:var(--red)">
         This statement did not parse, so nothing will be written.</div>` : ""}
       ${unitRows}
@@ -7010,6 +7017,10 @@ window.bpCasPick = (key) => {
   if (!card || !host) return;
   const boxes = [...host.querySelectorAll("input[data-unit]")];
   card.picked = new Set(boxes.filter((b) => b.checked).map((b) => b.getAttribute("data-unit")));
+};
+window.bpCasOwner = (key, value) => {
+  const card = (window.bpCasCards || {})[key];
+  if (card) card.owner = String(value || "");
 };
 window.bpCopyCasShape = async (btn) => {
   const text = window.bpCasShapeText || "";
@@ -7245,6 +7256,7 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
   const store = await import("./db.js");
   const { boId } = await import("./bo-id.js");
   const where = cas.depository || "";
+  const owner = String(card.owner || cas.holder || "").trim();
   // A consolidated statement can name more than one demat. Each becomes its own
   // account; a legacy account that only ever held the same securities under a
   // shorter number is relabelled rather than duplicated. The loop re-routes after
@@ -7282,7 +7294,7 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
         while (all.some((a) => a.id === id)) id = `${base}-${n++}`;
         await store.createAccount({ id, label: `${name} mutual fund`,
           category: "demat", subtype: "mutual fund", type: "mf", number: "",
-          holder: "", meta: JSON.stringify({ source: "cas", amc }) });
+          holder: owner, meta: JSON.stringify({ source: "cas", amc }) });
         all.push({ id, label: `${name} mutual fund`, subtype: "mutual fund", category: "demat" });
         continue;
       }
@@ -7313,7 +7325,7 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
       while (all.some((a) => a.id === id)) id = `${base}-${n++}`;
       await store.createAccount({
         id, label, category: "demat", subtype: "equity", type: "equity",
-        number: group.boId, holder: "",
+        number: group.boId, holder: owner,
         meta: JSON.stringify({ depository: where, dp: group.dpName || "" }),
       });
       all.push({ id, label, number: group.boId, category: "demat" });
@@ -7433,9 +7445,14 @@ window.bpCasImport = async (key = "cas-host") => {
         if (/mutual\s*fund|^mf$/i.test(String(asset.subtype || ""))) {
           delete meta.current_value_paise;
         }
-        await store.updateAccount(assetId, { meta: JSON.stringify({ ...meta,
+        const patch = { meta: JSON.stringify({ ...meta,
           holdings_source: "cas", holdings_as_of: asOf,
-          holdings_file: cas.depository ? `${cas.depository} CAS` : "CAS" }) });
+          holdings_file: cas.depository ? `${cas.depository} CAS` : "CAS" }) };
+        // The statement names the owner; fill it only where it is still blank, so
+        // a name the person typed is never overwritten by a later statement.
+        const named = String(card.owner || cas.holder || "").trim();
+        if (!String(asset.holder || "").trim() && named) patch.holder = named;
+        await store.updateAccount(assetId, patch);
       }
     }
     const skipped = route.homeless.reduce((t, g) => t + g.count, 0);
@@ -8183,7 +8200,17 @@ async function renderRealAssets(host) {
       : `<div class="hero"><div class="lbl">Across ${assets.length} asset${assets.length === 1 ? "" : "s"}</div>
         <div class="num">${valued ? money(total) : "—"}</div>
         <div class="chips"><span>${valued} of ${assets.length} valued</span>
-        <span>${statements} with statements</span></div>
+        <span>${statements} with statements</span>${
+          (() => {
+            const dates = [...new Set(assets
+              .filter((a) => categoryOf(a) === "demat" && a.meta)
+              .map((a) => { try { return JSON.parse(a.meta).holdings_as_of || ""; }
+                catch (e) { return ""; } })
+              .filter(Boolean))].sort();
+            if (!dates.length) return "";
+            return `<span>holdings as on ${esc(dates.length === 1 ? dates[0]
+              : `${dates[0]} … ${dates[dates.length - 1]}`)}</span>`;
+          })()}</div>
         <div style="font-size:12px;margin-top:10px;color:rgba(255,255,255,.75)">
           bank balances come from statements. FD and bond values are calculated from the
           principal, rate and dates; gold and equity use the values you enter.</div></div>`}
@@ -8863,16 +8890,23 @@ function assetDetailCard(a) {
   // depository (CDSL or NSDL) and reached through a broker. The bank fields —
   // IFSC, branch, city, state, address — are five empty rows on such a page.
   const atDemat = cat === "bonds" || cat === "demat";
+  // A BO ID is a DP ID and a client ID run together; the account page shows the
+  // parts so the number can be checked against the statement.
+  const bo = String(a.number || "").toUpperCase();
+  const isBo = /^IN\d{14}$/.test(bo) || /^\d{16}$/.test(bo);
   const rows = (atDemat
     ? [
       ["label", "Name", a.label],
-      ["bank", "Broker", a.bank],
+      ["bank", "Broker", a.bank || shortDp(meta.dp || "")],
       ["number", "Demat account", a.number],
+      ...(isBo ? [["dpid", "DP ID", bo.slice(0, 8)],
+        ["clientid", "Client ID", bo.slice(8)]] : []),
       ["depository", "Held at", meta.depository || ""],
       // A cost record is no longer a place bonds sit; it says which demat holds
       // them, so the two boxes on the Assets page stop looking unrelated.
       ...(meta.linked_label ? [["linked", "Linked to", meta.linked_label]] : []),
       ["holder", "Owner", a.holder],
+      ...(meta.holdings_as_of ? [["asof", "Valued as on", meta.holdings_as_of]] : []),
       ["notes", "Notes", a.notes],
     ]
     : [
@@ -8889,8 +8923,8 @@ function assetDetailCard(a) {
       ["notes", "Notes", a.notes],
     ].filter(([field]) => detailsFor(cat).includes(field)))
     .filter(([, , v]) => v !== undefined);
-  const row = ([field, label, v]) => field === "linked"
-    ? `<div class="kv-row" data-field="linked"><div class="k">${label}</div>
+  const row = ([field, label, v]) => ["linked", "dpid", "clientid", "asof"].includes(field)
+    ? `<div class="kv-row" data-field="${field}"><div class="k">${label}</div>
       <div class="v"><span class="vv">${v ? esc(v) : "—"}</span></div></div>`
     : `<div class="kv-row" data-field="${field}"
       data-value="${esc(v || "")}">

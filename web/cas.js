@@ -478,6 +478,36 @@ function accountFor(table, headers) {
   return best;
 }
 
+// The account holder a statement names. It is printed above the summary table,
+// in the same block as the PAN, and it is the one field the file can default for
+// the person importing.
+function holderName(items) {
+  const pages = [...new Set(items.map((i) => i.page))].sort((a, b) => a - b).slice(0, 6);
+  let best = null;
+  for (const page of pages) {
+    for (const line of linesOf(items.filter((i) => i.page === page), 3)) {
+      const text = line.items.map((i) => i.str).join(" ");
+      if (!/\bPAN\b/i.test(text)) continue;
+      const before = text.split(/\bPAN\b/i)[0]
+        .replace(/DP\s*(?:ID|Name)\s*:?\s*\S+/gi, " ")
+        .replace(/Client\s*ID\s*:?\s*\S+/gi, " ")
+        .replace(/BO\s*ID\s*:?\s*\S+/gi, " ")
+        .replace(/[()[\]{}:]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const words = before.match(/[A-Z][A-Za-z]+/g) || [];
+      if (words.length < 2 || words.length > 3) continue;
+      // A name is two or three capitalised words. "LIMITED", "Demat Account" and
+      // the depository names are labels that happen to look like names.
+      if (words.some((w) => /^(Limited|Ltd|Bank|Demat|Account|Portfolio|Cdsl|Nsdl|India|Services|Client|Name)$/i.test(w))) continue;
+      const accountBlock = /DP\s*(?:ID|Name)|BO\s*ID|Client\s*ID/i.test(text);
+      const score = (accountBlock ? 2 : 0) + (words.length === 2 ? 1 : 0);
+      if (!best || score > best.score) best = { name: words.join(" "), score };
+    }
+  }
+  return best ? best.name : "";
+}
+
 /**
  * Read a CAS. Holdings tables are read by their own columns; a statement with no
  * usable header falls back to the band rule.
@@ -536,6 +566,7 @@ export function parseCas(pdf) {
     depository,
     demat: accounts[0]?.boId || (bo ? bo.boId : ""),
     asOf: asOfDate(text),
+    holder: holderName(items),
     holdings,
     accounts,
     sections,
