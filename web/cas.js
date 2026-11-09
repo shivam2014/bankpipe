@@ -115,11 +115,13 @@ function fundValue(cells) {
     if (!(target > 0) || target > 1e12) continue;
     for (const units of cells) {
       const u = amount(units);
-      if (!(u > 1) || u >= target) continue;
+      // A factor of exactly 1 turns any number into its own product; that is the
+      // stray "1" trap, not a real units x NAV relation.
+      if (!(u > 0) || Math.abs(u - 1) < 1e-9) continue;
       for (const nav of cells) {
         if (nav === units) continue;
         const n = amount(nav);
-        if (!(n > 1) || n >= target) continue;
+        if (!(n > 0) || Math.abs(n - 1) < 1e-9) continue;
         if (Math.abs(u * n - target) <= Math.max(1, target * 0.005)) return candidate;
       }
     }
@@ -211,7 +213,11 @@ function readTables(items, tables, headers = []) {
       // A row is the band down to the next ISIN in the same table. One holding
       // can print across three lines (scheme name, then units and NAV). The
       // header itself is excluded, or its labels are read as the scheme name.
-      const high = index === 0 ? table.y + 4 : (rows[index - 1].y + anchor.y) / 2;
+      // The header block can print across several lines; the first row starts
+      // below the lowest of them, or the labels are read as the row's values.
+      const headerBottom = table.cols.length
+        ? Math.min(...table.cols.map((c) => c.y)) : table.y - 1;
+      const high = index === 0 ? headerBottom - 1 : (rows[index - 1].y + anchor.y) / 2;
       // A table ends with a Sub Total line. The last row must stop above it, or
       // the total is read as that row's value.
       const totalLine = items.filter((i) => i.page === anchor.page && i.y < anchor.y
@@ -234,7 +240,17 @@ function readTables(items, tables, headers = []) {
       }
       const find = (re) => {
         for (const [col, cell] of perColumn) if (re.test(col.str)) return cell;
-        return null;
+        // The header is bilingual: a Hindi fragment sits next to the English
+        // label and takes the cell. Fall back to the span between this label and
+        // the next real column, which is where the number actually prints.
+        const label = table.cols.find((c) => re.test(c.str));
+        if (!label) return null;
+        const ROLE = /^isin|value|invested|total\s*cost|cost\s*per|nav|^no\.\s*of|^quantity$|^current$|^bal$|maturity|coupon|face\s*value|market\s*price|^folio|profit/i;
+        const next = table.cols.filter((c) => c.x > label.x + 1 && ROLE.test(c.str))
+          .sort((a, b) => a.x - b.x)[0];
+        const limit = next ? next.x : Infinity;
+        return cells.filter((c) => c.right >= label.x - 2 && c.right < limit)
+          .sort((a, b) => b.right - a.right)[0] || null;
       };
       const qtyCell = find(QUANTITY_LABEL);
       // A folio table prints "Current" for the value and "Bal" for the units,
@@ -243,8 +259,10 @@ function readTables(items, tables, headers = []) {
       // statement itself uses: units x NAV is the value it prints. Whichever
       // cell satisfies that is the value, whatever the heading says.
       const fundCell = table.kind === "mf" ? fundValue(cells) : null;
-      const valueCell = find(VALUE_LABEL)
-        || fundCell
+      // For a fund, the cell that satisfies units x NAV is the valuation; the
+      // profit column sits beside it and is easy to take by accident.
+      const valueCell = (table.kind === "mf" ? fundCell : null)
+        || find(VALUE_LABEL)
         || [...perColumn.values()].sort((a, b) => b.right - a.right)[0]
         || null;
       if (!valueCell && !qtyCell) return;

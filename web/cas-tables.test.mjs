@@ -145,3 +145,20 @@ test("one statement naming two demats becomes two accounts", () => {
   assert.equal(motilal.holdings[0].kind, "bond");
   assert.match(motilal.dpName, /MOTILAL/);
 });
+
+test("a fund holding fractional units still uses units x NAV for its value", () => {
+  // 0.145 units at NAV 492.90 is 71.47. The profit (1.28) sits beside it and is
+  // the easy thing to take if the rule only looks at position or magnitude.
+  const out = parseCas({ pages: [page([
+    text("ISIN UCC", 15, 400), text("Folio No.", 144, 400),
+    text("No. of Units", 269, 400), text("NAV per", 441, 400),
+    text("Value in", 492, 400), text("Profit/(Loss)", 543, 400),
+    text("INF000000003", 15, 360), text("SOME FUND", 73, 360),
+    money("12345", 257, 360), money("0.145", 317, 360),
+    money("492.9000", 482, 360), money("71.47", 537, 360),
+    money("1.28", 592, 360),
+  ])] });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].valuePaise, 7147);
+  assert.equal(out.holdings[0].quantity, 0.145);
+});

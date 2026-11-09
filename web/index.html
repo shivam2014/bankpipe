@@ -7375,9 +7375,17 @@ window.bpCasImport = async (key = "cas-host") => {
         rows.push({ ...old });
         keptNewer += 1;
       }
-      await store.replaceHoldings(assetId, rows, today);
-      written += rows.length;
       const asset = (await store.listAccounts()).find((a) => a.id === assetId);
+      // A demat statement is the complete truth for its BO ID, so it replaces.
+      // A folio account collects folios from several statements and AMCs, so it
+      // merges; replacing would drop the folios the other statement contributed.
+      const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
+      const finalRows = folioAccount
+        ? [...new Map([...await store.listHoldings(assetId), ...rows]
+          .map((r) => [String(r.security_id || "").toUpperCase(), r])).values()]
+        : rows;
+      await store.replaceHoldings(assetId, finalRows, today);
+      written += rows.length;
       if (asset) {
         const meta = metaOf(asset);
         // A folio account's value now comes from its units, so the old manual
