@@ -7362,8 +7362,9 @@ window.bpCasImport = async (key = "cas-host") => {
     for (const assetId of byAsset.keys()) {
       replacing += (await store.listHoldings(assetId)).length;
     }
+    const incoming = [...byAsset.values()].reduce((t, rows) => t + rows.length, 0);
     if (replacing && !confirm(`Replace ${replacing} existing holding${
-      replacing === 1 ? "" : "s"} with ${cas.holdings.length} from the ${
+      replacing === 1 ? "" : "s"} with ${incoming} from the ${
       cas.depository || "demat"} statement? A local version is saved first.`)) return;
     try { await store.snapshotDb("Before CAS import"); } catch (e) {}
     const today = new Date().toISOString().slice(0, 10);
