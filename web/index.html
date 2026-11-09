@@ -220,9 +220,11 @@ label.field textarea{resize:vertical;min-height:58px}
   justify-content:space-between;align-items:baseline;gap:10px;margin-top:22px}
 .asset-group > summary::-webkit-details-marker{display:none}
 .asset-group > summary:hover h2{color:var(--ink)}
-.asset-group .caret{display:inline-block;width:13px;color:var(--muted);font-size:10px;
-  transform:rotate(0deg);transition:transform .15s;vertical-align:1px}
-.asset-group[open] .caret{transform:rotate(90deg)}
+.asset-group > summary h2{margin-right:auto}
+.asset-group .grp-right{display:inline-flex;align-items:baseline;gap:8px}
+.asset-group .caret{display:inline-block;color:var(--muted);font-size:11px;line-height:1}
+.asset-group .caret::before{content:"▸"}
+.asset-group[open] .caret::before{content:"▾"}
 .acct-sub{min-width:0}
 .subrow{display:grid;grid-template-columns:minmax(0,1fr) auto 18px;gap:8px;align-items:center;padding:5px 0;text-decoration:none;color:inherit;font-size:12.5px;width:100%;box-sizing:border-box}
 .subrow + .subrow{border-top:1px solid var(--hair)}
@@ -7934,8 +7936,11 @@ function assetGroupsHtml(groups, onclickFor) {
     return `<details class="asset-group" data-group="${esc(g.id)}"${open ? " open" : ""}
       ontoggle="bpGroupToggle(${jsArg(g.id)}, this.open)">
       <summary>
-        <h2 style="margin:0"><span class="caret" aria-hidden="true">▸</span>${g.label}</h2>
-        ${g.total ? `<div class="muted" style="font-size:13px">${money(g.total)}</div>` : ""}
+        <h2 style="margin:0">${g.label}</h2>
+        <span class="grp-right">
+          ${g.total ? `<span class="muted" style="font-size:13px">${money(g.total)}</span>` : ""}
+          <span class="caret" aria-hidden="true"></span>
+        </span>
       </summary>
       ${goldLine}
       <div class="card" style="margin-top:8px">${g.rows.map((a) => assetRow(a, onclickFor(a))).join("")}</div>
