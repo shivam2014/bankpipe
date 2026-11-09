@@ -1441,34 +1441,27 @@ export async function reconFor(assetId, today = new Date().toISOString().slice(0
   const assets = await listAccounts();
   const me = assets.find((a) => a.id === assetId);
   if (!me) return null;
-  const idn = boId(me.number);
-  if (idn.kind !== "bo") {
-    return { asset: me, custodian: null, reason: idn.kind, ...reconSummary([]) };
-  }
-  const other = assets.find((a) => a.id !== me.id
-    && boId(a.number).boId === idn.boId);
-  if (!other) {
-    return { asset: me, custodian: null, reason: "no-second-statement",
-      ...reconSummary([]) };
-  }
-  // Bonds carry what was paid; a demat account carries what is held. If both are
-  // the same kind, guessing which is the depository would invert the audit.
-  const meSells = (me.category || "") === "bonds";
-  const otherSells = (other.category || "") === "bonds";
-  if (meSells === otherSells) {
-    return { asset: me, custodian: other, reason: "ambiguous-pair", ...reconSummary([]) };
-  }
-  const seller = meSells ? me : other;
-  const custodian = meSells ? other : me;
-  const lots = await listHoldings(seller.id);
-  const positions = await listHoldings(custodian.id);
+  // Cost and holdings are not one-to-one after a demat split: a bond can be held
+  // in one demat and paid for in another portfolio. The audit therefore compares
+  // against every cost lot and every demat position, which is the same join the
+  // import uses.
+  const meSells = String(me.category || "") === "bonds";
+  const sellers = assets.filter((a) => String(a.category || "") === "bonds");
+  const demats = assets.filter((a) => String(a.category || "") === "demat");
+  const [saleRows, heldRows] = await Promise.all([
+    Promise.all(sellers.map((s) => listHoldings(s.id))),
+    Promise.all(demats.map((d) => listHoldings(d.id))),
+  ]);
+  const lots = saleRows.flat();
+  const positions = heldRows.flat();
   const lines = reconPositions({
     lots,
     positions,
     today,
-    asOf: String((custodian.value_date || "")).slice(0, 10),
+    asOf: String((me.value_date || "")).slice(0, 10),
   });
-  return { asset: me, seller, custodian, reason: "ok", lines,
+  return { asset: me, seller: meSells ? me : null,
+    custodian: meSells ? null : me, reason: "ok", lines,
     inputs: reconInputs(lots, positions), ...reconSummary(lines) };
 }
 
