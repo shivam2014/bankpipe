@@ -38,6 +38,7 @@ cp "$ROOT/scripts/pages/wrangler.jsonc" "$OUT/wrangler.jsonc"
 # still identifies the build.
 STAMP="$(date -u +%Y.%m.%d)"
 COMMIT="${BP_COMMIT:-}"
+node "$ROOT/scripts/version-assets.mjs" "$OUT/public" "${COMMIT:-$STAMP}"
 BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat > "$OUT/public/version.json" <<JSON
 {"version":"$STAMP","commit":"$COMMIT","built":"$BUILT"}
