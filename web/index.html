@@ -7758,19 +7758,25 @@ function assetRow(a, onclick, overrideShown) {
     gold.sinceYear ? `since ${gold.sinceYear}` : "",
   ].filter(Boolean) : [];
   const identity = assetIdentity(a);
-  // A class row is one part of an account, so the row says which account holds
-  // it. Without that, three identical-looking rows have no visible owner.
-  const heldIn = a.classPart
-    ? `Held here · ${[a.bank, a.number, a.holder].filter(Boolean).join(" · ")}`
-    : "";
-  // A demat row has to say where it is held: the depository is half the identity,
-  // and "…8646" alone cannot tell NSDL from CDSL or one DP from another.
   const meta = (() => { try { return JSON.parse(a.meta || "{}"); } catch (e) { return {}; } })();
-  const held = !a.classPart && (cat === "demat" || cat === "bonds")
-    ? [meta.depository, meta.dp_name].filter(Boolean).join(" · ") : "";
+  // A demat row has to say where it is held: the depository and the DP are the
+  // identity, and a bare account number cannot tell NSDL from CDSL or one DP
+  // from another. A folio says which AMC keeps it.
+  const isMf = cat === "demat" && /mutual\s*fund|^mf$/i.test(String(a.subtype || ""));
+  const depository = String(meta.depository || "").trim();
+  const dp = shortDp(meta.dp || a.bank || "");
+  const tail = /^[A-Z0-9]{10,}$/i.test(String(a.number || ""))
+    ? `…${String(a.number).slice(-4)}` : "";
+  const where = cat === "demat"
+    ? (isMf ? ["Folio", dp].filter(Boolean).join(" · ")
+      : [depository, dp].filter(Boolean).join(" · "))
+    : cat === "bonds" ? "cost record" : "";
   const mix = a.classNote ? [a.classNote] : [];
-  const sub = [heldIn, held, a.classPart ? "" : identity.row, place, ...goldBits, ...mix,
-    maturedFd ? "matured" : ""].filter(Boolean).join(" · ") || "no details yet";
+  const sub = (cat === "demat"
+    ? [where, isMf ? "" : tail, a.holder, place].filter(Boolean).join(" · ")
+    : [cat === "bonds" ? where : identity.row, place, ...goldBits, ...mix,
+      maturedFd ? "matured" : ""].filter(Boolean).join(" · "))
+    || "no details yet";
   // A long "principal only · rate and start date missing" note does not fit the
   // amount column; the FD detail carries the full explanation.
   const source = cat === "fd" && /principal only/i.test(shown.source)
