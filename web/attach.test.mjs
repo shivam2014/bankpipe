@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachCost, applyCost, coverageBySource, planConsolidation, planCostFile, planFreshLots, planSnapshot } from "./attach.js";
+import { attachCost, applyCost, absorbableSources, coverageBySource, planConsolidation, planCostFile, planFreshLots, planSnapshot } from "./attach.js";
 
 const pos = (isin, quantity, cost = null) =>
   ({ security_id: isin, quantity, cost_paise: cost });
@@ -88,6 +88,68 @@ test("a portfolio is retired only when every one of its lots landed", () => {
 
 test("a portfolio with no lots is never retired", () => {
   assert.deepEqual(coverageBySource([{ id: "p1", lots: [] }], []), [{ id: "p1", fully: false }]);
+});
+
+// --- merging the portfolio into the demat ------------------------------------
+
+test("a portfolio whose every lot is on a demat is absorbed", () => {
+  const ids = absorbableSources({
+    sources: [{ id: "p1", lots: [lot("INE1", 10, 1000), lot("INE2", 5, 500)] }],
+    demats: [{ positions: [
+      { security_id: "INE1", quantity: 10 },
+      { security_id: "INE2", quantity: 5 },
+    ] }],
+    today: "2026-11-09",
+  });
+  assert.deepEqual(ids, ["p1"]);
+});
+
+test("a matured lot does not keep a portfolio alive", () => {
+  const ids = absorbableSources({
+    sources: [{ id: "p1", lots: [
+      { security_id: "INE1", quantity: 10, label: "9% TEST 01 JAN 2027" },
+      { security_id: "INE2", quantity: 5, label: "9% TEST 01 JAN 2026" },
+    ] }],
+    demats: [{ positions: [{ security_id: "INE1", quantity: 10 }] }],
+    today: "2026-11-09",
+  });
+  assert.deepEqual(ids, ["p1"]);
+});
+
+test("a live lot in no demat keeps its portfolio visible", () => {
+  const ids = absorbableSources({
+    sources: [{ id: "p1", lots: [
+      { security_id: "INE1", quantity: 10, label: "9% TEST 01 JAN 2027" },
+      { security_id: "INE3", quantity: 5, label: "9% TEST 01 JAN 2029" },
+    ] }],
+    demats: [{ positions: [{ security_id: "INE1", quantity: 10 }] }],
+    today: "2026-11-09",
+  });
+  assert.deepEqual(ids, []);
+});
+
+test("a portfolio of only matured lots is left alone", () => {
+  const ids = absorbableSources({
+    sources: [{ id: "p1", lots: [
+      { security_id: "INE2", quantity: 5, label: "9% TEST 01 JAN 2026" },
+    ] }],
+    demats: [{ positions: [] }],
+    today: "2026-11-09",
+  });
+  assert.deepEqual(ids, []);
+});
+
+test("attaching cost carries the fields the depository does not know", () => {
+  const plan = planConsolidation({
+    demats: [{ id: "cdsl", positions: [{ security_id: "INE1", quantity: 10, cost_paise: null }] }],
+    sources: [{ id: "p1", lots: [{ security_id: "INE1", quantity: 10, cost_paise: 1000,
+      rating: "AAA", frequency: "Annual", yield_bps: 900 }] }],
+  });
+  assert.deepEqual(plan.updates[0].carry,
+    { rating: "AAA", frequency: "Annual", yield_bps: 900 });
+  const [row] = applyCost([{ security_id: "INE1", quantity: 10 }], plan.updates);
+  assert.equal(row.rating, "AAA");
+  assert.equal(row.frequency, "Annual");
 });
 
 // --- consolidating several demats --------------------------------------------

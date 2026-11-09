@@ -5,8 +5,15 @@
 //
 // Pure: the caller passes the two sets of rows and applies the result itself.
 
+import { parseBondLabel } from "./bonds.js";
+
 const clean = (v) => String(v ?? "").trim().toUpperCase();
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+// Fields the depository does not know and the portfolio does. A bond page reads
+// them straight off the holding row.
+const CARRY_FIELDS = ["rating", "frequency", "yield_bps", "payout_paise",
+  "interest_date", "future_interest_paise", "future_principal_paise",
+  "returned_paise", "principal_dates"];
 // A statement prints closed positions too: a bond that matured during the
 // period, an equity that was sold out. Those rows are a history, not a holding,
 // and treating them as held blocks the portfolio's lot from merging into the
@@ -81,6 +88,39 @@ export function coverageBySource(sources = [], matched = []) {
 }
 
 /**
+ * Portfolios that have nothing left to say once cost is attached.
+ *
+ * A lot is accounted for when its ISIN is held in some demat, or when the bond
+ * has matured: the account correctly no longer holds it. A portfolio with even
+ * one live lot in no demat is kept, because that bond's cost has nowhere to go
+ * and hiding the portfolio would drop it from the ledger without a trace.
+ * @param {{sources?: Array<object>, demats?: Array<{positions: Array<object>}>,
+ *   today?: string}} input
+ * @returns {string[]} ids that can be merged into their demats and removed
+ */
+export function absorbableSources({ sources = [], demats = [], today = "" } = {}) {
+  const held = new Set();
+  for (const demat of demats || []) {
+    for (const position of demat.positions || []) {
+      if (alive(position)) held.add(clean(position.security_id));
+    }
+  }
+  const closed = (lot) => {
+    if (lot?.maturity) return !!today && String(lot.maturity) < today;
+    const parsed = parseBondLabel(lot?.label);
+    return !!parsed?.maturity && !!today && parsed.maturity < today;
+  };
+  return (sources || []).filter((source) => {
+    const lots = source.lots || [];
+    if (!lots.length) return false;
+    // A record with no held lot at all is history; keep it rather than delete
+    // the only place its maturities are written down.
+    if (!lots.some((lot) => held.has(clean(lot.security_id)))) return false;
+    return lots.every((lot) => held.has(clean(lot.security_id)) || closed(lot));
+  }).map((source) => source.id);
+}
+
+/**
  * Consolidate cost across every demat at once. The statements say what is held
  * and where; the portfolios say what it cost. A bond held in two demats shares
  * its cost by quantity, and a lot larger than the holding (part sold) gives up
@@ -128,11 +168,23 @@ export function planConsolidation({ demats = [], sources = [] } = {}) {
       // statement shows fewer units than the lot (part sold) the rest drops out.
       const base = Math.max(lotQty, held.get(isin) || 0);
       const dates = group.map((l) => String(l.purchase_date || "")).filter(Boolean).sort();
+      // The demat row already knows the bond by ISIN; the portfolio row knows
+      // its rating and its coupon schedule. When the lots agree on a field it is
+      // copied across, so retiring the portfolio does not blank the bond page.
+      const carry = {};
+      for (const key of CARRY_FIELDS) {
+        const vals = group.map((l) => l[key])
+          .filter((v) => v !== undefined && v !== null && v !== "");
+        if (!vals.length) continue;
+        const first = JSON.stringify(vals[0]);
+        if (vals.every((v) => JSON.stringify(v) === first)) carry[key] = vals[0];
+      }
       updates.push({
         assetId: demat.id,
         security_id: isin,
         cost_paise: Math.round(lotCost * (heldQty / base)),
         purchase_date: dates[0] || "",
+        carry,
       });
       if (Math.abs(lotQty - (held.get(isin) || 0)) < 1e-6) stats.exact += 1;
       else stats.prorata += 1;
@@ -293,7 +345,7 @@ export function applyCost(positions = [], updates = []) {
   const byIsin = new Map(updates.map((u) => [clean(u.security_id), u]));
   return (positions || []).map((p) => {
     const hit = byIsin.get(clean(p.security_id));
-    return hit ? { ...p, cost_paise: hit.cost_paise,
+    return hit ? { ...p, ...(hit.carry || {}), cost_paise: hit.cost_paise,
       purchase_date: hit.purchase_date || p.purchase_date } : p;
   });
 }

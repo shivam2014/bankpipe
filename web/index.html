@@ -7120,7 +7120,8 @@ record and stops counting in net worth.` : ""}`)) return;
 window.bpConsolidate = async ({ ask = false } = {}) => {
   try {
     const store = await import("./db.js");
-    const { planConsolidation, applyCost, planFreshLots } = await import("./attach.js");
+    const { planConsolidation, applyCost, planFreshLots, absorbableSources } =
+      await import("./attach.js");
     const assets = await store.listAccounts();
     const demats = assets.filter((a) => categoryOf(a) === "demat");
     const sources = assets.filter((a) => categoryOf(a) === "bonds");
@@ -7187,7 +7188,7 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
         linked_asset: home.primary, linked_label: label,
         depository: meta.depository || metaOf(linked).depository || "" }) });
     }
-    if (!sources.length) return { attached: 0, portfolios: 0, orphans: 0, added: 0 };
+    if (!sources.length) return { attached: 0, portfolios: 0, orphans: 0, added: 0, absorbed: 0 };
     const sourceRows = [];
     for (const a of sources) sourceRows.push({ id: a.id, lots: await store.listHoldings(a.id) });
     // A statement only knows the units of its own day. Anything bought after
@@ -7228,6 +7229,7 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     }
     const plan = planConsolidation({ demats: dematRows, sources: sourceRows });
     const n = plan.updates.length;
+    const today = new Date().toISOString().slice(0, 10);
     // A closed position is not a holding. A statement prints it at zero units,
     // and leaving it on the account made a matured bond look live, kept its ISIN
     // "held" so the portfolio could never merge, and put the same security on
@@ -7237,14 +7239,24 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
       && !(Number(p.value_paise) > 0);
     const closedCount = dematRows.reduce((t, d) =>
       t + (d.positions || []).filter(closedPosition).length, 0);
-    if (!n && !added && !closedCount) return { attached: 0, portfolios: 0, orphans: 0, added: 0 };
+    // A portfolio whose every live lot is now on a demat has done its job. It is
+    // merged into the account and removed, instead of surviving as a second
+    // record that lists the same bonds. A portfolio with a live lot in no demat
+    // stays visible: its cost has nowhere to land.
+    const absorb = new Set(absorbableSources({ sources: sourceRows,
+      demats: dematRows, today }));
+    if (!n && !added && !closedCount && !absorb.size) {
+      return { attached: 0, portfolios: 0, orphans: 0, added: 0, absorbed: 0 };
+    }
+    const stranded = plan.retire.length - [...absorb].filter((id) =>
+      plan.retire.includes(id)).length;
     if (ask && !confirm(`Attach cost to ${n} bond${n === 1 ? "" : "s"} across ${demats.length}
 demat accounts?${added ? ` ${added} bought after the statement date will be added.` : ""}
-${plan.retire.length} bond portfolio${plan.retire.length === 1 ? "" : "s"} become
-cost records and stop counting in net worth.${plan.stats.orphan
+${absorb.size} bond portfolio${absorb.size === 1 ? "" : "s"} merge into the demat and
+disappear.${stranded ? ` ${stranded} stay as a cost record because a live bond in
+${stranded === 1 ? "it" : "them"} is in no demat.` : ""}${plan.stats.orphan
   ? ` ${plan.stats.orphan} bond${plan.stats.orphan === 1 ? " is" : "s are"} in no demat and stop
 counting too.` : ""}`)) return null;
-    const today = new Date().toISOString().slice(0, 10);
     for (const demat of dematRows) {
       const mine = plan.updates.filter((u) => u.assetId === demat.id);
       const merged = applyCost(demat.positions, mine).filter((p) => !closedPosition(p));
@@ -7254,6 +7266,7 @@ counting too.` : ""}`)) return null;
     }
     // A portfolio names the demat it feeds: the one holding most of its lots.
     for (const id of plan.retire) {
+      if (absorb.has(id)) continue;
       const asset = (await store.listAccounts()).find((a) => a.id === id);
       if (!asset) continue;
       const home = homeOf(sourceRows.find((s) => s.id === id)?.lots || [], asset);
@@ -7268,11 +7281,18 @@ counting too.` : ""}`)) return null;
         cost_only: "1", linked_asset: home.primary, linked_label: home.labels.join(" + "),
         depository: meta.depository || metaOf(linked).depository || "" }) });
     }
+    // Remove the portfolios that are now the demat. Cost, purchase date, rating
+    // and the coupon schedule were copied onto the account rows, so a second
+    // copy would only be a second place to look for the same bond.
+    if (absorb.size) {
+      try { await store.snapshotDb("Before merging bond portfolios"); } catch (e) {}
+      for (const id of absorb) await store.deleteAccount(id);
+    }
     if (ask) window.bpAsset(demats[0].id);
-    return { attached: n, portfolios: plan.retire.length, orphans: plan.stats.orphan, added };
+    return { attached: n, portfolios: plan.retire.length, orphans: plan.stats.orphan, added, absorbed: absorb.size };
   } catch (e) {
     if (ask) alert("Could not consolidate the bonds: " + (e.message || e));
-    return { attached: 0, portfolios: 0, orphans: 0, added: 0 };
+    return { attached: 0, portfolios: 0, orphans: 0, added: 0, absorbed: 0 };
   }
 };
 window.bpConsolidateBonds = async () => { await window.bpConsolidate({ ask: true }); };
@@ -7505,7 +7525,9 @@ window.bpCasImport = async (key = "cas-host") => {
       skipped ? ` ${skipped} had no matching account and were not written.` : ""}${
       auto.attached ? ` Cost and purchase dates attached to ${auto.attached} bond${
         auto.attached === 1 ? "" : "s"} from ${auto.portfolios} portfolio${
-        auto.portfolios === 1 ? "" : "s"}.` : carriedCount ? ` Cost and purchase dates kept
+        auto.portfolios === 1 ? "" : "s"}.${auto.absorbed
+        ? ` ${auto.absorbed} portfolio${auto.absorbed === 1 ? " is" : "s are"} now part
+        of the demat account, not a separate record.` : ""}` : carriedCount ? ` Cost and purchase dates kept
         for ${carriedCount} bond${carriedCount === 1 ? "" : "s"} already on file.` : " Cost is missing until a broker report arrives, so gain stays blank on purpose."}${
       keptNewer ? ` ${keptNewer} holding${keptNewer === 1 ? "" : "s"} bought after the statement
         date were kept.` : ""}</div>`;
