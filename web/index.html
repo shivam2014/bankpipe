@@ -7330,7 +7330,10 @@ counting too.` : ""}`)) return null;
       try { await store.snapshotDb("Before merging bond portfolios"); } catch (e) {}
       for (const id of absorb) await store.deleteAccount(id);
     }
-    if (ask) window.bpAsset(demats[0].id);
+    if (ask) {
+      if (bpCurrentEntry?.view === "assets") go("assets");
+      else window.bpAsset(demats[0].id);
+    }
     return { attached: n, portfolios: plan.retire.length, orphans: plan.stats.orphan, added, absorbed: absorb.size };
   } catch (e) {
     if (ask) alert("Could not consolidate the bonds: " + (e.message || e));
@@ -8142,6 +8145,8 @@ async function renderRealAssets(host) {
     const costRecordsHtml = costRecords.length ? `<details style="margin-top:16px">
       <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">Cost records (${costRecords.length}) — not counted</summary>
       <div class="muted" style="font-size:12px;margin:8px 0 4px">What you paid, kept so a gain can be shown. The bonds themselves sit in the demat accounts above.</div>
+      <button class="btn" style="margin:2px 0 8px"
+        onclick="bpConsolidateBonds()">Merge into the demat</button>
       ${costRecords.map((a) => {
         let meta = {};
         try { meta = JSON.parse(a.meta || "{}") || {}; } catch (e) { meta = {}; }
