@@ -6968,8 +6968,10 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     host.innerHTML = `<div class="card pad" style="background:var(--hair)">
       <div class="muted" style="font-size:11.5px;margin-bottom:2px">${esc(file.name || "CAS")}</div>
       <b>${esc(cas.depository || "Demat")} · ${
-        (route.accounts || []).length || 1} account${
-        (route.accounts || []).length === 1 ? "" : "s"} · ${cas.holdings.length} holdings
+        (route.accounts || []).length} demat account${
+        (route.accounts || []).length === 1 ? "" : "s"}${
+        folioSeen.size ? ` · ${folioSeen.size} folio${folioSeen.size === 1 ? "" : "s"}` : ""}
+        · ${cas.holdings.length} holdings
         · ${money(total)}${cas.asOf ? ` · as on ${esc(cas.asOf)}` : ""}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">${esc(kinds)}${
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
