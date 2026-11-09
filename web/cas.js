@@ -691,6 +691,7 @@ export function casRoute(parsed, assets = []) {
           assetLabel: target?.label || "", boId: isFolio ? "" : key,
           amc: isFolio ? holding.amc || "" : "", folio: isFolio,
           amcFull: isFolio ? holding.amcFull || "" : "",
+          folioNo: isFolio ? String(holding.folio || "") : "",
           dpName: account.dpName || "", count: 0, valuePaise: 0 });
       }
       const row = bucket.get(bucketKey);
