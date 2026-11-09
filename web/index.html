@@ -7567,22 +7567,28 @@ window.bpCasImport = async (key = "cas-host") => {
         if (/mutual\s*fund|^mf$/i.test(String(asset.subtype || ""))) {
           delete meta.current_value_paise;
         }
-        const patch = { meta: JSON.stringify({ ...meta,
-          holdings_source: "cas", holdings_as_of: asOf,
-          holdings_file: cas.depository ? `${cas.depository} CAS` : "CAS" }) };
-        // A folio account keeps the folio numbers the statement printed; the
-        // number is a folio, not a bank reference. A legacy value that does not
-        // look like one is replaced.
+        const currentNumber = String(asset.number || "").trim();
+        const sourceLabel = cas.depository ? `${cas.depository} CAS` : "CAS";
+        const sources = [...new Set([
+          ...(Array.isArray(meta.holdings_files) ? meta.holdings_files : []),
+          sourceLabel,
+        ])];
+        const nextMeta = { ...meta, holdings_source: "cas", holdings_as_of: asOf,
+          holdings_file: sources.join(" · "), holdings_files: sources };
+        // A folio account keeps every folio number the statements printed; the
+        // number is a folio, not a bank reference. A short cell that is only the
+        // prefix of the stored number is the same folio, so it is not repeated.
         const folios = [...new Set(holdings
-          .map((h) => String(h.folio || "").trim()).filter(Boolean))];
+          .map((h) => String(h.folio || "").trim()).filter(Boolean))]
+          .filter((f) => f === currentNumber || !currentNumber.startsWith(f));
+        let nextNumber = "";
         if (folios.length) {
           const known = Array.isArray(meta.folios) ? meta.folios : [];
-          patch.meta = JSON.stringify({ ...JSON.parse(patch.meta),
-            folios: [...new Set([...known, ...folios])] });
-          if (!/^\d{6,}(?:\/\d+)?$/.test(String(asset.number || "").trim())) {
-            patch.number = folios[0];
-          }
+          nextMeta.folios = [...new Set([...known, ...folios])];
+          if (!/^\d{6,}(?:\/\d+)?$/.test(currentNumber)) nextNumber = folios[0];
         }
+        const patch = { meta: JSON.stringify(nextMeta) };
+        if (nextNumber) patch.number = nextNumber;
         // The statement names the owner; fill it only where it is still blank, so
         // a name the person typed is never overwritten by a later statement.
         const named = String(card.owner || cas.holder || "").trim();
@@ -9131,7 +9137,9 @@ function assetDetailCard(a) {
   const folioList = [...new Set([
     ...(Array.isArray(meta.folios) ? meta.folios : []),
     ...(/^\d{6,}(?:\/\d+)?$/.test(String(a.number || "").trim()) ? [String(a.number).trim()] : []),
-  ])];
+  ])].filter((f, i, arr) => !arr.some((g) => g !== f && g.startsWith(f)));
+  const sourceText = Array.isArray(meta.holdings_files) && meta.holdings_files.length
+    ? meta.holdings_files.join(" · ") : meta.holdings_file;
   const rows = (isMf
     ? [
       ["label", "Name", a.label],
@@ -9139,7 +9147,7 @@ function assetDetailCard(a) {
       ...(folioList.length === 1 ? [["number", "Folio", folioList[0]]]
         : folioList.length ? [["folios", "Folios", folioList.join(" · ")]] : []),
       ["holder", "Owner", a.holder],
-      ...(meta.holdings_file ? [["source", "Imported from", meta.holdings_file]] : []),
+      ...(sourceText ? [["source", "Imported from", sourceText]] : []),
       ...(meta.holdings_as_of ? [["asof", "Valued as on", meta.holdings_as_of]] : []),
       ["notes", "Notes", a.notes],
     ]
