@@ -842,7 +842,7 @@ function go(name, opts = {}) {
       const ready = document.getElementById("attach-card")
         || document.getElementById("recon-card");
       if (ready) {
-        for (const hook of ["bpAssetKinds", "bpAttachFill", "bpReconFill"]) {
+        for (const hook of ["bpAssetKinds", "bpAttachFill", "bpCostFill", "bpReconFill"]) {
           try { window[hook]?.(); } catch (e) {}
         }
         return;
@@ -3017,8 +3017,10 @@ function renderImport() {
   </details>
 
   <div class="muted" style="font-size:12.5px;margin-top:14px;line-height:1.8">
-    Bond portfolios take their DigiFInn reports on the portfolio itself —
-    <a class="link" href="#" onclick="bpCategory('bonds');return false">open bond portfolios</a>.</div>`;
+    <b>Bonds need two files.</b> 1. The CDSL/NSDL <b>CAS</b> — accounts, units and value.
+    2. The DigiFInn <b>Holdings Report</b> — open the demat account and use
+    <b>Cost from DigiFInn</b> to add what you paid and when. The Investment and
+    Cashflow reports are optional: they add yield and payout dates, not holdings.</div>`;
 }
 function slug(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 28)
@@ -7130,6 +7132,140 @@ record and stops counting in net worth.` : ""}`)) return;
     alert("Could not attach the cost: " + (e.message || e));
   }
 };
+// The CAS says how many bonds are held and what they are worth; it does not say
+// what was paid or when. That is the DigiFInn Holdings Report's job. This card
+// puts the import where the bonds are, and writes the price onto the demat rows
+// instead of creating a second portfolio to look after.
+window.bpCostFill = async () => {
+  const host = document.getElementById("cost-card");
+  const id = window.bpState?.asset || window.bpState?.assetView || "";
+  if (!host || !id) return;
+  try {
+    const store = await import("./db.js");
+    const assets = await store.listAccounts();
+    const me = assets.find((a) => a.id === id);
+    if (!me || categoryOf(me) !== "demat") { host.innerHTML = ""; return; }
+    if (/mutual\s*fund|^mf$/i.test(String(me.subtype || ""))) { host.innerHTML = ""; return; }
+    const positions = (await store.listHoldings(id))
+      .filter((h) => String(h.category || "") === "bond");
+    if (!positions.length) { host.innerHTML = ""; return; }
+    const missing = positions.filter((h) => h.cost_paise === null || h.cost_paise === undefined);
+    host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0">Cost from DigiFInn</h2>
+        <span class="muted" style="font-size:11.5px">${missing.length
+          ? `${missing.length} of ${positions.length} bonds need a purchase price`
+          : `all ${positions.length} bonds priced`}</span></div>
+      <div class="muted" style="font-size:12.5px;margin-top:5px">The CAS gives units and
+      value. The <b>Holdings Report</b> gives what you paid and when; without it, invested
+      and gain stay blank. The price is written onto these bonds — no second account.</div>
+      <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:10px">
+        Choose Holdings Report
+        <input type="file" accept=".csv" style="display:none"
+          onchange="bpCostFile(this.files[0]);this.value=''"></label>
+      <div id="cost-preview" style="margin-top:10px"></div>
+    </div>`;
+    window.bpCostPlan = null;
+  } catch (e) {
+    host.innerHTML = "";
+  }
+};
+window.bpCostFile = async (file) => {
+  if (!file) return;
+  const host = document.getElementById("cost-preview");
+  const id = window.bpState?.asset || "";
+  const fail = (html) => {
+    if (host) host.innerHTML = `<div class="card pad" style="font-size:13px;color:var(--red)">${html}</div>`;
+  };
+  try {
+    const parsed = parseReportFile(await file.text(), file.name);
+    if (parsed.kind !== "portfolio") {
+      fail("That is not the Holdings Report. In DigiFInn open Reports &amp; Documents → Holdings Report and download the CSV with ISIN, Bond Name, Purchase date, Qty and Investment Value.");
+      return;
+    }
+    if (!parsed.rows.length) {
+      fail("The Holdings Report has no rows. Download it again from DigiFInn.");
+      return;
+    }
+    const store = await import("./db.js");
+    const assets = await store.listAccounts();
+    const me = assets.find((a) => a.id === id);
+    const printed = dematText(parsed.demat || "");
+    const printedBo = boId(printed).boId;
+    if (printedBo) {
+      const target = assets.find((a) => categoryOf(a) === "demat"
+        && boId(a.number).boId === printedBo);
+      if (!target) {
+        fail(`This report is for ${esc(printed)}, and no demat here has that number.
+          Import the CAS statement first.`);
+        return;
+      }
+      if (target.id !== me.id) {
+        if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
+          This report belongs to <b>${esc(target.label)}</b>, not ${esc(me.label)}.
+          <div style="margin-top:8px"><button class="btn"
+            onclick="bpAsset(${jsArg(target.id)})">Open that account</button></div></div>`;
+        return;
+      }
+    }
+    const positions = (await store.listHoldings(id))
+      .filter((h) => String(h.category || "") === "bond");
+    const held = new Map(positions
+      .map((p) => [String(p.security_id || "").toUpperCase(), p]));
+    const matched = parsed.rows.filter((r) => held.has(String(r.isin || "").toUpperCase()));
+    const missing = matched.filter((r) => {
+      const p = held.get(String(r.isin || "").toUpperCase());
+      return p.cost_paise === null || p.cost_paise === undefined;
+    });
+    const covered = new Set(matched.map((r) => String(r.isin || "").toUpperCase()));
+    const still = positions.filter((p) => (p.cost_paise === null || p.cost_paise === undefined)
+      && !covered.has(String(p.security_id || "").toUpperCase()));
+    window.bpCostPlan = { id, parsed, matched, missing };
+    if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
+      <div><b>${esc(file.name || "Holdings Report")}</b>${parsed.asOf
+        ? ` · as of ${dateLabel(parsed.asOf)}` : ""}</div>
+      <div class="muted" style="font-size:12px;margin-top:4px">${parsed.rows.length} lots ·
+        ${matched.length} match a bond here · ${missing.length} will take a price${
+        still.length ? ` · ${still.length} still unpriced` : ""}.</div>
+      ${missing.length
+        ? `<button class="btn primary" style="margin-top:10px"
+            onclick="bpCostApply()">Import cost for ${missing.length} bond${missing.length === 1 ? "" : "s"}</button>`
+        : `<div class="muted" style="margin-top:6px">Every matching bond already has a price.
+            Nothing will be overwritten.</div>`}
+      <button class="btn" style="margin-top:10px;margin-left:8px"
+        onclick="bpCostCancel()">Cancel</button>
+    </div>`;
+  } catch (e) {
+    fail(esc(e.message || String(e)));
+  }
+};
+window.bpCostApply = async () => {
+  const plan = window.bpCostPlan;
+  if (!plan) return;
+  try {
+    const store = await import("./db.js");
+    const { planConsolidation, applyCost } = await import("./attach.js");
+    const positions = await store.listHoldings(plan.id);
+    const pass = planConsolidation({
+      demats: [{ id: plan.id, positions }],
+      sources: [{ id: "digifinn", lots: plan.parsed.rows }],
+    });
+    if (!pass.updates.length) {
+      alert("None of these lots could be priced against the bonds here. Their quantities may differ; nothing was written.");
+      return;
+    }
+    const merged = applyCost(positions, pass.updates);
+    await store.replaceHoldings(plan.id, merged, new Date().toISOString().slice(0, 10));
+    window.bpCostPlan = null;
+    window.bpAsset(plan.id);
+  } catch (e) {
+    alert("Could not import the cost: " + (e.message || e));
+  }
+};
+window.bpCostCancel = () => {
+  window.bpCostPlan = null;
+  window.bpCostFill?.();
+};
 window.bpConsolidate = async ({ ask = false } = {}) => {
   try {
     const store = await import("./db.js");
@@ -9303,6 +9439,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? assetFocusCard(a) : ""}
   ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
   ${a && cat === "demat" ? `<div id="attach-card"></div>` : ""}
+  ${a && cat === "demat" ? `<div id="cost-card"></div>` : ""}
   ${a ? assetDetailCard(a) : ""}
   ${a && (cat === "bonds" || cat === "demat") ? `<div id="recon-card"></div>` : ""}
   ${a ? valuationCard(a) : ""}
