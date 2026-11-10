@@ -839,10 +839,10 @@ function go(name, opts = {}) {
     // The account page paints asynchronously, so the card is not in the DOM when
     // this runs. Wait for it, bounded, instead of firing once into nothing.
     const fill = (left) => {
-      const ready = document.getElementById("attach-card")
-        || document.getElementById("recon-card");
+      const ready = document.getElementById("recon-card")
+        || document.getElementById("cost-card");
       if (ready) {
-        for (const hook of ["bpAssetKinds", "bpAttachFill", "bpCostFill", "bpReconFill"]) {
+        for (const hook of ["bpAssetKinds", "bpCostFill", "bpReconFill"]) {
           try { window[hook]?.(); } catch (e) {}
         }
         // The cost card reads holdings asynchronously; give it a second pass once
@@ -2987,6 +2987,18 @@ function renderImport() {
   <p class="muted" style="margin:-6px 0 14px;font-size:13px">Nothing is uploaded, and the app
   never asks for a bank or broker password, OTP or PIN.</p>
 
+  <div class="card pad" style="margin-bottom:14px">
+    <h2 style="margin:0">Bond portfolio</h2>
+    <div class="muted" style="font-size:12.5px;margin-top:5px"><b>New:</b> import the
+    CDSL/NSDL <b>CAS</b> below. It creates the demat account with units, face value and
+    market value.</div>
+    <div class="muted" style="font-size:12.5px;margin-top:4px"><b>Existing:</b> open the
+    demat account → <b>Broker holdings</b> → choose the DigiFInn Holdings Report to add the
+    purchase price and date. That is the only optional broker file.</div>
+    <div class="muted" style="font-size:11.5px;margin-top:6px">Investment and Cashflow
+    reports are not used for holdings.</div>
+  </div>
+
   <div class="card pad">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0">Import</h2>
@@ -3021,11 +3033,7 @@ function renderImport() {
     </div>
   </details>
 
-  <div class="muted" style="font-size:12.5px;margin-top:14px;line-height:1.8">
-    <b>Bonds need two files.</b> 1. The CDSL/NSDL <b>CAS</b> — accounts, units and value.
-    2. The DigiFInn <b>Holdings Report</b> — open the demat account and use
-    <b>Cost from DigiFInn</b> to add what you paid and when. The Investment and
-    Cashflow reports are optional: they add yield and payout dates, not holdings.</div>`;
+</div>`;
 }
 function slug(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 28)
@@ -6768,7 +6776,7 @@ window.bpImportRender = () => {
   const rows = window.bpImportQueue || [];
   if (!rows.length) { host.innerHTML = ""; return; }
   const options = (kind) => `<option value=""${kind ? "" : " selected"}>Choose the type…</option>`
-    + IMPORT_KINDS.map((k) =>
+    + IMPORT_KINDS.filter((k) => k !== "broker").map((k) =>
       `<option value="${k}"${k === kind ? " selected" : ""}>${esc(IMPORT_KIND_LABEL[k])}</option>`
     ).join("");
   const list = rows.map((r, i) => `<div style="display:grid;
@@ -6795,7 +6803,10 @@ window.bpImportRender = () => {
     .map(([k, n]) => `${n} ${IMPORT_KIND_LABEL[k].toLowerCase()}`)
     .join(" · ");
   const missing = rows.filter((r) => !r.kind).length;
-  host.innerHTML = `${list}
+  const brokerNote = rows.some((r) => r.kind === "broker")
+    ? `<div class="muted" style="font-size:12px;margin-top:8px">Broker holdings are added
+       on the demat account, under <b>Broker holdings</b>; remove the file here.</div>` : "";
+  host.innerHTML = `${list}${brokerNote}
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
       <button class="btn primary" onclick="bpImportRun()">Read ${rows.length}
         file${rows.length === 1 ? "" : "s"}</button>
@@ -6844,6 +6855,12 @@ window.bpImportRun = async () => {
           `<div class="card pad" id="${hostId}" style="margin-bottom:12px"></div>`);
       }
       await window.bpCasFile(row.file, hostId);
+    } else if (row.kind === "broker") {
+      host.insertAdjacentHTML("beforeend", `<div class="card pad" style="margin-bottom:12px;font-size:13px">
+        <b>Broker holdings are added on the demat account.</b>
+        <div class="muted" style="margin-top:4px">Open Assets → the demat account →
+        <b>Broker holdings</b> and choose the DigiFInn Holdings Report there. This file was
+        not read here.</div></div>`);
     } else {
       holdingsPanel();
       await window.bpHoldingsFile(row.file);
@@ -7151,6 +7168,7 @@ window.bpCostFill = async () => {
     const me = assets.find((a) => a.id === id);
     if (!me || categoryOf(me) !== "demat") { host.innerHTML = ""; return; }
     if (/mutual\s*fund|^mf$/i.test(String(me.subtype || ""))) { host.innerHTML = ""; return; }
+    const meta = metaOf(me);
     const positions = (await store.listHoldings(id))
       .filter((h) => String(h.category || "") === "bond");
     if (!positions.length) { host.innerHTML = ""; return; }
@@ -7159,17 +7177,22 @@ window.bpCostFill = async () => {
       || Number(h.quantity) > 0);
     if (!live.length) { host.innerHTML = ""; return; }
     const missing = live.filter((h) => h.cost_paise === null || h.cost_paise === undefined);
+    const provenance = meta.cost_source
+      ? `${meta.cost_source}${meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}`
+      : "";
     host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
-        <h2 style="margin:0">Cost from DigiFInn</h2>
+        <h2 style="margin:0">Broker holdings <span class="pill"
+          style="font-size:10px;vertical-align:2px">DigiFInn</span></h2>
         <span class="muted" style="font-size:11.5px">${missing.length
           ? `${missing.length} of ${live.length} bonds need a purchase price`
-          : `all ${live.length} bonds priced`}</span></div>
-      <div class="muted" style="font-size:12.5px;margin-top:5px">The CAS gives units and
-      value. The <b>Holdings Report</b> gives what you paid and when; without it, invested
-      and gain stay blank. The price is written onto these bonds — no second account.</div>
+          : provenance || `all ${live.length} bonds priced`}</span></div>
+      <div class="muted" style="font-size:12.5px;margin-top:5px">The CAS gives units,
+      face value and market value — not what you paid. The <b>DigiFInn Holdings Report</b>
+      adds the purchase price and date. More brokers can be added later; this is the only
+      broker file needed.</div>
       <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:10px">
-        Choose Holdings Report
+        Choose DigiFInn Holdings Report
         <input type="file" accept=".csv" style="display:none"
           onchange="bpCostFile(this.files[0]);this.value=''"></label>
       <div id="cost-preview" style="margin-top:10px"></div>
@@ -7273,6 +7296,13 @@ window.bpCostApply = async () => {
     }
     const merged = applyCost(positions, pass.updates);
     await store.replaceHoldings(plan.id, merged, new Date().toISOString().slice(0, 10));
+    const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
+    if (asset) {
+      await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),
+        cost_source: "DigiFInn Holdings Report",
+        cost_as_of: plan.parsed.asOf || "",
+        cost_file: plan.parsed.fileName || "" }) });
+    }
     window.bpCostPlan = null;
     window.bpAsset(plan.id);
   } catch (e) {
@@ -8915,8 +8945,7 @@ function holdingsCard(allRows, assetId) {
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0">Holdings</h2>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        ${assetId ? `<button class="btn primary" onclick="bpOpenBondImport()">Import reports</button>
-        <button class="btn" onclick="bpBondHoldingNew(${jsArg(assetId)})">Add holding</button>
+        ${assetId ? `<button class="btn" onclick="bpBondHoldingNew(${jsArg(assetId)})">Add holding</button>
         ${LOCAL_SERVER ? `<button class="btn" title="Ask SMEST for each lot's rating and interest dates, and BSE for its price. Nothing you typed is replaced."
           onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch details for all</button>` : ""}
         <details class="more-menu" style="margin-left:0">
@@ -9447,6 +9476,10 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? `<div class="muted" style="margin:-10px 0 14px;font-size:12px">Editing
     ${esc(/mutual\s*fund|^mf$/i.test(String(a?.subtype || "")) ? "mutual fund"
       : cat === "bonds" ? "bond portfolio" : categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
+  ${!a && cat === "bonds" ? `<div class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px">
+    <b>A demat bond portfolio comes from a CAS.</b> Import the CDSL/NSDL statement and the app
+    creates the account with its bonds; use this form only for bonds held outside a demat.
+    <div style="margin-top:8px"><button class="btn" onclick="go('import')">Import a CAS</button></div></div>` : ""}
   ${a && (() => { try { return JSON.parse(a.meta || "{}").cost_only; } catch (e) { return false; } })()
     ? `<div class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px">
         <b>A cost record, not an account.</b> It holds no securities and is not counted in net worth.
@@ -9455,12 +9488,10 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? positionCard(a, holdings) : ""}
   ${a ? assetFocusCard(a) : ""}
   ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
-  ${a && cat === "demat" ? `<div id="attach-card"></div>` : ""}
   ${a && cat === "demat" ? `<div id="cost-card"></div>` : ""}
   ${a ? assetDetailCard(a) : ""}
   ${a && (cat === "bonds" || cat === "demat") ? `<div id="recon-card"></div>` : ""}
   ${a ? valuationCard(a) : ""}
-  ${a && cat === "bonds" ? digiFinnCardHtml(a) : ""}
   ${a ? holdingsBlock(holdings, id) : ""}
   ${a && !lean ? `<details class="all-fields"><summary>All fields and category</summary>` : ""}
   <div class="card pad"${a ? ` style="margin-top:10px${lean ? ";display:none" : ""}"` : ""}>
