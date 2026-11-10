@@ -7154,13 +7154,17 @@ window.bpCostFill = async () => {
     const positions = (await store.listHoldings(id))
       .filter((h) => String(h.category || "") === "bond");
     if (!positions.length) { host.innerHTML = ""; return; }
-    const missing = positions.filter((h) => h.cost_paise === null || h.cost_paise === undefined);
+    // A matured lot is history at zero units; it has no purchase price to find.
+    const live = positions.filter((h) => h.quantity === null || h.quantity === undefined
+      || Number(h.quantity) > 0);
+    if (!live.length) { host.innerHTML = ""; return; }
+    const missing = live.filter((h) => h.cost_paise === null || h.cost_paise === undefined);
     host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
         <h2 style="margin:0">Cost from DigiFInn</h2>
         <span class="muted" style="font-size:11.5px">${missing.length
-          ? `${missing.length} of ${positions.length} bonds need a purchase price`
-          : `all ${positions.length} bonds priced`}</span></div>
+          ? `${missing.length} of ${live.length} bonds need a purchase price`
+          : `all ${live.length} bonds priced`}</span></div>
       <div class="muted" style="font-size:12.5px;margin-top:5px">The CAS gives units and
       value. The <b>Holdings Report</b> gives what you paid and when; without it, invested
       and gain stay blank. The price is written onto these bonds — no second account.</div>
@@ -7215,7 +7219,9 @@ window.bpCostFile = async (file) => {
     }
     const positions = (await store.listHoldings(id))
       .filter((h) => String(h.category || "") === "bond");
-    const held = new Map(positions
+    const live = positions.filter((h) => h.quantity === null || h.quantity === undefined
+      || Number(h.quantity) > 0);
+    const held = new Map(live
       .map((p) => [String(p.security_id || "").toUpperCase(), p]));
     const matched = parsed.rows.filter((r) => held.has(String(r.isin || "").toUpperCase()));
     const missing = matched.filter((r) => {
@@ -7223,7 +7229,7 @@ window.bpCostFile = async (file) => {
       return p.cost_paise === null || p.cost_paise === undefined;
     });
     const covered = new Set(matched.map((r) => String(r.isin || "").toUpperCase()));
-    const still = positions.filter((p) => (p.cost_paise === null || p.cost_paise === undefined)
+    const still = live.filter((p) => (p.cost_paise === null || p.cost_paise === undefined)
       && !covered.has(String(p.security_id || "").toUpperCase()));
     window.bpCostPlan = { id, parsed, matched, missing };
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
