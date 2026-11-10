@@ -7257,9 +7257,15 @@ window.bpCostApply = async () => {
     const store = await import("./db.js");
     const { planConsolidation, applyCost } = await import("./attach.js");
     const positions = await store.listHoldings(plan.id);
+    // The report calls the identifier `isin`; the consolidation join calls it
+    // `security_id`. Translate, or every lot matches nothing.
+    const lots = plan.parsed.rows.map((r) => ({
+      security_id: r.isin, label: r.label, quantity: r.quantity,
+      cost_paise: r.cost_paise, purchase_date: r.purchase_date,
+    }));
     const pass = planConsolidation({
       demats: [{ id: plan.id, positions }],
-      sources: [{ id: "digifinn", lots: plan.parsed.rows }],
+      sources: [{ id: "digifinn", lots }],
     });
     if (!pass.updates.length) {
       alert("None of these lots could be priced against the bonds here. Their quantities may differ; nothing was written.");
