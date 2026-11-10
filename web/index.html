@@ -845,6 +845,10 @@ function go(name, opts = {}) {
         for (const hook of ["bpAssetKinds", "bpAttachFill", "bpCostFill", "bpReconFill"]) {
           try { window[hook]?.(); } catch (e) {}
         }
+        // The cost card reads holdings asynchronously; give it a second pass once
+        // the rest of the page has settled, so a slow storage open cannot leave it
+        // blank.
+        setTimeout(() => { try { window.bpCostFill?.(); } catch (e) {} }, 400);
         return;
       }
       if (left > 0) setTimeout(() => fill(left - 1), 50);
