@@ -1,6 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCas, casTotals, casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
+import { parseCas, casTotals, casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName,
+  numericColumns } from "./cas.js";
+
+test("the bond row's columns are checked by arithmetic, not position alone", () => {
+  // ACAPL: 2 × 30,000 = 60,000.
+  assert.deepEqual(numericColumns(["2", "1,00,000.00", "30,000.00", "60,000.00"]),
+    { ok: true, qty: 2, face: 100000, price: 30000, value: 60000 });
+  // An equity row has no face column: 80 × 592.50 = 47,400.
+  assert.deepEqual(numericColumns(["80", "592.50", "47,400.00"]),
+    { ok: true, qty: 80, face: null, price: 592.5, value: 47400 });
+  // A row with quantity and total only still reads; no per-unit guess.
+  assert.deepEqual(numericColumns(["10", "98,150.00"]),
+    { ok: true, qty: 10, face: null, price: null, value: 98150 });
+  // Numbers that do not multiply are refused, so a wrapped cell cannot pass.
+  assert.equal(numericColumns(["1", "2", "3", "4"]).ok, false);
+  assert.equal(numericColumns(["one", "two"]).ok, false);
+});
 
 test("a fund name stops before the expense-ratio paragraph", () => {
   assert.equal(cleanFundLabel("Mirae Asset Cash Management Fund ) - Grand Total Average Total Expense Ratio above represents the average of annualized total expense charged in the respective schemes during the half-year period within"), "Mirae Asset Cash Management Fund");

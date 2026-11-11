@@ -438,6 +438,32 @@ function readTables(items, tables, headers = []) {
   return out;
 }
 
+// The four numeric cells to the right of the date are quantity, face, price and
+// value. Their order is a template convention, so check the arithmetic before
+// trusting it: quantity × per-unit value must equal the total. A wrapped cell or
+// a missing column then fails closed instead of moving money into the wrong field.
+export function numericColumns(strs) {
+  const nums = (strs || []).map((t) => Number(String(t).replace(/,/g, "")));
+  if (nums.length < 2 || nums.some((n) => !Number.isFinite(n))) return { ok: false };
+  const last = nums.length - 1;
+  const value = nums[last];
+  const close = (a, b) => Number.isFinite(a) && b > 0
+    && Math.abs(a - b) <= Math.max(0.05, b * 0.005);
+  const make = (qty, face, price, v) => ({ ok: true, qty, face, price, value: v });
+  if (nums.length >= 4) {
+    const q = nums[last - 3], f = nums[last - 2], p = nums[last - 1];
+    if (q > 0 && close(q * p, value)) return make(q, f, p, value);
+    // Some rows have no separate price: the face value is the per-unit value.
+    if (q > 0 && close(q * f, value)) return make(q, f, f, value);
+  }
+  if (nums.length >= 3) {
+    const q = nums[last - 2], p = nums[last - 1];
+    if (q > 0 && close(q * p, value)) return make(q, null, p, value);
+  }
+  if (nums.length === 2 && nums[0] > 0) return make(nums[0], null, null, value);
+  return { ok: false };
+}
+
 /**
  * The older rule: every holding is a band of items around one ISIN, between its
  * neighbours. Kept for statements whose tables carry no usable header.
@@ -513,10 +539,20 @@ function readBands(items) {
         ? cells.filter((i) => i.x < date.x).slice(-1)[0] : null;
       const fields = couponCell ? cells.filter((i) => i !== couponCell) : cells;
       const tail = fields.slice(-4).map((i) => i.str);
-      const quantityText = tail[0];
-      const faceText = tail.length >= 4 ? tail[1] : "";
-      const priceText = tail.length >= 2 ? tail[tail.length - 2] : "";
-      const valueText = tail[tail.length - 1];
+      const picked = numericColumns(fields.map((i) => i.str));
+      if (!picked.ok) {
+        // Still read it the old way, but say the arithmetic did not line up so a
+        // wrong column cannot pass as a correct holding.
+        warnings.push({ code: "column_mismatch", count: 1, isin: "redacted" });
+      }
+      const quantityText = picked.ok ? String(picked.qty) : tail[0];
+      const faceText = picked.ok
+        ? (picked.face === null ? "" : String(picked.face))
+        : (tail.length >= 4 ? tail[1] : "");
+      const priceText = picked.ok
+        ? (picked.price === null ? "" : String(picked.price))
+        : (tail.length >= 2 ? tail[tail.length - 2] : "");
+      const valueText = picked.ok ? String(picked.value) : tail[tail.length - 1];
       // The row's own shape decides the class. A printed maturity date means a
       // bond; a fund ISIN starts with INF; anything else is a share. Headings are
       // bilingual and split across cells, and trusting them filed all seventeen
