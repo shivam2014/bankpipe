@@ -20,6 +20,13 @@ test("a broker holdings export is read from its header row", () => {
   assert.equal(sniffKind({ name: "any.csv", text: csv }), "broker");
 });
 
+test("a DigiFInn holdings report is broker even though it names a Demat Account No.", () => {
+  const csv = "DIGIFINN - HOLDINGS REPORT\nDemat Account No.,9999000001140907"
+    + "\nISIN,Bond Name,Purchase date,Qty,Investment Value (₹)"
+    + "\nINE999900058,9.25% OPGPL 07 OCT 2029,23-Oct-26,20,196406.16";
+  assert.equal(sniffKind({ name: "holdings-report-2026-10-26.csv", text: csv }), "broker");
+});
+
 test("a bank statement is read from its columns", () => {
   const csv = "Date,Narration,Withdrawal,Deposit,Balance\n01/10/2026,Rent,25000,,100000";
   assert.equal(sniffKind({ name: "any.csv", text: csv }), "bank");

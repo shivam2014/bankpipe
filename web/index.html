@@ -6818,7 +6818,7 @@ window.bpImportRender = () => {
   const missing = rows.filter((r) => !r.kind).length;
   const brokerNote = rows.some((r) => r.kind === "broker" || r.kind === "cas")
     ? `<div class="muted" style="font-size:12px;margin-top:8px">A demat CAS goes through
-       the <b>Bond portfolio</b> card above; broker holdings are added on the demat account.
+       the <b>Demat accounts</b> card above; broker holdings are added on the demat account.
        Remove the file here.</div>` : "";
   host.innerHTML = `${list}${brokerNote}
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
@@ -6862,7 +6862,7 @@ window.bpImportRun = async () => {
   for (const row of rows.filter((r) => r.kind !== "bank")) {
     if (row.kind === "cas") {
       host.insertAdjacentHTML("beforeend", `<div class="card pad" style="margin-bottom:12px;font-size:13px">
-        <b>Demat CAS statements are imported from the Bond portfolio card above.</b>
+        <b>Demat CAS statements are imported from the Demat accounts card above.</b>
         <div class="muted" style="margin-top:4px">Remove the file here and choose it there;
         that card creates the demat account and its holdings.</div></div>`);
     } else if (row.kind === "broker") {

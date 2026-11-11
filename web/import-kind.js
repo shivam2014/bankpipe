@@ -17,7 +17,6 @@ export const IMPORT_KIND_LABEL = {
 const CAS_WORDS = [
   /consolidated\s+account\s+statement/i,
   /e-?cas\b/i,
-  /demat\s+account\s+(no|number)/i,
   /holdings?\s+statement.*depositor/i,
   /national\s+securities\s+depository/i,
   /central\s+depository\s+services/i,
