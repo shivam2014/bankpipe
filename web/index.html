@@ -7256,31 +7256,21 @@ window.bpCostFill = async () => {
         <code>upcoming-payouts.csv</code>${
         payoutsFile ? ` · last: <code>${esc(payoutsFile)}</code>` : ""}</div>
       <div id="cashflow-preview" style="margin-top:10px"></div>`;
-    if (!missing.length && hasPayouts) {
-      // Both files are on file: keep the provenance and the replace actions
-      // available, folded away so they do not compete with the holdings.
-      host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
-        <details>
-          <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">
-            DigiFInn · cost and payouts on file · all ${live.length}
-            bond${live.length === 1 ? "" : "s"} priced${
-            meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}
-          </summary>
-          <div style="margin-top:8px">${body}</div>
-        </details>
-      </div>`;
-    } else {
-      const status = missing.length
-        ? `${missing.length} of ${live.length} bond${live.length === 1 ? "" : "s"} need a purchase price`
+    const status = missing.length
+      ? `${missing.length} of ${live.length} bond${live.length === 1 ? "" : "s"} need a purchase price`
+      : hasPayouts
+        ? `cost and payouts on file · all ${live.length} bond${live.length === 1 ? "" : "s"} priced${
+          meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}`
         : "prices on file · payouts not imported";
-      host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
-          <h2 style="margin:0">DigiFInn reports <span class="pill"
-            style="font-size:10px;vertical-align:2px">DigiFInn</span></h2>
-          <span class="muted" style="font-size:11.5px">${status}</span></div>
-        ${body}
-      </div>`;
-    }
+    // Folded by default: it is an occasional import, not something to read
+    // every time the account is opened.
+    host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
+      <details>
+        <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">
+          DigiFInn reports · ${status}</summary>
+        <div style="margin-top:8px">${body}</div>
+      </details>
+    </div>`;
     window.bpCostPlan = null;
   } catch (e) {
     host.innerHTML = "";
@@ -9937,11 +9927,12 @@ function assetForm(a, factCount, defaultCat, holdings) {
         <b>A cost record, not an account.</b> It holds no securities and is not counted in net worth.
         The bonds it paid for sit in ${esc((() => { try { return JSON.parse(a.meta || "{}").linked_label; } catch (e) { return ""; } })() || "a demat account")}.
         Its only job is to keep the purchase cost and dates so a gain can be shown.</div>` : ""}
+  ${a && cat === "demat" ? assetDetailCard(a) : ""}
+  ${a && cat === "demat" ? `<div id="cost-card"></div>` : ""}
   ${a ? positionCard(a, holdings) : ""}
   ${a ? assetFocusCard(a) : ""}
   ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
-  ${a && cat === "demat" ? `<div id="cost-card"></div>` : ""}
-  ${a ? assetDetailCard(a) : ""}
+  ${a && cat !== "demat" ? assetDetailCard(a) : ""}
   ${a && (cat === "bonds" || cat === "demat") ? `<div id="recon-card"></div>` : ""}
   ${a ? valuationCard(a) : ""}
   ${a ? holdingsBlock(holdings, id) : ""}
