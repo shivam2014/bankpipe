@@ -9911,12 +9911,12 @@ window.bpBondFetchAll = async (assetId, onlyId = "") => {
   // Matured lots are history, but their rating and issuer still move. Fetch the
   // terms for both; the price is only applied to what is still held.
   const { current, matured } = splitMatured(await store.listHoldings(assetId));
-  const bondOnly = (h) => String(h.category || "") === "bond"
+  const bondOnly = (h, includeZero = false) => String(h.category || "") === "bond"
     && /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase())
-    && !(Number(h.quantity) === 0)
+    && (includeZero || !(Number(h.quantity) === 0))
     && (!onlyId || String(h.id) === String(onlyId));
-  const currentLots = current.filter(bondOnly);
-  const maturedLots = matured.filter(bondOnly);
+  const currentLots = current.filter((h) => bondOnly(h));
+  const maturedLots = matured.filter((h) => bondOnly(h, true));
   const lots = [...currentLots, ...maturedLots];
   if (!lots.length) {
     note("No bond carries an ISIN, so there is nothing to look up.");
