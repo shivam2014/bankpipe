@@ -4949,7 +4949,8 @@ async function renderBankViewAsync(host, bank) {
       <button class="btn" onclick="go('home')">Home</button></div>`;
 }
 function assetOpen(a) {
-  return categoryOf(a) === "fd" ? `bpAssetView(${jsArg(a.id)})` : `bpAsset(${jsArg(a.id)})`;
+  if (categoryOf(a) === "fd") return `bpAssetView(${jsArg(a.id)})`;
+  return `bpAsset(${jsArg(a.id)}, ${jsArg(a.classPart || "all")})`;
 }
 function dateLabel(v) {
   const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -9102,27 +9103,41 @@ function holdingCards(rows, kind = "", { header = true } = {}) {
 }
 function holdingsBlock(rows, assetId) {
   if (!rows || !rows.length) return "";
-  window.bpBondRows = rows;
-  window.bpBondAsset = assetId;
-  if (!window.bpBondSortState) window.bpBondSortState = { key: "maturity", dir: 1 };
   const groups = { bond: [], equity: [], mf: [] };
   for (const row of rows) groups[holdingClass(row)].push(row);
   const filled = Object.entries(groups).filter(([, list]) => list.length);
-  if (filled.length < 2) {
-    const kind = filled[0]?.[0] || "bond";
-    return kind === "bond"
-      ? `<div id="bond-holdings">${holdingsCard(rows, assetId)}</div>`
-      : holdingCards(rows, kind);
-  }
   const labels = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
+  const focus = ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
+    ? window.bpState.assetClass : "all";
+  let visible = focus === "all" ? filled : filled.filter(([kind]) => kind === focus);
+  if (!visible.length) visible = filled;
+  // A demat holds several classes. Opening the account from the Bonds section
+  // should land on Bonds, with All and the other classes one tap away.
+  const tabs = filled.length > 1 ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px">
+    <button class="btn ${focus === "all" ? "primary" : ""}" onclick="bpAssetClass('all')">All
+      <span class="muted">${rows.length}</span></button>
+    ${filled.map(([kind, list]) => `<button class="btn ${focus === kind ? "primary" : ""}"
+      onclick="bpAssetClass('${kind}')">${labels[kind]}
+      <span class="muted">${list.length}</span></button>`).join("")}
+  </div>` : "";
+  window.bpBondRows = groups.bond;
+  window.bpBondAsset = assetId;
+  if (!window.bpBondSortState) window.bpBondSortState = { key: "maturity", dir: 1 };
+  if (visible.length < 2) {
+    const kind = visible[0]?.[0] || "bond";
+    const list = visible[0]?.[1] || rows;
+    return `${tabs}${kind === "bond"
+      ? `<div id="bond-holdings">${holdingsCard(list, assetId)}</div>`
+      : holdingCards(list, kind)}`;
+  }
   const total = (list) => list.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
-  const html = filled.map(([kind, list]) => `<div style="display:flex;
+  const html = visible.map(([kind, list]) => `<div style="display:flex;
       justify-content:space-between;align-items:baseline;margin:16px 0 8px">
       <h2 style="margin:0;font-size:15px">${labels[kind]}</h2>
       <span class="muted" style="font-size:12px">${money(total(list))}</span></div>
     ${kind === "bond" ? `<div id="bond-holdings">${holdingsCard(list, assetId)}</div>`
       : holdingCards(list, kind, { header: false })}`).join("");
-  return html;
+  return `${tabs}${html}`;
 }
 window.bpBondSort = (key) => {
   const cur = window.bpBondSortState || { key: "maturity", dir: 1 };
@@ -10481,9 +10496,13 @@ window.bpAccountNewFd = () => {
   window.bpAssetNew("fd", { bank: account.bank, holder: account.holder,
     accountId: account.id, accountLabel: account.label, accountNumber: account.number });
 };
-window.bpAsset = (id) => {
-  window.bpState = { ...(window.bpState || {}), asset: id };
+window.bpAsset = (id, classPart = "all") => {
+  window.bpState = { ...(window.bpState || {}), asset: id, assetClass: classPart || "all" };
   go("asset");
+};
+window.bpAssetClass = (kind) => {
+  window.bpState = { ...(window.bpState || {}), assetClass: kind || "all" };
+  go("asset", { keepScroll: true });
 };
 // The audit card is filled after the page is on screen: it reads two assets and
 // their holdings, and a slow read must not hold up the editor. A card that has
