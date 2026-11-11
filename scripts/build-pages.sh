@@ -31,6 +31,7 @@ cp "$ROOT/worker/src/lib.js" "$ROOT/worker/src/index.js" "$OUT/public/broker/"
 
 # Same-origin router + project config.
 cp "$ROOT/scripts/pages/_worker.js" "$OUT/public/_worker.js"
+cp "$ROOT/scripts/pages/market.js" "$OUT/public/market.js"
 cp "$ROOT/scripts/pages/wrangler.jsonc" "$OUT/wrangler.jsonc"
 
 # A version a person can read out over the phone. `git archive` carries no .git,

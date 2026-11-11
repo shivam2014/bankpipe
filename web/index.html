@@ -758,10 +758,9 @@ try {
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-// The market routes (/__market/*) need the local Node server. The hosted build
-// answers them with a JSON 501 on purpose, so these buttons would only ever
-// quote an error. Local is exactly where `node web/server.mjs` serves.
-const LOCAL_SERVER = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+// The market routes (/__market/*) are answered by the same origin: the local
+// Node server when the app runs there, the Pages worker when it is hosted.
+// Either way the page just calls /__market/bond.
 const inr = (p) => {
   if (p === null || p === undefined) return "—";
   const v = Math.round(p), neg = v < 0, a = Math.abs(v);
@@ -9346,8 +9345,8 @@ function holdingsCard(allRows, assetId) {
         ${assetId ? `<button class="btn" onclick="bpBondHoldingNew(${jsArg(assetId)})">Add holding</button>
         <button class="btn" title="Type the current market price of each bond"
           onclick="bpHoldingsEdit(${jsArg(assetId)})">Update values</button>
-        ${LOCAL_SERVER ? `<button class="btn" title="Ask SMEST for each lot's rating and interest dates, and BSE for its price. Nothing you typed is replaced."
-          onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch details for all</button>` : ""}
+        <button class="btn" title="Ask SMEST for each lot's rating and interest dates, and BSE for its price. Nothing you typed is replaced."
+          onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch details for all</button>
         <details class="more-menu" style="margin-left:0">
           <summary class="btn" aria-label="More holding actions">More</summary>
           <div class="menu-pop">
@@ -9548,7 +9547,7 @@ window.bpBondFetchAll = async (assetId) => {
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
   if (down && ![...got.values()].some(Boolean)) {
-    note("Fetching needs the local app server. Opened as a plain file, it cannot run.");
+    note("The exchange lookup did not answer. Try again in a moment, or enter the price by hand.");
     return;
   }
   let filled = 0, changed = 0, complete = 0, unread = 0, priced = 0, unpriced = 0;
@@ -10145,9 +10144,9 @@ function renderBondHoldingForm() {
             <input id="bh-isin" value="${esc(val("security_id"))}" autocomplete="off"
               placeholder="INE999900017" style="text-transform:uppercase"></label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
-            ${LOCAL_SERVER ? `<button class="btn" onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)})">Fetch details</button>
+            <button class="btn" onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)})">Fetch details</button>
             <button class="btn" id="bh-apply" style="display:none"
-              onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)}, true)">Use fetched values</button>` : ""}
+              onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)}, true)">Use fetched values</button>
             <span id="bh-fetchmsg" class="muted" style="font-size:12px"></span>
           </div>
         </div>
@@ -10384,9 +10383,7 @@ function renderHoldingEdit() {
       <div class="muted" style="font-size:12.5px;margin-top:4px">${bondTable
         ? "BankPipe computes the market value from the face value and price, then shows the current yield and gain. Leave a field blank to keep it unknown."
         : "Use your broker or the exchange valuation. Leave a field blank to keep it unknown."}
-      ${LOCAL_SERVER
-        ? "To ask BSE for the last traded price instead, close this and use Fetch details for all."
-        : "This hosted copy cannot reach the exchange. Enter the last traded price from your broker; the app records today as the value date."}</div></div>
+      To ask BSE for the last traded price instead, close this and use Fetch details for all.</div></div>
       <div class="card"><table data-table="holding-edit"><tr><th>Security</th><th class="n">Qty</th>
         <th class="n">Cost</th><th class="n">${bondTable ? "Price / ₹100" : "Current value (₹)"}</th></tr>${body}</table></div>
       <div id="hverr" style="color:var(--red);font-size:12.5px;margin-top:10px"></div>

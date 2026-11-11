@@ -34,12 +34,12 @@ test("no Content-Security-Policy is added", async () => {
   assert.equal(res.headers.get("content-security-policy"), null);
 });
 
-test("the market route fails as JSON, not as the HTML fallback", async () => {
+test("the market route refuses bad input as JSON, not as the HTML fallback", async () => {
   const res = await call("/__market/debt");
-  assert.equal(res.status, 501);
+  assert.equal(res.status, 400);
   assert.match(res.headers.get("content-type"), /application\/json/);
   const body = await res.json();
-  assert.equal(body.error, "market_data_unavailable");
+  assert.equal(body.error, "no isins");
 });
 
 test("the broker routes still go to the broker, not the asset fallback", async () => {

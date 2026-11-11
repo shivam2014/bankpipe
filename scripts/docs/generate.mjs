@@ -279,7 +279,7 @@ const ROUTES = {
   "pages:/disconnect": ["POST", "Pages worker", "Same disconnect route on the app origin."],
   "pages:/health": ["GET", "Pages worker", "Same liveness route on the app origin."],
   "pages:/oauth/*": ["GET", "Pages worker", "Broker consent and callback routes on the app origin."],
-  "pages:/__market/*": ["GET", "Pages worker", "JSON 501: a static host cannot reach an exchange feed."],
+  "pages:/__market/*": ["GET", "Pages worker", "BSE debt prices and SMEST bond terms, fetched server-side and cached."],
   "pages:/<file>": ["GET", "Pages worker", "Serves the static app and adds security headers."],
 };
 

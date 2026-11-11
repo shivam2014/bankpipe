@@ -8,7 +8,7 @@ fails the docs check until it is described here.
 | Method | Path | Runs where | What it does |
 |---|---|---|---|
 | GET | `/<file>` | Pages worker | Serves the static app and adds security headers. |
-| GET | `/__market/*` | Pages worker | JSON 501: a static host cannot reach an exchange feed. |
+| GET | `/__market/*` | Pages worker | BSE debt prices and SMEST bond terms, fetched server-side and cached. |
 | POST | `/disconnect` | Pages worker | Same disconnect route on the app origin. |
 | GET | `/health` | Pages worker | Same liveness route on the app origin. |
 | GET | `/oauth/*` | Pages worker | Broker consent and callback routes on the app origin. |

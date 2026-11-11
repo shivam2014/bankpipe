@@ -6,25 +6,19 @@
 // the point: no CORS, no SameSite=None, nothing for Safari to block.
 //
 // Two deployment facts this file encodes:
-//   - The market-price route needs a server that can reach BSE. A static host
-//     has none, and the SPA fallback would answer it with index.html, so the
-//     app's fetch would succeed and then fail to parse. Answer with JSON 501
-//     instead, so the failure is legible.
+//   - The market-price routes need a server that can reach BSE and SMEST. The
+//     browser cannot read either (BSE wants a Referer, SMEST is cross-origin),
+//     so this worker answers them from the same origin as the app.
 //   - Pages sets no security headers. Add the ones that cannot break inline
 //     handlers. Deliberately no Content-Security-Policy: the app relies on
 //     inline onclick and one inline module script.
 
 import broker from "./broker/index.js";
+import { handleMarket } from "./market.js";
 
 const API = new Set(["/token", "/disconnect", "/health"]);
 const isBroker = (p) => API.has(p) || p.startsWith("/oauth/");
 const isMarket = (p) => p.startsWith("/__market/");
-
-const json = (body, status) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
-  });
 
 export default {
   async fetch(request, env) {
@@ -32,13 +26,7 @@ export default {
 
     if (isBroker(pathname)) return broker.fetch(request, env);
 
-    if (isMarket(pathname)) {
-      return json({
-        error: "market_data_unavailable",
-        detail: "This host serves the app as static files, so it cannot reach an exchange feed. "
-          + "Enter prices manually, or run the desktop build which has a local server.",
-      }, 501);
-    }
+    if (isMarket(pathname)) return handleMarket(request);
 
     const res = await env.ASSETS.fetch(request);
     const headers = new Headers(res.headers);
