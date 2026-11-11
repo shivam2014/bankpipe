@@ -532,7 +532,7 @@ export function makeStore(SQLlib, save) {
            || priorRating.get(String(r.security_id || "").toUpperCase()) || r.rating || "",
          r.future_interest_paise ?? null, r.future_principal_paise ?? null,
          r.principal_dates || "", r.returned_paise ?? null, r.source_row || 0,
-         asOf || "", key, "report"]);
+         r.as_of || asOf || "", key, "report"]);
       inserted++;
     }
     return { inserted, manualKept: manual.length - superseded.length,

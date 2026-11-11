@@ -7372,7 +7372,8 @@ window.bpCostFile = async (file, opts = {}) => {
     // the report's own as-of date; re-choosing the report fixes that.
     const dateFixes = parsed.asOf ? matched.filter((r) => {
       const p = held.get(String(r.isin || "").toUpperCase());
-      return String(p.as_of || "").slice(0, 10) !== String(parsed.asOf).slice(0, 10);
+      const was = String(p.as_of || "").slice(0, 10);
+      return !was || was < String(parsed.asOf).slice(0, 10);
     }) : [];
     const changes = missing.length + labelFills.length + dateFixes.length;
     window.bpCostPlan = { id, parsed, matched, missing, labelFills, dateFixes, fromImport, brokerId };
@@ -7431,8 +7432,15 @@ window.bpCostApply = async () => {
       alert("Nothing to write: those bonds already have a price, a full label and this value date.");
       return;
     }
-    await store.replaceHoldings(plan.id, merged,
-      plan.parsed.asOf || new Date().toISOString().slice(0, 10));
+    // The report's date is the value date for rows that carry an older one. A
+    // price fetched later from BSE keeps its trade date.
+    const reportAsOf = plan.parsed.asOf || "";
+    const reportDay = reportAsOf.slice(0, 10);
+    const dated = merged.map((p) => {
+      const was = String(p.as_of || "").slice(0, 10);
+      return reportDay && (!was || was < reportDay) ? { ...p, as_of: reportAsOf } : p;
+    });
+    await store.replaceHoldings(plan.id, dated, reportAsOf);
     const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
     if (asset) {
       await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),
@@ -7565,7 +7573,7 @@ window.bpCashflowApply = async () => {
         cost_paise: p.cost_paise ?? g.investment_paise ?? null,
       };
     });
-    await store.replaceHoldings(plan.id, updated, today);
+    await store.replaceHoldings(plan.id, updated, "");
     const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
     if (asset) {
       await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),

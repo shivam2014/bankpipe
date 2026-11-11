@@ -472,6 +472,14 @@ test("a mark keeps its date until a new value is entered", async () => {
   const later = store.listHoldings("bonds-vd")[0];
   assert.equal(later.value_paise, 101000);
   assert.equal(later.as_of, "2026-11-11");
+
+  // A report row that carries its own newer date keeps it; the argument is
+  // only the fallback for rows that do not.
+  store.replaceHoldings("bonds-vd", [
+    { security_id: "INE000000001", label: "A bond", quantity: 1,
+      cost_paise: 100000, value_paise: 102000, as_of: "2026-11-09", source_row: 1 },
+  ], "2026-10-26");
+  assert.equal(store.listHoldings("bonds-vd")[0].as_of, "2026-11-09");
 });
 
 test("searchFacts can sort by amount ascending and descending", async () => {
