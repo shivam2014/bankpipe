@@ -7345,8 +7345,15 @@ window.bpCostFile = async (file, opts = {}) => {
       return r.label && /\d+(?:\.\d+)?%/.test(r.label)
         && !/\d+(?:\.\d+)?%/.test(p.label || "");
     });
-    const changes = missing.length + labelFills.length;
-    window.bpCostPlan = { id, parsed, matched, missing, labelFills, fromImport };
+    // The prices are already here, but the day they were marked may not be.
+    // A value written by an older build could carry the import day instead of
+    // the report's own as-of date; re-choosing the report fixes that.
+    const dateFixes = parsed.asOf ? matched.filter((r) => {
+      const p = held.get(String(r.isin || "").toUpperCase());
+      return String(p.as_of || "").slice(0, 10) !== String(parsed.asOf).slice(0, 10);
+    }) : [];
+    const changes = missing.length + labelFills.length + dateFixes.length;
+    window.bpCostPlan = { id, parsed, matched, missing, labelFills, dateFixes, fromImport };
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
       <div><b>${esc(file.name || "Portfolio Report")}</b>${parsed.asOf
         ? ` · as of ${dateLabel(parsed.asOf)}` : ""}${fromImport && me
@@ -7354,15 +7361,18 @@ window.bpCostFile = async (file, opts = {}) => {
       <div class="muted" style="font-size:12px;margin-top:4px">${parsed.rows.length} lots ·
         ${matched.length} match a bond here · ${missing.length} will take a price${
         labelFills.length ? ` · ${labelFills.length} label${labelFills.length === 1 ? "" : "s"}
-          will be filled` : ""}${still.length ? ` · ${still.length} still unpriced` : ""}.</div>
+          will be filled` : ""}${dateFixes.length ? ` · ${dateFixes.length} will take
+          ${dateLabel(parsed.asOf)} as the value date` : ""}${
+        still.length ? ` · ${still.length} still unpriced` : ""}.</div>
       ${changes
         ? `<button class="btn primary" style="margin-top:10px"
             onclick="bpCostApply()">${missing.length && labelFills.length
               ? `Import cost for ${missing.length} + ${labelFills.length} label${labelFills.length === 1 ? "" : "s"}`
               : missing.length ? `Import cost for ${missing.length} bond${missing.length === 1 ? "" : "s"}`
-                : `Fill ${labelFills.length} bond label${labelFills.length === 1 ? "" : "s"}`}</button>`
-        : `<div class="muted" style="margin-top:6px">Every matching bond already has a price
-            and a full label. Nothing will be overwritten.</div>`}
+                : labelFills.length ? `Fill ${labelFills.length} bond label${labelFills.length === 1 ? "" : "s"}`
+                  : `Set value date to ${dateLabel(parsed.asOf)}`}</button>`
+        : `<div class="muted" style="margin-top:6px">Every matching bond already has a price,
+            a full label and this value date. Nothing will be overwritten.</div>`}
       <button class="btn" style="margin-top:10px;margin-left:8px"
         onclick="bpCostCancel()">Cancel</button>
     </div>`;
@@ -7395,8 +7405,8 @@ window.bpCostApply = async () => {
       return label && !/\d+(?:\.\d+)?%/.test(p.label || "") ? { ...p, label } : p;
     });
     const changedLabels = merged.some((p, i) => p.label !== positions[i].label);
-    if (!pass.updates.length && !changedLabels) {
-      alert("Nothing to write: those bonds already have a price and a full label.");
+    if (!pass.updates.length && !changedLabels && !plan.dateFixes.length) {
+      alert("Nothing to write: those bonds already have a price, a full label and this value date.");
       return;
     }
     await store.replaceHoldings(plan.id, merged,
@@ -10367,7 +10377,9 @@ function renderHoldingEdit() {
       <div class="muted" style="font-size:12.5px;margin-top:4px">${bondTable
         ? "BankPipe computes the market value from the face value and price, then shows the current yield and gain. Leave a field blank to keep it unknown."
         : "Use your broker or the exchange valuation. Leave a field blank to keep it unknown."}
-      This does not fetch prices online.</div></div>
+      ${LOCAL_SERVER
+        ? "To ask BSE for the last traded price instead, close this and use Fetch details for all."
+        : "This hosted copy cannot reach the exchange. Enter the last traded price from your broker; the app records today as the value date."}</div></div>
       <div class="card"><table data-table="holding-edit"><tr><th>Security</th><th class="n">Qty</th>
         <th class="n">Cost</th><th class="n">${bondTable ? "Price / ₹100" : "Current value (₹)"}</th></tr>${body}</table></div>
       <div id="hverr" style="color:var(--red);font-size:12.5px;margin-top:10px"></div>
