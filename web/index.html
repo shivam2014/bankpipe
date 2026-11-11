@@ -8832,8 +8832,8 @@ function bondRowView(h) {
     h, ba,
     rating: bondRatingOf(h),
     change: bondRatingChange(h.rating_at_purchase, h.rating),
-    coupon: ba ? ba.couponPct : (parsed ? parsed.couponPct : null),
-    maturity: ba ? ba.maturity : (parsed ? parsed.maturity : ""),
+    coupon: ba ? ba.couponPct : (parsed ? parsed.couponPct : (h.couponPct ?? null)),
+    maturity: ba ? ba.maturity : (parsed ? parsed.maturity : (h.maturity || "")),
     yieldPct: h.yield_bps !== null && h.yield_bps !== undefined
       ? h.yield_bps / 100 : (ba ? ba.ytm : null),
     frequency: bondFrequency(h.frequency),
