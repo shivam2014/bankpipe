@@ -3001,13 +3001,14 @@ function renderImport() {
     <div id="bond-cas-host" style="margin-top:10px"></div>
     <div class="muted" style="font-size:12.5px;margin-top:8px"><b>2. Broker reports
     (optional).</b> On the demat account:
-    <code>holdings-report-YYYY-MM-DD.csv</code> (Holdings Report) for what you paid and
-    when; <code>portfolio-cashflow-future.csv</code> (Cashflow Future) for payment
-    frequency, next interest and the full schedule. Equities and funds carry their value in
-    the CAS; funds also carry their cost.</div>
+    <b>Portfolio Report</b> — <code>holdings-report-YYYY-MM-DD.csv</code> — for what you paid
+    and when; <b>Upcoming Payouts</b> — <code>upcoming-payouts.csv</code> — for payment
+    frequency and next interest. A Cashflow Future file, if your broker offers one, also adds
+    the full schedule. Transaction, Investment, KYC and MITC reports are not used. Equities
+    and funds carry their value in the CAS; funds also carry their cost.</div>
     <div class="muted" style="font-size:11.5px;margin-top:4px">e.g.
     <code>holdings-report-2026-10-26.csv</code> ·
-    <code>portfolio-cashflow-future.csv</code>. A second demat's download may get a
+    <code>upcoming-payouts.csv</code>. A second demat's download may get a
     <code>(1)</code> suffix.</div>
     <div class="muted" style="font-size:11.5px;margin-top:6px">Updating? Re-import the CAS;
     cost already on matching bonds is kept.</div>
@@ -7210,36 +7211,38 @@ window.bpCostFill = async () => {
       || Number(h.quantity) > 0);
     if (!live.length) { host.innerHTML = ""; return; }
     const missing = live.filter((h) => h.cost_paise === null || h.cost_paise === undefined);
-    const hasCashflow = !!meta.cashflow_file;
+    const payoutsFile = meta.payout_file || meta.cashflow_file || "";
+    const hasPayouts = !!payoutsFile;
     const body = `<div class="muted" style="font-size:12.5px;margin-top:5px">The CAS gives
-      units, face value and market value. The <b>Holdings Report</b> adds what you paid and
-      when; the <b>Cashflow Future</b> adds payment frequency, next interest and the full
-      schedule. Both are optional after the CAS.</div>
+      units, face value and market value. The <b>Portfolio Report</b> adds what you paid and
+      when; <b>Upcoming Payouts</b> adds payment frequency and the next interest. Both are
+      optional after the CAS.</div>
       <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:10px">
-        Choose DigiFInn Holdings Report
+        Choose DigiFInn Portfolio Report
         <input type="file" accept=".csv" style="display:none"
           onchange="bpCostFile(this.files[0]);this.value=''"></label>
       <div class="muted" style="font-size:11px;margin-top:3px">File:
         <code>holdings-report-YYYY-MM-DD.csv</code>${
         meta.cost_file ? ` · last: <code>${esc(meta.cost_file)}</code>` : ""}</div>
       <div id="cost-preview" style="margin-top:10px"></div>
-      <div class="muted" style="font-size:12px;margin-top:12px"><b>Cashflow Future</b> —
-      payment frequency, next interest and the full schedule.</div>
+      <div class="muted" style="font-size:12px;margin-top:12px"><b>Upcoming Payouts</b> —
+      payment frequency and next interest. A Cashflow Future file, if your broker offers
+      one, also adds the full schedule.</div>
       <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:8px">
-        Choose Cashflow Future
+        Choose Upcoming Payouts
         <input type="file" accept=".csv" style="display:none"
           onchange="bpCashflowFile(this.files[0]);this.value=''"></label>
       <div class="muted" style="font-size:11px;margin-top:3px">File:
-        <code>portfolio-cashflow-future.csv</code>${
-        meta.cashflow_file ? ` · last: <code>${esc(meta.cashflow_file)}</code>` : ""}</div>
+        <code>upcoming-payouts.csv</code>${
+        payoutsFile ? ` · last: <code>${esc(payoutsFile)}</code>` : ""}</div>
       <div id="cashflow-preview" style="margin-top:10px"></div>`;
-    if (!missing.length && hasCashflow) {
+    if (!missing.length && hasPayouts) {
       // Both files are on file: keep the provenance and the replace actions
       // available, folded away so they do not compete with the holdings.
       host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
         <details>
           <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">
-            DigiFInn · cost and cashflow on file · all ${live.length}
+            DigiFInn · cost and payouts on file · all ${live.length}
             bond${live.length === 1 ? "" : "s"} priced${
             meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}
           </summary>
@@ -7249,7 +7252,7 @@ window.bpCostFill = async () => {
     } else {
       const status = missing.length
         ? `${missing.length} of ${live.length} bond${live.length === 1 ? "" : "s"} need a purchase price`
-        : "prices on file · cashflow not imported";
+        : "prices on file · payouts not imported";
       host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
           <h2 style="margin:0">DigiFInn reports <span class="pill"
@@ -7400,12 +7403,12 @@ window.bpCashflowFile = async (file) => {
   };
   try {
     const parsed = parseReportFile(await file.text(), file.name);
-    if (parsed.kind !== "payouts" || parsed.source !== "cashflow") {
-      fail("That is not the Cashflow Future report. In DigiFInn switch Reports &amp; Documents to Cashflow Future and download that.");
+    if (parsed.kind !== "payouts") {
+      fail("That is not the Upcoming Payouts report. In DigiFInn open Reports &amp; Documents → Upcoming Payouts and download the CSV. A Cashflow Future export is also accepted if your broker offers one.");
       return;
     }
     if (!parsed.groups?.length) {
-      fail("The Cashflow Future report has no rows. Download it again from DigiFInn.");
+      fail("The payout report has no rows. Download it again from DigiFInn.");
       return;
     }
     const store = await import("./db.js");
@@ -7417,7 +7420,7 @@ window.bpCashflowFile = async (file) => {
       .map((g) => [String(g.isin || "").toUpperCase(), g]));
     const matched = live.filter((p) => byIsin.has(String(p.security_id || "").toUpperCase()));
     if (!matched.length) {
-      fail("No ISIN in this cashflow matches a bond in this account.");
+      fail("No ISIN in this payout report matches a bond in this account.");
       return;
     }
     const groupOf = (p) => byIsin.get(String(p.security_id || "").toUpperCase());
@@ -7427,12 +7430,12 @@ window.bpCashflowFile = async (file) => {
       || groupOf(p)?.future_principal_paise != null).length;
     window.bpCashflowPlan = { id, parsed, matched };
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
-      <div><b>${esc(file.name || "Cashflow Future")}</b></div>
+      <div><b>${esc(file.name || "Payouts")}</b></div>
       <div class="muted" style="font-size:12px;margin-top:4px">${matched.length} bond${
         matched.length === 1 ? "" : "s"} match · ${withFreq} take a frequency ·
-        ${withNext} a next interest · ${withSchedule} a full schedule.</div>
+        ${withNext} a next interest${withSchedule ? ` · ${withSchedule} a full schedule` : ""}.</div>
       <button class="btn primary" style="margin-top:10px"
-        onclick="bpCashflowApply()">Apply cashflow to ${matched.length} bond${
+        onclick="bpCashflowApply()">Apply payouts to ${matched.length} bond${
         matched.length === 1 ? "" : "s"}</button>
       <button class="btn" style="margin-top:10px;margin-left:8px"
         onclick="bpCashflowCancel()">Cancel</button>
@@ -7453,6 +7456,10 @@ window.bpCashflowApply = async () => {
     const updated = positions.map((p) => {
       const g = byIsin.get(String(p.security_id || "").toUpperCase());
       if (!g) return p;
+      // Upcoming Payouts carries the schedule rows; the first row in the file can
+      // already be in the past. Use the first date on or after today.
+      const next = (g.rows || []).find((r) => String(r.date || "") >= today)
+        || (g.rows || [])[0] || g;
       const face = inferFace(p.cost_paise, p.quantity);
       const faceTotal = face && Number(p.quantity) > 0
         ? face * Number(p.quantity) * 100 : null;
@@ -7462,10 +7469,10 @@ window.bpCashflowApply = async () => {
         : p.returned_paise;
       return {
         ...p,
-        frequency: g.frequency || p.frequency,
-        payout_paise: g.amount_paise !== null && g.amount_paise !== undefined
-          ? g.amount_paise : p.payout_paise,
-        interest_date: g.interest_date || p.interest_date,
+        frequency: next.frequency || g.frequency || p.frequency,
+        payout_paise: next.amount_paise !== null && next.amount_paise !== undefined
+          ? next.amount_paise : (g.amount_paise ?? p.payout_paise),
+        interest_date: next.date || g.interest_date || p.interest_date,
         yield_bps: g.yield_pct !== null && g.yield_pct !== undefined
           ? Math.round(Number(g.yield_pct) * 100) : p.yield_bps,
         future_interest_paise: g.future_interest_paise ?? p.future_interest_paise,
@@ -7480,9 +7487,10 @@ window.bpCashflowApply = async () => {
     const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
     if (asset) {
       await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),
-        cashflow_source: "DigiFInn Cashflow Future",
-        cashflow_file: plan.parsed.fileName || "",
-        cashflow_at: today }) });
+        payout_source: plan.parsed.source === "cashflow"
+          ? "DigiFInn Cashflow Future" : "DigiFInn Upcoming Payouts",
+        payout_file: plan.parsed.fileName || "",
+        payout_at: today }) });
     }
     window.bpCashflowPlan = null;
     window.bpAsset(plan.id);
@@ -8993,6 +9001,7 @@ function bondRowView(h) {
     periods,
     payoutEstimated: !(h.payout_paise !== null && h.payout_paise !== undefined)
       && !!(ba && periods),
+    interestDate: h.interest_date || "",
     payout: h.payout_paise !== null && h.payout_paise !== undefined
       ? h.payout_paise : (ba && periods ? ba.annualCoupon / periods : null),
     totalCoupon: ba ? ba.couponIncome : null,
@@ -9064,7 +9073,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
       ${cell("Payment frequency", esc(v.frequency))}
       ${cell("Next interest", v.payout === null ? "—" : money(v.payout)
-        + (v.payoutEstimated ? `<div class="sub">estimated</div>` : ""))}
+        + (v.interestDate ? `<div class="sub">${dateLabel(v.interestDate)}</div>`
+          : v.payoutEstimated ? `<div class="sub">estimated</div>` : ""))}
       ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
       ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
       ${cell("Units", v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity)}
