@@ -9489,9 +9489,9 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         : `${signed(v.gain)}<div class="sub">on ${money(v.value + (v.returned || 0))} if sold
           now${v.returned ? ` · includes ${money(v.returned)} back` : ""}</div>`,
         v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "")}
-      ${cell("If held", heldTotal === null ? "—" : `${money(heldTotal)}${
+      ${cell("Total if held", heldTotal === null ? "—" : `${money(heldTotal)}${
         v.returned ? `<div class="sub">includes coupons received</div>` : ""}`)}
-      ${cell("Gain if held", heldGain === null || heldGain === undefined ? "—"
+      ${cell("Total gain", heldGain === null || heldGain === undefined ? "—"
         : `${signed(heldGain)}${v.returned
           ? `<div class="sub">coupons before today estimated</div>` : ""}`,
         heldGain === null || heldGain === undefined ? ""
