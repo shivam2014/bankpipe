@@ -288,6 +288,7 @@ export function bondFillPlan(row, fetched) {
       // The value is a quote, not today's guess: carry the trade date so the
       // card can say when the mark was taken.
       if (market?.date) patch.as_of = String(market.date).slice(0, 10);
+      patch.value_source = "BSE";
     }
   }
   return {

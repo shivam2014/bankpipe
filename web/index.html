@@ -8296,6 +8296,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
           // re-import is how an older, wrong cost gets corrected.
           cost_paise: h.costPaise ?? carried ?? null,
           value_paise: h.valuePaise,
+          value_source: "CAS",
           purchase_date: carried && old ? old.purchase_date || "" : "",
           // A statement does not repeat what a broker report taught the row:
           // payout schedule, rating, part redemptions. Re-importing the CAS used
@@ -9532,6 +9533,9 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       const paidOn = String(v.h.redemption_dates || "").split(",")
         .map((d) => d.trim()).filter((d) => d && d <= today).sort().pop() || "";
       const payoutFile = window.bpBondPayoutFile || "";
+      const valueSource = v.h.value_source === "BSE" ? "BSE"
+        : v.h.value_source === "CAS" ? "the CAS"
+          : v.h.value_source === "Manual" ? "you" : "";
       return `<details class="bond-breakdown"><summary>Breakdown</summary>
         <div class="bond-money">
           ${v.h.rating_at_purchase || v.rating ? `<div class="bm-row">
@@ -9560,6 +9564,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
             : `<div class="bm-row"><span class="k">Market value</span>
               <span class="v">${money(v.value)}</span>
               <span class="sub">${[v.valueAsOf ? `as of ${dateLabel(v.valueAsOf)}` : "",
+                valueSource ? `from ${valueSource}` : "",
                 v.returned && v.ba?.marketPrice != null
                   ? `${v.ba.marketPrice.toFixed(2)} per ₹100 of the
                     ${money(v.ba.faceTotal)} outstanding` : "",
@@ -10686,6 +10691,7 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
       redemption_dates: window.bpHoldingRedemptions || "",
       quantity: units, cost_paise: cost,
       value_paise: val("bh-value") ? parseMoney(val("bh-value")) : null,
+      value_source: val("bh-value") ? "Manual" : "",
       as_of: val("bh-value-date"),
       purchase_date: val("bh-bought"), rating: val("bh-rating"),
       frequency: val("bh-freq"), yield_bps: null,
@@ -10789,7 +10795,7 @@ window.bpHoldingsSave = async (id) => {
   }
   if (bad) { const el = document.getElementById("hverr"); if (el) el.textContent = bad; return; }
   const today = new Date().toISOString().slice(0, 10);
-  for (const [hid, paise] of values) await store.updateHoldingValue(hid, paise, today);
+  for (const [hid, paise] of values) await store.updateHoldingValue(hid, paise, today, "Manual");
   window.bpState = { ...(window.bpState || {}), asset: id };
   go("asset");
 };

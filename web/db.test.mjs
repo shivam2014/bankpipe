@@ -458,10 +458,12 @@ test("a holding keeps the issuer name from the lookup", async () => {
   store.createAccount({ id: "bonds-is", label: "Bonds", category: "bonds" });
   const issuer = "Akara Capital Advisors Private Limited";
   store.upsertHolding("bonds-is", { label: "11.9% ACAPL", security_id: "INE999900132",
-    issuer, redemption_dates: "2026-06-03,2026-12-03", quantity: 2, cost_paise: 19527582 });
+    issuer, redemption_dates: "2026-06-03,2026-12-03", value_source: "CAS",
+    quantity: 2, cost_paise: 19527582 });
   let row = store.listHoldings("bonds-is")[0];
   assert.equal(row.issuer, issuer);
   assert.equal(row.redemption_dates, "2026-06-03,2026-12-03");
+  assert.equal(row.value_source, "CAS");
   // A report replace carries it too.
   store.replaceHoldings("bonds-is", [{ label: "11.9% ACAPL 03 Dec 2026",
     security_id: "INE999900132", issuer, redemption_dates: "2026-06-03,2026-12-03",

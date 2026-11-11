@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS holding(
   rating TEXT, frequency TEXT, yield_bps INTEGER, payout_paise INTEGER,
   quantity REAL, cost_paise INTEGER, value_paise INTEGER,
   purchase_date TEXT, interest_date TEXT, source_row INTEGER,
-  as_of TEXT, redemption_dates TEXT, txn_key TEXT UNIQUE);
+  as_of TEXT, value_source TEXT, redemption_dates TEXT, txn_key TEXT UNIQUE);
 CREATE INDEX IF NOT EXISTS holding_asset ON holding(asset_id);
 CREATE TABLE IF NOT EXISTS import_run(
   id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT, file TEXT,
@@ -128,7 +128,8 @@ function migrate(conn) {
     ["issuer", "TEXT"],
     ["rating_at_purchase", "TEXT"], ["future_interest_paise", "INTEGER"],
     ["future_principal_paise", "INTEGER"], ["principal_dates", "TEXT"],
-    ["redemption_dates", "TEXT"], ["returned_paise", "INTEGER"]]) {
+    ["redemption_dates", "TEXT"], ["value_source", "TEXT"],
+    ["returned_paise", "INTEGER"]]) {
     if (!hhave.has(name)) conn.run(`ALTER TABLE holding ADD COLUMN ${name} ${type}`);
   }
   // The workbook put the credit rating in category. Move it to rating once;
@@ -519,8 +520,8 @@ export function makeStore(SQLlib, save) {
       conn.run("INSERT OR REPLACE INTO holding(asset_id,security_id,label,issuer,category,"
         + "rating,frequency,yield_bps,payout_paise,quantity,cost_paise,value_paise,purchase_date,"
         + "interest_date,rating_at_purchase,future_interest_paise,"
-        + "future_principal_paise,principal_dates,redemption_dates,returned_paise,source_row,as_of,txn_key,"
-        + "source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        + "future_principal_paise,principal_dates,redemption_dates,value_source,returned_paise,source_row,as_of,txn_key,"
+        + "source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [assetId, r.security_id || "", r.label || "", r.issuer || "", r.category || "",
          r.rating || "", r.frequency || "",
          r.yield_bps === undefined ? null : r.yield_bps,
@@ -532,7 +533,8 @@ export function makeStore(SQLlib, save) {
          r.rating_at_purchase
            || priorRating.get(String(r.security_id || "").toUpperCase()) || r.rating || "",
          r.future_interest_paise ?? null, r.future_principal_paise ?? null,
-         r.principal_dates || "", r.redemption_dates || "", r.returned_paise ?? null,
+         r.principal_dates || "", r.redemption_dates || "", r.value_source || "",
+         r.returned_paise ?? null,
          r.source_row || 0,
          r.as_of || asOf || "", key, "report"]);
       inserted++;
@@ -736,7 +738,7 @@ export function makeStore(SQLlib, save) {
     "SELECT id, security_id, label, issuer, category, rating, rating_at_purchase, frequency,"
     + " yield_bps, payout_paise, quantity, cost_paise, value_paise, purchase_date,"
     + " interest_date, future_interest_paise, future_principal_paise, principal_dates,"
-    + " returned_paise, as_of, redemption_dates,"
+    + " returned_paise, as_of, value_source, redemption_dates,"
     + " source_row, source FROM holding WHERE asset_id=? ORDER BY label", [assetId]);
   store.upsertHolding = (assetId, h) => {
     // The rating at purchase is what a later upgrade or downgrade is measured
@@ -752,7 +754,8 @@ export function makeStore(SQLlib, save) {
       h.quantity ?? null, h.cost_paise ?? null, h.value_paise ?? null,
       h.purchase_date || "", h.interest_date || "", baseline || "",
       h.future_interest_paise ?? null, h.future_principal_paise ?? null,
-      h.principal_dates || "", h.redemption_dates || "", h.returned_paise ?? null];
+      h.principal_dates || "", h.redemption_dates || "", h.value_source || "",
+      h.returned_paise ?? null];
     if (h.id) {
       // An edit that does not mention as_of keeps the stored value date; a date
       // field the user cleared is written as empty on purpose.
@@ -760,7 +763,7 @@ export function makeStore(SQLlib, save) {
       conn.run("UPDATE holding SET security_id=?,label=?,issuer=?,category=?,rating=?,frequency=?,"
         + "yield_bps=?,payout_paise=?,quantity=?,cost_paise=?,value_paise=?,purchase_date=?,"
         + "interest_date=?,rating_at_purchase=?,future_interest_paise=?,"
-        + "future_principal_paise=?,principal_dates=?,redemption_dates=?,returned_paise=?,"
+        + "future_principal_paise=?,principal_dates=?,redemption_dates=?,value_source=?,returned_paise=?,"
         + "as_of=CASE WHEN ? IS NULL THEN as_of ELSE ? END WHERE id=?",
         [...fields, asOf, asOf, h.id]);
       return h.id;
@@ -769,8 +772,8 @@ export function makeStore(SQLlib, save) {
     conn.run("INSERT INTO holding(asset_id,security_id,label,issuer,category,rating,frequency,"
       + "yield_bps,payout_paise,quantity,cost_paise,value_paise,purchase_date,interest_date,"
       + "rating_at_purchase,future_interest_paise,future_principal_paise,principal_dates,"
-      + "redemption_dates,returned_paise,source_row,as_of,txn_key,source)"
-      + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      + "redemption_dates,value_source,returned_paise,source_row,as_of,txn_key,source)"
+      + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [assetId, ...fields, 0, String(h.as_of || ""), key, "manual"]);
     return all("SELECT last_insert_rowid() AS id")[0].id;
   };
@@ -926,14 +929,14 @@ export function makeStore(SQLlib, save) {
     conn.run("DELETE FROM holding WHERE id=?", [id]);
     return true;
   };
-  store.updateHoldingValue = (id, valuePaise, asOf) => {
+  store.updateHoldingValue = (id, valuePaise, asOf, source) => {
     if (asOf === undefined) {
       conn.run("UPDATE holding SET value_paise=? WHERE id=?",
         [valuePaise === null || valuePaise === undefined ? null : valuePaise, id]);
     } else {
-      conn.run("UPDATE holding SET value_paise=?, as_of=? WHERE id=?",
+      conn.run("UPDATE holding SET value_paise=?, as_of=?, value_source=? WHERE id=?",
         [valuePaise === null || valuePaise === undefined ? null : valuePaise,
-          String(asOf || ""), id]);
+          String(asOf || ""), String(source || ""), id]);
     }
     return true;
   };
@@ -1571,9 +1574,9 @@ export async function deleteHolding(id) {
   return ok;
 }
 
-export async function updateHoldingValue(id, valuePaise, asOf) {
+export async function updateHoldingValue(id, valuePaise, asOf, source) {
   if (!browserStore) await openDb();
-  const ok = browserStore.updateHoldingValue(id, valuePaise, asOf);
+  const ok = browserStore.updateHoldingValue(id, valuePaise, asOf, source);
   await browserStore.save();
   return ok;
 }

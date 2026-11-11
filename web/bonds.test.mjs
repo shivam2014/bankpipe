@@ -79,6 +79,8 @@ test("a BSE quote uses the remaining face after a part redemption", () => {
     future_principal_paise: 10000000 },
   { details: null, market: { ltp: 60, date: "2026-11-09" } });
   assert.equal(plan.patch.value_paise, 6000000);
+  assert.equal(plan.patch.value_source, "BSE");
+  assert.equal(plan.patch.as_of, "2026-11-09");
 });
 
 test("selling one of two bonds halves the schedule and the repayment", () => {
