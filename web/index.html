@@ -9577,10 +9577,8 @@ const liveBondLots = (rows) => splitMatured(rows).current
 window.bpBondFetchAll = async (assetId, onlyId = "") => {
   const note = (t) => {
     window.bpBondMarketNote = { id: assetId, text: t };
-    for (const id of ["bond-fetch-note", "demat-fetch-note"]) {
-      const el = document.getElementById(id);
-      if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
-    }
+    const el = document.getElementById("bond-fetch-note");
+    if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
   };
   const store = await import("./db.js");
   // A matured lot has no price and no next interest; it is not worth a lookup.
@@ -9923,21 +9921,12 @@ function assetForm(a, factCount, defaultCat, holdings) {
   const show = (cats) => cats.split(" ").includes(cat) ? "" : 'style="display:none"';
   const moneyIn = (v) => (v === null || v === undefined || v === "") ? "" : inr(v);
   const id = a ? a.id : "";
-  const fetchNote = a && window.bpBondMarketNote?.id === a.id
-    ? window.bpBondMarketNote.text : "";
   window.bpDigiFinnPinned = "";
   const heading = a ? (a.label || a.bank || a.id) : "Add an asset";
   return `<h1>${esc(heading)}</h1>
   ${a ? `<div class="muted" style="margin:-10px 0 14px;font-size:12px">Editing
     ${esc(/mutual\s*fund|^mf$/i.test(String(a?.subtype || "")) ? "mutual fund"
       : cat === "bonds" ? "bond portfolio" : categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
-  ${a && (cat === "demat" || cat === "bonds") && (holdings || []).some((h) =>
-    String(h.category || "") === "bond" && !(Number(h.quantity) === 0))
-    ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:-2px 0 14px">
-        <button class="btn" onclick="bpBondFetchAll(${jsArg(a.id)})"
-          title="Ask SMEST for each bond's latest credit rating and BSE for its last traded price. Nothing you typed is replaced.">Fetch latest</button>
-        <span id="demat-fetch-note" class="muted" style="font-size:12px;${fetchNote ? "" : "display:none"}">${esc(fetchNote)}</span>
-      </div>` : ""}
   ${!a ? `<div id="s-bond-hint" class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px;display:${cat === "bonds" ? "" : "none"}">
     <b>A demat bond portfolio is part of a demat account.</b> Import the CDSL/NSDL CAS
     to create the account with its bonds, equities and mutual funds; use this form only for
