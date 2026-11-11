@@ -8233,6 +8233,22 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
           cost_paise: h.costPaise ?? carried ?? null,
           value_paise: h.valuePaise,
           purchase_date: carried && old ? old.purchase_date || "" : "",
+          // A statement does not repeat what a broker report taught the row:
+          // payout schedule, rating, part redemptions. Re-importing the CAS used
+          // to wipe them, so a bond that had already returned half its principal
+          // started showing the full amount as still to come.
+          rating: oldRow?.rating || "",
+          rating_at_purchase: oldRow?.rating_at_purchase || oldRow?.rating || "",
+          yield_bps: oldRow?.yield_bps ?? null,
+          payout_paise: oldRow?.payout_paise ?? null,
+          interest_date: oldRow?.interest_date || "",
+          future_interest_paise: oldRow?.future_interest_paise ?? null,
+          future_principal_paise: oldRow?.future_principal_paise ?? null,
+          principal_dates: oldRow?.principal_dates || "",
+          returned_paise: oldRow?.returned_paise ?? null,
+          // The value is the statement's own mark, so it carries the statement's
+          // date, not the day the file happened to be imported.
+          as_of: asOf,
         };
       });
       // A statement is a snapshot of one day. A unit bought after that day is
@@ -8254,7 +8270,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
         ? [...new Map([...await store.listHoldings(assetId), ...rows]
           .map((r) => [String(r.security_id || "").toUpperCase(), r])).values()]
         : rows;
-      await store.replaceHoldings(assetId, finalRows, today);
+      await store.replaceHoldings(assetId, finalRows, asOf);
       written += rows.length;
       if (asset) {
         const meta = metaOf(asset);
