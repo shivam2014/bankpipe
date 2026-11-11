@@ -9575,6 +9575,7 @@ function marketSummary(c) {
   return bits.join(" · ") || "Nothing to do";
 }
 const liveBondLots = (rows) => splitMatured(rows).current
+  .filter((h) => String(h.category || "") === "bond")
   .filter((h) => !(Number(h.quantity) === 0))
   .filter((h) => /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase()));
 
