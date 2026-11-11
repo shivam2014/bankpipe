@@ -9423,7 +9423,9 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Invested", moneyOrDash(v.h.cost_paise))}
       ${v.returned ? `<div><span class="k">Already back</span>
         <span class="v pos">${money(v.returned)}</span>
-        <div class="sub">principal returned early</div></div>` : ""}
+        <div class="sub">principal returned early${v.ba?.marketPrice != null && v.ba?.faceTotal
+          ? ` · ${v.ba.marketPrice.toFixed(2)} per ₹100 of the ${money(v.ba.faceTotal)}
+            still outstanding` : ""}</div></div>` : ""}
       ${cell(matured ? "Paid at maturity" : "Expected at maturity", moneyOrDash(v.expectedMaturity)
         + (v.parts > 1 ? `<div class="sub">principal in ${v.parts} parts</div>` : ""))}
       ${v.shortSchedule ? `<div class="muted" style="font-size:11.5px;grid-column:1/-1">

@@ -43,21 +43,29 @@ export function bondAnalytics(h) {
   if (!parsed || parsed.couponPct === null || parsed.couponPct === undefined) return null;
   const qty = Number(h.quantity) || 0;
   const cost = Number(h.cost_paise);
-  const face = inferFace(cost, qty);
-  if (!qty || !face || !Number.isFinite(cost) || cost <= 0) return null;
-  const faceTotal = face * qty * 100; // paise
-  const price = (cost / faceTotal) * 100;
+  const purchasedFace = inferFace(cost, qty);
+  if (!qty || !purchasedFace || !Number.isFinite(cost) || cost <= 0) return null;
+  // The face bought and the face still outstanding are not the same after a
+  // part redemption. The purchase price is per ₹100 of what was bought; the
+  // market price and the coupon are per ₹100 of what is still to come.
+  const purchaseFaceTotal = purchasedFace * qty * 100; // paise
+  const futurePrin = Number(h.future_principal_paise);
+  const faceTotal = Number.isFinite(futurePrin) && futurePrin > 0
+    ? futurePrin : purchaseFaceTotal;
+  const face = faceTotal / qty / 100;
+  const returnedPaise = Number(h.returned_paise) || 0;
+  const price = (cost / purchaseFaceTotal) * 100;
   const buy = h.purchase_date || "";
   const years = buy ? yearsBetween(buy, parsed.maturity) : null;
   const annualCoupon = (faceTotal * parsed.couponPct) / 100; // paise
   let ytm = null, couponIncome = null, capitalGain = null, totalGain = null;
   if (years !== null && years > 0) {
     couponIncome = annualCoupon * years;
-    capitalGain = faceTotal - cost;
+    capitalGain = faceTotal + returnedPaise - cost;
     totalGain = couponIncome + capitalGain;
     // Standard approximate YTM. Coupon frequency is not in the export, so this
     // is labelled approximate rather than pretending to be exact.
-    ytm = ((annualCoupon + capitalGain / years) / ((faceTotal + cost) / 2)) * 100;
+    ytm = ((annualCoupon + capitalGain / years) / ((purchaseFaceTotal + cost) / 2)) * 100;
   }
   // A cashflow export states the whole remaining schedule, gross of tax. When it
   // is there it beats face + coupon: it already knows about part redemptions.
@@ -80,7 +88,7 @@ export function bondAnalytics(h) {
   const marketPrice = hasMarket ? (value / faceTotal) * 100 : null;
   const currentYield = hasMarket ? (annualCoupon / value) * 100 : (annualCoupon / cost) * 100;
   return {
-    ...parsed, qty, face, faceTotal, cost, price, years,
+    ...parsed, qty, face, faceTotal, purchaseFaceTotal, cost, price, years,
     purchase_date: buy,
     annualCoupon, couponIncome, capitalGain, totalGain, ytm,
     value: hasMarket ? value : null,
@@ -96,6 +104,7 @@ export function bondSummary(rows) {
   const sum = (key) => items.reduce((t, x) => t + (Number(x[key]) || 0), 0);
   const cost = sum("cost");
   const faceTotal = sum("faceTotal");
+  const purchaseFaceTotal = items.reduce((t, x) => t + (x.purchaseFaceTotal || 0), 0);
   const withYtm = items.filter((x) => x.ytm !== null);
   const ytmCost = withYtm.reduce((t, x) => t + x.cost, 0);
   const ytm = ytmCost
@@ -116,8 +125,8 @@ export function bondSummary(rows) {
   const returned = items.reduce((t, x) => t + (x.schedule ? x.schedule.returned : 0), 0);
   return {
     count: items.length,
-    cost, faceTotal,
-    price: faceTotal ? (cost / faceTotal) * 100 : null,
+    cost, faceTotal, purchaseFaceTotal,
+    price: purchaseFaceTotal ? (cost / purchaseFaceTotal) * 100 : null,
     ytm,
     couponIncome, capitalGain, totalGain,
     expected, gainToMaturity, inParts, shortSchedule, returned,
@@ -181,7 +190,12 @@ export function bondFillPlan(row, fetched) {
   const ltp = Number(market?.ltp ?? details?.ltp) || 0;
   const units = Number(row.quantity) || 0;
   if (ltp > 0 && units > 0) {
-    const face = Number(details?.face) > 0 ? Number(details.face) : inferFace(row.cost_paise, units);
+    // The face still outstanding beats the cost-inferred face: a part-redeemed
+    // bond trades on what is left, not on what was bought.
+    const scheduled = Number(row.future_principal_paise) > 0
+      ? Number(row.future_principal_paise) / units / 100 : 0;
+    const face = Number(details?.face) > 0 ? Number(details.face)
+      : (scheduled || inferFace(row.cost_paise, units));
     if (face) {
       patch.value_paise = Math.round(face * units * ltp);
       // The value is a quote, not today's guess: carry the trade date so the

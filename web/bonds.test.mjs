@@ -56,6 +56,30 @@ test("a market value gives the current price and gain", () => {
   assert.ok(a.currentGain > 0);
 });
 
+test("a part-redeemed bond is priced on the principal still outstanding", () => {
+  const a = bondAnalytics({
+    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    value_paise: 6000000, purchase_date: "2024-06-06",
+    future_interest_paise: 97808, future_principal_paise: 10000000,
+    returned_paise: 10000000, principal_dates: "2026-12-03",
+  });
+  assert.equal(a.purchaseFaceTotal, 20000000);
+  assert.equal(a.faceTotal, 10000000);
+  assert.equal(a.face, 50000);
+  assert.ok(Math.abs(a.price - 97.63791) < 0.001);
+  // 60,000 value on 1,00,000 still outstanding, not on the 2,00,000 bought.
+  assert.ok(Math.abs(a.marketPrice - 60) < 0.01);
+  // 1,00,000 still to come + 1,00,000 already back - 1,95,275.82 paid.
+  assert.ok(Math.abs(a.capitalGain - 472418) < 2);
+});
+
+test("a BSE quote uses the remaining face after a part redemption", () => {
+  const plan = bondFillPlan({ quantity: 2, cost_paise: 19527582,
+    future_principal_paise: 10000000 },
+  { details: null, market: { ltp: 60, date: "2026-11-09" } });
+  assert.equal(plan.patch.value_paise, 6000000);
+});
+
 test("summarizes a portfolio of bond lots", () => {
   const s = bondSummary([
     { label: "10.25% NAVI FINSERV PRIVATE LIMITED 31 DEC 2026",
