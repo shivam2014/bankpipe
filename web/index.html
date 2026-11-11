@@ -411,7 +411,7 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .matured-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .holding-cards{display:flex;flex-direction:column;gap:8px;margin-top:10px}
 .bond-card{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card)}
-.bond-card-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.bond-card-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
 .bond-card .bond-name{font-size:13px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
 .bond-card .sub{font-size:10.5px;color:var(--muted);margin-top:2px}
 .bond-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin-top:10px}
@@ -9479,7 +9479,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     <div class="bond-card-head"><div><div class="bond-name">${esc(v.h.label || "—")}</div>
       <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
         ? " · added by hand" : ""}</div></div>
-      <div style="display:flex;gap:6px;align-items:center">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${matured ? `<span class="bond-rating">Matured</span>` : ""}
         ${v.rating ? `<span class="bond-rating">${esc(v.rating)}</span>` : ""}
         ${v.change ? `<span class="bond-rating ${v.change.down ? "down" : "up"}"
