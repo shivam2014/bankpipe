@@ -8174,12 +8174,11 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
         host.insertAdjacentElement("afterend", ask);
       }
       ask.innerHTML = `<div class="card pad" style="border-color:var(--amber);margin-top:10px">
-        <b>Replace ${replacing} existing holding${replacing === 1 ? "" : "s"}?</b>
+        <b>Replace ${replacing} existing holding${replacing === 1 ? "" : "s"} with ${incoming}
+          from the ${esc(cas.depository || "demat")} statement?</b>
         <div class="muted" style="font-size:12.5px;margin-top:4px">
-          The ${esc(cas.depository || "demat")} statement writes ${incoming}
-          holding${incoming === 1 ? "" : "s"} into ${places}
-          account${places === 1 ? "" : "s"}. A backup is saved first, and nothing is written
-          until you confirm.</div>
+          It writes into ${places} account${places === 1 ? "" : "s"}. A backup is saved first,
+          and nothing is written until you confirm.</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
           <button class="btn primary" onclick="bpCasImportConfirm('${key}')">
             Replace and import</button>
