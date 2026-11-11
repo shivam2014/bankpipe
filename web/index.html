@@ -2989,32 +2989,33 @@ function renderImport() {
 
   <div class="card pad" style="margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
-      <h2 style="margin:0">Bond portfolio</h2>
-      <span class="muted" style="font-size:11.5px">CAS + optional Holdings Report</span></div>
+      <h2 style="margin:0">Demat accounts</h2>
+      <span class="muted" style="font-size:11.5px">CAS + optional bond cost</span></div>
     <div class="muted" style="font-size:12.5px;margin-top:6px"><b>1. CAS statement
-    (required).</b> CDSL or NSDL. Creates the demat account with units, face value and
-    market value.</div>
+    (required).</b> CDSL or NSDL. Creates or updates the demat accounts with bonds,
+    equities and mutual funds.</div>
     <label class="btn primary" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:8px">
       Choose CAS statement
-      <input type="file" accept=".pdf" style="display:none"
-        onchange="bpCasFile(this.files[0],'bond-cas-host');this.value=''"></label>
+      <input type="file" accept=".pdf" multiple style="display:none"
+        onchange="bpCasFiles(this.files);this.value=''"></label>
     <div id="bond-cas-host" style="margin-top:10px"></div>
-    <div class="muted" style="font-size:12.5px;margin-top:8px"><b>2. Broker holdings
-    (optional).</b> Open the demat account → <b>Broker holdings</b> → choose the DigiFInn
-    Holdings Report. It adds the purchase price and date; only that report is used.</div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px"><b>2. Bond purchase price
+    (optional).</b> Bonds are the one class the CAS does not price. After the CAS, open the
+    demat account → <b>Broker holdings</b> → choose the DigiFInn Holdings Report. Equities
+    and mutual funds already carry their value; funds also carry their cost in the CAS.</div>
     <div class="muted" style="font-size:11.5px;margin-top:6px">Updating? Re-import the CAS;
     cost already on matching bonds is kept.</div>
   </div>
 
   <div class="card pad">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0">Other statements</h2>
+      <h2 style="margin:0">Bank accounts</h2>
       <span class="muted" style="font-size:11.5px">Last import ${lastImportShort()}</span></div>
-    <p class="muted" style="margin:6px 0 10px;font-size:13px">Bank statements and other
-    files. A demat CAS goes through the <b>Bond portfolio</b> card above. Nothing is written
+    <p class="muted" style="margin:6px 0 10px;font-size:13px">PDF, CSV or Excel bank
+    statements. Creates or updates the bank account and its transactions. Nothing is written
     until you confirm.</p>
     <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer">
-      Choose files
+      Choose bank statement
       <input type="file" id="import-files" multiple
         accept=".csv,.xlsx,.xlsm,.xls,.pdf" style="display:none">
     </label>
@@ -6801,7 +6802,9 @@ window.bpImportRender = () => {
         ${r.kind === "cas" || r.kind === "broker"
           ? `<span class="muted" style="font-size:11px;max-width:150px;text-align:right">${
               r.kind === "cas" ? "CAS — use the card above" : "Broker holdings — use the demat"}</span>`
-          : `<select onchange="bpImportKindSet(${i}, this.value)"
+          : r.kind === "bank"
+            ? `<span class="muted" style="font-size:11.5px">Bank statement</span>`
+            : `<select onchange="bpImportKindSet(${i}, this.value)"
           style="font:inherit;font-size:12px;padding:4px 6px;border-radius:7px;
           border:1px solid var(--line);background:var(--card)">${options(r.kind)}</select>`}</div>
       <button class="icon-btn" title="Remove this file"
@@ -6898,6 +6901,19 @@ function shortDp(name) {
   return picked.map((w) => w[0] + w.slice(1).toLowerCase()).join(" ");
 }
 
+// A consolidated statement is often two files (CDSL and NSDL). Each gets its own
+// review card, so both can be checked before either is written.
+window.bpCasFiles = async (files) => {
+  const host = document.getElementById("bond-cas-host");
+  const list = [...(files || [])];
+  if (!host || !list.length) return;
+  host.innerHTML = "";
+  for (let i = 0; i < list.length; i += 1) {
+    const id = `bond-cas-host-${i}`;
+    host.insertAdjacentHTML("beforeend", `<div id="${id}" style="margin-bottom:12px"></div>`);
+    await window.bpCasFile(list[i], id);
+  }
+};
 window.bpCasFile = async (file, hostId = "cas-host") => {
   const host = document.getElementById(hostId);
   if (!host || !file) return;
@@ -9495,8 +9511,9 @@ function assetForm(a, factCount, defaultCat, holdings) {
     ${esc(/mutual\s*fund|^mf$/i.test(String(a?.subtype || "")) ? "mutual fund"
       : cat === "bonds" ? "bond portfolio" : categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
   ${!a ? `<div id="s-bond-hint" class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px;display:${cat === "bonds" ? "" : "none"}">
-    <b>A demat bond portfolio comes from a CAS.</b> Import the CDSL/NSDL statement and the app
-    creates the account with its bonds; use this form only for bonds held outside a demat.
+    <b>A demat bond portfolio is part of a demat account.</b> Import the CDSL/NSDL CAS
+    to create the account with its bonds, equities and mutual funds; use this form only for
+    bonds held outside a demat.
     <div style="margin-top:8px"><button class="btn" onclick="go('import')">Import a CAS</button></div></div>` : ""}
   ${a && (() => { try { return JSON.parse(a.meta || "{}").cost_only; } catch (e) { return false; } })()
     ? `<div class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px">
