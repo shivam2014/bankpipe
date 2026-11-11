@@ -388,6 +388,12 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .df-pick{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .df-ok{color:var(--green);font-weight:600}
 .bond-market{font-size:11.5px;color:var(--muted);border-top:1px solid var(--hair);margin-top:8px;padding-top:7px}
+.bond-money{border-top:1px solid var(--hair);margin-top:8px;padding-top:7px;display:flex;flex-direction:column;gap:5px}
+.bm-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font-size:12px}
+.bm-row .k{flex:0 0 128px;color:var(--muted)}
+.bm-row .v{font-weight:600;color:var(--ink)}
+.bm-row .sub{flex:1 1 100%;margin-left:128px;font-size:11px;color:var(--muted)}
+.bm-row .sub.pos{color:var(--green)}.bm-row .sub.neg{color:var(--red)}
 .bond-market b{color:var(--ink);font-weight:600}
 .bond-market .sep{margin:0 6px;color:var(--line)}
 .bond-market .muted{margin-left:8px}
@@ -9426,41 +9432,45 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
       ${cell("Units", v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity)}
       ${cell("Invested", moneyOrDash(v.h.cost_paise))}
-      ${v.returned ? `<div><span class="k">Already back</span>
-        <span class="v pos" title="Principal repaid early, not a sale. The payout schedule
-          shows ${money(v.ba?.faceTotal)} still to come out of
-          ${money(v.ba?.purchaseFaceTotal)} bought.">${money(v.returned)}</span>
-        <div class="sub">principal returned early${v.ba?.purchaseFaceTotal
-          ? ` · ${money(v.returned)} of ${money(v.ba.purchaseFaceTotal)} face repaid` : ""}${
-          v.ba?.marketPrice != null && v.ba?.faceTotal
-          ? ` · ${v.ba.marketPrice.toFixed(2)} per ₹100 of the ${money(v.ba.faceTotal)}
-            still outstanding` : ""}</div></div>` : ""}
-      ${cell(matured ? "Paid at maturity" : "Expected at maturity", moneyOrDash(v.expectedMaturity)
-        + (v.parts > 1 ? `<div class="sub">principal in ${v.parts} parts</div>` : "")
-        + (v.ba?.schedule ? `<div class="sub">${money(v.ba.schedule.principal)} principal
-          + ${money(v.ba.schedule.interest)} interest</div>` : ""))}
-      ${v.shortSchedule ? `<div class="muted" style="font-size:11.5px;grid-column:1/-1">
-        The imported schedule is less than you paid, so the gain is left blank — part of this
-        lot may already have been returned.</div>` : ""}
-      ${cell(matured ? "Gain at maturity" : "Expected gain", v.expectedGain === null ? "—"
-        : `${v.expectedGain < 0 ? "−" : "+"}${money(Math.abs(v.expectedGain))}${
-          v.returned ? `<div class="sub">includes ${money(v.returned)} already back</div>` : ""}`,
-        v.expectedGain < 0 ? "neg" : v.expectedGain > 0 ? "pos" : "")}
     </div>
+    ${matured ? "" : (() => {
+      const still = v.expectedMaturity;
+      const total = still === null || still === undefined ? null : still + (v.returned || 0);
+      const split = v.ba?.schedule
+        ? `${money(v.ba.schedule.principal)} principal + ${money(v.ba.schedule.interest)} interest`
+        : "";
+      const when = v.parts > 1 ? `principal in ${v.parts} parts`
+        : v.maturity ? `on ${dateLabel(v.maturity)}` : "";
+      const gainLabel = v.expectedGain === null || v.expectedGain === undefined ? ""
+        : `${v.expectedGain < 0 ? "loss" : "gain"} ${v.expectedGain < 0 ? "−" : "+"}${money(Math.abs(v.expectedGain))}`;
+      return `<div class="bond-money">
+        ${v.returned ? `<div class="bm-row"><span class="k">Principal returned</span>
+          <span class="v pos">${money(v.returned)}</span>
+          <span class="sub">an early repayment, not a sale</span></div>` : ""}
+        ${still === null || still === undefined ? "" : `<div class="bm-row">
+          <span class="k">Still to come</span><span class="v">${money(still)}</span>
+          <span class="sub">${[when, split].filter(Boolean).join(" · ")}</span></div>`}
+        ${total === null ? "" : `<div class="bm-row"><span class="k">If held to maturity</span>
+          <span class="v">${money(total)}</span>
+          <span class="sub ${v.expectedGain < 0 ? "neg" : "pos"}">${gainLabel}</span></div>`}
+      </div>`;
+    })()}
     <div class="bond-market">${matured
       ? `Matured ${dateLabel(v.maturity)}<span class="sep">·</span>kept as history, not counted in the totals`
       : v.value === null
         ? `Market value not recorded.${assetId && v.h.id ? ` <button class="vupdate"
           onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>` : ""}
           <span class="muted">Hold-to-maturity numbers above do not depend on it.</span>`
-        : `Market value <b>${money(v.value)}</b>${v.valueAsOf
+        : `Market value <b>${money(v.value)}</b>${v.returned && v.ba?.marketPrice != null
+          ? `<span class="muted">${v.ba.marketPrice.toFixed(2)} per ₹100 of the
+            ${money(v.ba.faceTotal)} still outstanding</span>` : ""}${v.valueAsOf
           ? `<span class="muted"> as of ${dateLabel(v.valueAsOf)}</span>` : ""}
           ${assetId && v.h.id ? `<button class="vupdate"
           onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}
-          <span class="sep">·</span>gain if sold${v.returned
-            ? `<span class="muted">including ${money(v.returned)} already back</span>` : ""}
+          <span class="sep">·</span>if sold now <b>${money(v.value + (v.returned || 0))}</b>
           <b class="${v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : ""}">${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain || 0))}</b>
-          <span class="muted">only matters if you sell early</span>`}</div>
+          <span class="muted">${v.returned
+            ? "includes the principal already back" : "only matters if you sell early"}</span>`}</div>
   </div>`;
 }
 function holdingsCard(allRows, assetId) {
