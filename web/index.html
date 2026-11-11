@@ -9555,7 +9555,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
                   ? `${v.ba.marketPrice.toFixed(2)} per ₹100 of the
                     ${money(v.ba.faceTotal)} outstanding` : "",
               ].filter(Boolean).join(" · ")}${assetId && v.h.id ? ` · <button class="vupdate"
-                onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}</span></div>`}
+                title="Fetch the latest price and terms for this bond"
+                onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Refresh</button>` : ""}</span></div>`}
           ${v.returned && v.ba?.purchaseFaceTotal && v.ba?.faceTotal
             ? `<div class="bm-note">Derived${payoutFile ? ` from ${esc(payoutFile)}` : ""}:
               ${money(v.ba.purchaseFaceTotal)} face bought − ${money(v.ba.faceTotal)} principal
