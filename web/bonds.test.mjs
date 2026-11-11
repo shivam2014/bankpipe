@@ -106,6 +106,21 @@ test("buying one more keeps the repayment already received", () => {
   assert.equal(c.future_principal_paise, 15000000);
 });
 
+test("lifetime gain includes the coupons already received", () => {
+  const a = bondAnalytics({
+    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    value_paise: 6000000, purchase_date: "2024-06-06",
+    future_interest_paise: 97808, future_principal_paise: 10000000,
+    returned_paise: 10000000, principal_dates: "2026-12-03",
+    redemption_dates: "2026-06-03,2026-12-03",
+  });
+  // Coupons before June 2026 on 2L, after on 1L, plus the 2L principal.
+  assert.ok(a.lifetimeTotal > 25000000 && a.lifetimeTotal < 26000000,
+    `total ${a.lifetimeTotal}`);
+  assert.ok(a.lifetimeGain > 5500000 && a.lifetimeGain < 6500000,
+    `gain ${a.lifetimeGain}`);
+});
+
 test("summarizes a portfolio of bond lots", () => {
   const s = bondSummary([
     { label: "10.25% NAVI FINSERV PRIVATE LIMITED 31 DEC 2026",

@@ -73,6 +73,30 @@ export function bondAnalytics(h) {
     ? null : Number(h.future_interest_paise);
   const schedPrin = h.future_principal_paise === null || h.future_principal_paise === undefined
     ? null : Number(h.future_principal_paise);
+  // Coupons already received are not in the "future" export. Estimate them from
+  // the rate and the redemption dates: original face before the first repayment,
+  // what is left after it. The lifetime figures are what the person actually
+  // gets back for the money invested.
+  const today = new Date().toISOString().slice(0, 10);
+  const redemptions = String(h.redemption_dates || "").split(",")
+    .map((d) => d.trim()).filter(Boolean).sort();
+  const firstPast = redemptions.filter((d) => d <= today).pop() || "";
+  let couponEstimate = couponIncome;
+  if (returnedPaise > 0 && years !== null && parsed.maturity) {
+    if (firstPast) {
+      const y1 = yearsBetween(buy, firstPast);
+      const y2 = yearsBetween(firstPast, parsed.maturity);
+      const c1 = y1 !== null ? (purchaseFaceTotal * parsed.couponPct / 100) * y1 : 0;
+      const c2 = y2 !== null && y2 > 0 ? (faceTotal * parsed.couponPct / 100) * y2 : 0;
+      couponEstimate = c1 + c2;
+    } else {
+      // Without a recorded redemption date, use the face originally bought for
+      // the whole term. Better to overstate a little than to hide the coupons.
+      couponEstimate = (purchaseFaceTotal * parsed.couponPct / 100) * years;
+    }
+  }
+  const lifetimeTotal = couponEstimate === null ? null : purchaseFaceTotal + couponEstimate;
+  const lifetimeGain = lifetimeTotal === null ? null : lifetimeTotal - cost;
   const schedule = schedIn !== null && schedPrin !== null
     && Number.isFinite(schedIn) && Number.isFinite(schedPrin)
     ? { interest: schedIn, principal: schedPrin, total: schedIn + schedPrin,
@@ -91,6 +115,7 @@ export function bondAnalytics(h) {
     ...parsed, qty, face, faceTotal, purchaseFaceTotal, cost, price, years,
     purchase_date: buy,
     annualCoupon, couponIncome, capitalGain, totalGain, ytm,
+    couponEstimate, lifetimeTotal, lifetimeGain,
     value: hasMarket ? value : null,
     hasMarket, marketPrice, currentYield,
     currentGain: hasMarket ? value - cost : null,

@@ -9450,9 +9450,10 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     <span class="v ${cls}">${val}</span></div>`;
   const signed = (n) => `${n < 0 ? "−" : n > 0 ? "+" : ""}${money(Math.abs(n))}`;
   const still = v.expectedMaturity;
-  const heldTotal = matured || still === null || still === undefined
-    ? null : still + (v.returned || 0);
-  const heldGain = matured ? null : v.expectedGain;
+  const heldTotal = matured ? null
+    : (v.ba?.lifetimeTotal ?? (still === null || still === undefined
+      ? null : still + (v.returned || 0)));
+  const heldGain = matured ? null : (v.ba?.lifetimeGain ?? v.expectedGain);
   return `<div class="bond-card">
     <div class="bond-card-head"><div><div class="bond-name">${esc(v.h.label || "—")}</div>
       <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
@@ -9488,8 +9489,11 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         : `${signed(v.gain)}<div class="sub">on ${money(v.value + (v.returned || 0))} if sold
           now${v.returned ? ` · includes ${money(v.returned)} back` : ""}</div>`,
         v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "")}
-      ${cell("If held", heldTotal === null ? "—" : money(heldTotal))}
-      ${cell("Gain if held", heldGain === null || heldGain === undefined ? "—" : signed(heldGain),
+      ${cell("If held", heldTotal === null ? "—" : `${money(heldTotal)}${
+        v.returned ? `<div class="sub">includes coupons received</div>` : ""}`)}
+      ${cell("Gain if held", heldGain === null || heldGain === undefined ? "—"
+        : `${signed(heldGain)}${v.returned
+          ? `<div class="sub">coupons before today estimated</div>` : ""}`,
         heldGain === null || heldGain === undefined ? ""
           : heldGain < 0 ? "neg" : heldGain > 0 ? "pos" : "")}
     </div>
@@ -9532,6 +9536,9 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
             ? `<div class="bm-note">Derived${payoutFile ? ` from ${esc(payoutFile)}` : ""}:
               ${money(v.ba.purchaseFaceTotal)} face bought − ${money(v.ba.faceTotal)} principal
               still to come.${paidOn ? " Repayment date from SMEST." : " Redemption dates on SMEST."}</div>` : ""}
+          ${v.returned ? `<div class="bm-note">Coupons before
+            ${paidOn ? dateLabel(paidOn) : "today"} are estimated from the interest rate;
+            the payout file lists future flows only.</div>` : ""}
         </div></details>`;
     })()}
   </div>`;
