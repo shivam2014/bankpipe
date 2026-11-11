@@ -9660,8 +9660,8 @@ function holdingCardHtml(row, kind = "", assetId = "") {
       ${cell("Units", qty === null ? "—" : qty)}
       ${cell("Purchase date", row.purchase_date ? dateLabel(row.purchase_date)
         : (kind === "equity"
-          ? `—${assetId ? `<div class="sub"><button class="linkish"
-            onclick="bpEquityImport('${esc(assetId)}')">Add cost from broker</button></div>` : ""}`
+          ? (assetId ? `<button class="linkish"
+            onclick="bpEquityImport('${esc(assetId)}')">Add cost from broker</button>` : "—")
           : (mf ? "—<div class=\"sub\">not in the CAS</div>" : "—")))}
       ${cell("Invested", moneyOrDash(cost))}
       ${cell("Current value", moneyOrDash(value))}
