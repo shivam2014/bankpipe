@@ -9486,11 +9486,16 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         : v.maturity ? `on ${dateLabel(v.maturity)}` : "";
       const gainLabel = v.expectedGain === null || v.expectedGain === undefined ? ""
         : `${v.expectedGain < 0 ? "loss" : "gain"} ${v.expectedGain < 0 ? "−" : "+"}${money(Math.abs(v.expectedGain))}`;
+      const today = new Date().toISOString().slice(0, 10);
+      const paidOn = String(v.h.redemption_dates || "").split(",")
+        .map((d) => d.trim()).filter((d) => d && d <= today).sort().pop() || "";
+      const payoutFile = window.bpBondPayoutFile || "";
       return `<div class="bond-money">
         ${v.returned ? `<div class="bm-row"><span class="k">Principal returned</span>
           <span class="v pos" title="Face bought ${money(v.ba?.purchaseFaceTotal)} minus
             principal still to come ${money(v.ba?.faceTotal)}.">${money(v.returned)}</span>
-          <span class="sub">an early repayment, not a sale · from the payout schedule</span></div>` : ""}
+          <span class="sub">an early repayment${paidOn ? ` on ${dateLabel(paidOn)}` : ""},
+            not a sale</span></div>` : ""}
         ${still === null || still === undefined ? "" : `<div class="bm-row">
           <span class="k">Still to come</span><span class="v">${money(still)}</span>
           <span class="sub">${[when, split].filter(Boolean).join(" · ")}</span></div>`}
@@ -9498,8 +9503,9 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
           <span class="v">${money(total)}</span>
           <span class="sub ${v.expectedGain < 0 ? "neg" : "pos"}">${gainLabel}</span></div>`}
         ${v.returned && v.ba?.purchaseFaceTotal && v.ba?.faceTotal
-          ? `<div class="bm-note">Derived: ${money(v.ba.purchaseFaceTotal)} face bought −
-            ${money(v.ba.faceTotal)} principal still to come. Redemption dates on SMEST.</div>` : ""}
+          ? `<div class="bm-note">Derived${payoutFile ? ` from ${esc(payoutFile)}` : ""}:
+            ${money(v.ba.purchaseFaceTotal)} face bought − ${money(v.ba.faceTotal)} principal
+            still to come.${paidOn ? " Repayment date from SMEST." : " Redemption dates on SMEST."}</div>` : ""}
       </div>`;
     })()}
     <div class="bond-market">${matured
@@ -9717,6 +9723,8 @@ function holdingsBlock(rows, assetId) {
   </div>` : "";
   window.bpBondRows = groups.bond;
   window.bpBondAsset = assetId;
+  const bondAsset = (window.bpAssetsForFocus || []).find((a) => a.id === assetId);
+  window.bpBondPayoutFile = metaOf(bondAsset).payout_file || "";
   if (!window.bpBondSortState) window.bpBondSortState = { key: "maturity", dir: 1 };
   if (visible.length < 2) {
     const kind = visible[0]?.[0] || "bond";
@@ -10400,6 +10408,7 @@ function renderBondHoldingForm() {
     }
     const parts = h ? bondLabelParts(h) : { name: "", coupon: "", maturity: "" };
     window.bpHoldingIssuer = h?.issuer || "";
+    window.bpHoldingRedemptions = h?.redemption_dates || "";
     const val = (n) => (h && h[n] !== null && h[n] !== undefined ? h[n] : "");
     const freq = h && h.frequency ? bondFrequency(h.frequency) : "Quarterly";
     const moneyIn = (p) => (p === null || p === undefined || p === "") ? "" : inr(p);
@@ -10522,6 +10531,9 @@ window.bpBondFetch = async (assetId, holdingId, overwrite = false) => {
   const units = Number(document.getElementById("bh-units")?.value || row.quantity) || 0;
   const fields = bondPrefill(data.details, { quantity: units });
   if (data.details?.issuer) window.bpHoldingIssuer = data.details.issuer;
+  if (Array.isArray(data.details?.redemptions) && data.details.redemptions.length) {
+    window.bpHoldingRedemptions = data.details.redemptions.join(",");
+  }
   const force = overwrite || !holdingId;
   let keptCount = 0;
   const set = (id, v) => {
@@ -10601,6 +10613,7 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
       label: bondLabelText(name, coupon, maturity),
       security_id: val("bh-isin").toUpperCase(),
       issuer: window.bpHoldingIssuer || "",
+      redemption_dates: window.bpHoldingRedemptions || "",
       quantity: units, cost_paise: cost,
       value_paise: val("bh-value") ? parseMoney(val("bh-value")) : null,
       as_of: val("bh-value-date"),

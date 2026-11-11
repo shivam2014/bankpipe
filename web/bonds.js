@@ -114,6 +114,7 @@ export function carryBrokerFields(oldRow, newQty) {
     yield_bps: oldRow.yield_bps ?? null,
     interest_date: oldRow.interest_date || "",
     principal_dates: oldRow.principal_dates || "",
+    redemption_dates: oldRow.redemption_dates || "",
     payout_paise: scale(oldRow.payout_paise),
     future_interest_paise: scale(oldRow.future_interest_paise),
     future_principal_paise: scale(oldRow.future_principal_paise),
@@ -214,6 +215,13 @@ export function bondFillPlan(row, fetched) {
     }
     if (!String(row.frequency || "").trim() && details.frequency) patch.frequency = details.frequency;
     if (!String(row.interest_date || "").trim() && details.nextInterest) patch.interest_date = details.nextInterest;
+    // The redemption schedule is what dates the early principal repayment.
+    if (Array.isArray(details.redemptions) && details.redemptions.length) {
+      const dates = details.redemptions.map(String).filter(Boolean).join(",");
+      if (dates && dates !== String(row.redemption_dates || "")) {
+        patch.redemption_dates = dates;
+      }
+    }
   }
   const ltp = Number(market?.ltp ?? details?.ltp) || 0;
   const units = Number(row.quantity) || 0;
@@ -235,7 +243,8 @@ export function bondFillPlan(row, fetched) {
     patch,
     added: !!(patch.frequency || patch.interest_date),
     ratingChanged: !!(patch.rating && String(row.rating || "").trim()),
-    terms: !!(patch.rating || patch.issuer || patch.frequency || patch.interest_date),
+    terms: !!(patch.rating || patch.issuer || patch.frequency || patch.interest_date
+      || patch.redemption_dates),
     priced: patch.value_paise !== undefined,
     unread: !details && !market,
   };

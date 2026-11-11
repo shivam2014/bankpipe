@@ -86,6 +86,7 @@ test("selling one of two bonds halves the schedule and the repayment", () => {
     quantity: 2, returned_paise: 10000000, future_principal_paise: 10000000,
     future_interest_paise: 97808, payout_paise: 97808,
     yield_bps: 1400, rating: "ICRA BBB / Stable", interest_date: "2026-12-03",
+    redemption_dates: "2026-06-03,2026-12-03",
   }, 1);
   assert.equal(c.returned_paise, 5000000);
   assert.equal(c.future_principal_paise, 5000000);
@@ -94,6 +95,7 @@ test("selling one of two bonds halves the schedule and the repayment", () => {
   assert.equal(c.yield_bps, 1400);
   assert.equal(c.rating, "ICRA BBB / Stable");
   assert.equal(c.interest_date, "2026-12-03");
+  assert.equal(c.redemption_dates, "2026-06-03,2026-12-03");
 });
 
 test("buying one more keeps the repayment already received", () => {
@@ -183,6 +185,13 @@ test("a lookup adds the issuer name, and a correction replaces a short one", () 
   const short = bondFillPlan({ quantity: 1, cost_paise: 10000000, issuer: "ACAPL" },
     { details, market: null });
   assert.equal(short.patch.issuer, "Akara Capital Advisors Private Limited");
+});
+
+test("a lookup stores the redemption dates SMEST prints", () => {
+  const plan = bondFillPlan({ quantity: 2, cost_paise: 19527582 },
+    { details: { redemptions: ["2026-06-03", "2026-12-03"] }, market: null });
+  assert.equal(plan.patch.redemption_dates, "2026-06-03,2026-12-03");
+  assert.equal(plan.terms, true);
 });
 
 test("no units or no price means no market value, and nothing at all means unread", () => {
