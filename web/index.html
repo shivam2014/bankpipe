@@ -9234,6 +9234,9 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         ${v.change ? `<span class="bond-rating ${v.change.down ? "down" : "up"}"
           title="The rating this lot had when it was recorded, against the current one">
           ${v.change.down ? "↓" : "↑"} ${esc(v.change.from)} → ${esc(v.change.to)}</span>` : ""}
+        ${assetId && v.h.id && !matured ? `<button class="btn" style="padding:3px 8px;font-size:12px"
+          title="Ask SMEST for this bond's terms and BSE for its last traded price"
+          onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Fetch</button>` : ""}
         ${assetId && v.h.id ? `<button class="btn" style="padding:3px 8px;font-size:12px"
           onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)})">Edit</button>` : ""}</div></div>
     <div class="bond-grid">
@@ -9510,7 +9513,7 @@ window.bpOpenDigiFinn = () => {
 // One press for the whole portfolio: SMEST gives each lot the rating, payment
 // frequency and next interest date it is missing, BSE gives it a price. Nothing
 // already on a row is rewritten, so it is safe to press again next week.
-window.bpBondFetchAll = async (assetId) => {
+window.bpBondFetchAll = async (assetId, onlyId = "") => {
   const note = (t) => {
     window.bpBondMarketNote = { id: assetId, text: t };
     const el = document.getElementById("bond-fetch-note");
@@ -9520,6 +9523,7 @@ window.bpBondFetchAll = async (assetId) => {
   const all = await store.listHoldings(assetId);
   // A matured lot has no price and no next interest; it is not worth a lookup.
   const lots = splitMatured(all).current
+    .filter((h) => !onlyId || String(h.id) === String(onlyId))
     .filter((h) => /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase()));
   if (!lots.length) {
     note("No current lot carries an ISIN, so there is nothing to look up.");
