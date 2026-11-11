@@ -3027,7 +3027,7 @@ function renderImport() {
     equities and mutual funds.</div>
     <label class="btn primary" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:8px">
       Choose CAS statement
-      <input type="file" accept=".pdf" multiple style="display:none"
+      <input type="file" accept=".pdf" multiple id="bond-cas-input" style="display:none"
         onchange="bpCasFiles(this.files);this.value=''"></label>
     <div id="bond-cas-host" style="margin-top:10px"></div>
     <div style="margin-top:12px">
@@ -6978,6 +6978,39 @@ window.bpCasFiles = async (files) => {
     await window.bpCasFile(list[i], id);
   }
 };
+// The native prompt can be suppressed by the browser, and an Escape there is
+// indistinguishable from a crash. Ask in the same place the statement appears.
+function bpCasPasswordPrompt(host, wrong) {
+  return new Promise((resolve, reject) => {
+    host.innerHTML = `<div class="card pad" style="border-color:var(--amber)">
+      <b>${wrong ? "That password did not open the PDF"
+        : "This CAS is password protected"}</b>
+      <p class="muted" style="font-size:12.5px;margin:6px 0 0">Type the PDF password —
+        usually your PAN in capitals. It is not your BankPipe passphrase.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+        <input id="cas-pw" type="password" autocomplete="off" spellcheck="false"
+          placeholder="PDF password"
+          style="flex:1;min-width:180px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;background:var(--bg);color:var(--ink)">
+        <button class="btn primary" id="cas-pw-go">Unlock</button>
+        <button class="btn" id="cas-pw-cancel">Cancel</button>
+      </div>
+      <div id="cas-pw-msg" class="muted" style="font-size:12px;margin-top:6px"></div>
+    </div>`;
+    const input = host.querySelector("#cas-pw");
+    const msg = host.querySelector("#cas-pw-msg");
+    const submit = () => {
+      const value = String(input?.value || "").trim();
+      if (!value) { msg.textContent = "Enter the password, or Cancel."; input?.focus(); return; }
+      resolve(value);
+    };
+    input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } };
+    host.querySelector("#cas-pw-go").onclick = submit;
+    host.querySelector("#cas-pw-cancel").onclick = () => {
+      reject(Object.assign(new Error("cancelled"), { cancelled: true }));
+    };
+    setTimeout(() => input?.focus(), 0);
+  });
+}
 window.bpCasFile = async (file, hostId = "cas-host") => {
   const host = document.getElementById(hostId);
   if (!host || !file) return;
@@ -6988,9 +7021,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     ]);
     const bytes = new Uint8Array(await file.arrayBuffer());
     const pdf = await extractPdf(bytes, {
-      onPassword: async ({ wrong }) => prompt(wrong
-        ? "That password did not open the PDF. Try again."
-        : "PDF password (usually your PAN in capitals)"),
+      onPassword: ({ wrong }) => bpCasPasswordPrompt(host, wrong),
     });
     const cas = parseCas(pdf);
     window.bpCasParsed = cas;
@@ -7127,10 +7158,20 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       ${shapeBlock}
     </div>`;
   } catch (e) {
-    host.innerHTML = `<div class="muted" style="font-size:12.5px;color:var(--red)">${
-      esc(e.message || e)}</div>`;
+    const cancelled = e?.cancelled || /cancelled/i.test(String(e?.message || ""));
+    host.innerHTML = cancelled
+      ? `<div class="card pad" style="font-size:12.5px">
+          <div><b>No password entered.</b> This statement was not read.</div>
+          <div class="muted" style="font-size:12px;margin-top:4px">Choose the CAS again; when
+            the card asks, enter the PDF password — usually your PAN in capitals.</div>
+          <button class="mini-btn" style="margin-top:8px" onclick="bpCasRetry()">
+            Choose the CAS again</button>
+        </div>`
+      : `<div class="muted" style="font-size:12.5px;color:var(--red)">${
+        esc(e.message || e)}</div>`;
   }
 };
+window.bpCasRetry = () => document.getElementById("bond-cas-input")?.click();
 // A CAS names one demat but several classes, and this ledger keeps bonds,
 // shares and funds in separate accounts. Creating those accounts from the
 // statement is the honest alternative to forcing three kinds of money into one
