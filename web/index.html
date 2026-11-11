@@ -8540,14 +8540,9 @@ function assetGroupsHtml(groups, onclickFor) {
         <span class="caret" aria-hidden="true"></span>
         <h2>${g.label}</h2>
         <span class="grp-right">
-          ${g.id === "bond" ? `<button class="btn" style="padding:3px 9px;font-size:12px"
-            title="Ask SMEST for the latest credit rating and BSE for the last traded price, across every current bond you hold"
-            onclick="event.stopPropagation();bpFetchAllBonds(event)">Fetch all</button>` : ""}
           ${g.total ? `<span class="muted" style="font-size:13px">${money(g.total)}</span>` : ""}
         </span>
       </summary>
-      ${g.id === "bond" ? `<div id="bond-fetch-all-note" class="muted"
-        style="font-size:11.5px;margin:2px 0 6px;${window.bpPortfolioFetchNote ? "" : "display:none"}">${esc(window.bpPortfolioFetchNote || "")}</div>` : ""}
       ${goldLine}
       <div class="card" style="margin-top:8px">${g.rows.map((a) => assetRow(a, onclickFor(a))).join("")}</div>
     </details>`;
@@ -9353,8 +9348,8 @@ function holdingsCard(allRows, assetId) {
         ${assetId ? `<button class="btn" onclick="bpBondHoldingNew(${jsArg(assetId)})">Add holding</button>
         <button class="btn" title="Type the current market price of each bond"
           onclick="bpHoldingsEdit(${jsArg(assetId)})">Update values</button>
-        <button class="btn" title="Ask SMEST for each lot's rating and interest dates, and BSE for its price. Nothing you typed is replaced."
-          onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch details for all</button>
+        <button class="btn" title="Ask SMEST for each lot's latest credit rating and interest dates, and BSE for its last traded price. Nothing you typed is replaced."
+          onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch latest</button>
         <details class="more-menu" style="margin-left:0">
           <summary class="btn" aria-label="More holding actions">More</summary>
           <div class="menu-pop">
@@ -9582,8 +9577,10 @@ const liveBondLots = (rows) => splitMatured(rows).current
 window.bpBondFetchAll = async (assetId, onlyId = "") => {
   const note = (t) => {
     window.bpBondMarketNote = { id: assetId, text: t };
-    const el = document.getElementById("bond-fetch-note");
-    if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
+    for (const id of ["bond-fetch-note", "demat-fetch-note"]) {
+      const el = document.getElementById(id);
+      if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
+    }
   };
   const store = await import("./db.js");
   // A matured lot has no price and no next interest; it is not worth a lookup.
@@ -9605,51 +9602,6 @@ window.bpBondFetchAll = async (assetId, onlyId = "") => {
   const counts = await applyMarketData(store, assetId, lots, got);
   note(marketSummary(counts) + ".");
   window.bpAsset(assetId);
-};
-// The bond section on Assets covers every demat at once, so its one button does
-// the same for every current bond the family holds: latest rating and price.
-window.bpFetchAllBonds = async (event) => {
-  const btn = event?.currentTarget || null;
-  const note = (t) => {
-    window.bpPortfolioFetchNote = t;
-    const el = document.getElementById("bond-fetch-all-note");
-    if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
-  };
-  if (btn) { btn.disabled = true; btn.textContent = "Fetching…"; }
-  try {
-    const store = await import("./db.js");
-    const assets = (await store.listAccounts())
-      .filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
-    const plan = [];
-    for (const a of assets) {
-      const lots = liveBondLots(await store.listHoldings(a.id));
-      if (lots.length) plan.push({ id: a.id, lots });
-    }
-    const isins = [...new Set(plan.flatMap((p) => p.lots
-      .map((h) => String(h.security_id).toUpperCase())))];
-    if (!isins.length) {
-      note("No current bond carries an ISIN, so there is nothing to look up.");
-      return;
-    }
-    note(`Reading ${isins.length} ISIN${isins.length === 1 ? "" : "s"} across ${plan.length} account${plan.length === 1 ? "" : "s"}…`);
-    const { got, down } = await marketBondData(isins, (read) => {
-      note(`Read ${read} of ${isins.length} ISIN${isins.length === 1 ? "" : "s"}…`);
-    });
-    if (down && ![...got.values()].some(Boolean)) {
-      note("The exchange lookup did not answer. Try again in a moment.");
-      return;
-    }
-    const total = { lots: 0, filled: 0, changed: 0, complete: 0,
-      unread: 0, unlisted: 0, priced: 0, unpriced: 0 };
-    for (const p of plan) {
-      const c = await applyMarketData(store, p.id, p.lots, got);
-      for (const k of Object.keys(total)) total[k] += c[k];
-    }
-    note(`${total.lots} bond${total.lots === 1 ? "" : "s"} · ${marketSummary(total)}.`);
-    go("assets");
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Fetch all"; }
-  }
 };
 window.bpBondCsv = async (id) => {
   const store = await import("./db.js");
@@ -9971,12 +9923,21 @@ function assetForm(a, factCount, defaultCat, holdings) {
   const show = (cats) => cats.split(" ").includes(cat) ? "" : 'style="display:none"';
   const moneyIn = (v) => (v === null || v === undefined || v === "") ? "" : inr(v);
   const id = a ? a.id : "";
+  const fetchNote = a && window.bpBondMarketNote?.id === a.id
+    ? window.bpBondMarketNote.text : "";
   window.bpDigiFinnPinned = "";
   const heading = a ? (a.label || a.bank || a.id) : "Add an asset";
   return `<h1>${esc(heading)}</h1>
   ${a ? `<div class="muted" style="margin:-10px 0 14px;font-size:12px">Editing
     ${esc(/mutual\s*fund|^mf$/i.test(String(a?.subtype || "")) ? "mutual fund"
       : cat === "bonds" ? "bond portfolio" : categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
+  ${a && (cat === "demat" || cat === "bonds") && (holdings || []).some((h) =>
+    String(h.category || "") === "bond" && !(Number(h.quantity) === 0))
+    ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:-2px 0 14px">
+        <button class="btn" onclick="bpBondFetchAll(${jsArg(a.id)})"
+          title="Ask SMEST for each bond's latest credit rating and BSE for its last traded price. Nothing you typed is replaced.">Fetch latest</button>
+        <span id="demat-fetch-note" class="muted" style="font-size:12px;${fetchNote ? "" : "display:none"}">${esc(fetchNote)}</span>
+      </div>` : ""}
   ${!a ? `<div id="s-bond-hint" class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px;display:${cat === "bonds" ? "" : "none"}">
     <b>A demat bond portfolio is part of a demat account.</b> Import the CDSL/NSDL CAS
     to create the account with its bonds, equities and mutual funds; use this form only for
