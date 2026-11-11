@@ -7241,15 +7241,18 @@ window.bpCostFill = async () => {
     const slots = (broker?.reports || []).filter((r) => IMPORT_SLOTS.includes(r.slot));
     const reportRow = (r) => {
       const cost = r.slot === "portfolio";
-      const last = cost ? meta.cost_file : payoutsFile;
+      const storedPayout = meta.payout_file || meta.cashflow_file || "";
+      const last = cost ? meta.cost_file
+        : r.slot === "cashflow" ? (/cashflow/i.test(storedPayout) ? storedPayout : "")
+          : (/cashflow/i.test(storedPayout) ? "" : storedPayout);
       return `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
           flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
-        <div><b style="font-size:12.5px">${esc(r.title)}</b>${r.optional
+        <div style="flex:1 1 260px;min-width:0"><b style="font-size:12.5px">${esc(r.title)}</b>${r.optional
           ? ` <span class="muted" style="font-weight:400">optional</span>` : ""}
           <div class="muted" style="font-size:11.5px">${esc(r.detail || "")} ·
             <code>${esc((r.files || [])[0] || "")}</code>${
             last ? ` · last: <code>${esc(last)}</code>` : ""}</div></div>
-        <label class="mini-btn">Choose<input type="file" accept=".csv" style="display:none"
+        <label class="mini-btn" style="white-space:nowrap">Choose<input type="file" accept=".csv" style="display:none"
           onchange="${cost ? "bpCostFile" : "bpCashflowFile"}(this.files[0],{broker:'${esc(brokerId)}'});this.value=''"></label>
       </div>`;
     };
@@ -7279,10 +7282,11 @@ window.bpCostFill = async () => {
     host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
       <details>
         <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">
-          ${logo ? `<img src="${esc(logo)}" alt="" style="height:20px;vertical-align:-5px;
-            margin-right:8px">` : ""}
           <b style="color:var(--ink);font-weight:600">Broker data import</b>
-          · ${esc(broker.label)} · ${status}</summary>
+          ${logo ? `<img src="${esc(logo)}" alt="${esc(broker.label)}"
+            style="height:18px;vertical-align:-4px;margin:0 6px 0 4px">`
+            : ` · ${esc(broker.label)} `}
+          · ${status}</summary>
         <div style="margin-top:8px">${body}</div>
       </details>
     </div>`;
