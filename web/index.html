@@ -9430,7 +9430,9 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         <span class="v pos" title="Principal repaid early, not a sale. The payout schedule
           shows ${money(v.ba?.faceTotal)} still to come out of
           ${money(v.ba?.purchaseFaceTotal)} bought.">${money(v.returned)}</span>
-        <div class="sub">principal returned early${v.ba?.marketPrice != null && v.ba?.faceTotal
+        <div class="sub">principal returned early${v.ba?.purchaseFaceTotal
+          ? ` · ${money(v.returned)} of ${money(v.ba.purchaseFaceTotal)} face repaid` : ""}${
+          v.ba?.marketPrice != null && v.ba?.faceTotal
           ? ` · ${v.ba.marketPrice.toFixed(2)} per ₹100 of the ${money(v.ba.faceTotal)}
             still outstanding` : ""}</div></div>` : ""}
       ${cell(matured ? "Paid at maturity" : "Expected at maturity", moneyOrDash(v.expectedMaturity)
