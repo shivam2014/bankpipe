@@ -9539,22 +9539,22 @@ async function marketBondData(isins, onProgress) {
   return { got, down };
 }
 async function applyMarketData(store, assetId, lots, got) {
-  const c = { lots: lots.length, filled: 0, changed: 0, complete: 0,
-    unread: 0, unlisted: 0, priced: 0, unpriced: 0 };
+  // One bucket per lot, so the sentence adds up to the number of bonds.
+  const c = { lots: lots.length, priced: 0, changed: 0, filled: 0,
+    current: 0, unpriced: 0, unlisted: 0, unread: 0 };
   for (const h of lots) {
     const data = got.get(String(h.security_id).toUpperCase()) || null;
     const plan = bondFillPlan(h, data);
-    if (!data || (data.status && data.status !== 404)) c.unread++;
-    else if (!data.details) c.unlisted++;
-    else if (!plan.terms) c.complete++;
     if (plan.terms || plan.priced) {
       await store.upsertHolding(assetId, { ...h, ...plan.patch });
     }
-    if (plan.added) c.filled++;
-    if (plan.ratingChanged) c.changed++;
-    // "Repriced" means the number moved; the same price is not news.
-    if (plan.priced) { if (plan.patch.value_paise !== h.value_paise) c.priced++; }
-    else if (data?.details) c.unpriced++;
+    if (!data || (data.status && data.status !== 404)) c.unread++;
+    else if (!data.details) c.unlisted++;
+    else if (plan.priced && plan.patch.value_paise !== h.value_paise) c.priced++;
+    else if (plan.ratingChanged) c.changed++;
+    else if (plan.added) c.filled++;
+    else if (!plan.priced) c.unpriced++;
+    else c.current++;
   }
   return c;
 }
@@ -9562,8 +9562,8 @@ function marketSummary(c) {
   const bits = [];
   if (c.priced) bits.push(`${c.priced} repriced from BSE`);
   if (c.changed) bits.push(`${c.changed} rating${c.changed === 1 ? "" : "s"} updated`);
-  if (c.filled) bits.push(`${c.filled} lot${c.filled === 1 ? "" : "s"} filled in`);
-  if (c.complete) bits.push(`${c.complete} already current`);
+  if (c.filled) bits.push(`${c.filled} filled in`);
+  if (c.current) bits.push(`${c.current} already current`);
   if (c.unpriced) bits.push(`${c.unpriced} had no trade, so the value is unchanged`);
   if (c.unlisted) bits.push(`${c.unlisted} not listed on SMEST`);
   if (c.unread) bits.push(`${c.unread} could not be read`);
@@ -9600,7 +9600,7 @@ window.bpBondFetchAll = async (assetId, onlyId = "") => {
     return;
   }
   const counts = await applyMarketData(store, assetId, lots, got);
-  note(marketSummary(counts) + ".");
+  note(`${counts.lots} bond${counts.lots === 1 ? "" : "s"} · ${marketSummary(counts)}.`);
   window.bpAsset(assetId);
 };
 window.bpBondCsv = async (id) => {
