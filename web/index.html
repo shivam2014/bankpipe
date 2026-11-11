@@ -9405,6 +9405,10 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         ${v.change ? `<span class="bond-rating ${v.change.down ? "down" : "up"}"
           title="The rating this lot had when it was recorded, against the current one">
           ${v.change.down ? "↓" : "↑"} ${esc(v.change.from)} → ${esc(v.change.to)}</span>` : ""}
+        ${assetId && v.h.id && !matured ? `<a class="mini-btn"
+          href="https://smest.in/bond-details/x/${encodeURIComponent(v.h.security_id || "")}"
+          target="_blank" rel="noopener"
+          title="Open this bond on SMEST, the source of the rating and terms">SMEST ↗</a>` : ""}
         ${assetId && v.h.id && !matured ? `<button class="btn" style="padding:3px 8px;font-size:12px"
           title="Ask SMEST for this bond's terms and BSE for its last traded price"
           onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Fetch</button>` : ""}
@@ -10347,6 +10351,10 @@ function renderBondHoldingForm() {
             <button class="btn" onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)})">Fetch details</button>
             <button class="btn" id="bh-apply" style="display:none"
               onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)}, true)">Use fetched values</button>
+            ${/^IN[A-Z0-9]{10}$/.test(String(val("security_id") || "").toUpperCase())
+              ? `<a class="mini-btn" target="_blank" rel="noopener"
+                  href="https://smest.in/bond-details/x/${encodeURIComponent(val("security_id"))}"
+                  title="Open this bond on SMEST">Open on SMEST ↗</a>` : ""}
             <span id="bh-fetchmsg" class="muted" style="font-size:12px"></span>
           </div>
         </div>
