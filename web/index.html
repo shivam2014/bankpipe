@@ -403,6 +403,10 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .bond-market .muted{margin-left:8px}
 .bond-market b.neg{color:var(--red)}.bond-market b.pos{color:var(--green)}
 .vupdate{background:none;border:0;padding:0 0 0 6px;font:inherit;color:var(--link,var(--ink));text-decoration:underline;cursor:pointer}
+.info-btn{width:15px;height:15px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--muted);font:600 10px/1 var(--font-sans,sans-serif);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.info-pop{display:none;position:absolute;z-index:30;top:calc(100% + 6px);left:0;width:230px;max-width:calc(100vw - 60px);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:11.5px;font-weight:400;line-height:1.5;color:var(--ink);box-shadow:0 10px 26px -14px rgba(15,18,22,.35);text-transform:none;letter-spacing:0}
+.info-pop.open{display:block}
+.info-pop b{font-weight:650}
 .bond-cards{display:none;flex-direction:column;gap:8px;margin-top:10px}
 .matured-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .holding-cards{display:flex;flex-direction:column;gap:8px;margin-top:10px}
@@ -9407,6 +9411,10 @@ function bondRowView(h) {
     value: hasPrice ? h.value_paise : null,
     gain: hasPrice ? h.value_paise + returned - h.cost_paise : null,
     valueAsOf: String(h.as_of || "").slice(0, 10),
+    accrued: ba?.accrued ?? null,
+    accruedFrom: ba?.accruedFrom || "",
+    accruedTo: ba?.accruedTo || "",
+    currentYield: ba?.currentYield ?? null,
     bought: h.purchase_date || "",
   };
 }
@@ -9454,6 +9462,18 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     : (v.ba?.lifetimeTotal ?? (still === null || still === undefined
       ? null : still + (v.returned || 0)));
   const heldGain = matured ? null : (v.ba?.lifetimeGain ?? v.expectedGain);
+  const infoId = `info-accrued-${v.h.id || "x"}`;
+  const accruedCell = `<div style="position:relative"><span class="k">Accrued interest
+      <button type="button" class="info-btn" aria-label="What is accrued interest"
+        aria-expanded="false" onclick="bpInfoToggle(event,'${infoId}')">i</button></span>
+    <span class="v">${v.accrued === null || v.accrued === undefined ? "—" : money(v.accrued)}</span>
+    <div class="info-pop" id="${infoId}" role="tooltip" style="right:0;left:auto">
+      <b>Interest earned, not yet paid.</b> It is the slice of the next coupon between
+      ${v.accruedFrom ? dateLabel(v.accruedFrom) : "the last coupon"} and today.
+      ${v.accrued === null || v.accrued === undefined
+        ? "Add the next interest date to estimate it."
+        : `At maturity you receive the full coupon, not this amount again. If you sell before
+          ${dateLabel(v.accruedTo)}, the buyer pays it to you.`}</div></div>`;
   return `<div class="bond-card">
     <div class="bond-card-head"><div><div class="bond-name">${esc(v.h.label || "—")}</div>
       <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
@@ -9485,10 +9505,13 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Units", v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity)}
       ${cell("Invested", moneyOrDash(v.h.cost_paise))}
       ${cell("Market value", moneyOrDash(v.value))}
+      ${accruedCell}
       ${cell("Gain if sold", v.gain === null || v.gain === undefined ? "—"
         : `${signed(v.gain)}<div class="sub">on ${money(v.value + (v.returned || 0))} if sold
           now${v.returned ? ` · includes ${money(v.returned)} back` : ""}</div>`,
         v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "")}
+      ${cell("Current yield", v.currentYield === null || v.currentYield === undefined
+        ? "—" : `${v.currentYield.toFixed(2)}%`)}
       ${cell("Total if held", heldTotal === null ? "—" : `${money(heldTotal)}${
         v.returned ? `<div class="sub">includes coupons received</div>` : ""}`)}
       ${cell("Total gain", heldGain === null || heldGain === undefined ? "—"
@@ -10404,6 +10427,23 @@ window.bpBondHoldingNew = (assetId) => {
   window.bpState = { ...(window.bpState || {}), bondHoldingAsset: assetId, bondHoldingId: "" };
   go("bondHolding");
 };
+window.bpInfoToggle = (event, id) => {
+  event.stopPropagation();
+  const el = document.getElementById(id);
+  const wasOpen = el && el.classList.contains("open");
+  document.querySelectorAll(".info-pop.open").forEach((p) => p.classList.remove("open"));
+  document.querySelectorAll('.info-btn[aria-expanded="true"]')
+    .forEach((b) => b.setAttribute("aria-expanded", "false"));
+  if (el && !wasOpen) {
+    el.classList.add("open");
+    event.currentTarget.setAttribute("aria-expanded", "true");
+  }
+};
+document.addEventListener("click", () => {
+  document.querySelectorAll(".info-pop.open").forEach((p) => p.classList.remove("open"));
+  document.querySelectorAll('.info-btn[aria-expanded="true"]')
+    .forEach((b) => b.setAttribute("aria-expanded", "false"));
+});
 window.bpBondHoldingEdit = (assetId, holdingId, focusValue = false) => {
   window.bpState = { ...(window.bpState || {}), bondHoldingAsset: assetId,
     bondHoldingId: String(holdingId), bondHoldingFocus: !!focusValue };

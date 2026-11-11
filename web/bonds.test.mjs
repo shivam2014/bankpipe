@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseBondLabel, inferFace, bondAnalytics, bondSummary,
+import { parseBondLabel, inferFace, bondAnalytics, bondSummary, accruedInterest,
   BOND_RATINGS, bondRatingRank, bondFillPlan, bondGrade, bondRatingChange,
   carryBrokerFields } from "./bonds.js";
 
@@ -104,6 +104,17 @@ test("buying one more keeps the repayment already received", () => {
   }, 3);
   assert.equal(c.returned_paise, 10000000);
   assert.equal(c.future_principal_paise, 15000000);
+});
+
+test("accrued interest is the part of the next coupon already earned", () => {
+  const a = accruedInterest(1190000, "Monthly", "2026-12-03", "2026-11-11");
+  assert.equal(a.from, "2026-11-03");
+  assert.equal(a.to, "2026-12-03");
+  assert.ok(Math.abs(a.accrued - 26082) < 2, `accrued ${a.accrued}`);
+  // On the coupon day the new period starts at zero.
+  assert.equal(accruedInterest(1190000, "Monthly", "2026-12-03", "2026-11-03").accrued, 0);
+  // On the payment day itself the slice is not meaningful.
+  assert.equal(accruedInterest(1190000, "Monthly", "2026-12-03", "2026-12-03").accrued, null);
 });
 
 test("lifetime gain includes the coupons already received", () => {

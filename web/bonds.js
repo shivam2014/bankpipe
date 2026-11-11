@@ -38,6 +38,30 @@ export function inferFace(costPaise, quantity) {
     Math.abs(perUnit - face) < Math.abs(perUnit - best) ? face : best, FACES[0]);
 }
 
+// The slice of the next coupon earned since the previous one. Estimated from the
+// frequency and the next interest date; real day counts vary by issuer.
+export function accruedInterest(annualCouponPaise, frequency, interestDate,
+  today = new Date().toISOString().slice(0, 10)) {
+  const f = String(frequency || "").toLowerCase();
+  const months = f.includes("month") ? 1
+    : f.includes("quarter") ? 3
+      : (f.includes("half") || f.includes("semi")) ? 6
+        : (f.includes("annual") || f.includes("year")) ? 12 : 0;
+  const to = String(interestDate || "").slice(0, 10);
+  const coupon = Number(annualCouponPaise);
+  if (!months || !to || !Number.isFinite(coupon) || coupon <= 0) {
+    return { accrued: null, from: "", to };
+  }
+  const next = new Date(to + "T00:00:00Z");
+  const last = new Date(next);
+  last.setUTCMonth(last.getUTCMonth() - months);
+  const day = new Date(String(today).slice(0, 10) + "T00:00:00Z");
+  if (!(day >= last && day < next)) return { accrued: null, from: "", to };
+  const days = Math.round((day - last) / 86400000);
+  return { accrued: Math.round(coupon * (days / 365)),
+    from: last.toISOString().slice(0, 10), to };
+}
+
 export function bondAnalytics(h) {
   const parsed = parseBondLabel(h?.label);
   if (!parsed || parsed.couponPct === null || parsed.couponPct === undefined) return null;
@@ -97,6 +121,7 @@ export function bondAnalytics(h) {
   }
   const lifetimeTotal = couponEstimate === null ? null : purchaseFaceTotal + couponEstimate;
   const lifetimeGain = lifetimeTotal === null ? null : lifetimeTotal - cost;
+  const accrual = accruedInterest(annualCoupon, h.frequency, h.interest_date);
   const schedule = schedIn !== null && schedPrin !== null
     && Number.isFinite(schedIn) && Number.isFinite(schedPrin)
     ? { interest: schedIn, principal: schedPrin, total: schedIn + schedPrin,
@@ -116,6 +141,7 @@ export function bondAnalytics(h) {
     purchase_date: buy,
     annualCoupon, couponIncome, capitalGain, totalGain, ytm,
     couponEstimate, lifetimeTotal, lifetimeGain,
+    accrued: accrual.accrued, accruedFrom: accrual.from, accruedTo: accrual.to,
     value: hasMarket ? value : null,
     hasMarket, marketPrice, currentYield,
     currentGain: hasMarket ? value - cost : null,
