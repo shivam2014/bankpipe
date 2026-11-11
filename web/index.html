@@ -7749,23 +7749,32 @@ window.bpCasImport = async (key = "cas-host") => {
       // A new statement must not wipe the cost a portfolio already gave this
       // account. The units may move; the price per unit stays.
       const existing = await store.listHoldings(assetId);
+      const oldByIsin = new Map(existing.map((old) =>
+        [String(old.security_id || "").toUpperCase(), old]));
       const prior = new Map();
       for (const old of existing) {
         if (old.cost_paise === null || old.cost_paise === undefined) continue;
         prior.set(String(old.security_id || "").toUpperCase(), old);
       }
       const rows = holdings.map((h) => {
-        const old = prior.get(String(h.isin || "").toUpperCase());
+        const isin = String(h.isin || "").toUpperCase();
+        const old = prior.get(isin);
+        const oldRow = oldByIsin.get(isin);
         const qty = Number(h.quantity) || 0;
         const oldQty = old ? Number(old.quantity) || 0 : 0;
         const carried = old && qty > 0 && oldQty > 0
           ? Math.round(Number(old.cost_paise) * (qty / oldQty)) : null;
         if (carried) carriedCount += 1;
+        // The CAS often has the maturity but not the coupon; a previous Holdings
+        // Report label does have both. Keep that label across a CAS update.
+        const nextLabel = casHoldingLabel(h);
+        const keepOld = h.kind === "bond" && !/\d+(?:\.\d+)?%/.test(nextLabel)
+          && /\d+(?:\.\d+)?%/.test(oldRow?.label || "");
         return {
           security_id: h.isin,
-          label: casHoldingLabel(h),
+          label: keepOld ? oldRow.label : nextLabel,
           category: h.kind,
-          frequency: h.frequency || "",
+          frequency: h.frequency || oldRow?.frequency || "",
           quantity: h.quantity,
           // The statement's own invested amount wins over a value carried from a
           // previous import: a fund's cost column is now read correctly, and a
