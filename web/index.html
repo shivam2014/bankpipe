@@ -9508,8 +9508,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Market value", moneyOrDash(v.value))}
       ${accruedCell}
       ${cell("Gain if sold", v.gain === null || v.gain === undefined ? "—"
-        : `${signed(v.gain)}<div class="sub">on ${money(v.value + (v.returned || 0))} if sold
-          now${v.returned ? ` · includes ${money(v.returned)} back` : ""}</div>`,
+        : `${signed(v.gain)}<div class="sub">${money(v.value + (v.returned || 0))} sale
+          − ${money(v.h.cost_paise)} invested</div>`,
         v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "")}
       ${cell("Current yield", v.currentYield === null || v.currentYield === undefined
         ? "—" : `${v.currentYield.toFixed(2)}%`)}
