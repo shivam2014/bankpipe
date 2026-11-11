@@ -7427,7 +7427,9 @@ window.bpCostApply = async () => {
         <div><b>Cost applied to ${esc(asset?.label || "the demat account")}</b></div>
         <div class="muted" style="font-size:12px;margin-top:4px">
           ${esc(plan.parsed.fileName || "Portfolio Report")} · ${priced}
-          bond${priced === 1 ? "" : "s"} priced. Open the account to see the holdings.</div></div>`;
+          bond${priced === 1 ? "" : "s"} priced${plan.dateFixes.length
+            ? ` · value date ${dateLabel(plan.parsed.asOf)}` : ""}.
+          Open the account to see the holdings.</div></div>`;
       return;
     }
     window.bpAsset(plan.id);
@@ -9151,6 +9153,10 @@ function bondRowView(h) {
   const hasPrice = ba ? ba.hasMarket : (h.value_paise !== null && h.cost_paise !== null
     && Math.abs(h.value_paise - h.cost_paise) >= 1);
   const periods = bondPeriods(h.frequency);
+  // Principal already returned is money in hand, so a sale of the rest is
+  // measured against the full cost: value + returned - cost. Counting only the
+  // remaining value made a part-redeemed bond look like a large loss.
+  const returned = (ba && ba.schedule && ba.schedule.returned) || 0;
   return {
     h, ba,
     rating: bondRatingOf(h),
@@ -9172,11 +9178,11 @@ function bondRowView(h) {
     expectedGain: ba ? (ba.schedule ? (ba.schedule.short ? null : ba.schedule.gain) : ba.totalGain) : null,
     expectedGainPct: ba ? ba.totalGainPct : null,
     parts: ba?.schedule?.parts || 0,
-    returned: (ba && ba.schedule && ba.schedule.returned) || 0,
+    returned,
     shortSchedule: !!(ba && ba.schedule && ba.schedule.short),
     hasPrice,
     value: hasPrice ? h.value_paise : null,
-    gain: hasPrice ? h.value_paise - h.cost_paise : null,
+    gain: hasPrice ? h.value_paise + returned - h.cost_paise : null,
     valueAsOf: String(h.as_of || "").slice(0, 10),
     bought: h.purchase_date || "",
   };
@@ -9264,7 +9270,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
           ? `<span class="muted"> as of ${dateLabel(v.valueAsOf)}</span>` : ""}
           ${assetId && v.h.id ? `<button class="vupdate"
           onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}
-          <span class="sep">·</span>gain if sold
+          <span class="sep">·</span>gain if sold${v.returned
+            ? `<span class="muted">including ${money(v.returned)} already back</span>` : ""}
           <b class="${v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : ""}">${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain || 0))}</b>
           <span class="muted">only matters if you sell early</span>`}</div>
   </div>`;
@@ -9361,7 +9368,7 @@ function holdingsCard(allRows, assetId) {
         <th class="num">Invested</th><th class="num" title="${valueAsOf
           ? `Market value as of ${dateLabel(valueAsOf)}`
           : "Market value, when it was last marked"}">Market value</th>
-        <th class="num" title="Market value minus invested; only relevant if sold">Gain if sold</th>
+        <th class="num" title="Market value plus any principal already returned, minus invested; only relevant if sold">Gain if sold</th>
         <th class="num" title="Amount you receive at maturity: principal plus remaining interest">Maturity value</th>
         <th></th></tr>
       ${tableRows}</table></div>
