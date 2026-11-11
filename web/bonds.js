@@ -98,6 +98,30 @@ export function bondAnalytics(h) {
   };
 }
 
+// A sale changes the units, not the terms. The broker schedule on file was for
+// the old count, so scale its money with the units. A purchase keeps the
+// repayment already received: the new units did not get that earlier payment.
+export function carryBrokerFields(oldRow, newQty) {
+  if (!oldRow) return {};
+  const oldQty = Number(oldRow.quantity) || 0;
+  const qty = Number(newQty) || 0;
+  const ratio = oldQty > 0 && qty > 0 ? qty / oldQty : 1;
+  const scale = (v) => (v === null || v === undefined)
+    ? (v ?? null) : Math.round(Number(v) * ratio);
+  return {
+    rating: oldRow.rating || "",
+    rating_at_purchase: oldRow.rating_at_purchase || oldRow.rating || "",
+    yield_bps: oldRow.yield_bps ?? null,
+    interest_date: oldRow.interest_date || "",
+    principal_dates: oldRow.principal_dates || "",
+    payout_paise: scale(oldRow.payout_paise),
+    future_interest_paise: scale(oldRow.future_interest_paise),
+    future_principal_paise: scale(oldRow.future_principal_paise),
+    returned_paise: ratio < 1 ? scale(oldRow.returned_paise)
+      : (oldRow.returned_paise ?? null),
+  };
+}
+
 export function bondSummary(rows) {
   const items = (rows || []).map(bondAnalytics).filter(Boolean);
   if (!items.length) return null;

@@ -1022,7 +1022,8 @@ import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { parseDigiFinnFile, mergeDigiFinn, scorePortfolio } from "./digifinn.js";
 import { bondAnalytics, bondSummary, parseBondLabel, inferFace,
-  BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange } from "./bonds.js";
+  BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange,
+  carryBrokerFields } from "./bonds.js";
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport, IMPORT_SLOTS,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
@@ -8292,16 +8293,9 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
           // A statement does not repeat what a broker report taught the row:
           // payout schedule, rating, part redemptions. Re-importing the CAS used
           // to wipe them, so a bond that had already returned half its principal
-          // started showing the full amount as still to come.
-          rating: oldRow?.rating || "",
-          rating_at_purchase: oldRow?.rating_at_purchase || oldRow?.rating || "",
-          yield_bps: oldRow?.yield_bps ?? null,
-          payout_paise: oldRow?.payout_paise ?? null,
-          interest_date: oldRow?.interest_date || "",
-          future_interest_paise: oldRow?.future_interest_paise ?? null,
-          future_principal_paise: oldRow?.future_principal_paise ?? null,
-          principal_dates: oldRow?.principal_dates || "",
-          returned_paise: oldRow?.returned_paise ?? null,
+          // started showing the full amount as still to come. A sale changes the
+          // units, so the schedule money scales with them.
+          ...carryBrokerFields(oldRow, h.quantity),
           // The value is the statement's own mark, so it carries the statement's
           // date, not the day the file happened to be imported.
           as_of: asOf,

@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseBondLabel, inferFace, bondAnalytics, bondSummary,
-  BOND_RATINGS, bondRatingRank, bondFillPlan, bondGrade, bondRatingChange } from "./bonds.js";
+  BOND_RATINGS, bondRatingRank, bondFillPlan, bondGrade, bondRatingChange,
+  carryBrokerFields } from "./bonds.js";
 
 test("parses the coupon and maturity from a bond label", () => {
   const p = parseBondLabel("10.25% NAVI FINSERV PRIVATE LIMITED 31 DEC 2026");
@@ -78,6 +79,29 @@ test("a BSE quote uses the remaining face after a part redemption", () => {
     future_principal_paise: 10000000 },
   { details: null, market: { ltp: 60, date: "2026-11-09" } });
   assert.equal(plan.patch.value_paise, 6000000);
+});
+
+test("selling one of two bonds halves the schedule and the repayment", () => {
+  const c = carryBrokerFields({
+    quantity: 2, returned_paise: 10000000, future_principal_paise: 10000000,
+    future_interest_paise: 97808, payout_paise: 97808,
+    yield_bps: 1400, rating: "ICRA BBB / Stable", interest_date: "2026-12-03",
+  }, 1);
+  assert.equal(c.returned_paise, 5000000);
+  assert.equal(c.future_principal_paise, 5000000);
+  assert.equal(c.future_interest_paise, 48904);
+  assert.equal(c.payout_paise, 48904);
+  assert.equal(c.yield_bps, 1400);
+  assert.equal(c.rating, "ICRA BBB / Stable");
+  assert.equal(c.interest_date, "2026-12-03");
+});
+
+test("buying one more keeps the repayment already received", () => {
+  const c = carryBrokerFields({
+    quantity: 2, returned_paise: 10000000, future_principal_paise: 10000000,
+  }, 3);
+  assert.equal(c.returned_paise, 10000000);
+  assert.equal(c.future_principal_paise, 15000000);
 });
 
 test("summarizes a portfolio of bond lots", () => {
