@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS fact(
 CREATE INDEX IF NOT EXISTS fact_acct ON fact(account_id, txn_date);
 CREATE TABLE IF NOT EXISTS holding(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  asset_id TEXT NOT NULL, security_id TEXT, label TEXT, category TEXT,
+  asset_id TEXT NOT NULL, security_id TEXT, label TEXT, issuer TEXT, category TEXT,
   rating TEXT, frequency TEXT, yield_bps INTEGER, payout_paise INTEGER,
   quantity REAL, cost_paise INTEGER, value_paise INTEGER,
   purchase_date TEXT, interest_date TEXT, source_row INTEGER,
@@ -125,6 +125,7 @@ function migrate(conn) {
   const hhave = new Set(hinfo.length ? hinfo[0].values.map((v) => v[1]) : []);
   for (const [name, type] of [["rating", "TEXT"], ["frequency", "TEXT"],
     ["yield_bps", "INTEGER"], ["payout_paise", "INTEGER"], ["source", "TEXT"],
+    ["issuer", "TEXT"],
     ["rating_at_purchase", "TEXT"], ["future_interest_paise", "INTEGER"],
     ["future_principal_paise", "INTEGER"], ["principal_dates", "TEXT"],
     ["returned_paise", "INTEGER"]]) {
@@ -515,12 +516,12 @@ export function makeStore(SQLlib, save) {
       const key = [assetId, r.security_id, r.label, r.category, r.rating, r.frequency,
         r.yield_bps, r.payout_paise, r.quantity, r.cost_paise, r.value_paise,
         r.source_row].join("|");
-      conn.run("INSERT OR REPLACE INTO holding(asset_id,security_id,label,category,"
+      conn.run("INSERT OR REPLACE INTO holding(asset_id,security_id,label,issuer,category,"
         + "rating,frequency,yield_bps,payout_paise,quantity,cost_paise,value_paise,purchase_date,"
         + "interest_date,rating_at_purchase,future_interest_paise,"
         + "future_principal_paise,principal_dates,returned_paise,source_row,as_of,txn_key,"
-        + "source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        [assetId, r.security_id || "", r.label || "", r.category || "",
+        + "source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [assetId, r.security_id || "", r.label || "", r.issuer || "", r.category || "",
          r.rating || "", r.frequency || "",
          r.yield_bps === undefined ? null : r.yield_bps,
          r.payout_paise === undefined ? null : r.payout_paise,
@@ -731,7 +732,7 @@ export function makeStore(SQLlib, save) {
     conn.run("UPDATE issue SET state=? WHERE state='open'", [state]);
   };
   store.listHoldings = (assetId) => all(
-    "SELECT id, security_id, label, category, rating, rating_at_purchase, frequency,"
+    "SELECT id, security_id, label, issuer, category, rating, rating_at_purchase, frequency,"
     + " yield_bps, payout_paise, quantity, cost_paise, value_paise, purchase_date,"
     + " interest_date, future_interest_paise, future_principal_paise, principal_dates,"
     + " returned_paise, as_of,"
@@ -745,7 +746,7 @@ export function makeStore(SQLlib, save) {
         ? all("SELECT rating_at_purchase FROM holding WHERE id=?", [h.id])[0] : null;
       baseline = String(prior?.rating_at_purchase || "").trim() || String(h.rating || "").trim();
     }
-    const fields = [h.security_id || "", h.label || "", h.category || "bond",
+    const fields = [h.security_id || "", h.label || "", h.issuer || "", h.category || "bond",
       h.rating || "", h.frequency || "", h.yield_bps ?? null, h.payout_paise ?? null,
       h.quantity ?? null, h.cost_paise ?? null, h.value_paise ?? null,
       h.purchase_date || "", h.interest_date || "", baseline || "",
@@ -755,7 +756,7 @@ export function makeStore(SQLlib, save) {
       // An edit that does not mention as_of keeps the stored value date; a date
       // field the user cleared is written as empty on purpose.
       const asOf = h.as_of === undefined ? null : String(h.as_of || "");
-      conn.run("UPDATE holding SET security_id=?,label=?,category=?,rating=?,frequency=?,"
+      conn.run("UPDATE holding SET security_id=?,label=?,issuer=?,category=?,rating=?,frequency=?,"
         + "yield_bps=?,payout_paise=?,quantity=?,cost_paise=?,value_paise=?,purchase_date=?,"
         + "interest_date=?,rating_at_purchase=?,future_interest_paise=?,"
         + "future_principal_paise=?,principal_dates=?,returned_paise=?,"
@@ -764,11 +765,11 @@ export function makeStore(SQLlib, save) {
       return h.id;
     }
     const key = ["manual", assetId, Date.now(), Math.random().toString(36).slice(2)].join("|");
-    conn.run("INSERT INTO holding(asset_id,security_id,label,category,rating,frequency,"
+    conn.run("INSERT INTO holding(asset_id,security_id,label,issuer,category,rating,frequency,"
       + "yield_bps,payout_paise,quantity,cost_paise,value_paise,purchase_date,interest_date,"
       + "rating_at_purchase,future_interest_paise,future_principal_paise,principal_dates,"
       + "returned_paise,source_row,as_of,txn_key,source)"
-      + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [assetId, ...fields, 0, String(h.as_of || ""), key, "manual"]);
     return all("SELECT last_insert_rowid() AS id")[0].id;
   };

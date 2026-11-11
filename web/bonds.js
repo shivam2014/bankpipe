@@ -184,6 +184,10 @@ export function bondFillPlan(row, fetched) {
     if (details.rating?.text && details.rating.text !== String(row.rating || "").trim()) {
       patch.rating = details.rating.text;
     }
+    // The CAS prints a short code ("ACAPL"); SMEST knows the issuer's name.
+    if (details.issuer && details.issuer !== String(row.issuer || "").trim()) {
+      patch.issuer = details.issuer;
+    }
     if (!String(row.frequency || "").trim() && details.frequency) patch.frequency = details.frequency;
     if (!String(row.interest_date || "").trim() && details.nextInterest) patch.interest_date = details.nextInterest;
   }
@@ -207,7 +211,7 @@ export function bondFillPlan(row, fetched) {
     patch,
     added: !!(patch.frequency || patch.interest_date),
     ratingChanged: !!(patch.rating && String(row.rating || "").trim()),
-    terms: !!(patch.rating || patch.frequency || patch.interest_date),
+    terms: !!(patch.rating || patch.issuer || patch.frequency || patch.interest_date),
     priced: patch.value_paise !== undefined,
     unread: !details && !market,
   };

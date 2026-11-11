@@ -150,6 +150,17 @@ test("a lot that already has a rating and frequency keeps them, unless the grade
   assert.equal(moved.terms, true);
 });
 
+test("a lookup adds the issuer name, and a correction replaces a short one", () => {
+  const details = { issuer: "Akara Capital Advisors Private Limited" };
+  const blank = bondFillPlan({ quantity: 1, cost_paise: 10000000, issuer: "" },
+    { details, market: null });
+  assert.equal(blank.patch.issuer, "Akara Capital Advisors Private Limited");
+  assert.equal(blank.terms, true);
+  const short = bondFillPlan({ quantity: 1, cost_paise: 10000000, issuer: "ACAPL" },
+    { details, market: null });
+  assert.equal(short.patch.issuer, "Akara Capital Advisors Private Limited");
+});
+
 test("no units or no price means no market value, and nothing at all means unread", () => {
   const fetched = { details: { face: 100000 }, market: null };
   assert.equal(bondFillPlan({ quantity: 0 }, fetched).priced, false);

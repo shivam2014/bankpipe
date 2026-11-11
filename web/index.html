@@ -8224,6 +8224,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
         return {
           security_id: h.isin,
           label: keepOld ? oldRow.label : nextLabel,
+          issuer: oldRow?.issuer || "",
           category: h.kind,
           frequency: h.frequency || oldRow?.frequency || "",
           quantity: h.quantity,
@@ -9397,7 +9398,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     <span class="v ${cls}">${val}</span></div>`;
   return `<div class="bond-card">
     <div class="bond-card-head"><div><div class="bond-name">${esc(v.h.label || "—")}</div>
-      <div class="sub">${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
+      <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
         ? " · added by hand" : ""}</div></div>
       <div style="display:flex;gap:6px;align-items:center">
         ${matured ? `<span class="bond-rating">Matured</span>` : ""}
@@ -9479,7 +9480,7 @@ function holdingsCard(allRows, assetId) {
     ${sortBtn("payout", "Next interest")}${sortBtn("value", "Market value")}</div>`;
   const tableRows = views.map((v) => `<tr>
       <td><div class="bond-name">${esc(v.h.label || "—")}</div>
-        <div class="sub">${esc(v.h.security_id || "")}</div></td>
+        <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "")}</div></td>
       <td>${v.rating ? `<span class="bond-rating">${esc(v.rating)}</span>` : "—"}
         ${v.change ? `<div class="sub ${v.change.down ? "neg" : "pos"}" style="margin-top:3px">
           ${v.change.down ? "downgraded" : "upgraded"} ${esc(v.change.from)} → ${esc(v.change.to)}</div>` : ""}</td>
@@ -10331,6 +10332,7 @@ function renderBondHoldingForm() {
       return;
     }
     const parts = h ? bondLabelParts(h) : { name: "", coupon: "", maturity: "" };
+    window.bpHoldingIssuer = h?.issuer || "";
     const val = (n) => (h && h[n] !== null && h[n] !== undefined ? h[n] : "");
     const freq = h && h.frequency ? bondFrequency(h.frequency) : "Quarterly";
     const moneyIn = (p) => (p === null || p === undefined || p === "") ? "" : inr(p);
@@ -10452,6 +10454,7 @@ window.bpBondFetch = async (assetId, holdingId, overwrite = false) => {
   const row = rows.find((r) => String(r.id) === String(holdingId)) || {};
   const units = Number(document.getElementById("bh-units")?.value || row.quantity) || 0;
   const fields = bondPrefill(data.details, { quantity: units });
+  if (data.details?.issuer) window.bpHoldingIssuer = data.details.issuer;
   const force = overwrite || !holdingId;
   let keptCount = 0;
   const set = (id, v) => {
@@ -10530,6 +10533,7 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
       id: holdingId ? Number(holdingId) : null,
       label: bondLabelText(name, coupon, maturity),
       security_id: val("bh-isin").toUpperCase(),
+      issuer: window.bpHoldingIssuer || "",
       quantity: units, cost_paise: cost,
       value_paise: val("bh-value") ? parseMoney(val("bh-value")) : null,
       as_of: val("bh-value-date"),
