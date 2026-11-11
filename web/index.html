@@ -9854,22 +9854,29 @@ async function marketBondData(isins, onProgress) {
   await Promise.all([worker(), worker(), worker(), worker()]);
   return { got, down };
 }
-async function applyMarketData(store, assetId, lots, got) {
+async function applyMarketData(store, assetId, lots, got, { termsOnly = false } = {}) {
   // One bucket per lot, so the sentence adds up to the number of bonds.
   const c = { lots: lots.length, priced: 0, changed: 0, filled: 0,
     current: 0, unpriced: 0, unlisted: 0, unread: 0 };
   for (const h of lots) {
     const data = got.get(String(h.security_id).toUpperCase()) || null;
     const plan = bondFillPlan(h, data);
-    if (plan.terms || plan.priced) {
+    // A matured bond keeps its rating and issuer current; its price is history.
+    const priced = plan.priced && !termsOnly;
+    if (termsOnly) {
+      delete plan.patch.value_paise;
+      delete plan.patch.as_of;
+      delete plan.patch.value_source;
+    }
+    if (plan.terms || priced) {
       await store.upsertHolding(assetId, { ...h, ...plan.patch });
     }
     if (!data || (data.status && data.status !== 404)) c.unread++;
     else if (!data.details) c.unlisted++;
-    else if (plan.priced && plan.patch.value_paise !== h.value_paise) c.priced++;
+    else if (priced && plan.patch.value_paise !== h.value_paise) c.priced++;
     else if (plan.ratingChanged) c.changed++;
     else if (plan.added) c.filled++;
-    else if (!plan.priced) c.unpriced++;
+    else if (!priced) c.unpriced++;
     else c.current++;
   }
   return c;
@@ -9897,11 +9904,18 @@ window.bpBondFetchAll = async (assetId, onlyId = "") => {
     if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
   };
   const store = await import("./db.js");
-  // A matured lot has no price and no next interest; it is not worth a lookup.
-  const lots = liveBondLots(await store.listHoldings(assetId))
-    .filter((h) => !onlyId || String(h.id) === String(onlyId));
+  // Matured lots are history, but their rating and issuer still move. Fetch the
+  // terms for both; the price is only applied to what is still held.
+  const { current, matured } = splitMatured(await store.listHoldings(assetId));
+  const bondOnly = (h) => String(h.category || "") === "bond"
+    && /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase())
+    && !(Number(h.quantity) === 0)
+    && (!onlyId || String(h.id) === String(onlyId));
+  const currentLots = current.filter(bondOnly);
+  const maturedLots = matured.filter(bondOnly);
+  const lots = [...currentLots, ...maturedLots];
   if (!lots.length) {
-    note("No current lot carries an ISIN, so there is nothing to look up.");
+    note("No bond carries an ISIN, so there is nothing to look up.");
     return;
   }
   const isins = [...new Set(lots.map((h) => String(h.security_id).toUpperCase()))];
@@ -9913,7 +9927,11 @@ window.bpBondFetchAll = async (assetId, onlyId = "") => {
     note("The exchange lookup did not answer. Try again in a moment, or enter the price by hand.");
     return;
   }
-  const counts = await applyMarketData(store, assetId, lots, got);
+  const counts = await applyMarketData(store, assetId, currentLots, got);
+  if (maturedLots.length) {
+    const terms = await applyMarketData(store, assetId, maturedLots, got, { termsOnly: true });
+    for (const key of Object.keys(counts)) counts[key] += terms[key] || 0;
+  }
   note(`${counts.lots} bond${counts.lots === 1 ? "" : "s"} · ${marketSummary(counts)}.`);
   window.bpAsset(assetId);
 };
