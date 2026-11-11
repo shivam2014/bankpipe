@@ -9448,6 +9448,11 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
   const moneyOrDash = (x) => x === null || x === undefined ? "—" : money(x);
   const cell = (k, val, cls = "") => `<div><span class="k">${k}</span>
     <span class="v ${cls}">${val}</span></div>`;
+  const signed = (n) => `${n < 0 ? "−" : n > 0 ? "+" : ""}${money(Math.abs(n))}`;
+  const still = v.expectedMaturity;
+  const heldTotal = matured || still === null || still === undefined
+    ? null : still + (v.returned || 0);
+  const heldGain = matured ? null : v.expectedGain;
   return `<div class="bond-card">
     <div class="bond-card-head"><div><div class="bond-name">${esc(v.h.label || "—")}</div>
       <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
@@ -9480,19 +9485,20 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Invested", moneyOrDash(v.h.cost_paise))}
       ${cell("Market value", moneyOrDash(v.value))}
       ${cell("Gain if sold", v.gain === null || v.gain === undefined ? "—"
-        : `${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain))}`,
+        : `${signed(v.gain)}<div class="sub">on ${money(v.value + (v.returned || 0))} if sold
+          now${v.returned ? ` · includes ${money(v.returned)} back` : ""}</div>`,
         v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "")}
+      ${cell("If held", heldTotal === null ? "—" : money(heldTotal))}
+      ${cell("Gain if held", heldGain === null || heldGain === undefined ? "—" : signed(heldGain),
+        heldGain === null || heldGain === undefined ? ""
+          : heldGain < 0 ? "neg" : heldGain > 0 ? "pos" : "")}
     </div>
     ${matured ? "" : (() => {
-      const still = v.expectedMaturity;
-      const total = still === null || still === undefined ? null : still + (v.returned || 0);
       const split = v.ba?.schedule
         ? `${money(v.ba.schedule.principal)} principal + ${money(v.ba.schedule.interest)} interest`
         : "";
       const when = v.parts > 1 ? `principal in ${v.parts} parts`
         : v.maturity ? `on ${dateLabel(v.maturity)}` : "";
-      const gainLabel = v.expectedGain === null || v.expectedGain === undefined ? ""
-        : `${v.expectedGain < 0 ? "loss" : "gain"} ${v.expectedGain < 0 ? "−" : "+"}${money(Math.abs(v.expectedGain))}`;
       const today = new Date().toISOString().slice(0, 10);
       const paidOn = String(v.h.redemption_dates || "").split(",")
         .map((d) => d.trim()).filter((d) => d && d <= today).sort().pop() || "";
@@ -9509,9 +9515,6 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
           ${still === null || still === undefined ? "" : `<div class="bm-row">
             <span class="k">Still to come</span><span class="v">${money(still)}</span>
             <span class="sub">${[when, split].filter(Boolean).join(" · ")}</span></div>`}
-          ${total === null ? "" : `<div class="bm-row"><span class="k">If held to maturity</span>
-            <span class="v">${money(total)}</span>
-            <span class="sub ${v.expectedGain < 0 ? "neg" : "pos"}">${gainLabel}</span></div>`}
           ${v.value === null
             ? `<div class="bm-row"><span class="k">Market value</span><span class="v">—</span>
               <span class="sub">not recorded${assetId && v.h.id ? ` · <button class="vupdate"
@@ -9524,9 +9527,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
                   ? `${v.ba.marketPrice.toFixed(2)} per ₹100 of the
                     ${money(v.ba.faceTotal)} outstanding` : "",
               ].filter(Boolean).join(" · ")}${assetId && v.h.id ? ` · <button class="vupdate"
-                onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}</span>
-              <span class="sub">If sold now ${money(v.value + (v.returned || 0))}${v.returned
-                ? ` · includes ${money(v.returned)} already back` : ""}</span></div>`}
+                onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}</span></div>`}
           ${v.returned && v.ba?.purchaseFaceTotal && v.ba?.faceTotal
             ? `<div class="bm-note">Derived${payoutFile ? ` from ${esc(payoutFile)}` : ""}:
               ${money(v.ba.purchaseFaceTotal)} face bought − ${money(v.ba.faceTotal)} principal
