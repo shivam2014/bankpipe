@@ -5,21 +5,21 @@ import { bondBroker } from "./brokers.js";
 
 const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 
-test("one payouts slot accepts either export, and both are optional", () => {
+test("the payouts slot names one file, and it is optional", () => {
   const reports = bondBroker("digifinn").reports;
   const payouts = reports.find((r) => r.slot === "payouts");
   assert.ok(payouts);
   assert.equal(payouts.optional, true);
-  assert.deepEqual(payouts.files,
-    ["upcoming-payouts.csv", "portfolio-cashflow-future.csv"]);
+  assert.deepEqual(payouts.files, ["upcoming-payouts.csv"]);
   assert.equal(reports.filter((r) => r.slot === "payouts").length, 1);
 });
 
-test("the page accepts both payout exports", () => {
-  assert.match(html, /A Cashflow Future export is also accepted/);
+test("the page offers no choice between payout exports", () => {
+  assert.doesNotMatch(html, /upcoming-payouts\.csv or portfolio-cashflow-future\.csv/);
+  assert.doesNotMatch(html, /A Cashflow Future export is also accepted/);
+  assert.doesNotMatch(html, /Cashflow Future, if offered, adds the full schedule/);
 });
 
-test("the optional export is described as the full schedule", () => {
-  const payouts = bondBroker("digifinn").reports.find((r) => r.slot === "payouts");
-  assert.match(payouts.detail, /Cashflow Future adds the full schedule/);
+test("the field map credits Upcoming Payouts with frequency and next interest", () => {
+  assert.match(html, /Upcoming Payouts", "payment frequency · next interest · next interest date/);
 });

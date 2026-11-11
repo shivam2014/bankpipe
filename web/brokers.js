@@ -22,8 +22,8 @@ export const BOND_BROKERS = [
         files: ["holdings-report-YYYY-MM-DD.csv"],
         example: "holdings-report-2026-10-26.csv" },
       { slot: "payouts", title: "Payouts report", optional: true,
-        detail: "payment frequency and next interest; Cashflow Future adds the full schedule",
-        files: ["upcoming-payouts.csv", "portfolio-cashflow-future.csv"] },
+        detail: "payment frequency and next interest",
+        files: ["upcoming-payouts.csv"] },
     ],
   },
 ];

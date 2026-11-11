@@ -3005,8 +3005,7 @@ function fieldSourcesHtml() {
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:9px">
       ${row("CAS statement", "ISIN · bond name · interest rate · maturity · units · market value · DP and owner")}
       ${row("Portfolio Report", "invested (what you paid) · purchase date")}
-      ${row("Upcoming Payouts <i>or</i> Cashflow Future", "payment frequency · next interest · next interest date")}
-      ${row("Cashflow Future only", "purchase yield · expected at maturity · expected gain · principal in parts · already back")}
+      ${row("Upcoming Payouts", "payment frequency · next interest · next interest date")}
       ${row("Fetch latest (SMEST + BSE)", "credit rating · current market value")}
     </div></details>`;
 }
@@ -3062,8 +3061,7 @@ function renderImport() {
       <div id="import-broker-preview" style="margin-top:10px"></div>
       ${fieldSourcesHtml()}
       <div class="muted" style="font-size:11px;margin-top:7px;line-height:1.55">
-        Cashflow Future, if offered, adds the full schedule. Not used: Transaction,
-        Investment, KYC, MITC. A second demat may append (1).</div>
+        Not used: Transaction, Investment, KYC, MITC. A second demat may append (1).</div>
     </div>
     <div class="muted" style="font-size:11.5px;margin-top:8px">Updating? Re-import the CAS;
     cost already on matching bonds is kept.</div>
@@ -7534,8 +7532,8 @@ window.bpCashflowFile = async (file, opts = {}) => {
     const parsed = parseBrokerReport(brokerId, await file.text(), file.name);
     if (parsed.kind !== "payouts") {
       fail(`That is not the ${esc(broker.label)} Upcoming Payouts report. Open
-        ${esc(broker.page?.where || "Reports")} on ${esc(broker.label)} and download the CSV.
-        A Cashflow Future export is also accepted.`);
+        ${esc(broker.page?.where || "Reports")} on ${esc(broker.label)} and download
+        <code>upcoming-payouts.csv</code>.`);
       return;
     }
     if (!parsed.groups?.length) {

@@ -13,8 +13,7 @@ test("digifinn is the first broker, with one cost file and one optional payouts 
   assert.ok(b.reports.every((r) => r.title && Array.isArray(r.files) && r.files.length));
   const payouts = b.reports.find((r) => r.slot === "payouts");
   assert.equal(payouts.optional, true);
-  assert.deepEqual(payouts.files,
-    ["upcoming-payouts.csv", "portfolio-cashflow-future.csv"]);
+  assert.deepEqual(payouts.files, ["upcoming-payouts.csv"]);
   // Slots must be unique: the file picker keys its state by slot.
   assert.equal(new Set(b.reports.map((r) => r.slot)).size, b.reports.length);
 });
