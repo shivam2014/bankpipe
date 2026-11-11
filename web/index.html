@@ -394,6 +394,7 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .bm-row .v{font-weight:600;color:var(--ink)}
 .bm-row .sub{flex:1 1 100%;margin-left:128px;font-size:11px;color:var(--muted)}
 .bm-row .sub.pos{color:var(--green)}.bm-row .sub.neg{color:var(--red)}
+.bm-note{margin-left:128px;font-size:10.5px;color:var(--muted);line-height:1.45}
 .bond-market b{color:var(--ink);font-weight:600}
 .bond-market .sep{margin:0 6px;color:var(--line)}
 .bond-market .muted{margin-left:8px}
@@ -9493,14 +9494,18 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         : `${v.expectedGain < 0 ? "loss" : "gain"} ${v.expectedGain < 0 ? "−" : "+"}${money(Math.abs(v.expectedGain))}`;
       return `<div class="bond-money">
         ${v.returned ? `<div class="bm-row"><span class="k">Principal returned</span>
-          <span class="v pos">${money(v.returned)}</span>
-          <span class="sub">an early repayment, not a sale</span></div>` : ""}
+          <span class="v pos" title="Face bought ${money(v.ba?.purchaseFaceTotal)} minus
+            principal still to come ${money(v.ba?.faceTotal)}.">${money(v.returned)}</span>
+          <span class="sub">an early repayment, not a sale · from the payout schedule</span></div>` : ""}
         ${still === null || still === undefined ? "" : `<div class="bm-row">
           <span class="k">Still to come</span><span class="v">${money(still)}</span>
           <span class="sub">${[when, split].filter(Boolean).join(" · ")}</span></div>`}
         ${total === null ? "" : `<div class="bm-row"><span class="k">If held to maturity</span>
           <span class="v">${money(total)}</span>
           <span class="sub ${v.expectedGain < 0 ? "neg" : "pos"}">${gainLabel}</span></div>`}
+        ${v.returned && v.ba?.purchaseFaceTotal && v.ba?.faceTotal
+          ? `<div class="bm-note">Derived: ${money(v.ba.purchaseFaceTotal)} face bought −
+            ${money(v.ba.faceTotal)} principal still to come. Redemption dates on SMEST.</div>` : ""}
       </div>`;
     })()}
     <div class="bond-market">${matured
