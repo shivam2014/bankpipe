@@ -2988,27 +2988,31 @@ function renderImport() {
   never asks for a bank or broker password, OTP or PIN.</p>
 
   <div class="card pad" style="margin-bottom:14px">
-    <h2 style="margin:0">Bond portfolio</h2>
-    <div class="muted" style="font-size:12.5px;margin-top:5px"><b>New:</b> import the
-    CDSL/NSDL <b>CAS</b> below. It creates the demat account with units, face value and
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <h2 style="margin:0">Bond portfolio</h2>
+      <span class="muted" style="font-size:11.5px">CAS + optional Holdings Report</span></div>
+    <div class="muted" style="font-size:12.5px;margin-top:6px"><b>1. CAS statement
+    (required).</b> CDSL or NSDL. Creates the demat account with units, face value and
     market value.</div>
-    <div class="muted" style="font-size:12.5px;margin-top:4px"><b>Existing:</b> open the
-    demat account → <b>Broker holdings</b> → choose the DigiFInn Holdings Report only if a
-    bond needs a purchase price. That is the only optional broker file.</div>
-    <div class="muted" style="font-size:12.5px;margin-top:4px"><b>Updating:</b> import the
-    latest CAS. It replaces units and value in place and keeps the purchase price already on
-    matching bonds; only bonds new to the statement need the broker file again.</div>
-    <div class="muted" style="font-size:11.5px;margin-top:6px">Investment, Transaction,
-    Cashflow and Upcoming Payouts reports are not used for holdings.</div>
+    <label class="btn primary" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:8px">
+      Choose CAS statement
+      <input type="file" accept=".pdf" style="display:none"
+        onchange="bpCasFile(this.files[0],'bond-cas-host');this.value=''"></label>
+    <div id="bond-cas-host" style="margin-top:10px"></div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px"><b>2. Broker holdings
+    (optional).</b> Open the demat account → <b>Broker holdings</b> → choose the DigiFInn
+    Holdings Report. It adds the purchase price and date; only that report is used.</div>
+    <div class="muted" style="font-size:11.5px;margin-top:6px">Updating? Re-import the CAS;
+    cost already on matching bonds is kept.</div>
   </div>
 
   <div class="card pad">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0">Import</h2>
+      <h2 style="margin:0">Other statements</h2>
       <span class="muted" style="font-size:11.5px">Last import ${lastImportShort()}</span></div>
-    <p class="muted" style="margin:6px 0 10px;font-size:13px">Choose one or more files. The
-    app guesses what each one is; change any row before importing. Nothing is written until
-    you confirm.</p>
+    <p class="muted" style="margin:6px 0 10px;font-size:13px">Bank statements and other
+    files. A demat CAS goes through the <b>Bond portfolio</b> card above. Nothing is written
+    until you confirm.</p>
     <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer">
       Choose files
       <input type="file" id="import-files" multiple
@@ -6779,7 +6783,7 @@ window.bpImportRender = () => {
   const rows = window.bpImportQueue || [];
   if (!rows.length) { host.innerHTML = ""; return; }
   const options = (kind) => `<option value=""${kind ? "" : " selected"}>Choose the type…</option>`
-    + IMPORT_KINDS.filter((k) => k !== "broker").map((k) =>
+    + IMPORT_KINDS.filter((k) => k !== "broker" && k !== "cas").map((k) =>
       `<option value="${k}"${k === kind ? " selected" : ""}>${esc(IMPORT_KIND_LABEL[k])}</option>`
     ).join("");
   const list = rows.map((r, i) => `<div style="display:grid;
@@ -6794,9 +6798,12 @@ window.bpImportRender = () => {
         ${r.confidence === "name"
           ? `<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px;
              background:var(--amber,#b7791f);color:#fff">Check</span>` : ""}
-        <select onchange="bpImportKindSet(${i}, this.value)"
+        ${r.kind === "cas" || r.kind === "broker"
+          ? `<span class="muted" style="font-size:11px;max-width:150px;text-align:right">${
+              r.kind === "cas" ? "CAS — use the card above" : "Broker holdings — use the demat"}</span>`
+          : `<select onchange="bpImportKindSet(${i}, this.value)"
           style="font:inherit;font-size:12px;padding:4px 6px;border-radius:7px;
-          border:1px solid var(--line);background:var(--card)">${options(r.kind)}</select></div>
+          border:1px solid var(--line);background:var(--card)">${options(r.kind)}</select>`}</div>
       <button class="icon-btn" title="Remove this file"
         onclick="bpImportDrop(${i})">✕</button>
     </div>`).join("");
@@ -6806,9 +6813,10 @@ window.bpImportRender = () => {
     .map(([k, n]) => `${n} ${IMPORT_KIND_LABEL[k].toLowerCase()}`)
     .join(" · ");
   const missing = rows.filter((r) => !r.kind).length;
-  const brokerNote = rows.some((r) => r.kind === "broker")
-    ? `<div class="muted" style="font-size:12px;margin-top:8px">Broker holdings are added
-       on the demat account, under <b>Broker holdings</b>; remove the file here.</div>` : "";
+  const brokerNote = rows.some((r) => r.kind === "broker" || r.kind === "cas")
+    ? `<div class="muted" style="font-size:12px;margin-top:8px">A demat CAS goes through
+       the <b>Bond portfolio</b> card above; broker holdings are added on the demat account.
+       Remove the file here.</div>` : "";
   host.innerHTML = `${list}${brokerNote}
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
       <button class="btn primary" onclick="bpImportRun()">Read ${rows.length}
@@ -6848,16 +6856,12 @@ window.bpImportRun = async () => {
     }
     await bpBatchAddFiles(banks);
   }
-  let slot = 0;
   for (const row of rows.filter((r) => r.kind !== "bank")) {
     if (row.kind === "cas") {
-      // One preview per file, so a batch of statements shows a batch of receipts.
-      const hostId = `cas-host-${slot++}`;
-      if (!document.getElementById(hostId)) {
-        host.insertAdjacentHTML("beforeend",
-          `<div class="card pad" id="${hostId}" style="margin-bottom:12px"></div>`);
-      }
-      await window.bpCasFile(row.file, hostId);
+      host.insertAdjacentHTML("beforeend", `<div class="card pad" style="margin-bottom:12px;font-size:13px">
+        <b>Demat CAS statements are imported from the Bond portfolio card above.</b>
+        <div class="muted" style="margin-top:4px">Remove the file here and choose it there;
+        that card creates the demat account and its holdings.</div></div>`);
     } else if (row.kind === "broker") {
       host.insertAdjacentHTML("beforeend", `<div class="card pad" style="margin-bottom:12px;font-size:13px">
         <b>Broker holdings are added on the demat account.</b>
@@ -7180,26 +7184,37 @@ window.bpCostFill = async () => {
       || Number(h.quantity) > 0);
     if (!live.length) { host.innerHTML = ""; return; }
     const missing = live.filter((h) => h.cost_paise === null || h.cost_paise === undefined);
-    const provenance = meta.cost_source
-      ? `${meta.cost_source}${meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}`
-      : "";
-    host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
-        <h2 style="margin:0">Broker holdings <span class="pill"
-          style="font-size:10px;vertical-align:2px">DigiFInn</span></h2>
-        <span class="muted" style="font-size:11.5px">${missing.length
-          ? `${missing.length} of ${live.length} bonds need a purchase price`
-          : provenance || `all ${live.length} bonds priced`}</span></div>
-      <div class="muted" style="font-size:12.5px;margin-top:5px">The CAS gives units,
-      face value and market value — not what you paid. The <b>DigiFInn Holdings Report</b>
-      adds the purchase price and date. More brokers can be added later; this is the only
-      broker file needed.</div>
+    const body = `<div class="muted" style="font-size:12.5px;margin-top:5px">The CAS gives
+      units, face value and market value — not what you paid. The <b>DigiFInn Holdings
+      Report</b> adds the purchase price and date. More brokers can be added later; this is
+      the only broker file needed.</div>
       <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:10px">
         Choose DigiFInn Holdings Report
         <input type="file" accept=".csv" style="display:none"
           onchange="bpCostFile(this.files[0]);this.value=''"></label>
-      <div id="cost-preview" style="margin-top:10px"></div>
-    </div>`;
+      <div id="cost-preview" style="margin-top:10px"></div>`;
+    if (!missing.length) {
+      // Every live bond has a price: keep the provenance and the replace action
+      // available, but folded away so it does not compete with the holdings.
+      host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
+        <details>
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">
+            Broker holdings · DigiFInn · all ${live.length} bond${live.length === 1 ? "" : "s"} priced${
+            meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}
+          </summary>
+          <div style="margin-top:8px">${body}</div>
+        </details>
+      </div>`;
+    } else {
+      host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+          <h2 style="margin:0">Broker holdings <span class="pill"
+            style="font-size:10px;vertical-align:2px">DigiFInn</span></h2>
+          <span class="muted" style="font-size:11.5px">${missing.length} of ${live.length}
+            bond${live.length === 1 ? "" : "s"} need a purchase price</span></div>
+        ${body}
+      </div>`;
+    }
     window.bpCostPlan = null;
   } catch (e) {
     host.innerHTML = "";
