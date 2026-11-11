@@ -9461,16 +9461,16 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         ? `Market value not recorded.${assetId && v.h.id ? ` <button class="vupdate"
           onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>` : ""}
           <span class="muted">Hold-to-maturity numbers above do not depend on it.</span>`
-        : `Market value <b>${money(v.value)}</b>${v.returned && v.ba?.marketPrice != null
+        : `<div>Market value <b>${money(v.value)}</b>${v.returned && v.ba?.marketPrice != null
           ? `<span class="muted">${v.ba.marketPrice.toFixed(2)} per ₹100 of the
             ${money(v.ba.faceTotal)} still outstanding</span>` : ""}${v.valueAsOf
           ? `<span class="muted"> as of ${dateLabel(v.valueAsOf)}</span>` : ""}
           ${assetId && v.h.id ? `<button class="vupdate"
-          onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}
-          <span class="sep">·</span>if sold now <b>${money(v.value + (v.returned || 0))}</b>
+          onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}</div>
+          <div style="margin-top:2px">If sold now <b>${money(v.value + (v.returned || 0))}</b>
           <b class="${v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : ""}">${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain || 0))}</b>
           <span class="muted">${v.returned
-            ? "includes the principal already back" : "only matters if you sell early"}</span>`}</div>
+            ? "includes the principal already back" : "only matters if you sell early"}</span></div>`}</div>
   </div>`;
 }
 function holdingsCard(allRows, assetId) {
