@@ -6900,7 +6900,10 @@ function shortDp(name) {
     picked.push(word);
     if (picked.length === 2) break;
   }
-  return picked.map((w) => w[0] + w.slice(1).toLowerCase()).join(" ");
+  const ACRONYM = new Set(["ICICI", "HDFC", "SBI", "IDFC", "IIFL", "NSDL", "CDSL",
+    "BSE", "NSE"]);
+  return picked.map((w) => ACRONYM.has(w.toUpperCase()) ? w.toUpperCase()
+    : w[0] + w.slice(1).toLowerCase()).join(" ");
 }
 
 // A consolidated statement is often two files (CDSL and NSDL). Each gets its own
@@ -7829,7 +7832,7 @@ window.bpCasImport = async (key = "cas-host") => {
           nextMeta.depository = cas.depository || nextMeta.depository || "";
           // The depository is NSDL or CDSL; the account is held through a DP.
           // An auto label that only names the depository is replaced by the DP.
-          if (/^Demat · (?:CDSL|NSDL) · /.test(String(asset.label || ""))
+          if (/^Demat · /.test(String(asset.label || ""))
             || !String(asset.label || "").trim()) {
             nextLabel = `Demat · ${shortDp(dpName)} · …${
               String(home.boId || currentNumber).slice(-4)}`;
