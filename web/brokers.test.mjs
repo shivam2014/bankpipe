@@ -5,12 +5,16 @@ import {
   BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport,
 } from "./brokers.js";
 
-test("digifinn is the first broker, with the reports the app applies", () => {
+test("digifinn is the first broker, with one cost file and one optional payouts file", () => {
   assert.ok(BOND_BROKERS.length >= 1);
   const b = bondBroker("digifinn");
   assert.equal(b.label, "DigiFInn");
-  assert.deepEqual(b.reports.map((r) => r.slot), ["portfolio", "payouts", "cashflow"]);
+  assert.deepEqual(b.reports.map((r) => r.slot), ["portfolio", "payouts"]);
   assert.ok(b.reports.every((r) => r.title && Array.isArray(r.files) && r.files.length));
+  const payouts = b.reports.find((r) => r.slot === "payouts");
+  assert.equal(payouts.optional, true);
+  assert.deepEqual(payouts.files,
+    ["upcoming-payouts.csv", "portfolio-cashflow-future.csv"]);
   // Slots must be unique: the file picker keys its state by slot.
   assert.equal(new Set(b.reports.map((r) => r.slot)).size, b.reports.length);
 });

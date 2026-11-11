@@ -5,14 +5,14 @@ import { bondBroker } from "./brokers.js";
 
 const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 
-test("the payouts slot is Upcoming Payouts; Cashflow Future is the optional one", () => {
-  const broker = bondBroker("digifinn");
-  const payouts = broker.reports.find((r) => r.slot === "payouts");
-  const cashflow = broker.reports.find((r) => r.slot === "cashflow");
-  assert.equal(payouts.title, "Upcoming Payouts");
-  assert.deepEqual(payouts.files, ["upcoming-payouts.csv"]);
-  assert.equal(cashflow.optional, true);
-  assert.deepEqual(cashflow.files, ["portfolio-cashflow-future.csv"]);
+test("one payouts slot accepts either export, and both are optional", () => {
+  const reports = bondBroker("digifinn").reports;
+  const payouts = reports.find((r) => r.slot === "payouts");
+  assert.ok(payouts);
+  assert.equal(payouts.optional, true);
+  assert.deepEqual(payouts.files,
+    ["upcoming-payouts.csv", "portfolio-cashflow-future.csv"]);
+  assert.equal(reports.filter((r) => r.slot === "payouts").length, 1);
 });
 
 test("the page accepts both payout exports", () => {
@@ -20,6 +20,6 @@ test("the page accepts both payout exports", () => {
 });
 
 test("the optional export is described as the full schedule", () => {
-  const cashflow = bondBroker("digifinn").reports.find((r) => r.slot === "cashflow");
-  assert.match(cashflow.detail, /full schedule and part redemptions/);
+  const payouts = bondBroker("digifinn").reports.find((r) => r.slot === "payouts");
+  assert.match(payouts.detail, /Cashflow Future adds the full schedule/);
 });
