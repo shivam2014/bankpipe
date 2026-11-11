@@ -9482,9 +9482,10 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${matured ? `<span class="bond-rating">Matured</span>` : ""}
         ${v.rating ? `<span class="bond-rating">${esc(v.rating)}</span>` : ""}
-        ${v.change ? `<span class="bond-rating ${v.change.down ? "down" : "up"}"
-          title="The rating this lot had when it was recorded, against the current one">
-          ${v.change.down ? "↓" : "↑"} ${esc(v.change.from)} → ${esc(v.change.to)}</span>` : ""}
+        ${v.change ? `<span class="muted" style="font-size:11px;color:${
+          v.change.down ? "var(--red)" : "var(--green)"}"
+          title="The rating this bond had when it was bought">${v.change.down ? "↓" : "↑"}
+          from ${esc(v.change.from)}</span>` : ""}
         ${assetId && v.h.id && !matured ? `<a class="mini-btn"
           href="https://smest.in/bond-details/x/${encodeURIComponent(v.h.security_id || "")}"
           target="_blank" rel="noopener"
@@ -9533,6 +9534,14 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       const payoutFile = window.bpBondPayoutFile || "";
       return `<details class="bond-breakdown"><summary>Breakdown</summary>
         <div class="bond-money">
+          ${v.h.rating_at_purchase || v.rating ? `<div class="bm-row">
+            <span class="k">Rating when bought</span>
+            <span class="v">${esc(v.h.rating_at_purchase || "—")}</span></div>` : ""}
+          ${v.rating ? `<div class="bm-row"><span class="k">Rating now</span>
+            <span class="v">${esc(v.rating)}</span>
+            <span class="sub ${v.change ? (v.change.down ? "neg" : "pos") : ""}">${
+              v.change ? `${v.change.down ? "downgraded" : "upgraded"} from
+                ${esc(v.change.from)}` : "unchanged since purchase"}</span></div>` : ""}
           ${v.ba?.purchaseFaceTotal ? `<div class="bm-row"><span class="k">Face bought</span>
             <span class="v">${money(v.ba.purchaseFaceTotal)}</span></div>` : ""}
           ${v.returned ? `<div class="bm-row"><span class="k">Principal returned</span>
