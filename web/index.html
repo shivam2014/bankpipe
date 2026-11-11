@@ -8866,6 +8866,8 @@ function bondRowView(h) {
       ? h.yield_bps / 100 : (ba ? ba.ytm : null),
     frequency: bondFrequency(h.frequency),
     periods,
+    payoutEstimated: !(h.payout_paise !== null && h.payout_paise !== undefined)
+      && !!(ba && periods),
     payout: h.payout_paise !== null && h.payout_paise !== undefined
       ? h.payout_paise : (ba && periods ? ba.annualCoupon / periods : null),
     totalCoupon: ba ? ba.couponIncome : null,
@@ -8936,7 +8938,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Interest rate", v.coupon === null ? "—" : `${v.coupon}%`)}
       ${cell("Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
       ${cell("Payment frequency", esc(v.frequency))}
-      ${cell("Next interest", v.payout === null ? "—" : money(v.payout))}
+      ${cell("Next interest", v.payout === null ? "—" : money(v.payout)
+        + (v.payoutEstimated ? `<div class="sub">estimated</div>` : ""))}
       ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
       ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
       ${cell("Units", v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity)}
@@ -8994,7 +8997,7 @@ function holdingsCard(allRows, assetId) {
       <td class="num">${v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`}</td>
       <td class="num">${v.payout === null ? "—" : money(v.payout)}
         ${v.payout !== null
-          ? `<div class="sub">${esc(v.frequency.toLowerCase())}${v.totalCoupon === null ? "" : ` · ${money(v.totalCoupon)} interest to maturity`}</div>`
+          ? `<div class="sub">${esc(v.frequency.toLowerCase())}${v.payoutEstimated ? " · estimated" : ""}${v.totalCoupon === null ? "" : ` · ${money(v.totalCoupon)} interest to maturity`}</div>`
           : v.periods ? `<div class="sub">${esc(v.frequency.toLowerCase())}</div>`
             : v.totalCoupon !== null ? `<div class="sub">payment frequency unknown</div>` : ""}</td>
       <td>${v.bought ? dateLabel(v.bought) : "—"}</td>
