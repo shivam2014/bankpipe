@@ -428,6 +428,10 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .icon-btn:hover{background:var(--hair);color:var(--ink)}
 .mini-btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:4px 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
 a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+.broker-tile{display:inline-flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+.broker-tile img{height:16px;width:auto;background:#fff;border-radius:4px;padding:2px 3px}
+.broker-tile .where{font-weight:400;font-size:11px;color:var(--muted)}
+.broker-tile.on{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
 .more-menu{position:relative;margin-left:auto}
 .more-menu>summary{list-style:none;cursor:pointer}
 .more-menu>summary::-webkit-details-marker{display:none}
@@ -2978,6 +2982,17 @@ function digiFinnCardHtml(target, brokerId = "digifinn") {
    </details>
   </div>`;
 }
+// A source is chosen first, then its files. The tile is a button, not a link:
+// the selection decides which report rows render.
+function brokerPickerHtml(chosen, onclick) {
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap">${BOND_BROKERS.map((b) => `
+    <button type="button" class="broker-tile${b.id === chosen ? " on" : ""}"
+      aria-pressed="${b.id === chosen}" onclick="${onclick}('${esc(b.id)}')">
+      ${b.logo ? `<img src="${esc(b.logo)}" alt="">` : ""}
+      <span>${esc(b.label)}</span>
+      <span class="where">${esc(b.page?.where || "")}</span>
+    </button>`).join("")}</div>`;
+}
 function renderImport() {
   window.bpDigiFinnPinned = "";
   // A target set by "Import statement" on an account page lasts one visit only.
@@ -3007,26 +3022,26 @@ function renderImport() {
         date, the payment frequency and the next interest. The demat can sit at any DP; the
         file finds it by ISIN. Equities and funds already have their cost and value in the
         CAS.</div>
-      <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
-        ${BOND_BROKERS.map((b) => `<div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
-            ${b.logo ? `<img src="${esc(b.logo)}" alt="" style="height:18px">` : ""}
-            <b style="font-size:12px">${esc(b.label)}</b>
-            <span class="muted" style="font-size:11px">${esc(b.page?.where || "reports")}</span>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            ${(b.reports || []).filter((r) => ["portfolio", "payouts"].includes(r.slot)).map((r) => `
-              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
-                flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
-                <div><b style="font-size:12.5px">${esc(r.title)}</b>
-                  <div class="muted" style="font-size:11.5px">${esc(r.detail || "")} ·
-                    <code>${esc((r.files || [])[0] || "")}</code></div></div>
-                <label class="mini-btn">Choose<input type="file" accept=".csv" style="display:none"
-                  onchange="bpImportBroker('${esc(r.slot)}','${esc(b.id)}',this.files[0]);this.value=''"></label>
-              </div>`).join("")}
-          </div>
-        </div>`).join("")}
-      </div>
+      <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
+        text-transform:uppercase;margin-top:12px">Supported brokers</div>
+      <div style="margin-top:7px">${brokerPickerHtml(window.bpImportBrokerChoice || "",
+        "bpImportBrokerChoose")}</div>
+      ${(() => {
+        const chosen = window.bpImportBrokerChoice ? bondBroker(window.bpImportBrokerChoice) : null;
+        if (!chosen) return `<div class="muted" style="font-size:12px;margin-top:10px">
+          Choose a broker to see the files it needs.</div>`;
+        return `<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+          ${(chosen.reports || []).filter((r) => ["portfolio", "payouts"].includes(r.slot)).map((r) => `
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
+              flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
+              <div><b style="font-size:12.5px">${esc(r.title)}</b>
+                <div class="muted" style="font-size:11.5px">${esc(r.detail || "")} ·
+                  <code>${esc((r.files || [])[0] || "")}</code></div></div>
+              <label class="mini-btn">Choose<input type="file" accept=".csv" style="display:none"
+                onchange="bpImportBroker('${esc(r.slot)}','${esc(chosen.id)}',this.files[0]);this.value=''"></label>
+            </div>`).join("")}
+        </div>`;
+      })()}
       <div id="import-broker-preview" style="margin-top:10px"></div>
       <div class="muted" style="font-size:11px;margin-top:7px;line-height:1.55">
         Cashflow Future, if offered, adds the full schedule. Not used: Transaction,
@@ -7235,10 +7250,14 @@ window.bpCostFill = async () => {
     const missing = live.filter((h) => h.cost_paise === null || h.cost_paise === undefined);
     const payoutsFile = meta.payout_file || meta.cashflow_file || "";
     const hasPayouts = !!payoutsFile;
-    const brokerId = meta.broker_source || "digifinn";
-    const broker = bondBroker(brokerId);
-    const logo = brokerLogo(brokerId);
-    const slots = (broker?.reports || []).filter((r) => IMPORT_SLOTS.includes(r.slot));
+    // A source is remembered per account. An account imported before the
+    // registry existed has files but no source; DigiFInn is the only one those
+    // files could have come from.
+    const chosen = meta.broker_source
+      || (meta.cost_file || payoutsFile ? "digifinn" : "");
+    const picked = chosen ? bondBroker(chosen) : null;
+    const logo = brokerLogo(chosen || "digifinn");
+    const slots = (picked?.reports || []).filter((r) => IMPORT_SLOTS.includes(r.slot));
     const reportRow = (r) => {
       const cost = r.slot === "portfolio";
       const storedPayout = meta.payout_file || meta.cashflow_file || "";
@@ -7253,24 +7272,27 @@ window.bpCostFill = async () => {
             <code>${esc((r.files || [])[0] || "")}</code>${
             last ? ` · last: <code>${esc(last)}</code>` : ""}</div></div>
         <label class="mini-btn" style="white-space:nowrap">Choose<input type="file" accept=".csv" style="display:none"
-          onchange="${cost ? "bpCostFile" : "bpCashflowFile"}(this.files[0],{broker:'${esc(brokerId)}'});this.value=''"></label>
+          onchange="${cost ? "bpCostFile" : "bpCashflowFile"}(this.files[0],{broker:'${esc(chosen)}'});this.value=''"></label>
       </div>`;
     };
-    const body = `${BOND_BROKERS.length > 1 ? `<label class="field" style="max-width:220px">Source
-        <select onchange="bpBrokerSource(this.value)">${BOND_BROKERS.map((b) =>
-          `<option value="${esc(b.id)}"${b.id === brokerId ? " selected" : ""}>${esc(b.label)}</option>`).join("")}</select></label>` : ""}
-      <div class="muted" style="font-size:12.5px;margin-top:5px">Broker data import from
-        <b>${esc(broker.label)}</b>. The CAS gives units, face value and market value. The
-        Portfolio Report adds what you paid and when; Upcoming Payouts adds the payment
-        frequency and the next interest. Both are optional after the CAS.</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-        ${slots.length ? slots.map(reportRow).join("")
-          : `<div class="muted" style="font-size:12px">No report formats are registered for
-            this broker yet.</div>`}</div>
-      <div id="cost-preview" style="margin-top:10px"></div>
-      <div id="cashflow-preview" style="margin-top:10px"></div>
-      <div class="muted" style="font-size:11px;margin-top:7px">A second demat's download may
-        append (1).</div>`;
+    const body = `<div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
+        text-transform:uppercase">Supported brokers</div>
+      <div style="margin-top:7px">${brokerPickerHtml(chosen, "bpBrokerSource")}</div>
+      ${picked ? `
+        <div class="muted" style="font-size:12.5px;margin-top:12px">Broker data import from
+          <b>${esc(picked.label)}</b>. The CAS gives units, face value and market value. The
+          Portfolio Report adds what you paid and when; Upcoming Payouts adds the payment
+          frequency and the next interest. Both are optional after the CAS.</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+          ${slots.length ? slots.map(reportRow).join("")
+            : `<div class="muted" style="font-size:12px">No report formats are registered for
+              this broker yet.</div>`}</div>
+        <div id="cost-preview" style="margin-top:10px"></div>
+        <div id="cashflow-preview" style="margin-top:10px"></div>
+        <div class="muted" style="font-size:11px;margin-top:7px">A second demat's download may
+          append (1).</div>`
+      : `<div class="muted" style="font-size:12px;margin-top:10px">Choose a broker to see the
+          files it needs.</div>`}`;
     const status = missing.length
       ? `${missing.length} of ${live.length} bond${live.length === 1 ? "" : "s"} need a purchase price`
       : hasPayouts
@@ -7283,9 +7305,9 @@ window.bpCostFill = async () => {
       <details>
         <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">
           <b style="color:var(--ink);font-weight:600">Broker data import</b>
-          ${logo ? `<img src="${esc(logo)}" alt="${esc(broker.label)}"
+          ${logo ? `<img src="${esc(logo)}" alt="${esc(bondBroker(chosen || "digifinn").label)}"
             style="height:18px;vertical-align:-4px;margin:0 6px 0 4px">`
-            : ` · ${esc(broker.label)} `}
+            : ` · ${esc(bondBroker(chosen || "digifinn").label)} `}
           · ${status}</summary>
         <div style="margin-top:8px">${body}</div>
       </details>
@@ -7303,7 +7325,10 @@ window.bpBrokerSource = async (id) => {
   if (!asset) return;
   await store.updateAccount(asset.id, { meta: JSON.stringify({ ...metaOf(asset),
     broker_source: id }) });
-  window.bpCostFill?.();
+  await window.bpCostFill?.();
+  // Re-rendering the card closes the details; the click just opened it.
+  const d = document.querySelector("#cost-card details");
+  if (d) d.open = true;
 };
 window.bpCostFile = async (file, opts = {}) => {
   if (!file) return;
@@ -7614,6 +7639,10 @@ window.bpCashflowCancel = () => {
 // account, so work out the demat from the file itself: the Portfolio Report
 // prints the account number; both reports can otherwise be scored by the ISINs
 // the demat already holds.
+window.bpImportBrokerChoose = (id) => {
+  window.bpImportBrokerChoice = id;
+  go("import");
+};
 window.bpImportBroker = async (slot, brokerId, file) => {
   if (!file) return;
   const host = document.getElementById("import-broker-preview");
