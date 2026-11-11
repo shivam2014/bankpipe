@@ -1012,7 +1012,7 @@ import { parseDigiFinnFile, mergeDigiFinn, scorePortfolio } from "./digifinn.js"
 import { bondAnalytics, bondSummary, parseBondLabel, inferFace,
   BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange } from "./bonds.js";
 import { bondPrefill } from "./bond-source.js";
-import { BOND_BROKERS, bondBroker } from "./brokers.js";
+import { BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport, IMPORT_SLOTS } from "./brokers.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
 import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
@@ -3001,29 +3001,31 @@ function renderImport() {
     <div id="bond-cas-host" style="margin-top:10px"></div>
     <div style="margin-top:12px">
       <div style="font-size:13px;font-weight:600">2. Bond cost and payouts
-        <span class="muted" style="font-weight:400;font-size:12px">optional — DigiFInn
-        reports, bonds only</span></div>
-      <div class="muted" style="font-size:12px;margin-top:5px">Broker data import from
-        DigiFInn, <b>bonds only</b>. It adds the cost and purchase date, the payment frequency
-        and the next interest. The demat can sit at any DP; the file finds it by ISIN.
-        Equities and funds already have their cost and value in the CAS.</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
-          flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
-          <div><b style="font-size:12.5px">Portfolio Report</b>
-            <div class="muted" style="font-size:11.5px">bond cost and purchase date ·
-              <code>holdings-report-YYYY-MM-DD.csv</code></div></div>
-          <label class="mini-btn">Choose<input type="file" accept=".csv" style="display:none"
-            onchange="bpImportBroker('portfolio',this.files[0]);this.value=''"></label>
-        </div>
-        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
-          flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
-          <div><b style="font-size:12.5px">Upcoming Payouts</b>
-            <div class="muted" style="font-size:11.5px">bond frequency and next interest ·
-              <code>upcoming-payouts.csv</code></div></div>
-          <label class="mini-btn">Choose<input type="file" accept=".csv" style="display:none"
-            onchange="bpImportBroker('payouts',this.files[0]);this.value=''"></label>
-        </div>
+        <span class="muted" style="font-weight:400;font-size:12px">optional — broker data,
+        bonds only</span></div>
+      <div class="muted" style="font-size:12px;margin-top:5px">It adds the cost and purchase
+        date, the payment frequency and the next interest. The demat can sit at any DP; the
+        file finds it by ISIN. Equities and funds already have their cost and value in the
+        CAS.</div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
+        ${BOND_BROKERS.map((b) => `<div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+            ${b.logo ? `<img src="${esc(b.logo)}" alt="" style="height:18px">` : ""}
+            <b style="font-size:12px">${esc(b.label)}</b>
+            <span class="muted" style="font-size:11px">${esc(b.page?.where || "reports")}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${(b.reports || []).filter((r) => ["portfolio", "payouts"].includes(r.slot)).map((r) => `
+              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
+                flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
+                <div><b style="font-size:12.5px">${esc(r.title)}</b>
+                  <div class="muted" style="font-size:11.5px">${esc(r.detail || "")} ·
+                    <code>${esc((r.files || [])[0] || "")}</code></div></div>
+                <label class="mini-btn">Choose<input type="file" accept=".csv" style="display:none"
+                  onchange="bpImportBroker('${esc(r.slot)}','${esc(b.id)}',this.files[0]);this.value=''"></label>
+              </div>`).join("")}
+          </div>
+        </div>`).join("")}
       </div>
       <div id="import-broker-preview" style="margin-top:10px"></div>
       <div class="muted" style="font-size:11px;margin-top:7px;line-height:1.55">
@@ -7233,29 +7235,39 @@ window.bpCostFill = async () => {
     const missing = live.filter((h) => h.cost_paise === null || h.cost_paise === undefined);
     const payoutsFile = meta.payout_file || meta.cashflow_file || "";
     const hasPayouts = !!payoutsFile;
-    const body = `<div class="muted" style="font-size:12.5px;margin-top:5px">The CAS gives
-      units, face value and market value. The <b>Portfolio Report</b> adds what you paid and
-      when; <b>Upcoming Payouts</b> adds payment frequency and the next interest. Both are
-      optional after the CAS.</div>
-      <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:10px">
-        Choose DigiFInn Portfolio Report
-        <input type="file" accept=".csv" style="display:none"
-          onchange="bpCostFile(this.files[0]);this.value=''"></label>
-      <div class="muted" style="font-size:11px;margin-top:3px">File:
-        <code>holdings-report-YYYY-MM-DD.csv</code>${
-        meta.cost_file ? ` · last: <code>${esc(meta.cost_file)}</code>` : ""}</div>
+    const brokerId = meta.broker_source || "digifinn";
+    const broker = bondBroker(brokerId);
+    const logo = brokerLogo(brokerId);
+    const slots = (broker?.reports || []).filter((r) => IMPORT_SLOTS.includes(r.slot));
+    const reportRow = (r) => {
+      const cost = r.slot === "portfolio";
+      const last = cost ? meta.cost_file : payoutsFile;
+      return `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
+          flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
+        <div><b style="font-size:12.5px">${esc(r.title)}</b>${r.optional
+          ? ` <span class="muted" style="font-weight:400">optional</span>` : ""}
+          <div class="muted" style="font-size:11.5px">${esc(r.detail || "")} ·
+            <code>${esc((r.files || [])[0] || "")}</code>${
+            last ? ` · last: <code>${esc(last)}</code>` : ""}</div></div>
+        <label class="mini-btn">Choose<input type="file" accept=".csv" style="display:none"
+          onchange="${cost ? "bpCostFile" : "bpCashflowFile"}(this.files[0],{broker:'${esc(brokerId)}'});this.value=''"></label>
+      </div>`;
+    };
+    const body = `${BOND_BROKERS.length > 1 ? `<label class="field" style="max-width:220px">Source
+        <select onchange="bpBrokerSource(this.value)">${BOND_BROKERS.map((b) =>
+          `<option value="${esc(b.id)}"${b.id === brokerId ? " selected" : ""}>${esc(b.label)}</option>`).join("")}</select></label>` : ""}
+      <div class="muted" style="font-size:12.5px;margin-top:5px">Broker data import from
+        <b>${esc(broker.label)}</b>. The CAS gives units, face value and market value. The
+        Portfolio Report adds what you paid and when; Upcoming Payouts adds the payment
+        frequency and the next interest. Both are optional after the CAS.</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+        ${slots.length ? slots.map(reportRow).join("")
+          : `<div class="muted" style="font-size:12px">No report formats are registered for
+            this broker yet.</div>`}</div>
       <div id="cost-preview" style="margin-top:10px"></div>
-      <div class="muted" style="font-size:12px;margin-top:12px"><b>Upcoming Payouts</b> —
-      payment frequency and next interest. A Cashflow Future file, if your broker offers
-      one, also adds the full schedule.</div>
-      <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:8px">
-        Choose Upcoming Payouts
-        <input type="file" accept=".csv" style="display:none"
-          onchange="bpCashflowFile(this.files[0]);this.value=''"></label>
-      <div class="muted" style="font-size:11px;margin-top:3px">File:
-        <code>upcoming-payouts.csv</code>${
-        payoutsFile ? ` · last: <code>${esc(payoutsFile)}</code>` : ""}</div>
-      <div id="cashflow-preview" style="margin-top:10px"></div>`;
+      <div id="cashflow-preview" style="margin-top:10px"></div>
+      <div class="muted" style="font-size:11px;margin-top:7px">A second demat's download may
+        append (1).</div>`;
     const status = missing.length
       ? `${missing.length} of ${live.length} bond${live.length === 1 ? "" : "s"} need a purchase price`
       : hasPayouts
@@ -7267,8 +7279,10 @@ window.bpCostFill = async () => {
     host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
       <details>
         <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">
+          ${logo ? `<img src="${esc(logo)}" alt="" style="height:20px;vertical-align:-5px;
+            margin-right:8px">` : ""}
           <b style="color:var(--ink);font-weight:600">Broker data import</b>
-          · DigiFInn · ${status}</summary>
+          · ${esc(broker.label)} · ${status}</summary>
         <div style="margin-top:8px">${body}</div>
       </details>
     </div>`;
@@ -7276,6 +7290,16 @@ window.bpCostFill = async () => {
   } catch (e) {
     host.innerHTML = "";
   }
+};
+// The source is a property of the account, not a global: a second demat could
+// arrive from a different platform.
+window.bpBrokerSource = async (id) => {
+  const store = await import("./db.js");
+  const asset = (await store.listAccounts()).find((a) => a.id === window.bpState?.asset);
+  if (!asset) return;
+  await store.updateAccount(asset.id, { meta: JSON.stringify({ ...metaOf(asset),
+    broker_source: id }) });
+  window.bpCostFill?.();
 };
 window.bpCostFile = async (file, opts = {}) => {
   if (!file) return;
@@ -7286,18 +7310,22 @@ window.bpCostFile = async (file, opts = {}) => {
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px;color:var(--red)">${html}</div>`;
   };
   try {
-    const parsed = parseReportFile(await file.text(), file.name);
-    if (parsed.kind !== "portfolio") {
-      fail("That is not the Portfolio Report. In DigiFInn open Reports &amp; Documents → Portfolio Report and download the CSV with ISIN, Bond Name, Purchase date, Qty and Investment Value.");
-      return;
-    }
-    if (!parsed.rows.length) {
-      fail("The Portfolio Report has no rows. Download it again from DigiFInn.");
-      return;
-    }
     const store = await import("./db.js");
     const assets = await store.listAccounts();
     const me = assets.find((a) => a.id === id);
+    const brokerId = opts.broker || metaOf(me || {}).broker_source || "digifinn";
+    const broker = bondBroker(brokerId);
+    const parsed = parseBrokerReport(brokerId, await file.text(), file.name);
+    if (parsed.kind !== "portfolio") {
+      fail(`That is not the ${esc(broker.label)} Portfolio Report. Open
+        ${esc(broker.page?.where || "Reports")} on ${esc(broker.label)} and download the CSV
+        with ISIN, Bond Name, Purchase date, Qty and Investment Value.`);
+      return;
+    }
+    if (!parsed.rows.length) {
+      fail(`The ${esc(broker.label)} Portfolio Report has no rows. Download it again.`);
+      return;
+    }
     const printed = dematText(parsed.demat || "");
     const printedBo = boId(printed).boId;
     if (printedBo) {
@@ -7343,7 +7371,7 @@ window.bpCostFile = async (file, opts = {}) => {
       return String(p.as_of || "").slice(0, 10) !== String(parsed.asOf).slice(0, 10);
     }) : [];
     const changes = missing.length + labelFills.length + dateFixes.length;
-    window.bpCostPlan = { id, parsed, matched, missing, labelFills, dateFixes, fromImport };
+    window.bpCostPlan = { id, parsed, matched, missing, labelFills, dateFixes, fromImport, brokerId };
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
       <div><b>${esc(file.name || "Portfolio Report")}</b>${parsed.asOf
         ? ` · as of ${dateLabel(parsed.asOf)}` : ""}${fromImport && me
@@ -7404,7 +7432,7 @@ window.bpCostApply = async () => {
     const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
     if (asset) {
       await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),
-        cost_source: "DigiFInn Portfolio Report",
+        cost_source: `${bondBroker(plan.brokerId).label} Portfolio Report`,
         cost_as_of: plan.parsed.asOf || "",
         cost_file: plan.parsed.fileName || "" }) });
     }
@@ -7446,17 +7474,21 @@ window.bpCashflowFile = async (file, opts = {}) => {
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px;color:var(--red)">${html}</div>`;
   };
   try {
-    const parsed = parseReportFile(await file.text(), file.name);
+    const store = await import("./db.js");
+    const me = (await store.listAccounts()).find((a) => a.id === id);
+    const brokerId = opts.broker || metaOf(me || {}).broker_source || "digifinn";
+    const broker = bondBroker(brokerId);
+    const parsed = parseBrokerReport(brokerId, await file.text(), file.name);
     if (parsed.kind !== "payouts") {
-      fail("That is not the Upcoming Payouts report. In DigiFInn open Reports &amp; Documents → Upcoming Payouts and download the CSV. A Cashflow Future export is also accepted if your broker offers one.");
+      fail(`That is not the ${esc(broker.label)} Upcoming Payouts report. Open
+        ${esc(broker.page?.where || "Reports")} on ${esc(broker.label)} and download the CSV.
+        A Cashflow Future export is also accepted.`);
       return;
     }
     if (!parsed.groups?.length) {
-      fail("The payout report has no rows. Download it again from DigiFInn.");
+      fail(`The ${esc(broker.label)} payout report has no rows. Download it again.`);
       return;
     }
-    const store = await import("./db.js");
-    const me = (await store.listAccounts()).find((a) => a.id === id);
     const positions = (await store.listHoldings(id))
       .filter((h) => String(h.category || "") === "bond");
     const live = positions.filter((h) => h.quantity === null || h.quantity === undefined
@@ -7473,7 +7505,7 @@ window.bpCashflowFile = async (file, opts = {}) => {
     const withNext = matched.filter((p) => groupOf(p)?.amount_paise != null).length;
     const withSchedule = matched.filter((p) => groupOf(p)?.future_interest_paise != null
       || groupOf(p)?.future_principal_paise != null).length;
-    window.bpCashflowPlan = { id, parsed, matched, fromImport };
+    window.bpCashflowPlan = { id, parsed, matched, fromImport, brokerId };
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
       <div><b>${esc(file.name || "Upcoming Payouts")}</b>${fromImport && me
         ? ` → ${esc(me.label)}` : ""}</div>
@@ -7534,7 +7566,8 @@ window.bpCashflowApply = async () => {
     if (asset) {
       await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),
         payout_source: plan.parsed.source === "cashflow"
-          ? "DigiFInn Cashflow Future" : "DigiFInn Upcoming Payouts",
+          ? `${bondBroker(plan.brokerId).label} Cashflow Future`
+          : `${bondBroker(plan.brokerId).label} Upcoming Payouts`,
         payout_file: plan.parsed.fileName || "",
         payout_at: today }) });
     }
@@ -7569,20 +7602,25 @@ window.bpCashflowCancel = () => {
 // account, so work out the demat from the file itself: the Portfolio Report
 // prints the account number; both reports can otherwise be scored by the ISINs
 // the demat already holds.
-window.bpImportBroker = async (slot, file) => {
+window.bpImportBroker = async (slot, brokerId, file) => {
   if (!file) return;
   const host = document.getElementById("import-broker-preview");
+  const broker = bondBroker(brokerId || "digifinn");
   const fail = (html) => {
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px;color:var(--red)">${html}</div>`;
   };
   try {
     window.bpImportBrokerPending = null;
-    const parsed = parseReportFile(await file.text(), file.name);
+    const parsed = parseBrokerReport(broker.id, await file.text(), file.name);
     const want = slot === "portfolio" ? "portfolio" : "payouts";
     if (parsed.kind !== want) {
       fail(slot === "portfolio"
-        ? "That is not the Portfolio Report. In DigiFInn open Reports &amp; Documents → Portfolio Report and download <code>holdings-report-YYYY-MM-DD.csv</code>."
-        : "That is not the Upcoming Payouts report. In DigiFInn open Reports &amp; Documents → Upcoming Payouts and download <code>upcoming-payouts.csv</code>.");
+        ? `That is not the ${esc(broker.label)} Portfolio Report. Open
+          ${esc(broker.page?.where || "Reports")} and download
+          <code>${esc((brokerReport(broker.id, "portfolio")?.files || [])[0] || "the CSV")}</code>.`
+        : `That is not the ${esc(broker.label)} Upcoming Payouts report. Open
+          ${esc(broker.page?.where || "Reports")} and download
+          <code>${esc((brokerReport(broker.id, "payouts")?.files || [])[0] || "the CSV")}</code>.`);
       return;
     }
     const store = await import("./db.js");
@@ -7627,7 +7665,7 @@ window.bpImportBroker = async (slot, file) => {
         return;
       }
       if (live.length > 1 && live[0].hits === live[1].hits) {
-        window.bpImportBrokerPending = { slot, file };
+        window.bpImportBrokerPending = { slot, file, brokerId: broker.id };
         if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
           <div><b>${esc(file.name)}</b></div>
           <div class="muted" style="font-size:12px;margin-top:4px">These demats each hold
@@ -7641,7 +7679,7 @@ window.bpImportBroker = async (slot, file) => {
       }
       target = live[0].asset;
     }
-    await window.bpImportBrokerRun(slot, file, target.id);
+    await window.bpImportBrokerRun(slot, file, target.id, broker.id);
   } catch (e) {
     fail(esc(e.message || String(e)));
   }
@@ -7650,11 +7688,14 @@ window.bpImportBrokerPick = async (id) => {
   const pending = window.bpImportBrokerPending;
   if (!pending) return;
   window.bpImportBrokerPending = null;
-  await window.bpImportBrokerRun(pending.slot, pending.file, id);
+  await window.bpImportBrokerRun(pending.slot, pending.file, id, pending.brokerId);
 };
-window.bpImportBrokerRun = async (slot, file, id) => {
-  if (slot === "portfolio") await window.bpCostFile(file, { fromImport: true, id });
-  else await window.bpCashflowFile(file, { fromImport: true, id });
+window.bpImportBrokerRun = async (slot, file, id, brokerId = "digifinn") => {
+  if (slot === "portfolio") {
+    await window.bpCostFile(file, { fromImport: true, id, broker: brokerId });
+  } else {
+    await window.bpCashflowFile(file, { fromImport: true, id, broker: brokerId });
+  }
 };
 window.bpConsolidate = async ({ ask = false } = {}) => {
   try {

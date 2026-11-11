@@ -1,23 +1,50 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BOND_BROKERS, bondBroker } from "./brokers.js";
+import { existsSync } from "node:fs";
+import {
+  BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport,
+} from "./brokers.js";
 
-test("digifinn is the first registered bond broker, with the three report slots", () => {
+test("digifinn is the first broker, with the reports the app applies", () => {
   assert.ok(BOND_BROKERS.length >= 1);
   const b = bondBroker("digifinn");
   assert.equal(b.label, "DigiFInn");
-  assert.deepEqual(b.reports.map((r) => r.slot), ["portfolio", "investment", "payouts"]);
+  assert.deepEqual(b.reports.map((r) => r.slot), ["portfolio", "payouts", "cashflow"]);
   assert.ok(b.reports.every((r) => r.title && Array.isArray(r.files) && r.files.length));
   // Slots must be unique: the file picker keys its state by slot.
   assert.equal(new Set(b.reports.map((r) => r.slot)).size, b.reports.length);
 });
 
-test("an unknown broker falls back to the first entry", () => {
+test("every broker names a logo that ships with the app", () => {
+  for (const b of BOND_BROKERS) {
+    assert.ok(b.id && b.label && b.parser);
+    assert.equal(brokerLogo(b.id), b.logo);
+    assert.ok(existsSync(new URL(b.logo, import.meta.url)), `${b.id} logo missing`);
+    assert.ok(b.page?.url && b.page?.where);
+  }
+});
+
+test("an unknown broker id falls back for display", () => {
   assert.equal(bondBroker("not-a-broker").id, BOND_BROKERS[0].id);
 });
 
-test("slots match the parser kinds the importer expects", () => {
-  // digifinn-reports.js returns kind "portfolio", "investment" and "payouts".
-  const slots = bondBroker("digifinn").reports.map((r) => r.slot);
-  assert.deepEqual(slots, ["portfolio", "investment", "payouts"]);
+test("the planner reports are the ones this app reads", () => {
+  assert.ok(brokerReport("digifinn", "portfolio"));
+  assert.ok(brokerReport("digifinn", "payouts"));
+  assert.equal(brokerReport("digifinn", "nope"), null);
+});
+
+test("a broker's file is read by that broker's parser", () => {
+  const csv = [
+    "Name,Test Holder",
+    "Demat Account No,9999000001140907",
+    "ISIN,Bond Name,Purchase date,Qty,Investment Value",
+    "INE999900124,KFL 11.40 13062027,19 Jun 2024,2,193540.19",
+  ].join("\n");
+  const parsed = parseBrokerReport("digifinn", csv, "holdings-report.csv");
+  assert.equal(parsed.kind, "portfolio");
+  assert.equal(parsed.rows.length, 1);
+  assert.equal(parsed.rows[0].isin, "INE999900124");
+  // An unregistered source must not be read as DigiFInn's format.
+  assert.equal(parseBrokerReport("not-a-broker", csv, "x.csv").kind, "unknown");
 });
