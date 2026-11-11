@@ -182,7 +182,12 @@ export function bondFillPlan(row, fetched) {
   const units = Number(row.quantity) || 0;
   if (ltp > 0 && units > 0) {
     const face = Number(details?.face) > 0 ? Number(details.face) : inferFace(row.cost_paise, units);
-    if (face) patch.value_paise = Math.round(face * units * ltp);
+    if (face) {
+      patch.value_paise = Math.round(face * units * ltp);
+      // The value is a quote, not today's guess: carry the trade date so the
+      // card can say when the mark was taken.
+      if (market?.date) patch.as_of = String(market.date).slice(0, 10);
+    }
   }
   return {
     patch,

@@ -452,6 +452,28 @@ test("a holding current value can be updated without changing its cost", async (
   assert.equal(after.value_paise, 105000);
 });
 
+test("a mark keeps its date until a new value is entered", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "bonds-vd", label: "Bonds", category: "bonds" });
+  store.replaceHoldings("bonds-vd", [
+    { security_id: "INE000000001", label: "A bond", quantity: 1,
+      cost_paise: 100000, value_paise: 100000, source_row: 1 },
+  ], "2026-10-26");
+  const row = store.listHoldings("bonds-vd")[0];
+  assert.equal(row.as_of, "2026-10-26");
+
+  // Editing the label must not reset the day the value was marked.
+  store.upsertHolding("bonds-vd", { ...row, label: "10.00% A 31 DEC 2030" });
+  assert.equal(store.listHoldings("bonds-vd")[0].as_of, "2026-10-26");
+
+  // A newly entered value carries the date it was entered for.
+  store.updateHoldingValue(row.id, 101000, "2026-11-11");
+  const later = store.listHoldings("bonds-vd")[0];
+  assert.equal(later.value_paise, 101000);
+  assert.equal(later.as_of, "2026-11-11");
+});
+
 test("searchFacts can sort by amount ascending and descending", async () => {
   const store = makeStore(SQL, null);
   await store.open();

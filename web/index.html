@@ -392,6 +392,7 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .bond-market .sep{margin:0 6px;color:var(--line)}
 .bond-market .muted{margin-left:8px}
 .bond-market b.neg{color:var(--red)}.bond-market b.pos{color:var(--green)}
+.bond-market .vupdate{background:none;border:0;padding:0 0 0 6px;font:inherit;color:var(--link,var(--ink));text-decoration:underline;cursor:pointer}
 .bond-cards{display:none;flex-direction:column;gap:8px;margin-top:10px}
 .matured-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .holding-cards{display:flex;flex-direction:column;gap:8px;margin-top:10px}
@@ -7398,7 +7399,8 @@ window.bpCostApply = async () => {
       alert("Nothing to write: those bonds already have a price and a full label.");
       return;
     }
-    await store.replaceHoldings(plan.id, merged, new Date().toISOString().slice(0, 10));
+    await store.replaceHoldings(plan.id, merged,
+      plan.parsed.asOf || new Date().toISOString().slice(0, 10));
     const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
     if (asset) {
       await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),
@@ -9165,6 +9167,7 @@ function bondRowView(h) {
     hasPrice,
     value: hasPrice ? h.value_paise : null,
     gain: hasPrice ? h.value_paise - h.cost_paise : null,
+    valueAsOf: String(h.as_of || "").slice(0, 10),
     bought: h.purchase_date || "",
   };
 }
@@ -9244,8 +9247,14 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     <div class="bond-market">${matured
       ? `Matured ${dateLabel(v.maturity)}<span class="sep">·</span>kept as history, not counted in the totals`
       : v.value === null
-        ? "Market value not recorded. Hold-to-maturity numbers above do not depend on it."
-        : `Market value <b>${money(v.value)}</b><span class="sep">·</span>gain if sold
+        ? `Market value not recorded.${assetId && v.h.id ? ` <button class="vupdate"
+          onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>` : ""}
+          <span class="muted">Hold-to-maturity numbers above do not depend on it.</span>`
+        : `Market value <b>${money(v.value)}</b>${v.valueAsOf
+          ? `<span class="muted"> as of ${dateLabel(v.valueAsOf)}</span>` : ""}
+          ${assetId && v.h.id ? `<button class="vupdate"
+          onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}
+          <span class="sep">·</span>gain if sold
           <b class="${v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : ""}">${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain || 0))}</b>
           <span class="muted">only matters if you sell early</span>`}</div>
   </div>`;
@@ -9299,12 +9308,15 @@ function holdingsCard(allRows, assetId) {
         title="Edit this holding" onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)})">✎</button>` : ""}</td>
     </tr>`).join("");
   const cards = views.map((v) => bondCardHtml(v, assetId)).join("");
+  const valueDates = [...new Set(rows
+    .map((h) => String(h.as_of || "").slice(0, 10)).filter(Boolean))];
+  const valueAsOf = valueDates.length === 1 ? valueDates[0] : "";
   const summaryLine = bondBook
     ? [`${s.count} holding${s.count === 1 ? "" : "s"}`,
       ...(missingRating ? [`${missingRating} need${missingRating === 1 ? "s" : ""} a rating`] : []),
       ...(missingCost ? [`${missingCost} missing invested`] : [])].join(" · ")
     : [`${s.count} holding${s.count === 1 ? "" : "s"}`, `invested ${moneyOrDash(s.cost)}`,
-      `market value ${moneyOrDash(s.value)}`].join(" · ");
+      `market value ${moneyOrDash(s.value)}${valueAsOf ? ` as of ${dateLabel(valueAsOf)}` : ""}`].join(" · ");
   // The last fetch result belongs to this portfolio only; opening another bond
   // page must not show a sentence about a different set of lots.
   const noteText = window.bpBondMarketNote?.id === assetId
@@ -9315,12 +9327,13 @@ function holdingsCard(allRows, assetId) {
       <h2 style="margin:0">Holdings</h2>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         ${assetId ? `<button class="btn" onclick="bpBondHoldingNew(${jsArg(assetId)})">Add holding</button>
+        <button class="btn" title="Type the current market price of each bond"
+          onclick="bpHoldingsEdit(${jsArg(assetId)})">Update values</button>
         ${LOCAL_SERVER ? `<button class="btn" title="Ask SMEST for each lot's rating and interest dates, and BSE for its price. Nothing you typed is replaced."
           onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch details for all</button>` : ""}
         <details class="more-menu" style="margin-left:0">
           <summary class="btn" aria-label="More holding actions">More</summary>
           <div class="menu-pop">
-            <button onclick="bpHoldingsEdit(${jsArg(assetId)})">Enter prices and ratings</button>
             <button onclick="bpBondCsv(${jsArg(assetId)})">Export ratings CSV</button>
             <button onclick="bpBondCsvImport(${jsArg(assetId)})">Import ratings CSV</button>
           </div>
@@ -9335,7 +9348,9 @@ function holdingsCard(allRows, assetId) {
       <tr><th>Bond</th><th>Rating</th><th class="num">Interest rate</th>
         <th class="num">Purchase yield</th><th class="num">Next interest</th>
         <th>Purchase date</th><th>Maturity date</th><th class="num">Units</th>
-        <th class="num">Invested</th><th class="num">Market value</th>
+        <th class="num">Invested</th><th class="num" title="${valueAsOf
+          ? `Market value as of ${dateLabel(valueAsOf)}`
+          : "Market value, when it was last marked"}">Market value</th>
         <th class="num" title="Market value minus invested; only relevant if sold">Gain if sold</th>
         <th class="num" title="Amount you receive at maturity: principal plus remaining interest">Maturity value</th>
         <th></th></tr>
@@ -10076,9 +10091,9 @@ window.bpBondHoldingNew = (assetId) => {
   window.bpState = { ...(window.bpState || {}), bondHoldingAsset: assetId, bondHoldingId: "" };
   go("bondHolding");
 };
-window.bpBondHoldingEdit = (assetId, holdingId) => {
+window.bpBondHoldingEdit = (assetId, holdingId, focusValue = false) => {
   window.bpState = { ...(window.bpState || {}), bondHoldingAsset: assetId,
-    bondHoldingId: String(holdingId) };
+    bondHoldingId: String(holdingId), bondHoldingFocus: !!focusValue };
   go("bondHolding");
 };
 function renderBondHoldingForm() {
@@ -10139,6 +10154,8 @@ function renderBondHoldingForm() {
         <label class="field">Current value (${currency()}) <span class="muted"
           style="font-weight:400">optional</span>
           <input id="bh-value" value="${moneyIn(h?.value_paise)}" inputmode="decimal"></label>
+        <label class="field">Value as of
+          <input id="bh-value-date" type="date" value="${esc(String(h?.as_of || "").slice(0, 10))}"></label>
         <label class="field">Next interest (${currency()})
           <input id="bh-payout" value="${moneyIn(h?.payout_paise)}" inputmode="decimal"></label>
         <label class="field">Next interest date
@@ -10155,6 +10172,13 @@ function renderBondHoldingForm() {
           margin-left:auto" onclick="bpBondHoldingDelete(${jsArg(assetId)}, ${jsArg(holdingId)})">Delete holding</button>` : ""}
       </div></div>`;
     window.bpBondLabelPreview();
+    if (window.bpState?.bondHoldingFocus) {
+      const el = document.getElementById("bh-value");
+      if (el) {
+        el.focus();
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    }
   })();
   return `<h1>Add holding</h1><div class="card pad">loading…</div>`;
 }
@@ -10249,6 +10273,7 @@ window.bpBondFetch = async (assetId, holdingId, overwrite = false) => {
   }
   if (market) {
     bits.push(`BSE ${inr(Math.round(market.ltp * 100))} per ₹100 face on ${dateLabel(market.date)}`);
+    if (valuePaise) set("bh-value-date", String(market.date || "").slice(0, 10));
     if (valuePaise) bits.push(`this lot ${money(valuePaise)}`);
     else if (!units) bits.push("add units to value this lot");
   } else {
@@ -10283,6 +10308,7 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
       security_id: val("bh-isin").toUpperCase(),
       quantity: units, cost_paise: cost,
       value_paise: val("bh-value") ? parseMoney(val("bh-value")) : null,
+      as_of: val("bh-value-date"),
       purchase_date: val("bh-bought"), rating: val("bh-rating"),
       frequency: val("bh-freq"), yield_bps: null,
       payout_paise: val("bh-payout") ? parseMoney(val("bh-payout")) : null,
@@ -10384,7 +10410,8 @@ window.bpHoldingsSave = async (id) => {
     }
   }
   if (bad) { const el = document.getElementById("hverr"); if (el) el.textContent = bad; return; }
-  for (const [hid, paise] of values) await store.updateHoldingValue(hid, paise);
+  const today = new Date().toISOString().slice(0, 10);
+  for (const [hid, paise] of values) await store.updateHoldingValue(hid, paise, today);
   window.bpState = { ...(window.bpState || {}), asset: id };
   go("asset");
 };

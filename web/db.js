@@ -734,7 +734,7 @@ export function makeStore(SQLlib, save) {
     "SELECT id, security_id, label, category, rating, rating_at_purchase, frequency,"
     + " yield_bps, payout_paise, quantity, cost_paise, value_paise, purchase_date,"
     + " interest_date, future_interest_paise, future_principal_paise, principal_dates,"
-    + " returned_paise,"
+    + " returned_paise, as_of,"
     + " source_row, source FROM holding WHERE asset_id=? ORDER BY label", [assetId]);
   store.upsertHolding = (assetId, h) => {
     // The rating at purchase is what a later upgrade or downgrade is measured
@@ -752,10 +752,15 @@ export function makeStore(SQLlib, save) {
       h.future_interest_paise ?? null, h.future_principal_paise ?? null,
       h.principal_dates || "", h.returned_paise ?? null];
     if (h.id) {
+      // An edit that does not mention as_of keeps the stored value date; a date
+      // field the user cleared is written as empty on purpose.
+      const asOf = h.as_of === undefined ? null : String(h.as_of || "");
       conn.run("UPDATE holding SET security_id=?,label=?,category=?,rating=?,frequency=?,"
         + "yield_bps=?,payout_paise=?,quantity=?,cost_paise=?,value_paise=?,purchase_date=?,"
         + "interest_date=?,rating_at_purchase=?,future_interest_paise=?,"
-        + "future_principal_paise=?,principal_dates=?,returned_paise=? WHERE id=?", [...fields, h.id]);
+        + "future_principal_paise=?,principal_dates=?,returned_paise=?,"
+        + "as_of=CASE WHEN ? IS NULL THEN as_of ELSE ? END WHERE id=?",
+        [...fields, asOf, asOf, h.id]);
       return h.id;
     }
     const key = ["manual", assetId, Date.now(), Math.random().toString(36).slice(2)].join("|");
@@ -764,7 +769,7 @@ export function makeStore(SQLlib, save) {
       + "rating_at_purchase,future_interest_paise,future_principal_paise,principal_dates,"
       + "returned_paise,source_row,as_of,txn_key,source)"
       + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      [assetId, ...fields, 0, "", key, "manual"]);
+      [assetId, ...fields, 0, String(h.as_of || ""), key, "manual"]);
     return all("SELECT last_insert_rowid() AS id")[0].id;
   };
   // The same transaction can arrive twice from two sources (a workbook and the
@@ -919,9 +924,15 @@ export function makeStore(SQLlib, save) {
     conn.run("DELETE FROM holding WHERE id=?", [id]);
     return true;
   };
-  store.updateHoldingValue = (id, valuePaise) => {
-    conn.run("UPDATE holding SET value_paise=? WHERE id=?",
-      [valuePaise === null || valuePaise === undefined ? null : valuePaise, id]);
+  store.updateHoldingValue = (id, valuePaise, asOf) => {
+    if (asOf === undefined) {
+      conn.run("UPDATE holding SET value_paise=? WHERE id=?",
+        [valuePaise === null || valuePaise === undefined ? null : valuePaise, id]);
+    } else {
+      conn.run("UPDATE holding SET value_paise=?, as_of=? WHERE id=?",
+        [valuePaise === null || valuePaise === undefined ? null : valuePaise,
+          String(asOf || ""), id]);
+    }
     return true;
   };
   store.deleteAccount = (id) => {
@@ -1558,9 +1569,9 @@ export async function deleteHolding(id) {
   return ok;
 }
 
-export async function updateHoldingValue(id, valuePaise) {
+export async function updateHoldingValue(id, valuePaise, asOf) {
   if (!browserStore) await openDb();
-  const ok = browserStore.updateHoldingValue(id, valuePaise);
+  const ok = browserStore.updateHoldingValue(id, valuePaise, asOf);
   await browserStore.save();
   return ok;
 }
