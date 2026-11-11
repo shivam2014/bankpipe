@@ -9503,7 +9503,9 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
           onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)})">Edit</button>` : ""}</div></div>
     <div class="bond-grid">
       ${cell("Interest rate", v.coupon === null ? "—" : `${v.coupon}%`)}
-      ${cell("Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
+      ${cell("Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%${
+        v.currentYield === null || v.currentYield === undefined ? ""
+          : `<div class="sub">current ${v.currentYield.toFixed(2)}%</div>`}`)}
       ${cell("Payment frequency", esc(v.frequency))}
       ${cell(`Next interest${v.interestDate ? ` · ${dateLabel(v.interestDate)}` : ""}`,
         v.payout === null ? "—" : money(v.payout)
@@ -9511,6 +9513,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
       ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
       ${cell("Units", v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity)}
+      ${cell("Face value", v.ba?.faceTotal ? `${money(v.ba.faceTotal)}${
+        v.returned ? `<div class="sub">remaining</div>` : ""}` : "—")}
       ${cell("Invested", moneyOrDash(v.h.cost_paise))}
       ${cell(`Market value${v.value === null || v.value === undefined
         ? "" : ` (${valueSourceShort})`}`, moneyOrDash(v.value))}
@@ -9518,8 +9522,6 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Gain if sold", v.gain === null || v.gain === undefined ? "—"
         : signed(v.gain),
         v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "")}
-      ${cell("Current yield", v.currentYield === null || v.currentYield === undefined
-        ? "—" : `${v.currentYield.toFixed(2)}%`)}
       ${cell("Total if held", heldTotal === null ? "—" : `${money(heldTotal)}${
         v.returned ? `<div class="sub">includes coupons received</div>` : ""}`)}
       ${cell("Total gain", heldGain === null || heldGain === undefined ? "—"
@@ -9614,7 +9616,9 @@ function holdingsCard(allRows, assetId) {
         ${v.change ? `<div class="sub ${v.change.down ? "neg" : "pos"}" style="margin-top:3px">
           ${v.change.down ? "downgraded" : "upgraded"} ${esc(v.change.from)} → ${esc(v.change.to)}</div>` : ""}</td>
       <td class="num">${v.coupon === null ? "—" : `${v.coupon}%`}</td>
-      <td class="num">${v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`}</td>
+      <td class="num">${v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`}
+        ${v.currentYield === null || v.currentYield === undefined ? ""
+          : `<div class="sub">current ${v.currentYield.toFixed(2)}%</div>`}</td>
       <td class="num">${v.payout === null ? "—" : money(v.payout)}
         ${v.payout !== null
           ? `<div class="sub">${esc(v.frequency.toLowerCase())}${v.payoutEstimated ? " · estimated" : ""}${v.totalCoupon === null ? "" : ` · ${money(v.totalCoupon)} interest to maturity`}</div>`
