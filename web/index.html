@@ -8540,9 +8540,14 @@ function assetGroupsHtml(groups, onclickFor) {
         <span class="caret" aria-hidden="true"></span>
         <h2>${g.label}</h2>
         <span class="grp-right">
+          ${g.id === "bond" ? `<button class="btn" style="padding:3px 9px;font-size:12px"
+            title="Ask SMEST for the latest credit rating and BSE for the last traded price, across every current bond you hold"
+            onclick="event.stopPropagation();bpFetchAllBonds(event)">Fetch all</button>` : ""}
           ${g.total ? `<span class="muted" style="font-size:13px">${money(g.total)}</span>` : ""}
         </span>
       </summary>
+      ${g.id === "bond" ? `<div id="bond-fetch-all-note" class="muted"
+        style="font-size:11.5px;margin:2px 0 6px;${window.bpPortfolioFetchNote ? "" : "display:none"}">${esc(window.bpPortfolioFetchNote || "")}</div>` : ""}
       ${goldLine}
       <div class="card" style="margin-top:8px">${g.rows.map((a) => assetRow(a, onclickFor(a))).join("")}</div>
     </details>`;
@@ -9513,28 +9518,12 @@ window.bpOpenDigiFinn = () => {
 // One press for the whole portfolio: SMEST gives each lot the rating, payment
 // frequency and next interest date it is missing, BSE gives it a price. Nothing
 // already on a row is rewritten, so it is safe to press again next week.
-window.bpBondFetchAll = async (assetId, onlyId = "") => {
-  const note = (t) => {
-    window.bpBondMarketNote = { id: assetId, text: t };
-    const el = document.getElementById("bond-fetch-note");
-    if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
-  };
-  const store = await import("./db.js");
-  const all = await store.listHoldings(assetId);
-  // A matured lot has no price and no next interest; it is not worth a lookup.
-  const lots = splitMatured(all).current
-    .filter((h) => !onlyId || String(h.id) === String(onlyId))
-    .filter((h) => /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase()));
-  if (!lots.length) {
-    note("No current lot carries an ISIN, so there is nothing to look up.");
-    return;
-  }
-  const isins = [...new Set(lots.map((h) => String(h.security_id).toUpperCase()))];
+async function marketBondData(isins, onProgress) {
   const got = new Map();
   const queue = [...isins];
   let read = 0, down = false;
-  note(`Reading ${isins.length} ISIN${isins.length === 1 ? "" : "s"}…`);
-  // Four at a time: SMEST answers in about a second and BSE is memoised per day.
+  // Four at a time: SMEST answers in about a second and the worker memoises a
+  // BSE day file, so the second week's press is mostly cache.
   const worker = async () => {
     while (queue.length) {
       const isin = queue.shift();
@@ -9546,38 +9535,116 @@ window.bpBondFetchAll = async (assetId, onlyId = "") => {
         down = true;
       }
       read++;
-      note(`Read ${read} of ${isins.length} ISIN${isins.length === 1 ? "" : "s"}…`);
+      onProgress?.(read, isins.length);
     }
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
+  return { got, down };
+}
+async function applyMarketData(store, assetId, lots, got) {
+  const c = { lots: lots.length, filled: 0, changed: 0, complete: 0,
+    unread: 0, priced: 0, unpriced: 0 };
+  for (const h of lots) {
+    const data = got.get(String(h.security_id).toUpperCase()) || null;
+    const plan = bondFillPlan(h, data);
+    if (!data?.details) c.unread++;
+    else if (!plan.terms) c.complete++;
+    if (plan.terms || plan.priced) {
+      await store.upsertHolding(assetId, { ...h, ...plan.patch });
+    }
+    if (plan.added) c.filled++;
+    if (plan.ratingChanged) c.changed++;
+    // "Repriced" means the number moved; the same price is not news.
+    if (plan.priced) { if (plan.patch.value_paise !== h.value_paise) c.priced++; }
+    else if (data?.details) c.unpriced++;
+  }
+  return c;
+}
+function marketSummary(c) {
+  const bits = [];
+  if (c.priced) bits.push(`${c.priced} repriced from BSE`);
+  if (c.changed) bits.push(`${c.changed} rating${c.changed === 1 ? "" : "s"} updated`);
+  if (c.filled) bits.push(`${c.filled} lot${c.filled === 1 ? "" : "s"} filled in`);
+  if (c.complete) bits.push(`${c.complete} already current`);
+  if (c.unpriced) bits.push(`${c.unpriced} had no trade, so the value is unchanged`);
+  if (c.unread) bits.push(`${c.unread} could not be read`);
+  return bits.join(" · ") || "Nothing to do";
+}
+const liveBondLots = (rows) => splitMatured(rows).current
+  .filter((h) => !(Number(h.quantity) === 0))
+  .filter((h) => /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase()));
+
+window.bpBondFetchAll = async (assetId, onlyId = "") => {
+  const note = (t) => {
+    window.bpBondMarketNote = { id: assetId, text: t };
+    const el = document.getElementById("bond-fetch-note");
+    if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
+  };
+  const store = await import("./db.js");
+  // A matured lot has no price and no next interest; it is not worth a lookup.
+  const lots = liveBondLots(await store.listHoldings(assetId))
+    .filter((h) => !onlyId || String(h.id) === String(onlyId));
+  if (!lots.length) {
+    note("No current lot carries an ISIN, so there is nothing to look up.");
+    return;
+  }
+  const isins = [...new Set(lots.map((h) => String(h.security_id).toUpperCase()))];
+  note(`Reading ${isins.length} ISIN${isins.length === 1 ? "" : "s"}…`);
+  const { got, down } = await marketBondData(isins, (read) => {
+    note(`Read ${read} of ${isins.length} ISIN${isins.length === 1 ? "" : "s"}…`);
+  });
   if (down && ![...got.values()].some(Boolean)) {
     note("The exchange lookup did not answer. Try again in a moment, or enter the price by hand.");
     return;
   }
-  let filled = 0, changed = 0, complete = 0, unread = 0, priced = 0, unpriced = 0;
-  for (const h of lots) {
-    const data = got.get(String(h.security_id).toUpperCase()) || null;
-    const plan = bondFillPlan(h, data);
-    if (!data?.details) unread++;
-    else if (!plan.terms) complete++;
-    if (plan.terms || plan.priced) {
-      await store.upsertHolding(assetId, { ...h, ...plan.patch });
-    }
-    if (plan.added) filled++;
-    if (plan.ratingChanged) changed++;
-    // "Repriced" means the number moved; the same price is not news.
-    if (plan.priced) { if (plan.patch.value_paise !== h.value_paise) priced++; }
-    else if (data?.details) unpriced++;
-  }
-  const bits = [];
-  if (filled) bits.push(`${filled} lot${filled === 1 ? "" : "s"} filled in`);
-  if (changed) bits.push(`${changed} rating${changed === 1 ? "" : "s"} changed`);
-  if (complete) bits.push(`${complete} already complete`);
-  if (unread) bits.push(`${unread} could not be read`);
-  if (priced) bits.push(`${priced} repriced from BSE`);
-  if (unpriced) bits.push(`${unpriced} had no trade, so the value is unchanged`);
-  note((bits.join(" · ") || "Nothing to do") + ".");
+  const counts = await applyMarketData(store, assetId, lots, got);
+  note(marketSummary(counts) + ".");
   window.bpAsset(assetId);
+};
+// The bond section on Assets covers every demat at once, so its one button does
+// the same for every current bond the family holds: latest rating and price.
+window.bpFetchAllBonds = async (event) => {
+  const btn = event?.currentTarget || null;
+  const note = (t) => {
+    window.bpPortfolioFetchNote = t;
+    const el = document.getElementById("bond-fetch-all-note");
+    if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
+  };
+  if (btn) { btn.disabled = true; btn.textContent = "Fetching…"; }
+  try {
+    const store = await import("./db.js");
+    const assets = (await store.listAccounts())
+      .filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
+    const plan = [];
+    for (const a of assets) {
+      const lots = liveBondLots(await store.listHoldings(a.id));
+      if (lots.length) plan.push({ id: a.id, lots });
+    }
+    const isins = [...new Set(plan.flatMap((p) => p.lots
+      .map((h) => String(h.security_id).toUpperCase())))];
+    if (!isins.length) {
+      note("No current bond carries an ISIN, so there is nothing to look up.");
+      return;
+    }
+    note(`Reading ${isins.length} ISIN${isins.length === 1 ? "" : "s"} across ${plan.length} account${plan.length === 1 ? "" : "s"}…`);
+    const { got, down } = await marketBondData(isins, (read) => {
+      note(`Read ${read} of ${isins.length} ISIN${isins.length === 1 ? "" : "s"}…`);
+    });
+    if (down && ![...got.values()].some(Boolean)) {
+      note("The exchange lookup did not answer. Try again in a moment.");
+      return;
+    }
+    const total = { lots: 0, filled: 0, changed: 0, complete: 0,
+      unread: 0, priced: 0, unpriced: 0 };
+    for (const p of plan) {
+      const c = await applyMarketData(store, p.id, p.lots, got);
+      for (const k of Object.keys(total)) total[k] += c[k];
+    }
+    note(`${total.lots} bond${total.lots === 1 ? "" : "s"} · ${marketSummary(total)}.`);
+    go("assets");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Fetch all"; }
+  }
 };
 window.bpBondCsv = async (id) => {
   const store = await import("./db.js");
