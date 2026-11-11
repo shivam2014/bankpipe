@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import {
   BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport,
+  EQUITY_BROKERS, equityBroker,
 } from "./brokers.js";
 
 test("digifinn is the first broker, with one cost file and one optional payouts file", () => {
@@ -35,6 +36,13 @@ test("the planner reports are the ones this app reads", () => {
   assert.ok(brokerReport("digifinn", "portfolio"));
   assert.ok(brokerReport("digifinn", "payouts"));
   assert.equal(brokerReport("digifinn", "nope"), null);
+});
+
+test("equity brokers start with Motilal Oswal and Zerodha", () => {
+  assert.deepEqual(EQUITY_BROKERS.map((b) => b.id), ["motilal", "zerodha"]);
+  assert.equal(equityBroker("zerodha").label, "Zerodha");
+  assert.equal(equityBroker("motilal").page.url.length > 0, true);
+  assert.equal(equityBroker("not-a-broker"), null);
 });
 
 test("a broker's file is read by that broker's parser", () => {

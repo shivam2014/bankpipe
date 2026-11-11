@@ -434,6 +434,7 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .icon-btn:hover{background:var(--hair);color:var(--ink)}
 .mini-btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:4px 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
 a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+.linkish{background:none;border:0;padding:0;font:inherit;font-size:11px;color:var(--green);text-decoration:underline;cursor:pointer}
 .broker-tile{display:inline-flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
 .broker-tile img{height:20px;width:auto;background:#fff;border-radius:4px;padding:2px 3px}
 .broker-tile .where{font-weight:400;font-size:11px;color:var(--muted)}
@@ -1022,7 +1023,8 @@ import { parseDigiFinnFile, mergeDigiFinn, scorePortfolio } from "./digifinn.js"
 import { bondAnalytics, bondSummary, parseBondLabel, inferFace,
   BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange } from "./bonds.js";
 import { bondPrefill } from "./bond-source.js";
-import { BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport, IMPORT_SLOTS } from "./brokers.js";
+import { BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport, IMPORT_SLOTS,
+  EQUITY_BROKERS, equityBroker } from "./brokers.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
 import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
@@ -3071,6 +3073,39 @@ function renderImport() {
     </div>
     <div class="muted" style="font-size:11.5px;margin-top:8px">Updating? Re-import the CAS;
     cost already on matching bonds is kept.</div>
+  </div>
+
+  <div class="card pad" id="equity-broker-import">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <h2 style="margin:0">Equities</h2>
+      <span class="muted" style="font-size:11.5px">cost and purchase date</span></div>
+    <p class="muted" style="margin:6px 0 0;font-size:12.5px">The CAS gives the shares and their
+    value, not what you paid or when. A broker statement fills both. Both formats land on the
+    demat by ISIN; nothing is written until you confirm.</p>
+    <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
+      text-transform:uppercase;margin-top:12px">Supported brokers</div>
+    <div style="margin-top:7px;display:flex;gap:8px;flex-wrap:wrap">
+      ${EQUITY_BROKERS.map((b) => `<button type="button"
+        class="broker-tile${window.bpEquityBrokerChoice === b.id ? " on" : ""}"
+        aria-pressed="${window.bpEquityBrokerChoice === b.id}"
+        onclick="bpEquityBrokerChoose('${esc(b.id)}')">
+        <span>${esc(b.label)}</span>
+        <span class="where">${esc(b.page?.where || "Reports")}</span></button>`).join("")}
+    </div>
+    ${(() => {
+      const b = window.bpEquityBrokerChoice ? equityBroker(window.bpEquityBrokerChoice) : null;
+      if (!b) return `<div class="muted" style="font-size:12px;margin-top:10px">
+        Choose a broker to see the statement it needs.</div>`;
+      return `<div style="margin-top:10px;padding:9px 11px;border:1px solid var(--line);
+          border-radius:10px">
+        <b style="font-size:12.5px">${esc(b.label)} equity statement</b>
+        <div class="muted" style="font-size:11.5px">Purchase date and invested amount per ISIN.
+          The file format is being added, so nothing is read yet.</div>
+        <div class="muted" style="font-size:11px;margin-top:4px">Open
+          <a class="link" href="${esc(b.page?.url || "#")}" target="_blank"
+            rel="noopener">${esc(b.page?.url || b.label)}</a> → ${esc(b.page?.where || "Reports")}</div>
+      </div>`;
+    })()}
   </div>
 
   <div class="card pad">
@@ -7702,6 +7737,19 @@ window.bpCashflowCancel = () => {
 // account, so work out the demat from the file itself: the Portfolio Report
 // prints the account number; both reports can otherwise be scored by the ISINs
 // the demat already holds.
+// From an equity holding that has no cost: land on the broker section of Import.
+window.bpEquityImport = (assetId = "") => {
+  window.bpEquityImportTarget = assetId;
+  go("import");
+  setTimeout(() => document.getElementById("equity-broker-import")
+    ?.scrollIntoView({ block: "center", behavior: "smooth" }), 150);
+};
+window.bpEquityBrokerChoose = (id) => {
+  window.bpEquityBrokerChoice = id;
+  go("import");
+  setTimeout(() => document.getElementById("equity-broker-import")
+    ?.scrollIntoView({ block: "center", behavior: "smooth" }), 150);
+};
 window.bpImportBrokerChoose = (id) => {
   window.bpImportBrokerChoice = id;
   go("import");
@@ -9589,7 +9637,7 @@ function holdingClass(row) {
   if (/^INF/.test(String(row?.security_id || ""))) return "mf";
   return "equity";
 }
-function holdingCardHtml(row, kind = "") {
+function holdingCardHtml(row, kind = "", assetId = "") {
   const mf = kind === "mf";
   const qty = row.quantity === null || row.quantity === undefined ? null : Number(row.quantity);
   const cost = row.cost_paise === null || row.cost_paise === undefined ? null : Number(row.cost_paise);
@@ -9611,7 +9659,10 @@ function holdingCardHtml(row, kind = "") {
       ${cell(mf ? "NAV" : "Price per unit", unit === null ? "—" : money(unit))}
       ${cell("Units", qty === null ? "—" : qty)}
       ${cell("Purchase date", row.purchase_date ? dateLabel(row.purchase_date)
-        : (mf || kind === "equity" ? "—<div class=\"sub\">not in the CAS</div>" : "—"))}
+        : (kind === "equity"
+          ? `—${assetId ? `<div class="sub"><button class="linkish"
+            onclick="bpEquityImport('${esc(assetId)}')">Add cost from broker</button></div>` : ""}`
+          : (mf ? "—<div class=\"sub\">not in the CAS</div>" : "—")))}
       ${cell("Invested", moneyOrDash(cost))}
       ${cell("Current value", moneyOrDash(value))}
       ${cell("Gain", gainText, gain === null || gain === 0 ? "" : gain < 0 ? "neg" : "pos")}
@@ -9622,8 +9673,8 @@ function holdingCardHtml(row, kind = "") {
         ? "gain not known" : `gain ${gain < 0 ? "−" : gain > 0 ? "+" : ""}${money(Math.abs(gain || 0))}`}`}</div>
   </div>`;
 }
-function holdingCards(rows, kind = "", { header = true } = {}) {
-  const cards = rows.map((r) => holdingCardHtml(r, kind)).join("");
+function holdingCards(rows, kind = "", { header = true, assetId = "" } = {}) {
+  const cards = rows.map((r) => holdingCardHtml(r, kind, assetId)).join("");
   if (!header) return `<div class="holding-cards">${cards}</div>`;
   const value = rows.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
   const invested = rows.reduce((t, r) => t + (Number(r.cost_paise) || 0), 0);
@@ -9673,7 +9724,7 @@ function holdingsBlock(rows, assetId) {
     const list = visible[0]?.[1] || rows;
     return `${tabs}${kind === "bond"
       ? `<div id="bond-holdings">${holdingsCard(list, assetId)}</div>`
-      : holdingCards(list, kind)}`;
+      : holdingCards(list, kind, { assetId })}`;
   }
   const total = (list) => list.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
   const html = visible.map(([kind, list]) => `<div style="display:flex;
@@ -9681,7 +9732,7 @@ function holdingsBlock(rows, assetId) {
       <h2 style="margin:0;font-size:15px">${labels[kind]}</h2>
       <span class="muted" style="font-size:12px">${money(total(list))}</span></div>
     ${kind === "bond" ? `<div id="bond-holdings">${holdingsCard(list, assetId)}</div>`
-      : holdingCards(list, kind, { header: false })}`).join("");
+      : holdingCards(list, kind, { header: false, assetId })}`).join("");
   return `${tabs}${html}`;
 }
 window.bpBondSort = (key) => {

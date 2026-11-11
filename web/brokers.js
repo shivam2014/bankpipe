@@ -56,3 +56,17 @@ export function parseBrokerReport(brokerId, text, fileName = "") {
   const parse = broker && PARSERS[broker.parser];
   return parse ? parse(text, fileName) : { kind: "unknown", fileName };
 }
+
+// Equity statements carry the purchase date and invested amount the CAS never
+// prints. These brokers are registered now so the holding card can send a person
+// to the import; each file format is wired when its report is known.
+export const EQUITY_BROKERS = [
+  { id: "motilal", label: "Motilal Oswal",
+    page: { url: "https://www.motilaloswal.com/", where: "Reports" } },
+  { id: "zerodha", label: "Zerodha",
+    page: { url: "https://console.zerodha.com/", where: "Reports" } },
+];
+
+export function equityBroker(id) {
+  return EQUITY_BROKERS.find((b) => b.id === id) || null;
+}
