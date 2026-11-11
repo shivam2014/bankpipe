@@ -9112,13 +9112,23 @@ function holdingsBlock(rows, assetId) {
   let visible = focus === "all" ? filled : filled.filter(([kind]) => kind === focus);
   if (!visible.length) visible = filled;
   // A demat holds several classes. Opening the account from the Bonds section
-  // should land on Bonds, with All and the other classes one tap away.
-  const tabs = filled.length > 1 ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px">
+  // should land on Bonds. Show the classes this demat could hold, including zero,
+  // so a bond-only account says so instead of silently losing the tabs.
+  const asset = (window.bpAssetsForFocus || []).find((a) => a.id === assetId);
+  const isDemat = categoryOf(asset) === "demat";
+  const isFolio = isDemat && /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
+  const tabKinds = isDemat && !isFolio ? ["bond", "equity", "mf"]
+    : filled.map(([kind]) => kind);
+  const showTabs = (isDemat && !isFolio) || filled.length > 1;
+  const tabs = showTabs ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px">
     <button class="btn ${focus === "all" ? "primary" : ""}" onclick="bpAssetClass('all')">All
       <span class="muted">${rows.length}</span></button>
-    ${filled.map(([kind, list]) => `<button class="btn ${focus === kind ? "primary" : ""}"
-      onclick="bpAssetClass('${kind}')">${labels[kind]}
-      <span class="muted">${list.length}</span></button>`).join("")}
+    ${tabKinds.map((kind) => {
+      const count = (groups[kind] || []).length;
+      return `<button class="btn ${focus === kind ? "primary" : ""}"${
+        count ? ` onclick="bpAssetClass('${kind}')"` : ` disabled style="opacity:.45;cursor:default"`}>${
+        labels[kind]} <span class="muted">${count}</span></button>`;
+    }).join("")}
   </div>` : "";
   window.bpBondRows = groups.bond;
   window.bpBondAsset = assetId;
