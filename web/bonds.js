@@ -16,12 +16,14 @@ export function parseBondLabel(label) {
   const text = String(label || "");
   const coupon = text.match(/(\d+(?:\.\d+)?)\s*%/);
   const date = text.match(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{4})/);
-  if (!coupon || !date) return null;
+  // A coupon and a date are not always both present: a CAS can know the
+  // maturity without the coupon. The date alone still belongs on the card.
+  if (!date) return null;
   // "Sept", "September" and "Sep" are the same month; three letters are enough.
   const month = MONTHS[date[2].toUpperCase().slice(0, 3)];
   if (!month) return null;
   return {
-    couponPct: Number(coupon[1]),
+    couponPct: coupon ? Number(coupon[1]) : null,
     maturity: `${date[3]}-${String(month).padStart(2, "0")}-${String(date[1]).padStart(2, "0")}`,
     name: text,
   };
@@ -38,7 +40,7 @@ export function inferFace(costPaise, quantity) {
 
 export function bondAnalytics(h) {
   const parsed = parseBondLabel(h?.label);
-  if (!parsed) return null;
+  if (!parsed || parsed.couponPct === null || parsed.couponPct === undefined) return null;
   const qty = Number(h.quantity) || 0;
   const cost = Number(h.cost_paise);
   const face = inferFace(cost, qty);

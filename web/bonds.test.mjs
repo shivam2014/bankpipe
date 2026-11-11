@@ -14,6 +14,14 @@ test("a four-letter month still names the same date", () => {
   assert.equal(parseBondLabel("9.95% TEST 26 September 2026").maturity, "2026-09-26");
 });
 
+test("a label with a date but no coupon still gives the maturity", () => {
+  const p = parseBondLabel("B.N. AGRITECH LIMITED 27 Nov 2028");
+  assert.equal(p.couponPct, null);
+  assert.equal(p.maturity, "2028-11-27");
+  assert.equal(bondAnalytics({ label: "B.N. AGRITECH LIMITED 27 Nov 2028",
+    quantity: 30, cost_paise: 22069928, purchase_date: "2025-02-12" }), null);
+});
+
 test("infers the face value from the cost per unit", () => {
   assert.equal(inferFace(9982008, 1), 100000);
   assert.equal(inferFace(20574470, 1), 200000);
