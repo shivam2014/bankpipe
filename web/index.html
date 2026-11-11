@@ -9477,9 +9477,9 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Interest rate", v.coupon === null ? "—" : `${v.coupon}%`)}
       ${cell("Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
       ${cell("Payment frequency", esc(v.frequency))}
-      ${cell("Next interest", v.payout === null ? "—" : money(v.payout)
-        + (v.interestDate ? `<div class="sub">${dateLabel(v.interestDate)}</div>`
-          : v.payoutEstimated ? `<div class="sub">estimated</div>` : ""))}
+      ${cell(`Next interest${v.interestDate ? ` · ${dateLabel(v.interestDate)}` : ""}`,
+        v.payout === null ? "—" : money(v.payout)
+        + (!v.interestDate && v.payoutEstimated ? `<div class="sub">estimated</div>` : ""))}
       ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
       ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
       ${cell("Units", v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity)}
