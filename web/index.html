@@ -7462,7 +7462,8 @@ window.bpCostFile = async (file, opts = {}) => {
         ? ` · as of ${dateLabel(parsed.asOf)}` : ""}${fromImport && me
         ? ` → ${esc(me.label)}` : ""}</div>
       <div class="muted" style="font-size:12px;margin-top:4px">${parsed.rows.length} lots ·
-        ${matched.length} match a bond here · ${missing.length} will take a price${
+        ${matched.length} match a bond here${missing.length
+        ? ` · ${missing.length} need a purchase price` : ""}${
         labelFills.length ? ` · ${labelFills.length} label${labelFills.length === 1 ? "" : "s"}
           will be filled` : ""}${dateFixes.length ? ` · ${dateFixes.length} will take
           ${dateLabel(parsed.asOf)} as the value date` : ""}${
@@ -7470,8 +7471,9 @@ window.bpCostFile = async (file, opts = {}) => {
       ${changes
         ? `<button class="btn primary" style="margin-top:10px"
             onclick="bpCostApply()">${missing.length && labelFills.length
-              ? `Import cost for ${missing.length} + ${labelFills.length} label${labelFills.length === 1 ? "" : "s"}`
-              : missing.length ? `Import cost for ${missing.length} bond${missing.length === 1 ? "" : "s"}`
+              ? `Apply cost to ${missing.length} bond${missing.length === 1 ? "" : "s"}
+                and fill ${labelFills.length} label${labelFills.length === 1 ? "" : "s"}`
+              : missing.length ? `Apply cost to ${missing.length} bond${missing.length === 1 ? "" : "s"}`
                 : labelFills.length ? `Fill ${labelFills.length} bond label${labelFills.length === 1 ? "" : "s"}`
                   : `Set value date to ${dateLabel(parsed.asOf)}`}</button>`
         : `<div class="muted" style="margin-top:6px">Every matching bond already has a price,
