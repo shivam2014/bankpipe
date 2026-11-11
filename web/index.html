@@ -9494,7 +9494,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${a ? `<div class="muted" style="margin:-10px 0 14px;font-size:12px">Editing
     ${esc(/mutual\s*fund|^mf$/i.test(String(a?.subtype || "")) ? "mutual fund"
       : cat === "bonds" ? "bond portfolio" : categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
-  ${!a && cat === "bonds" ? `<div class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px">
+  ${!a ? `<div id="s-bond-hint" class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px;display:${cat === "bonds" ? "" : "none"}">
     <b>A demat bond portfolio comes from a CAS.</b> Import the CDSL/NSDL statement and the app
     creates the account with its bonds; use this form only for bonds held outside a demat.
     <div style="margin-top:8px"><button class="btn" onclick="go('import')">Import a CAS</button></div></div>` : ""}
@@ -10517,6 +10517,8 @@ window.bpAssetKinds = (keep) => {
   const catEl = document.getElementById("s-cat");
   if (!catEl) return;
   const cat = catEl.value;
+  const bondHint = document.getElementById("s-bond-hint");
+  if (bondHint) bondHint.style.display = cat === "bonds" ? "" : "none";
   const sel = document.getElementById("s-kind");
   const kindWrap = document.getElementById("s-kind-wrap");
   const types = typesFor(cat);
