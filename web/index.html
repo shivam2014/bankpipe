@@ -7821,6 +7821,20 @@ window.bpCasImport = async (key = "cas-host") => {
         ])];
         const nextMeta = { ...meta, holdings_source: "cas", holdings_as_of: asOf,
           holdings_file: sources.join(" · "), holdings_files: sources };
+        const home = (route.accounts || []).find((h) => h.assetId === assetId);
+        const dpName = String(home?.dpName || "").trim();
+        let nextLabel = "";
+        if (dpName) {
+          nextMeta.dp = dpName;
+          nextMeta.depository = cas.depository || nextMeta.depository || "";
+          // The depository is NSDL or CDSL; the account is held through a DP.
+          // An auto label that only names the depository is replaced by the DP.
+          if (/^Demat · (?:CDSL|NSDL) · /.test(String(asset.label || ""))
+            || !String(asset.label || "").trim()) {
+            nextLabel = `Demat · ${shortDp(dpName)} · …${
+              String(home.boId || currentNumber).slice(-4)}`;
+          }
+        }
         // A folio account keeps every folio number the statements printed; the
         // number is a folio, not a bank reference. A short cell that is only the
         // prefix of the stored number is the same folio, so it is not repeated.
@@ -7835,6 +7849,7 @@ window.bpCasImport = async (key = "cas-host") => {
         }
         const patch = { meta: JSON.stringify(nextMeta) };
         if (nextNumber) patch.number = nextNumber;
+        if (nextLabel) patch.label = nextLabel;
         // The statement names the owner; fill it only where it is still blank, so
         // a name the person typed is never overwritten by a later statement.
         const named = String(card.owner || cas.holder || "").trim();

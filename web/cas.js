@@ -574,9 +574,11 @@ function accountHeaders(items) {
       const id = raw ? boId(raw) : null;
       if (!id || id.kind !== "bo") return;
       if (out.some((h) => h.boId === id.boId && h.page === page && Math.abs(h.y - line.y) < 3)) return;
-      const names = line.text.match(/[A-Z][A-Za-z&.,()'-]*(?:\s+[A-Z][A-Za-z&.,()'-]*){1,6}\s+(?:LIMITED|LTD)/g) || [];
-      out.push({ page, y: line.y, boId: id.boId,
-        dpName: names.sort((a, b) => b.length - a.length)[0] || "" });
+      const names = near.match(/[A-Z][A-Za-z&.,()'-]*(?:\s+[A-Z][A-Za-z&.,()'-]*){1,6}\s+(?:LIMITED|LTD)/g) || [];
+      const rawName = names.sort((a, b) => b.length - a.length)[0] || "";
+      // The DP name can repeat across two adjacent summary lines; keep one copy.
+      const dpName = rawName.replace(/^(.+?)\s+\1$/, "$1");
+      out.push({ page, y: line.y, boId: id.boId, dpName });
     });
   }
   return out;
