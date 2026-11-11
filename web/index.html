@@ -388,6 +388,9 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .df-pick{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .df-ok{color:var(--green);font-weight:600}
 .bond-market{font-size:11.5px;color:var(--muted);border-top:1px solid var(--hair);margin-top:8px;padding-top:7px}
+.bond-breakdown{border-top:1px solid var(--hair);margin-top:8px;padding-top:6px}
+.bond-breakdown summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
+.bond-breakdown .bond-money{border-top:0;margin-top:6px;padding-top:0}
 .bond-money{border-top:1px solid var(--hair);margin-top:8px;padding-top:7px;display:flex;flex-direction:column;gap:5px}
 .bm-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font-size:12px}
 .bm-row .k{flex:0 0 128px;color:var(--muted)}
@@ -399,7 +402,7 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .bond-market .sep{margin:0 6px;color:var(--line)}
 .bond-market .muted{margin-left:8px}
 .bond-market b.neg{color:var(--red)}.bond-market b.pos{color:var(--green)}
-.bond-market .vupdate{background:none;border:0;padding:0 0 0 6px;font:inherit;color:var(--link,var(--ink));text-decoration:underline;cursor:pointer}
+.vupdate{background:none;border:0;padding:0 0 0 6px;font:inherit;color:var(--link,var(--ink));text-decoration:underline;cursor:pointer}
 .bond-cards{display:none;flex-direction:column;gap:8px;margin-top:10px}
 .matured-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .holding-cards{display:flex;flex-direction:column;gap:8px;margin-top:10px}
@@ -9475,6 +9478,10 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
       ${cell("Units", v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity)}
       ${cell("Invested", moneyOrDash(v.h.cost_paise))}
+      ${cell("Market value", moneyOrDash(v.value))}
+      ${cell("Gain if sold", v.gain === null || v.gain === undefined ? "—"
+        : `${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain))}`,
+        v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "")}
     </div>
     ${matured ? "" : (() => {
       const still = v.expectedMaturity;
@@ -9490,40 +9497,42 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       const paidOn = String(v.h.redemption_dates || "").split(",")
         .map((d) => d.trim()).filter((d) => d && d <= today).sort().pop() || "";
       const payoutFile = window.bpBondPayoutFile || "";
-      return `<div class="bond-money">
-        ${v.returned ? `<div class="bm-row"><span class="k">Principal returned</span>
-          <span class="v pos" title="Face bought ${money(v.ba?.purchaseFaceTotal)} minus
-            principal still to come ${money(v.ba?.faceTotal)}.">${money(v.returned)}</span>
-          <span class="sub">an early repayment${paidOn ? ` on ${dateLabel(paidOn)}` : ""},
-            not a sale</span></div>` : ""}
-        ${still === null || still === undefined ? "" : `<div class="bm-row">
-          <span class="k">Still to come</span><span class="v">${money(still)}</span>
-          <span class="sub">${[when, split].filter(Boolean).join(" · ")}</span></div>`}
-        ${total === null ? "" : `<div class="bm-row"><span class="k">If held to maturity</span>
-          <span class="v">${money(total)}</span>
-          <span class="sub ${v.expectedGain < 0 ? "neg" : "pos"}">${gainLabel}</span></div>`}
-        ${v.returned && v.ba?.purchaseFaceTotal && v.ba?.faceTotal
-          ? `<div class="bm-note">Derived${payoutFile ? ` from ${esc(payoutFile)}` : ""}:
-            ${money(v.ba.purchaseFaceTotal)} face bought − ${money(v.ba.faceTotal)} principal
-            still to come.${paidOn ? " Repayment date from SMEST." : " Redemption dates on SMEST."}</div>` : ""}
-      </div>`;
+      return `<details class="bond-breakdown"><summary>Breakdown</summary>
+        <div class="bond-money">
+          ${v.ba?.purchaseFaceTotal ? `<div class="bm-row"><span class="k">Face bought</span>
+            <span class="v">${money(v.ba.purchaseFaceTotal)}</span></div>` : ""}
+          ${v.returned ? `<div class="bm-row"><span class="k">Principal returned</span>
+            <span class="v pos" title="Face bought ${money(v.ba?.purchaseFaceTotal)} minus
+              principal still to come ${money(v.ba?.faceTotal)}.">${money(v.returned)}</span>
+            <span class="sub">an early repayment${paidOn ? ` on ${dateLabel(paidOn)}` : ""},
+              not a sale</span></div>` : ""}
+          ${still === null || still === undefined ? "" : `<div class="bm-row">
+            <span class="k">Still to come</span><span class="v">${money(still)}</span>
+            <span class="sub">${[when, split].filter(Boolean).join(" · ")}</span></div>`}
+          ${total === null ? "" : `<div class="bm-row"><span class="k">If held to maturity</span>
+            <span class="v">${money(total)}</span>
+            <span class="sub ${v.expectedGain < 0 ? "neg" : "pos"}">${gainLabel}</span></div>`}
+          ${v.value === null
+            ? `<div class="bm-row"><span class="k">Market value</span><span class="v">—</span>
+              <span class="sub">not recorded${assetId && v.h.id ? ` · <button class="vupdate"
+                onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>` : ""}.
+                Hold-to-maturity numbers do not depend on it.</span></div>`
+            : `<div class="bm-row"><span class="k">Market value</span>
+              <span class="v">${money(v.value)}</span>
+              <span class="sub">${[v.valueAsOf ? `as of ${dateLabel(v.valueAsOf)}` : "",
+                v.returned && v.ba?.marketPrice != null
+                  ? `${v.ba.marketPrice.toFixed(2)} per ₹100 of the
+                    ${money(v.ba.faceTotal)} outstanding` : "",
+              ].filter(Boolean).join(" · ")}${assetId && v.h.id ? ` · <button class="vupdate"
+                onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}</span>
+              <span class="sub">If sold now ${money(v.value + (v.returned || 0))}${v.returned
+                ? ` · includes ${money(v.returned)} already back` : ""}</span></div>`}
+          ${v.returned && v.ba?.purchaseFaceTotal && v.ba?.faceTotal
+            ? `<div class="bm-note">Derived${payoutFile ? ` from ${esc(payoutFile)}` : ""}:
+              ${money(v.ba.purchaseFaceTotal)} face bought − ${money(v.ba.faceTotal)} principal
+              still to come.${paidOn ? " Repayment date from SMEST." : " Redemption dates on SMEST."}</div>` : ""}
+        </div></details>`;
     })()}
-    <div class="bond-market">${matured
-      ? `Matured ${dateLabel(v.maturity)}<span class="sep">·</span>kept as history, not counted in the totals`
-      : v.value === null
-        ? `Market value not recorded.${assetId && v.h.id ? ` <button class="vupdate"
-          onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>` : ""}
-          <span class="muted">Hold-to-maturity numbers above do not depend on it.</span>`
-        : `<div>Market value <b>${money(v.value)}</b>${v.returned && v.ba?.marketPrice != null
-          ? `<span class="muted">${v.ba.marketPrice.toFixed(2)} per ₹100 of the
-            ${money(v.ba.faceTotal)} still outstanding</span>` : ""}${v.valueAsOf
-          ? `<span class="muted"> as of ${dateLabel(v.valueAsOf)}</span>` : ""}
-          ${assetId && v.h.id ? `<button class="vupdate"
-          onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Update</button>` : ""}</div>
-          <div style="margin-top:2px">If sold now <b>${money(v.value + (v.returned || 0))}</b>
-          <b class="${v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : ""}">${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain || 0))}</b>
-          <span class="muted">${v.returned
-            ? "includes the principal already back" : "only matters if you sell early"}</span></div>`}</div>
   </div>`;
 }
 function holdingsCard(allRows, assetId) {
