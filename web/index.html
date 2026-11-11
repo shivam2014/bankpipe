@@ -7349,8 +7349,9 @@ window.bpCostFile = async (file, opts = {}) => {
     const changes = missing.length + labelFills.length;
     window.bpCostPlan = { id, parsed, matched, missing, labelFills, fromImport };
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
-      <div><b>${esc(file.name || "Holdings Report")}</b>${parsed.asOf
-        ? ` · as of ${dateLabel(parsed.asOf)}` : ""}</div>
+      <div><b>${esc(file.name || "Portfolio Report")}</b>${parsed.asOf
+        ? ` · as of ${dateLabel(parsed.asOf)}` : ""}${fromImport && me
+        ? ` → ${esc(me.label)}` : ""}</div>
       <div class="muted" style="font-size:12px;margin-top:4px">${parsed.rows.length} lots ·
         ${matched.length} match a bond here · ${missing.length} will take a price${
         labelFills.length ? ` · ${labelFills.length} label${labelFills.length === 1 ? "" : "s"}
@@ -7453,6 +7454,7 @@ window.bpCashflowFile = async (file, opts = {}) => {
       return;
     }
     const store = await import("./db.js");
+    const me = (await store.listAccounts()).find((a) => a.id === id);
     const positions = (await store.listHoldings(id))
       .filter((h) => String(h.category || "") === "bond");
     const live = positions.filter((h) => h.quantity === null || h.quantity === undefined
@@ -7471,7 +7473,8 @@ window.bpCashflowFile = async (file, opts = {}) => {
       || groupOf(p)?.future_principal_paise != null).length;
     window.bpCashflowPlan = { id, parsed, matched, fromImport };
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
-      <div><b>${esc(file.name || "Payouts")}</b></div>
+      <div><b>${esc(file.name || "Upcoming Payouts")}</b>${fromImport && me
+        ? ` → ${esc(me.label)}` : ""}</div>
       <div class="muted" style="font-size:12px;margin-top:4px">${matched.length} bond${
         matched.length === 1 ? "" : "s"} match · ${withFreq} take a frequency ·
         ${withNext} a next interest${withSchedule ? ` · ${withSchedule} a full schedule` : ""}.</div>
