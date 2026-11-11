@@ -403,8 +403,8 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .bond-market .muted{margin-left:8px}
 .bond-market b.neg{color:var(--red)}.bond-market b.pos{color:var(--green)}
 .vupdate{background:none;border:0;padding:0 0 0 6px;font:inherit;color:var(--link,var(--ink));text-decoration:underline;cursor:pointer}
-.info-btn{width:15px;height:15px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--muted);font:600 10px/1 var(--font-sans,sans-serif);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
-.info-pop{display:none;position:absolute;z-index:30;top:calc(100% + 6px);left:0;width:230px;max-width:calc(100vw - 60px);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:11.5px;font-weight:400;line-height:1.5;color:var(--ink);box-shadow:0 10px 26px -14px rgba(15,18,22,.35);text-transform:none;letter-spacing:0}
+.info-btn{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--muted);font:600 11px/1 var(--font-sans,sans-serif);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;margin:-3px 0 -3px 2px;touch-action:manipulation}
+.info-pop{display:none;position:absolute;z-index:30;top:calc(100% + 6px);left:0;width:230px;max-width:min(240px,calc(100vw - 48px));background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:11.5px;font-weight:400;line-height:1.5;color:var(--ink);box-shadow:0 10px 26px -14px rgba(15,18,22,.35);text-transform:none;letter-spacing:0}
 .info-pop.open{display:block}
 .info-pop b{font-weight:650}
 .bond-cards{display:none;flex-direction:column;gap:8px;margin-top:10px}
@@ -9467,7 +9467,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       <button type="button" class="info-btn" aria-label="What is accrued interest"
         aria-expanded="false" onclick="bpInfoToggle(event,'${infoId}')">i</button></span>
     <span class="v">${v.accrued === null || v.accrued === undefined ? "—" : money(v.accrued)}</span>
-    <div class="info-pop" id="${infoId}" role="tooltip" style="right:0;left:auto">
+    <div class="info-pop" id="${infoId}" role="tooltip" style="right:0;left:auto"
+      onclick="event.stopPropagation()">
       <b>Interest earned, not yet paid.</b> It is the slice of the next coupon between
       ${v.accruedFrom ? dateLabel(v.accruedFrom) : "the last coupon"} and today.
       ${v.accrued === null || v.accrued === undefined
@@ -10427,22 +10428,24 @@ window.bpBondHoldingNew = (assetId) => {
   window.bpState = { ...(window.bpState || {}), bondHoldingAsset: assetId, bondHoldingId: "" };
   go("bondHolding");
 };
+window.bpInfoClose = () => {
+  document.querySelectorAll(".info-pop.open").forEach((p) => p.classList.remove("open"));
+  document.querySelectorAll('.info-btn[aria-expanded="true"]')
+    .forEach((b) => b.setAttribute("aria-expanded", "false"));
+};
 window.bpInfoToggle = (event, id) => {
   event.stopPropagation();
   const el = document.getElementById(id);
   const wasOpen = el && el.classList.contains("open");
-  document.querySelectorAll(".info-pop.open").forEach((p) => p.classList.remove("open"));
-  document.querySelectorAll('.info-btn[aria-expanded="true"]')
-    .forEach((b) => b.setAttribute("aria-expanded", "false"));
+  window.bpInfoClose();
   if (el && !wasOpen) {
     el.classList.add("open");
     event.currentTarget.setAttribute("aria-expanded", "true");
   }
 };
-document.addEventListener("click", () => {
-  document.querySelectorAll(".info-pop.open").forEach((p) => p.classList.remove("open"));
-  document.querySelectorAll('.info-btn[aria-expanded="true"]')
-    .forEach((b) => b.setAttribute("aria-expanded", "false"));
+document.addEventListener("click", () => window.bpInfoClose?.());
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") window.bpInfoClose?.();
 });
 window.bpBondHoldingEdit = (assetId, holdingId, focusValue = false) => {
   window.bpState = { ...(window.bpState || {}), bondHoldingAsset: assetId,
