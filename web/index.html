@@ -8109,7 +8109,7 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
   }
   await window.bpCasImport(key);
 };
-window.bpCasImport = async (key = "cas-host") => {
+window.bpCasImport = async (key = "cas-host", confirmed = false) => {
   const card = (window.bpCasCards || {})[key] || {};
   const cas = card.cas || window.bpCasParsed;
   const route = card.route || window.bpCasRoute || { groups: [], homeless: [] };
@@ -8164,9 +8164,31 @@ window.bpCasImport = async (key = "cas-host") => {
       replacing += (await store.listHoldings(assetId)).length;
     }
     const incoming = [...byAsset.values()].reduce((t, rows) => t + rows.length, 0);
-    if (replacing && !confirm(`Replace ${replacing} existing holding${
-      replacing === 1 ? "" : "s"} with ${incoming} from the ${
-      cas.depository || "demat"} statement? A local version is saved first.`)) return;
+    if (replacing && !confirmed) {
+      // A browser confirm() blocks the page and looks like an error. Ask in the
+      // page, under the statement, and keep the preview visible behind it.
+      let ask = document.getElementById(`cas-confirm-${key}`);
+      if (!ask) {
+        ask = document.createElement("div");
+        ask.id = `cas-confirm-${key}`;
+        host.insertAdjacentElement("afterend", ask);
+      }
+      ask.innerHTML = `<div class="card pad" style="border-color:var(--amber);margin-top:10px">
+        <b>Replace ${replacing} existing holding${replacing === 1 ? "" : "s"}?</b>
+        <div class="muted" style="font-size:12.5px;margin-top:4px">
+          The ${esc(cas.depository || "demat")} statement writes ${incoming}
+          holding${incoming === 1 ? "" : "s"} into ${places}
+          account${places === 1 ? "" : "s"}. A backup is saved first, and nothing is written
+          until you confirm.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="btn primary" onclick="bpCasImportConfirm('${key}')">
+            Replace and import</button>
+          <button class="btn" onclick="bpCasImportCancel('${key}')">Cancel</button>
+        </div></div>`;
+      ask.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      return;
+    }
+    document.getElementById(`cas-confirm-${key}`)?.remove();
     try { await store.snapshotDb("Before CAS import"); } catch (e) {}
     const today = new Date().toISOString().slice(0, 10);
     let written = 0;
@@ -8306,6 +8328,10 @@ window.bpCasImport = async (key = "cas-host") => {
   } catch (e) {
     alert("Could not import the CAS: " + (e.message || e));
   }
+};
+window.bpCasImportConfirm = (key = "cas-host") => window.bpCasImport(key, true);
+window.bpCasImportCancel = (key = "cas-host") => {
+  document.getElementById(`cas-confirm-${key}`)?.remove();
 };
 window.bpDeleteSnapshot = async (key) => {
   if (!confirm("Delete this local version?")) return;
