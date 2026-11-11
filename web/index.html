@@ -7289,18 +7289,28 @@ window.bpCostFile = async (file) => {
     const covered = new Set(matched.map((r) => String(r.isin || "").toUpperCase()));
     const still = live.filter((p) => (p.cost_paise === null || p.cost_paise === undefined)
       && !covered.has(String(p.security_id || "").toUpperCase()));
-    window.bpCostPlan = { id, parsed, matched, missing };
+    const labelFills = matched.filter((r) => {
+      const p = held.get(String(r.isin || "").toUpperCase());
+      return r.label && /\d+(?:\.\d+)?%/.test(r.label)
+        && !/\d+(?:\.\d+)?%/.test(p.label || "");
+    });
+    const changes = missing.length + labelFills.length;
+    window.bpCostPlan = { id, parsed, matched, missing, labelFills };
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
       <div><b>${esc(file.name || "Holdings Report")}</b>${parsed.asOf
         ? ` · as of ${dateLabel(parsed.asOf)}` : ""}</div>
       <div class="muted" style="font-size:12px;margin-top:4px">${parsed.rows.length} lots ·
         ${matched.length} match a bond here · ${missing.length} will take a price${
-        still.length ? ` · ${still.length} still unpriced` : ""}.</div>
-      ${missing.length
+        labelFills.length ? ` · ${labelFills.length} label${labelFills.length === 1 ? "" : "s"}
+          will be filled` : ""}${still.length ? ` · ${still.length} still unpriced` : ""}.</div>
+      ${changes
         ? `<button class="btn primary" style="margin-top:10px"
-            onclick="bpCostApply()">Import cost for ${missing.length} bond${missing.length === 1 ? "" : "s"}</button>`
-        : `<div class="muted" style="margin-top:6px">Every matching bond already has a price.
-            Nothing will be overwritten.</div>`}
+            onclick="bpCostApply()">${missing.length && labelFills.length
+              ? `Import cost for ${missing.length} + ${labelFills.length} label${labelFills.length === 1 ? "" : "s"}`
+              : missing.length ? `Import cost for ${missing.length} bond${missing.length === 1 ? "" : "s"}`
+                : `Fill ${labelFills.length} bond label${labelFills.length === 1 ? "" : "s"}`}</button>`
+        : `<div class="muted" style="margin-top:6px">Every matching bond already has a price
+            and a full label. Nothing will be overwritten.</div>`}
       <button class="btn" style="margin-top:10px;margin-left:8px"
         onclick="bpCostCancel()">Cancel</button>
     </div>`;
@@ -7325,11 +7335,18 @@ window.bpCostApply = async () => {
       demats: [{ id: plan.id, positions }],
       sources: [{ id: "digifinn", lots }],
     });
-    if (!pass.updates.length) {
-      alert("None of these lots could be priced against the bonds here. Their quantities may differ; nothing was written.");
+    const reportLabels = new Map(plan.parsed.rows
+      .filter((r) => r.label && /\d+(?:\.\d+)?%/.test(r.label))
+      .map((r) => [String(r.isin || "").toUpperCase(), r.label]));
+    const merged = applyCost(positions, pass.updates).map((p) => {
+      const label = reportLabels.get(String(p.security_id || "").toUpperCase());
+      return label && !/\d+(?:\.\d+)?%/.test(p.label || "") ? { ...p, label } : p;
+    });
+    const changedLabels = merged.some((p, i) => p.label !== positions[i].label);
+    if (!pass.updates.length && !changedLabels) {
+      alert("Nothing to write: those bonds already have a price and a full label.");
       return;
     }
-    const merged = applyCost(positions, pass.updates);
     await store.replaceHoldings(plan.id, merged, new Date().toISOString().slice(0, 10));
     const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
     if (asset) {
@@ -7748,6 +7765,7 @@ window.bpCasImport = async (key = "cas-host") => {
           security_id: h.isin,
           label: casHoldingLabel(h),
           category: h.kind,
+          frequency: h.frequency || "",
           quantity: h.quantity,
           // The statement's own invested amount wins over a value carried from a
           // previous import: a fund's cost column is now read correctly, and a
@@ -9047,7 +9065,8 @@ function holdingCardHtml(row, kind = "") {
     <div class="bond-grid">
       ${cell(mf ? "NAV" : "Price per unit", unit === null ? "—" : money(unit))}
       ${cell("Units", qty === null ? "—" : qty)}
-      ${cell("Purchase date", row.purchase_date ? dateLabel(row.purchase_date) : "—")}
+      ${cell("Purchase date", row.purchase_date ? dateLabel(row.purchase_date)
+        : (mf || kind === "equity" ? "—<div class=\"sub\">not in the CAS</div>" : "—"))}
       ${cell("Invested", moneyOrDash(cost))}
       ${cell("Current value", moneyOrDash(value))}
       ${cell("Gain", gainText, gain === null || gain === 0 ? "" : gain < 0 ? "neg" : "pos")}

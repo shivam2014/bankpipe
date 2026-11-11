@@ -346,6 +346,8 @@ function readTables(items, tables, headers = []) {
         && (!maturityCol || Math.abs(i.x - maturityCol.x) < 120))
         || band.find((i) => isoAny(i.str)) || null;
       const couponCell = find(/^coupon/i);
+      const couponCol = table.cols.find((c) => /^coupon/i.test(c.str));
+      const qtyCol = table.cols.find((c) => QUANTITY_LABEL.test(c.str));
       const faceCell = find(/face\s*value/i);
       // A folio prints its number and what was invested in it, beside the
       // valuation. The number is text, and the cost is the "Invested" cell.
@@ -365,7 +367,44 @@ function readTables(items, tables, headers = []) {
           && !/^(value|units?|unit in|in|of|total|cost|invested|nav|scheme|name|folio|arn|balance|distributors?|profit|loss|current|regular|direct|amount|terms)\b/i.test(i.str))
           .sort((a, b) => b.y - a.y || a.x - b.x)
         : [];
-      const label = table.kind === "mf" ? cleanFundLabel(tidy(nameCells.map((i) => i.str).join(" "))) : "";
+      // A bond or share row prints its name in the column just right of the
+      // ISIN, before the coupon/quantity columns. Funds keep their scheme-name
+      // rule; everything else was leaving the label empty and showing an ISIN.
+      const nameLimit = couponCol?.x || qtyCol?.x || Infinity;
+      const rawName = tidy(band.filter((i) =>
+        /[A-Za-z]{2}/.test(i.str) && !NUMBER.test(i.str) && !DATE.test(i.str)
+        && !isoAny(i.str) && !isIsin(i.str)
+        && i.x > (isinCol?.x || 0) + 2 && i.x < nameLimit
+        && !/^(value|units?|unit in|in|of|total|cost|invested|nav|scheme|name|folio|arn|balance|distributors?|profit|loss|current|regular|direct|amount|terms|quantity|face|market|coupon|maturity)\b/i.test(i.str)
+        && !/fixed interest|corporate bonds|equity shares|debentures?|tax free|government securities|treasury/i.test(i.str)
+        && !/^(quarterly|monthly|annual|annually|half[- ]yearly|twelve times|four times|two times|once a year|twice a year|year|times)\b/i.test(i.str))
+        .sort((a, b) => b.y - a.y || a.x - b.x)
+        .map((i) => i.str).join(" "));
+      const rawNameClean = tidy(rawName.replace(/\s*#.*$/, ""));
+      const name = table.kind === "bond"
+        ? tidy(rawNameClean
+          .replace(/\b\d{1,2}[-/][A-Za-z]{3}[-/]\d{4}\b/g, " ")
+          .replace(/\b\d{1,2}[-/]\d{1,2}[-/]\d{4}\b/g, " ")
+          .replace(/\b\d{6,8}\b/g, " ")
+          .replace(/\b(?:19|20)\d{2}\b/g, " ")
+          .replace(/\b\d{1,2}(?:\.\d+)?%?\b/g, " ")
+          .replace(/[\s\-–]+$/g, ""))
+        : rawNameClean;
+      const label = table.kind === "mf"
+        ? cleanFundLabel(tidy(nameCells.map((i) => i.str).join(" ")))
+        : name;
+      const couponText = couponCell ? String(couponCell.str).replace(/,/g, "").trim() : "";
+      const couponNumber = Number(couponText);
+      const nameCoupon = Number((rawNameClean.match(/\b\d{1,2}\.\d+\b/) || [])[0]);
+      const couponPct = Number.isFinite(couponNumber) && couponNumber > 0 && couponNumber < 100
+        ? couponNumber
+        : (Number.isFinite(nameCoupon) && nameCoupon > 0 ? nameCoupon : null);
+      const freqText = band.map((i) => i.str).join(" ");
+      const frequency = table.kind !== "bond" ? ""
+        : /quarterly|four times a year|4 times/i.test(freqText) ? "Quarterly"
+          : /monthly|twelve times a year|12 times/i.test(freqText) ? "Monthly"
+            : /half[- ]yearly|twice a year|two times/i.test(freqText) ? "Half-yearly"
+              : /annual|annually|once a year|yearly/i.test(freqText) ? "Annual" : "";
       const folio = folioCell ? tidy(folioCell.str) : "";
       const fullAmc = table.kind === "mf"
         ? fullAmcName(amcFor(table, items) || amcMap.get(folio) || fundHouseFromLabel(label))
@@ -391,7 +430,8 @@ function readTables(items, tables, headers = []) {
         costPaise: costCell ? rupees(costCell.str) : null,
         valuePaise: valueCell ? rupees(valueCell.str) : null,
         maturity: dateCell ? isoAny(dateCell.str) : "",
-        couponPct: couponCell ? Number(couponCell.str.replace(/,/g, "")) : null,
+        couponPct,
+        frequency,
       });
     });
   }
