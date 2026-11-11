@@ -2990,7 +2990,7 @@ function renderImport() {
   <div class="card pad" style="margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
       <h2 style="margin:0">Demat accounts</h2>
-      <span class="muted" style="font-size:11.5px">CAS + optional bond cost</span></div>
+      <span class="muted" style="font-size:11.5px">CAS + optional broker reports</span></div>
     <div class="muted" style="font-size:12.5px;margin-top:6px"><b>1. CAS statement
     (required).</b> CDSL or NSDL. Creates or updates the demat accounts with bonds,
     equities and mutual funds.</div>
@@ -2999,11 +2999,12 @@ function renderImport() {
       <input type="file" accept=".pdf" multiple style="display:none"
         onchange="bpCasFiles(this.files);this.value=''"></label>
     <div id="bond-cas-host" style="margin-top:10px"></div>
-    <div class="muted" style="font-size:12.5px;margin-top:8px"><b>2. Bond purchase price
-    (optional).</b> The CAS gives a bond's units and value, not what you paid. After the
-    CAS, open the demat account → <b>Broker holdings</b> → choose the DigiFInn Holdings
-    Report. Equities and mutual funds carry their value in the CAS; funds also carry their
-    cost.</div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px"><b>2. Broker reports
+    (optional).</b> On the demat account:
+    <code>holdings-report-YYYY-MM-DD.csv</code> (Holdings Report) for what you paid and
+    when; <code>portfolio-cashflow-future.csv</code> (Cashflow Future) for payment
+    frequency, next interest and the full schedule. Equities and funds carry their value in
+    the CAS; funds also carry their cost.</div>
     <div class="muted" style="font-size:11.5px;margin-top:6px">Updating? Re-import the CAS;
     cost already on matching bonds is kept.</div>
   </div>
@@ -7205,34 +7206,51 @@ window.bpCostFill = async () => {
       || Number(h.quantity) > 0);
     if (!live.length) { host.innerHTML = ""; return; }
     const missing = live.filter((h) => h.cost_paise === null || h.cost_paise === undefined);
+    const hasCashflow = !!meta.cashflow_file;
     const body = `<div class="muted" style="font-size:12.5px;margin-top:5px">The CAS gives
-      units, face value and market value — not what you paid. The <b>DigiFInn Holdings
-      Report</b> adds the purchase price and date. More brokers can be added later; this is
-      the only broker file needed.</div>
+      units, face value and market value. The <b>Holdings Report</b> adds what you paid and
+      when; the <b>Cashflow Future</b> adds payment frequency, next interest and the full
+      schedule. Both are optional after the CAS.</div>
       <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:10px">
         Choose DigiFInn Holdings Report
         <input type="file" accept=".csv" style="display:none"
           onchange="bpCostFile(this.files[0]);this.value=''"></label>
-      <div id="cost-preview" style="margin-top:10px"></div>`;
-    if (!missing.length) {
-      // Every live bond has a price: keep the provenance and the replace action
-      // available, but folded away so it does not compete with the holdings.
+      <div class="muted" style="font-size:11px;margin-top:3px">File:
+        <code>holdings-report-YYYY-MM-DD.csv</code>${
+        meta.cost_file ? ` · last: <code>${esc(meta.cost_file)}</code>` : ""}</div>
+      <div id="cost-preview" style="margin-top:10px"></div>
+      <div class="muted" style="font-size:12px;margin-top:12px"><b>Cashflow Future</b> —
+      payment frequency, next interest and the full schedule.</div>
+      <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:8px">
+        Choose Cashflow Future
+        <input type="file" accept=".csv" style="display:none"
+          onchange="bpCashflowFile(this.files[0]);this.value=''"></label>
+      <div class="muted" style="font-size:11px;margin-top:3px">File:
+        <code>portfolio-cashflow-future.csv</code>${
+        meta.cashflow_file ? ` · last: <code>${esc(meta.cashflow_file)}</code>` : ""}</div>
+      <div id="cashflow-preview" style="margin-top:10px"></div>`;
+    if (!missing.length && hasCashflow) {
+      // Both files are on file: keep the provenance and the replace actions
+      // available, folded away so they do not compete with the holdings.
       host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
         <details>
           <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">
-            Broker holdings · DigiFInn · all ${live.length} bond${live.length === 1 ? "" : "s"} priced${
+            DigiFInn · cost and cashflow on file · all ${live.length}
+            bond${live.length === 1 ? "" : "s"} priced${
             meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}
           </summary>
           <div style="margin-top:8px">${body}</div>
         </details>
       </div>`;
     } else {
+      const status = missing.length
+        ? `${missing.length} of ${live.length} bond${live.length === 1 ? "" : "s"} need a purchase price`
+        : "prices on file · cashflow not imported";
       host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
-          <h2 style="margin:0">Broker holdings <span class="pill"
+          <h2 style="margin:0">DigiFInn reports <span class="pill"
             style="font-size:10px;vertical-align:2px">DigiFInn</span></h2>
-          <span class="muted" style="font-size:11.5px">${missing.length} of ${live.length}
-            bond${live.length === 1 ? "" : "s"} need a purchase price</span></div>
+          <span class="muted" style="font-size:11.5px">${status}</span></div>
         ${body}
       </div>`;
     }
@@ -7367,6 +7385,109 @@ window.bpCostApply = async () => {
 };
 window.bpCostCancel = () => {
   window.bpCostPlan = null;
+  window.bpCostFill?.();
+};
+window.bpCashflowFile = async (file) => {
+  if (!file) return;
+  const host = document.getElementById("cashflow-preview");
+  const id = window.bpState?.asset || "";
+  const fail = (html) => {
+    if (host) host.innerHTML = `<div class="card pad" style="font-size:13px;color:var(--red)">${html}</div>`;
+  };
+  try {
+    const parsed = parseReportFile(await file.text(), file.name);
+    if (parsed.kind !== "payouts" || parsed.source !== "cashflow") {
+      fail("That is not the Cashflow Future report. In DigiFInn switch Reports &amp; Documents to Cashflow Future and download that.");
+      return;
+    }
+    if (!parsed.groups?.length) {
+      fail("The Cashflow Future report has no rows. Download it again from DigiFInn.");
+      return;
+    }
+    const store = await import("./db.js");
+    const positions = (await store.listHoldings(id))
+      .filter((h) => String(h.category || "") === "bond");
+    const live = positions.filter((h) => h.quantity === null || h.quantity === undefined
+      || Number(h.quantity) > 0);
+    const byIsin = new Map(parsed.groups
+      .map((g) => [String(g.isin || "").toUpperCase(), g]));
+    const matched = live.filter((p) => byIsin.has(String(p.security_id || "").toUpperCase()));
+    if (!matched.length) {
+      fail("No ISIN in this cashflow matches a bond in this account.");
+      return;
+    }
+    const groupOf = (p) => byIsin.get(String(p.security_id || "").toUpperCase());
+    const withFreq = matched.filter((p) => groupOf(p)?.frequency).length;
+    const withNext = matched.filter((p) => groupOf(p)?.amount_paise != null).length;
+    const withSchedule = matched.filter((p) => groupOf(p)?.future_interest_paise != null
+      || groupOf(p)?.future_principal_paise != null).length;
+    window.bpCashflowPlan = { id, parsed, matched };
+    if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
+      <div><b>${esc(file.name || "Cashflow Future")}</b></div>
+      <div class="muted" style="font-size:12px;margin-top:4px">${matched.length} bond${
+        matched.length === 1 ? "" : "s"} match · ${withFreq} take a frequency ·
+        ${withNext} a next interest · ${withSchedule} a full schedule.</div>
+      <button class="btn primary" style="margin-top:10px"
+        onclick="bpCashflowApply()">Apply cashflow to ${matched.length} bond${
+        matched.length === 1 ? "" : "s"}</button>
+      <button class="btn" style="margin-top:10px;margin-left:8px"
+        onclick="bpCashflowCancel()">Cancel</button>
+    </div>`;
+  } catch (e) {
+    fail(esc(e.message || String(e)));
+  }
+};
+window.bpCashflowApply = async () => {
+  const plan = window.bpCashflowPlan;
+  if (!plan) return;
+  try {
+    const store = await import("./db.js");
+    const positions = await store.listHoldings(plan.id);
+    const byIsin = new Map(plan.parsed.groups
+      .map((g) => [String(g.isin || "").toUpperCase(), g]));
+    const today = new Date().toISOString().slice(0, 10);
+    const updated = positions.map((p) => {
+      const g = byIsin.get(String(p.security_id || "").toUpperCase());
+      if (!g) return p;
+      const face = inferFace(p.cost_paise, p.quantity);
+      const faceTotal = face && Number(p.quantity) > 0
+        ? face * Number(p.quantity) * 100 : null;
+      const returned = faceTotal && g.future_principal_paise !== null
+        && g.future_principal_paise !== undefined
+        ? Math.max(0, faceTotal - Number(g.future_principal_paise))
+        : p.returned_paise;
+      return {
+        ...p,
+        frequency: g.frequency || p.frequency,
+        payout_paise: g.amount_paise !== null && g.amount_paise !== undefined
+          ? g.amount_paise : p.payout_paise,
+        interest_date: g.interest_date || p.interest_date,
+        yield_bps: g.yield_pct !== null && g.yield_pct !== undefined
+          ? Math.round(Number(g.yield_pct) * 100) : p.yield_bps,
+        future_interest_paise: g.future_interest_paise ?? p.future_interest_paise,
+        future_principal_paise: g.future_principal_paise ?? p.future_principal_paise,
+        principal_dates: (g.principal_dates || []).join(",") || p.principal_dates,
+        returned_paise: returned,
+        purchase_date: p.purchase_date || g.investment_date || "",
+        cost_paise: p.cost_paise ?? g.investment_paise ?? null,
+      };
+    });
+    await store.replaceHoldings(plan.id, updated, today);
+    const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
+    if (asset) {
+      await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),
+        cashflow_source: "DigiFInn Cashflow Future",
+        cashflow_file: plan.parsed.fileName || "",
+        cashflow_at: today }) });
+    }
+    window.bpCashflowPlan = null;
+    window.bpAsset(plan.id);
+  } catch (e) {
+    alert("Could not apply the cashflow: " + (e.message || e));
+  }
+};
+window.bpCashflowCancel = () => {
+  window.bpCashflowPlan = null;
   window.bpCostFill?.();
 };
 window.bpConsolidate = async ({ ask = false } = {}) => {
