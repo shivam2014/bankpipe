@@ -8291,6 +8291,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
           category: h.kind,
           frequency: h.frequency || oldRow?.frequency || "",
           quantity: h.quantity,
+          face_paise: h.faceValuePaise ?? oldRow?.face_paise ?? null,
           // The statement's own invested amount wins over a value carried from a
           // previous import: a fund's cost column is now read correctly, and a
           // re-import is how an older, wrong cost gets corrected.
@@ -10711,6 +10712,9 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
   if (!Number.isFinite(units) || units <= 0) return fail("Enter the units.");
   if (cost === null || cost <= 0) return fail("Enter what you invested.");
   const store = await import("./db.js");
+  const prior = holdingId
+    ? (await store.listHoldings(assetId)).find((r) => String(r.id) === String(holdingId))
+    : null;
   try {
     await store.upsertHolding(assetId, {
       id: holdingId ? Number(holdingId) : null,
@@ -10719,11 +10723,12 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
       issuer: window.bpHoldingIssuer || "",
       redemption_dates: window.bpHoldingRedemptions || "",
       quantity: units, cost_paise: cost,
+      face_paise: prior?.face_paise ?? null,
       value_paise: val("bh-value") ? parseMoney(val("bh-value")) : null,
       value_source: val("bh-value") ? "Manual" : "",
       as_of: val("bh-value-date"),
       purchase_date: val("bh-bought"), rating: val("bh-rating"),
-      frequency: val("bh-freq"), yield_bps: null,
+      frequency: val("bh-freq"), yield_bps: prior?.yield_bps ?? null,
       payout_paise: val("bh-payout") ? parseMoney(val("bh-payout")) : null,
       interest_date: val("bh-payout-date"),
     });

@@ -119,6 +119,25 @@ test("accrued interest is the part of the next coupon already earned", () => {
   assert.equal(accruedInterest(1190000, "Monthly", "2026-12-03", "2026-12-03").accrued, null);
 });
 
+test("the stored face value beats the cost heuristic", () => {
+  const a = bondAnalytics({
+    label: "9.75% BNAL 27 NOV 2028", quantity: 10, cost_paise: 7356643,
+    value_paise: 9385020, purchase_date: "2025-02-12", face_paise: 1000000,
+    frequency: "Quarterly", interest_date: "2026-11-27",
+    future_principal_paise: 10000000,
+  });
+  assert.equal(a.purchaseFaceTotal, 10000000); // 10 × ₹10,000, not the ₹5,000 guess
+  assert.ok(a.ytm > 18 && a.ytm < 20.5, `ytm ${a.ytm}`);
+  assert.ok(Math.abs(a.currentYield - 10.39) < 0.05, `current ${a.currentYield}`);
+});
+
+test("a lookup stores the face value SMEST prints", () => {
+  const plan = bondFillPlan({ quantity: 10, cost_paise: 7356643 },
+    { details: { face: 10000 }, market: null });
+  assert.equal(plan.patch.face_paise, 1000000);
+  assert.equal(plan.terms, true);
+});
+
 test("lifetime gain includes the coupons already received", () => {
   const a = bondAnalytics({
     label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
@@ -187,8 +206,8 @@ test("a lot that already has a rating and frequency keeps them, unless the grade
     market: null,
   };
   const kept = bondFillPlan(
-    { quantity: 1, cost_paise: 9900000, rating: "A", frequency: "Monthly",
-      interest_date: "2026-12-01" }, same);
+    { quantity: 1, cost_paise: 9900000, face_paise: 10000000, rating: "A",
+      frequency: "Monthly", interest_date: "2026-12-01" }, same);
   assert.deepEqual(kept.patch, {});
   assert.equal(kept.terms, false);
   assert.equal(kept.ratingChanged, false);
@@ -196,8 +215,8 @@ test("a lot that already has a rating and frequency keeps them, unless the grade
   // A different grade is the one thing a bulk fetch is allowed to replace:
   // `rating` is today's grade, and the baseline is kept separately.
   const moved = bondFillPlan(
-    { quantity: 1, cost_paise: 9900000, rating: "AA", frequency: "Monthly",
-      interest_date: "2026-12-01" }, same);
+    { quantity: 1, cost_paise: 9900000, face_paise: 10000000, rating: "AA",
+      frequency: "Monthly", interest_date: "2026-12-01" }, same);
   assert.deepEqual(moved.patch, { rating: "A" });
   assert.equal(moved.ratingChanged, true);
   assert.equal(moved.added, false);

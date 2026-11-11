@@ -67,7 +67,8 @@ export function bondAnalytics(h) {
   if (!parsed || parsed.couponPct === null || parsed.couponPct === undefined) return null;
   const qty = Number(h.quantity) || 0;
   const cost = Number(h.cost_paise);
-  const purchasedFace = inferFace(cost, qty);
+  const storedFace = Number(h.face_paise) > 0 ? Number(h.face_paise) / 100 : 0;
+  const purchasedFace = storedFace || inferFace(cost, qty);
   if (!qty || !purchasedFace || !Number.isFinite(cost) || cost <= 0) return null;
   // The face bought and the face still outstanding are not the same after a
   // part redemption. The purchase price is per ₹100 of what was bought; the
@@ -264,6 +265,12 @@ export function bondFillPlan(row, fetched) {
     if (details.issuer && details.issuer !== String(row.issuer || "").trim()) {
       patch.issuer = details.issuer;
     }
+    // The CAS prints the face per bond; SMEST repeats it. Keep it so a discount
+    // purchase is not mistaken for a smaller face.
+    if (Number(details.face) > 0) {
+      const facePaise = Math.round(Number(details.face) * 100);
+      if (facePaise !== Number(row.face_paise || 0)) patch.face_paise = facePaise;
+    }
     if (!String(row.frequency || "").trim() && details.frequency) patch.frequency = details.frequency;
     if (!String(row.interest_date || "").trim() && details.nextInterest) patch.interest_date = details.nextInterest;
     // The redemption schedule is what dates the early principal repayment.
@@ -282,7 +289,8 @@ export function bondFillPlan(row, fetched) {
     const scheduled = Number(row.future_principal_paise) > 0
       ? Number(row.future_principal_paise) / units / 100 : 0;
     const face = Number(details?.face) > 0 ? Number(details.face)
-      : (scheduled || inferFace(row.cost_paise, units));
+      : (Number(row.face_paise) > 0 ? Number(row.face_paise) / 100
+        : (scheduled || inferFace(row.cost_paise, units)));
     if (face) {
       patch.value_paise = Math.round(face * units * ltp);
       // The value is a quote, not today's guess: carry the trade date so the
@@ -295,8 +303,8 @@ export function bondFillPlan(row, fetched) {
     patch,
     added: !!(patch.frequency || patch.interest_date),
     ratingChanged: !!(patch.rating && String(row.rating || "").trim()),
-    terms: !!(patch.rating || patch.issuer || patch.frequency || patch.interest_date
-      || patch.redemption_dates),
+    terms: !!(patch.rating || patch.issuer || patch.face_paise || patch.frequency
+      || patch.interest_date || patch.redemption_dates),
     priced: patch.value_paise !== undefined,
     unread: !details && !market,
   };

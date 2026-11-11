@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS holding(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   asset_id TEXT NOT NULL, security_id TEXT, label TEXT, issuer TEXT, category TEXT,
   rating TEXT, frequency TEXT, yield_bps INTEGER, payout_paise INTEGER,
-  quantity REAL, cost_paise INTEGER, value_paise INTEGER,
+  quantity REAL, cost_paise INTEGER, value_paise INTEGER, face_paise INTEGER,
   purchase_date TEXT, interest_date TEXT, source_row INTEGER,
   as_of TEXT, value_source TEXT, redemption_dates TEXT, txn_key TEXT UNIQUE);
 CREATE INDEX IF NOT EXISTS holding_asset ON holding(asset_id);
@@ -129,7 +129,7 @@ function migrate(conn) {
     ["rating_at_purchase", "TEXT"], ["future_interest_paise", "INTEGER"],
     ["future_principal_paise", "INTEGER"], ["principal_dates", "TEXT"],
     ["redemption_dates", "TEXT"], ["value_source", "TEXT"],
-    ["returned_paise", "INTEGER"]]) {
+    ["face_paise", "INTEGER"], ["returned_paise", "INTEGER"]]) {
     if (!hhave.has(name)) conn.run(`ALTER TABLE holding ADD COLUMN ${name} ${type}`);
   }
   // The workbook put the credit rating in category. Move it to rating once;
@@ -518,10 +518,10 @@ export function makeStore(SQLlib, save) {
         r.yield_bps, r.payout_paise, r.quantity, r.cost_paise, r.value_paise,
         r.source_row].join("|");
       conn.run("INSERT OR REPLACE INTO holding(asset_id,security_id,label,issuer,category,"
-        + "rating,frequency,yield_bps,payout_paise,quantity,cost_paise,value_paise,purchase_date,"
+        + "rating,frequency,yield_bps,payout_paise,quantity,cost_paise,value_paise,face_paise,purchase_date,"
         + "interest_date,rating_at_purchase,future_interest_paise,"
         + "future_principal_paise,principal_dates,redemption_dates,value_source,returned_paise,source_row,as_of,txn_key,"
-        + "source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        + "source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [assetId, r.security_id || "", r.label || "", r.issuer || "", r.category || "",
          r.rating || "", r.frequency || "",
          r.yield_bps === undefined ? null : r.yield_bps,
@@ -529,6 +529,7 @@ export function makeStore(SQLlib, save) {
          r.quantity === undefined ? null : r.quantity,
          r.cost_paise === undefined ? null : r.cost_paise,
          r.value_paise === undefined ? null : r.value_paise,
+         r.face_paise === undefined ? null : r.face_paise,
          r.purchase_date || "", r.interest_date || "",
          r.rating_at_purchase
            || priorRating.get(String(r.security_id || "").toUpperCase()) || r.rating || "",
@@ -736,7 +737,7 @@ export function makeStore(SQLlib, save) {
   };
   store.listHoldings = (assetId) => all(
     "SELECT id, security_id, label, issuer, category, rating, rating_at_purchase, frequency,"
-    + " yield_bps, payout_paise, quantity, cost_paise, value_paise, purchase_date,"
+    + " yield_bps, payout_paise, quantity, cost_paise, value_paise, face_paise, purchase_date,"
     + " interest_date, future_interest_paise, future_principal_paise, principal_dates,"
     + " returned_paise, as_of, value_source, redemption_dates,"
     + " source_row, source FROM holding WHERE asset_id=? ORDER BY label", [assetId]);
@@ -752,6 +753,7 @@ export function makeStore(SQLlib, save) {
     const fields = [h.security_id || "", h.label || "", h.issuer || "", h.category || "bond",
       h.rating || "", h.frequency || "", h.yield_bps ?? null, h.payout_paise ?? null,
       h.quantity ?? null, h.cost_paise ?? null, h.value_paise ?? null,
+      h.face_paise ?? null,
       h.purchase_date || "", h.interest_date || "", baseline || "",
       h.future_interest_paise ?? null, h.future_principal_paise ?? null,
       h.principal_dates || "", h.redemption_dates || "", h.value_source || "",
@@ -761,7 +763,7 @@ export function makeStore(SQLlib, save) {
       // field the user cleared is written as empty on purpose.
       const asOf = h.as_of === undefined ? null : String(h.as_of || "");
       conn.run("UPDATE holding SET security_id=?,label=?,issuer=?,category=?,rating=?,frequency=?,"
-        + "yield_bps=?,payout_paise=?,quantity=?,cost_paise=?,value_paise=?,purchase_date=?,"
+        + "yield_bps=?,payout_paise=?,quantity=?,cost_paise=?,value_paise=?,face_paise=?,purchase_date=?,"
         + "interest_date=?,rating_at_purchase=?,future_interest_paise=?,"
         + "future_principal_paise=?,principal_dates=?,redemption_dates=?,value_source=?,returned_paise=?,"
         + "as_of=CASE WHEN ? IS NULL THEN as_of ELSE ? END WHERE id=?",
@@ -770,10 +772,10 @@ export function makeStore(SQLlib, save) {
     }
     const key = ["manual", assetId, Date.now(), Math.random().toString(36).slice(2)].join("|");
     conn.run("INSERT INTO holding(asset_id,security_id,label,issuer,category,rating,frequency,"
-      + "yield_bps,payout_paise,quantity,cost_paise,value_paise,purchase_date,interest_date,"
+      + "yield_bps,payout_paise,quantity,cost_paise,value_paise,face_paise,purchase_date,interest_date,"
       + "rating_at_purchase,future_interest_paise,future_principal_paise,principal_dates,"
       + "redemption_dates,value_source,returned_paise,source_row,as_of,txn_key,source)"
-      + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [assetId, ...fields, 0, String(h.as_of || ""), key, "manual"]);
     return all("SELECT last_insert_rowid() AS id")[0].id;
   };
