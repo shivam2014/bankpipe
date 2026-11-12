@@ -477,6 +477,25 @@ textarea.inline-input{resize:vertical;min-height:48px}
 .progress-track{height:10px;background:var(--hair);border-radius:99px;overflow:hidden}
 .progress-fill{height:100%;background:var(--green);border-radius:99px;transition:width .2s ease}
 .progress-fill.bad{background:var(--red)}
+.fetch-panel{margin-top:10px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;
+ background:var(--hair)}
+.fetch-panel.done{background:color-mix(in srgb,var(--green) 8%,var(--card));
+ border-color:color-mix(in srgb,var(--green) 22%,var(--line))}
+.fetch-panel.bad{background:color-mix(in srgb,var(--red) 8%,var(--card));
+ border-color:color-mix(in srgb,var(--red) 22%,var(--line))}
+.fetch-panel .fp-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+ font-size:13px}
+.fetch-panel .fp-head b{font-weight:640}
+.fetch-panel .fp-detail{font-size:12px;color:var(--muted);margin-top:7px}
+.fetch-panel .progress-track{margin-top:9px}
+.hold-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px;
+ font-size:12.5px;color:var(--muted)}
+.hold-bar .done{color:var(--green);font-weight:600}
+.hold-bar .sep{opacity:.45}
+.actlink{appearance:none;background:none;border:0;padding:0;font:inherit;font-size:12.5px;
+ font-weight:620;color:var(--green);text-decoration:underline;text-underline-offset:2px;
+ cursor:pointer;white-space:nowrap}
+.actlink:hover{color:color-mix(in srgb,var(--green) 78%,var(--ink))}
 .dash{display:grid;gap:14px}
 @media (min-width:760px){.dash{grid-template-columns:1fr 1fr}
   .dash > .alloc-card,.dash > .protection-card{grid-column:1/-1}}
@@ -3023,7 +3042,7 @@ function fieldSourcesHtml() {
       ${row("CAS statement", "ISIN · bond name · interest rate · maturity · units · market value · DP and owner")}
       ${row("Portfolio Report", "invested (what you paid) · purchase date")}
       ${row("Upcoming Payouts", "payment frequency · next interest · next interest date")}
-      ${row("Fetch latest (SMEST + BSE)", "credit rating · current market value")}
+      ${row("Fetch online (SMEST + BSE)", "credit rating · current market value")}
     </div></details>`;
 }
 function renderImport() {
@@ -9506,7 +9525,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
   const valueSourceLong = rawSource === "BSE" ? "from BSE"
     : rawSource === "Manual" ? "entered by hand" : "from the CAS";
   const faceNote = [v.returned ? "remaining" : "",
-    v.ba?.faceInferred ? "inferred — Fetch to confirm" : ""].filter(Boolean).join(" · ");
+    v.ba?.faceInferred ? "inferred — Fetch online to confirm" : ""].filter(Boolean).join(" · ");
   const infoId = `info-accrued-${v.h.id || "x"}`;
   const accruedCell = `<div style="position:relative"><span class="k">Accrued interest
       <button type="button" class="info-btn" aria-label="What is accrued interest"
@@ -9537,7 +9556,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
           title="Open this bond on SMEST, the source of the rating and terms">SMEST ↗</a>` : ""}
         ${assetId && v.h.id && !matured ? `<button class="btn" style="padding:3px 8px;font-size:12px"
           title="Ask SMEST for this bond's terms and BSE for its last traded price"
-          onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Fetch</button>` : ""}
+          onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Refresh</button>` : ""}
         ${assetId && v.h.id ? `<button class="btn" style="padding:3px 8px;font-size:12px"
           onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)})">Edit</button>` : ""}</div></div>
     <div class="bond-grid">
@@ -9625,16 +9644,43 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     })()}
   </div>`;
 }
+function bondFetchPanelBody(state) {
+  const pct = Math.max(0, Math.min(100, Math.round(Number(state.pct) || 0)));
+  return `<div class="fp-head"><b>${esc(state.label || "")}</b>
+      <span class="muted">${pct}%</span></div>
+    <div class="progress-track"><div class="progress-fill${state.bad ? " bad" : ""}"
+      style="width:${pct}%"></div></div>
+    ${state.detail ? `<div class="fp-detail">${esc(state.detail)}</div>` : ""}`;
+}
+// A fetch writes straight into the panel, and the stored state lets the next
+// render of this portfolio reopen on the same result.
+window.bpBondFetchPanel = (assetId, state) => {
+  window.bpBondFetchStatus = state ? { id: assetId, ...state } : null;
+  const el = document.getElementById("bond-fetch-panel");
+  if (!el) return;
+  if (!state) {
+    el.style.display = "none";
+    el.innerHTML = "";
+    return;
+  }
+  el.className = `fetch-panel${state.done ? " done" : state.bad ? " bad" : ""}`;
+  el.style.display = "";
+  el.innerHTML = bondFetchPanelBody(state);
+};
 function holdingsCard(allRows, assetId) {
   const { current: rows, matured } = splitMatured(allRows);
   const state = window.bpBondSortState || { key: "maturity", dir: 1 };
   const s = summarizeHoldings(rows);
   const moneyOrDash = (v) => v === null || v === undefined ? "—" : money(v);
   const bondBook = rows.some((h) => bondAnalytics(h));
-  const missingCost = rows.filter((h) => h.cost_paise === null || h.cost_paise === undefined).length;
-  const missingRating = rows.filter((h) => !bondRatingOf(h)).length;
-  const missingName = rows.filter((h) => !String(h.issuer || "").trim()).length;
-  const missingFace = rows.filter((h) => !(Number(h.face_paise) > 0)).length;
+  // A name, rating and face belong to a bond. Counting a share or a fund unit as
+  // "missing a face value" would invent work that does not exist.
+  const bondRows = rows.filter((h) => String(h.category || "") === "bond"
+    || /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase()));
+  const missingCost = bondRows.filter((h) => h.cost_paise === null || h.cost_paise === undefined).length;
+  const missingRating = bondRows.filter((h) => !bondRatingOf(h)).length;
+  const missingName = bondRows.filter((h) => !String(h.issuer || "").trim()).length;
+  const missingFace = bondRows.filter((h) => !(Number(h.face_paise) > 0)).length;
   const views = rows.map(bondRowView).sort((a, b) => {
     const va = bondSortValue(a, state.key);
     const vb = bondSortValue(b, state.key);
@@ -9681,28 +9727,51 @@ function holdingsCard(allRows, assetId) {
   const valueDates = [...new Set(rows
     .map((h) => String(h.as_of || "").slice(0, 10)).filter(Boolean))];
   const valueAsOf = valueDates.length === 1 ? valueDates[0] : "";
-  const summaryLine = bondBook
-    ? [`${s.count} holding${s.count === 1 ? "" : "s"}`,
-      ...(missingName ? [`${missingName} missing a name`] : []),
-      ...(missingFace ? [`${missingFace} face inferred`] : []),
-      ...(missingRating ? [`${missingRating} need${missingRating === 1 ? "s" : ""} a rating`] : []),
-      ...(missingCost ? [`${missingCost} missing invested`] : [])].join(" · ")
-    : [`${s.count} holding${s.count === 1 ? "" : "s"}`, `invested ${moneyOrDash(s.cost)}`,
-      `market value ${moneyOrDash(s.value)}${valueAsOf ? ` as of ${dateLabel(valueAsOf)}` : ""}`].join(" · ");
-  // The last fetch result belongs to this portfolio only; opening another bond
-  // page must not show a sentence about a different set of lots.
-  const noteText = window.bpBondMarketNote?.id === assetId
-    ? window.bpBondMarketNote.text : "";
+  const missingDetails = [
+    missingFace ? `${missingFace} face value${missingFace === 1 ? "" : "s"} inferred` : "",
+    missingName ? `${missingName} name${missingName === 1 ? "" : "s"} missing` : "",
+    missingRating ? `${missingRating} rating${missingRating === 1 ? "" : "s"} missing` : "",
+  ].filter(Boolean);
+  const needsFetch = missingDetails.length > 0;
+  const needsCount = missingFace + missingName + missingRating;
+  const costNote = missingCost
+    ? `${missingCost} invested amount${missingCost === 1 ? "" : "s"} missing — edit the lot`
+      + " with the pencil to add it."
+    : "";
+  const statusLine = bondBook
+    ? `<div class="hold-bar">
+        <span><b>${s.count} holding${s.count === 1 ? "" : "s"}</b></span>
+        ${needsFetch ? `<span class="sep">·</span>
+          <span>${missingDetails.join(" · ")}</span>
+          <button class="actlink"
+            title="Get each bond's name, rating, face value and BSE price from SMEST and BSE"
+            onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online to fill ${
+              needsCount === 1 ? "it" : "them"} →</button>`
+        : `<span class="sep">·</span><span>invested ${moneyOrDash(s.cost)}</span>
+          <span class="sep">·</span><span>market value ${moneyOrDash(s.value)}${
+            valueAsOf ? ` as of ${dateLabel(valueAsOf)}` : ""}</span>`}
+        ${costNote ? `<span class="sep">·</span><span>${costNote}</span>`
+          : needsFetch ? "" : `<span class="sep">·</span><span class="done">✓ details complete</span>`}
+      </div>`
+    : `<div class="hold-bar"><b>${s.count} holding${s.count === 1 ? "" : "s"}</b>
+        <span class="sep">·</span><span>invested ${moneyOrDash(s.cost)}</span>
+        <span class="sep">·</span><span>market value ${moneyOrDash(s.value)}${
+          valueAsOf ? ` as of ${dateLabel(valueAsOf)}` : ""}</span></div>`;
+  // The last fetch belongs to this portfolio only; opening another bond page
+  // must not show progress or a result about a different set of lots.
+  const fetchState = window.bpBondFetchStatus?.id === assetId
+    ? window.bpBondFetchStatus : null;
 
   return `<div class="card pad" style="margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0">Holdings</h2>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         ${assetId ? `<button class="btn" onclick="bpBondHoldingNew(${jsArg(assetId)})">Add holding</button>
-        <button class="btn" title="Type the current market price of each bond"
-          onclick="bpHoldingsEdit(${jsArg(assetId)})">Update values</button>
-        <button class="btn ${missingName || missingRating || missingFace ? "primary" : ""}" title="Ask SMEST for each lot's latest credit rating and interest dates, and BSE for its last traded price. Nothing you typed is replaced."
-          onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch latest</button>
+        <button class="btn" title="Type a value yourself. Use this when the online lookup has no price for a bond."
+          onclick="bpHoldingsEdit(${jsArg(assetId)})">Enter value</button>
+        <button class="btn ${needsFetch ? "primary" : ""}" id="bond-fetch-btn"
+          title="Get each bond's latest name, rating, face value and BSE price from SMEST. Nothing you typed is replaced."
+          onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online</button>
         <details class="more-menu" style="margin-left:0">
           <summary class="btn" aria-label="More holding actions">More</summary>
           <div class="menu-pop">
@@ -9710,15 +9779,14 @@ function holdingsCard(allRows, assetId) {
             <button onclick="bpBondCsvImport(${jsArg(assetId)})">Import ratings CSV</button>
           </div>
         </details>` : ""}
-        <div class="muted" style="font-size:12.5px">${summaryLine}</div>
       </div></div>
-    ${missingName || missingRating || missingFace ? `<div class="muted" style="font-size:11.5px;margin:-4px 0 8px">
-      Missing details — <b>Fetch latest</b> fills the name, rating, face value and price from
-      SMEST and BSE.</div>` : ""}
+    ${statusLine}
+    <div id="bond-fetch-panel" role="status" aria-live="polite"
+      class="fetch-panel${fetchState?.done ? " done" : fetchState?.bad ? " bad" : ""}"
+      style="${fetchState ? "" : "display:none"}">${
+        fetchState ? bondFetchPanelBody(fetchState) : ""}</div>
     ${sortBar}
     <div id="bond-csv-preview"></div>
-    <div class="muted" id="bond-fetch-note" style="font-size:11.5px;margin-top:-2px${
-      noteText ? "" : ";display:none"}">${esc(noteText)}</div>
     <div class="bond-table-wrap"><table class="bond-table">
       <tr><th>Bond</th><th>Rating</th><th class="num">Interest rate</th>
         <th class="num">Purchase yield</th><th class="num">Next interest</th>
@@ -9943,42 +10011,60 @@ const liveBondLots = (rows) => splitMatured(rows).current
   .filter((h) => /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase()));
 
 window.bpBondFetchAll = async (assetId, onlyId = "") => {
-  const note = (t) => {
-    window.bpBondMarketNote = { id: assetId, text: t };
-    const el = document.getElementById("bond-fetch-note");
-    if (el) { el.textContent = t; el.style.display = t ? "" : "none"; }
+  if (window.bpBondFetchBusy) return;
+  window.bpBondFetchBusy = true;
+  const show = (state) => window.bpBondFetchPanel(assetId, state);
+  const btn = !onlyId ? document.getElementById("bond-fetch-btn") : null;
+  const setBusy = (on) => {
+    if (!btn) return;
+    btn.disabled = on;
+    btn.textContent = on ? "Fetching…" : "Fetch online";
   };
-  const store = await import("./db.js");
-  // Matured lots are history, but their rating and issuer still move. Fetch the
-  // terms for both; the price is only applied to what is still held.
-  const { current, matured } = splitMatured(await store.listHoldings(assetId));
-  const bondOnly = (h, includeZero = false) => String(h.category || "") === "bond"
-    && /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase())
-    && (includeZero || !(Number(h.quantity) === 0))
-    && (!onlyId || String(h.id) === String(onlyId));
-  const currentLots = current.filter((h) => bondOnly(h));
-  const maturedLots = matured.filter((h) => bondOnly(h, true));
-  const lots = [...currentLots, ...maturedLots];
-  if (!lots.length) {
-    note("No bond carries an ISIN, so there is nothing to look up.");
-    return;
+  setBusy(true);
+  try {
+    const store = await import("./db.js");
+    // Matured lots are history, but their rating and issuer still move. Fetch the
+    // terms for both; the price is only applied to what is still held.
+    const { current, matured } = splitMatured(await store.listHoldings(assetId));
+    const bondOnly = (h, includeZero = false) => String(h.category || "") === "bond"
+      && /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase())
+      && (includeZero || !(Number(h.quantity) === 0))
+      && (!onlyId || String(h.id) === String(onlyId));
+    const currentLots = current.filter((h) => bondOnly(h));
+    const maturedLots = matured.filter((h) => bondOnly(h, true));
+    const lots = [...currentLots, ...maturedLots];
+    if (!lots.length) {
+      show({ label: "Nothing to fetch", pct: 100, bad: true,
+        detail: "No bond carries an ISIN, so there is nothing to look up." });
+      return;
+    }
+    const isins = [...new Set(lots.map((h) => String(h.security_id).toUpperCase()))];
+    show({ label: "Fetching latest details", pct: 3,
+      detail: `Looking up ${isins.length} bond${isins.length === 1 ? "" : "s"} on SMEST and BSE.` });
+    const { got, down } = await marketBondData(isins, (read, total) => {
+      show({ label: "Fetching latest details",
+        detail: `Read ${read} of ${total} ISIN${total === 1 ? "" : "s"}.`,
+        pct: 3 + Math.round((read / total) * 89) });
+    });
+    if (down && ![...got.values()].some(Boolean)) {
+      show({ label: "Could not fetch details", pct: 100, bad: true,
+        detail: "The exchange lookup did not answer. Try again in a moment, or enter the value by hand." });
+      return;
+    }
+    show({ label: "Saving the latest details", pct: 95,
+      detail: "Writing names, ratings, face values and prices." });
+    const counts = await applyMarketData(store, assetId, currentLots, got);
+    if (maturedLots.length) {
+      const terms = await applyMarketData(store, assetId, maturedLots, got, { termsOnly: true });
+      for (const key of Object.keys(counts)) counts[key] += terms[key] || 0;
+    }
+    show({ label: "Latest details fetched", pct: 100, done: true,
+      detail: `${counts.lots} bond${counts.lots === 1 ? "" : "s"} · ${marketSummary(counts)}.` });
+    window.bpAsset(assetId);
+  } finally {
+    window.bpBondFetchBusy = false;
+    setBusy(false);
   }
-  const isins = [...new Set(lots.map((h) => String(h.security_id).toUpperCase()))];
-  note(`Reading ${isins.length} ISIN${isins.length === 1 ? "" : "s"}…`);
-  const { got, down } = await marketBondData(isins, (read) => {
-    note(`Read ${read} of ${isins.length} ISIN${isins.length === 1 ? "" : "s"}…`);
-  });
-  if (down && ![...got.values()].some(Boolean)) {
-    note("The exchange lookup did not answer. Try again in a moment, or enter the price by hand.");
-    return;
-  }
-  const counts = await applyMarketData(store, assetId, currentLots, got);
-  if (maturedLots.length) {
-    const terms = await applyMarketData(store, assetId, maturedLots, got, { termsOnly: true });
-    for (const key of Object.keys(counts)) counts[key] += terms[key] || 0;
-  }
-  note(`${counts.lots} bond${counts.lots === 1 ? "" : "s"} · ${marketSummary(counts)}.`);
-  window.bpAsset(assetId);
 };
 window.bpBondCsv = async (id) => {
   const store = await import("./db.js");
@@ -10572,7 +10658,7 @@ function renderBondHoldingForm() {
             <input id="bh-isin" value="${esc(val("security_id"))}" autocomplete="off"
               placeholder="INE999900017" style="text-transform:uppercase"></label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
-            <button class="btn" onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)})">Fetch details</button>
+            <button class="btn" onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)})">Fetch online</button>
             <button class="btn" id="bh-apply" style="display:none"
               onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)}, true)">Use fetched values</button>
             ${/^IN[A-Z0-9]{10}$/.test(String(val("security_id") || "").toUpperCase())
@@ -10796,12 +10882,12 @@ window.bpHoldingsEdit = (id) => {
 function renderHoldingEdit() {
   const id = window.bpState?.holdingAsset || "";
   const host = document.getElementById("view");
-  host.innerHTML = `<h1>Update holding values</h1><div class="card pad">loading…</div>`;
+  host.innerHTML = `<h1>Enter market values</h1><div class="card pad">loading…</div>`;
   (async () => {
     const store = await import("./db.js");
     const rows = await store.listHoldings(id);
     if (!rows.length) {
-      host.innerHTML = `<h1>Update holding values</h1>
+      host.innerHTML = `<h1>Enter market values</h1>
         <div class="card pad">No holdings on this asset.</div>`;
       return;
     }
@@ -10824,14 +10910,14 @@ function renderHoldingEdit() {
         <td class="n">${h.cost_paise === null ? "—" : money(h.cost_paise)}</td>
         <td class="n">${input}</td></tr>`;
     }).join("");
-    host.innerHTML = `<h1>Update holding values</h1>
+    host.innerHTML = `<h1>Enter market values</h1>
       <div class="card pad" style="margin-bottom:14px"><b>${bondTable
         ? "Enter the current market price per ₹100 face for each bond."
         : "Enter the current value of each lot."}</b>
       <div class="muted" style="font-size:12.5px;margin-top:4px">${bondTable
         ? "BankPipe computes the market value from the face value and price, then shows the current yield and gain. Leave a field blank to keep it unknown."
         : "Use your broker or the exchange valuation. Leave a field blank to keep it unknown."}
-      To ask BSE for the last traded price instead, close this and use Fetch details for all.</div></div>
+      To ask BSE for the last traded price instead, close this and use Fetch online.</div></div>
       <div class="card"><table data-table="holding-edit"><tr><th>Security</th><th class="n">Qty</th>
         <th class="n">Cost</th><th class="n">${bondTable ? "Price / ₹100" : "Current value (₹)"}</th></tr>${body}</table></div>
       <div id="hverr" style="color:var(--red);font-size:12.5px;margin-top:10px"></div>
@@ -10841,8 +10927,8 @@ function renderHoldingEdit() {
       </div>`;
   })().catch((e) => {
     host.innerHTML = /locked/i.test(String(e.message || e))
-      ? lockedCard("Update holding values")
-      : `<h1>Update holding values</h1><div class="card pad">storage error: ${esc(e.message)}</div>`;
+      ? lockedCard("Enter market values")
+      : `<h1>Enter market values</h1><div class="card pad">storage error: ${esc(e.message)}</div>`;
   });
   return "";
 }
