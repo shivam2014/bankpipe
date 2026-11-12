@@ -475,6 +475,30 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .broker-tile img{height:20px;width:auto;background:#fff;border-radius:4px;padding:2px 3px}
 .broker-tile .where{font-weight:400;font-size:11px;color:var(--muted)}
 .broker-tile.on{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
+.eq-guide{margin-top:10px;padding:11px 12px;border:1px solid var(--line);border-radius:10px}
+.eq-guide-title{font-size:13.5px;font-weight:620}
+.eq-guide-steps{font-size:12px;color:var(--muted);margin:6px 0 0 18px;padding:0;line-height:1.55}
+.eq-guide-note{font-size:11px;color:var(--muted);margin-top:5px}
+.eq-guide-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:9px}
+.eq-target-note{font-size:11px;color:var(--muted);margin-top:6px}
+.eq-preview{margin-top:10px}
+.eq-preview-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+ flex-wrap:wrap}
+.eq-preview-title{font-size:13.5px;font-weight:620}
+.eq-preview-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.eq-preview-head .muted{font-size:11px}
+.eq-unmatched{font-size:11px;color:var(--muted);margin-top:7px;display:grid;gap:2px}
+.eq-error{font-size:13.5px;color:var(--red)}
+.eq-preview table{width:100%;border-collapse:collapse;font-size:12px}
+.eq-preview th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
+ text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+.eq-preview td{padding:6px 4px;border-bottom:1px solid var(--hair);vertical-align:top}
+.eq-preview .num{text-align:right;font-variant-numeric:tabular-nums}
+.eq-preview .status{font-size:11px;color:var(--muted)}
+.eq-preview .status.update{color:var(--amber)}
+.eq-preview .status.same{color:var(--green)}
+.eq-summary{font-size:11px;color:var(--muted);margin-top:7px}
+.eq-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
 .more-menu{position:relative;margin-left:auto}
 .more-menu>summary{list-style:none;cursor:pointer}
 .more-menu>summary::-webkit-details-marker{display:none}
@@ -1081,6 +1105,7 @@ import { bondAnalytics, bondSummary, parseBondLabel, inferFace,
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport, IMPORT_SLOTS,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
+import { parseZerodhaHoldingsSheets } from "./zerodha.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
 import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
@@ -3078,6 +3103,7 @@ function renderImport() {
   // A target set by "Import statement" on an account page lasts one visit only.
   if (!window.bpImportTargetOnce) window.bpImportTarget = "";
   window.bpImportTargetOnce = false;
+  setTimeout(() => window.bpZerodhaTargetNote?.(), 0);
   return `<h1>Import</h1>
   <p class="muted" style="margin:-6px 0 14px;font-size:13px">Nothing is uploaded, and the app
   never asks for a bank or broker password, OTP or PIN.</p>
@@ -3136,8 +3162,9 @@ function renderImport() {
       <h2 style="margin:0">Equities</h2>
       <span class="muted" style="font-size:11.5px">cost and purchase date</span></div>
     <p class="muted" style="margin:6px 0 0;font-size:12.5px">The CAS gives the shares and their
-    value, not what you paid or when. A broker statement fills both. Both formats land on the
-    demat by ISIN; nothing is written until you confirm.</p>
+    value, not what you paid. A holdings export fills the invested amount. Purchase date needs
+    the Tradebook, which is optional. Files land on the demat by ISIN; nothing is written until
+    you confirm.</p>
     <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
       text-transform:uppercase;margin-top:12px">Supported brokers</div>
     <div style="margin-top:7px;display:flex;gap:8px;flex-wrap:wrap">
@@ -3152,12 +3179,35 @@ function renderImport() {
       const b = window.bpEquityBrokerChoice ? equityBroker(window.bpEquityBrokerChoice) : null;
       if (!b) return `<div class="muted" style="font-size:12px;margin-top:10px">
         Choose a broker to see the statement it needs.</div>`;
-      return `<div style="margin-top:10px;padding:9px 11px;border:1px solid var(--line);
-          border-radius:10px">
-        <b style="font-size:12.5px">${esc(b.label)} equity statement</b>
-        <div class="muted" style="font-size:11.5px">Purchase date and invested amount per ISIN.
-          The file format is being added, so nothing is read yet.</div>
-        <div class="muted" style="font-size:11px;margin-top:4px">Open
+      if (b.id === "zerodha") {
+        return `<div class="eq-guide">
+          <b class="eq-guide-title">Zerodha holdings XLSX</b>
+          <ol class="eq-guide-steps">
+            <li>Open <a class="link" href="${esc(b.page.url)}" target="_blank"
+              rel="noopener">Console → Portfolio → Holdings</a>.</li>
+            <li>Pick the snapshot date. This is a single date, not a range. Use today, or your
+              CAS statement date if you are reconciling.</li>
+            <li>Click <b>XLSX</b> next to Download.</li>
+            <li>Choose the file below. It fills invested for matching ISINs. Quantity and value
+              stay from the CAS.</li>
+          </ol>
+          <div class="eq-guide-note">The Tradebook is not needed for invested and gain.</div>
+          <div class="eq-guide-actions">
+            <label class="btn primary">Choose Holdings XLSX
+              <input type="file" accept=".xlsx,.xls" style="display:none"
+                onchange="bpZerodhaHoldings(this.files[0]);this.value=''"></label>
+            <a class="btn" href="${esc(b.page.url)}" target="_blank"
+              rel="noopener">Open Holdings ↗</a>
+          </div>
+          <div id="eq-target-note" class="eq-target-note"></div>
+          <div id="eq-zerodha-preview" class="eq-preview"></div>
+        </div>`;
+      }
+      return `<div class="eq-guide">
+        <b class="eq-guide-title">${esc(b.label)} equity statement</b>
+        <div class="eq-guide-note">Purchase date and invested amount per ISIN. The file format is
+          being added, so nothing is read yet.</div>
+        <div class="eq-guide-note">Open
           <a class="link" href="${esc(b.page?.url || "#")}" target="_blank"
             rel="noopener">${esc(b.page?.url || b.label)}</a> → ${esc(b.page?.where || "Reports")}</div>
       </div>`;
@@ -7804,8 +7854,159 @@ window.bpEquityImport = (assetId = "") => {
 window.bpEquityBrokerChoose = (id) => {
   window.bpEquityBrokerChoice = id;
   go("import");
-  setTimeout(() => document.getElementById("equity-broker-import")
-    ?.scrollIntoView({ block: "center", behavior: "smooth" }), 150);
+  setTimeout(() => {
+    document.getElementById("equity-broker-import")
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    window.bpZerodhaTargetNote?.();
+  }, 150);
+};
+window.bpZerodhaTargetNote = async () => {
+  const host = document.getElementById("eq-target-note");
+  if (!host) return;
+  try {
+    const store = await import("./db.js");
+    const accounts = (await store.listAccounts())
+      .filter((a) => categoryOf(a) === "demat");
+    if (!accounts.length) {
+      host.textContent = "Import the CAS first so the holdings have a demat account to land on.";
+      return;
+    }
+    const target = window.bpEquityImportTarget
+      ? accounts.find((a) => a.id === window.bpEquityImportTarget) : null;
+    if (target) {
+      host.textContent = `Filling invested in ${target.label || target.bank || target.id}.
+        Quantity and value stay from the CAS.`;
+      return;
+    }
+    if (accounts.length === 1) {
+      host.textContent = `Filling invested in ${accounts[0].label || accounts[0].bank
+        || accounts[0].id}.`;
+      return;
+    }
+    host.textContent = `${accounts.length} demat accounts. The file is matched by ISIN and
+      updates the account that holds each stock.`;
+  } catch (e) {
+    host.textContent = "";
+  }
+};
+window.bpZerodhaHoldings = async (file) => {
+  const host = document.getElementById("eq-zerodha-preview");
+  if (!host || !file) return;
+  host.innerHTML = `<div class="eq-summary">Reading ${esc(file.name)}…</div>`;
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const sheets = wb.SheetNames.map((name) => sheetRows(wb.Sheets[name], true));
+    const parsed = parseZerodhaHoldingsSheets(sheets);
+    if (parsed.error) {
+      host.innerHTML = `<div class="card pad eq-error">${esc(parsed.error)}</div>`;
+      return;
+    }
+    const store = await import("./db.js");
+    const accounts = (await store.listAccounts())
+      .filter((a) => categoryOf(a) === "demat");
+    const target = window.bpEquityImportTarget
+      ? accounts.find((a) => a.id === window.bpEquityImportTarget) : null;
+    const scoped = target ? [target] : accounts;
+    const holdings = [];
+    for (const account of scoped) {
+      for (const h of await store.listHoldings(account.id)) {
+        holdings.push({ ...h, _asset: account });
+      }
+    }
+    const byIsin = new Map();
+    for (const h of holdings) {
+      const isin = String(h.security_id || "").toUpperCase();
+      if (!/^IN[A-Z0-9]{10}$/.test(isin)) continue;
+      if (!byIsin.has(isin)) byIsin.set(isin, []);
+      byIsin.get(isin).push(h);
+    }
+    const plan = parsed.rows.map((row) => ({ row, matches: byIsin.get(row.isin) || [] }));
+    const matched = plan.filter((p) => p.matches.length);
+    const unmatched = plan.filter((p) => !p.matches.length);
+    const costOf = (row, h) => Math.round(row.averagePrice
+      * (Number(h.quantity) || row.quantity) * 100);
+    const sameOf = (row, h) => Number(h.cost_paise) > 0
+      && Math.abs(Number(h.cost_paise) - costOf(row, h)) <= 1;
+    const total = matched.reduce((t, p) => t + costOf(p.row, p.matches[0]), 0);
+    const hasUpdates = matched.some((p) => !sameOf(p.row, p.matches[0]));
+    window.bpZerodhaPlan = { parsed, plan, fileName: file.name };
+    const rows = matched.map(({ row, matches }) => {
+      const h = matches[0];
+      const same = sameOf(row, h);
+      const qtyDiff = Math.abs((Number(h.quantity) || 0) - row.quantity) > 0.0001;
+      return `<tr>
+        <td><b>${esc(row.symbol || h.label || "—")}</b>
+          <div class="eq-preview-sub">${esc(row.isin)}</div></td>
+        <td>${esc(h._asset.label || h._asset.bank || "Demat")}</td>
+        <td class="num">${h.quantity ?? "—"}</td>
+        <td class="num">${row.quantity}</td>
+        <td class="num">${money(row.averagePrice * 100)}</td>
+        <td class="num">${money(costOf(row, h))}</td>
+        <td><span class="status ${same ? "same" : "update"}">${same
+          ? "already set" : "will update"}${qtyDiff ? " · quantity differs" : ""}${
+          matches.length > 1 ? " · first demat" : ""}</span></td>
+      </tr>`;
+    }).join("");
+    const unmatchedRows = unmatched.slice(0, 8).map(({ row }) =>
+      `<div>${esc(row.symbol || "")} · ${esc(row.isin)} · not in ${
+        target ? "this demat" : "your demat accounts"}</div>`).join("");
+    host.innerHTML = `<div class="card pad eq-preview">
+      <div class="eq-preview-head">
+        <b class="eq-preview-title">${esc(file.name)}</b>
+        <span class="muted">${parsed.asOf ? `as on ${dateLabel(parsed.asOf)}`
+          : "snapshot date not read"}</span></div>
+      <div class="eq-summary">${matched.length} of ${parsed.rows.length} ISINs match.
+        Invested ${money(total)}.${unmatched.length ? ` ${unmatched.length} not in this demat.` : ""}</div>
+      ${matched.length ? `<table><thead><tr><th>Stock</th><th>Demat</th>
+        <th class="num">CAS units</th><th class="num">File units</th>
+        <th class="num">Average price</th><th class="num">Invested</th>
+        <th>Status</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+      ${unmatchedRows ? `<div class="eq-unmatched">${unmatchedRows}</div>` : ""}
+      <div class="eq-actions">
+        <button class="btn primary" ${hasUpdates ? "" : "disabled"}
+          onclick="bpZerodhaApply()">Save invested amounts</button>
+        <button class="btn" onclick="bpZerodhaCancel()">Cancel</button>
+      </div>
+      <div class="eq-summary">Quantity and market value are not changed. Purchase date stays
+        blank because the holdings file does not carry it.</div>
+    </div>`;
+  } catch (e) {
+    host.innerHTML = `<div class="card pad eq-error">${esc(e.message || String(e))}</div>`;
+  }
+};
+window.bpZerodhaCancel = () => {
+  window.bpZerodhaPlan = null;
+  const host = document.getElementById("eq-zerodha-preview");
+  if (host) host.innerHTML = "";
+};
+window.bpZerodhaApply = async () => {
+  const plan = window.bpZerodhaPlan;
+  if (!plan) return;
+  const store = await import("./db.js");
+  let updated = 0, same = 0;
+  let opened = null;
+  for (const { row, matches } of plan.plan) {
+    const h = matches[0];
+    if (!h) continue;
+    const cost = Math.round(row.averagePrice * (Number(h.quantity) || row.quantity) * 100);
+    const current = Number(h.cost_paise);
+    if (current > 0 && Math.abs(current - cost) <= 1) { same += 1; continue; }
+    await store.upsertHolding(h._asset.id, { ...h, cost_paise: cost });
+    updated += 1;
+    if (!opened) opened = h._asset;
+  }
+  const host = document.getElementById("eq-zerodha-preview");
+  if (host) host.innerHTML = `<div class="card pad">
+    <b class="eq-preview-title">${updated
+      ? `Invested filled for ${updated} holding${updated === 1 ? "" : "s"}.`
+      : "Nothing to update."}</b>
+    <div class="eq-summary">Quantity and market value were not changed.${
+      same ? ` ${same} already had the same invested amount.` : ""}</div>
+    ${opened ? `<div class="eq-actions"><button class="btn"
+      onclick="bpAsset(${jsArg(opened.id)})">Open ${esc(opened.label
+        || opened.bank || "the demat")}</button></div>` : ""}
+  </div>`;
+  window.bpZerodhaPlan = null;
 };
 window.bpImportBrokerChoose = (id) => {
   window.bpImportBrokerChoice = id;
@@ -9950,10 +10151,11 @@ function holdingCardHtml(row, kind = "", assetId = "") {
       ${cell(mf ? "NAV" : "Price per unit", unit === null ? "—" : money(unit))}
       ${cell("Units", qty === null ? "—" : qty)}
       ${cell("Purchase date", row.purchase_date ? dateLabel(row.purchase_date)
-        : (kind === "equity"
-          ? (assetId ? `<button class="linkish"
-            onclick="bpEquityImport('${esc(assetId)}')">Add cost from broker</button>` : "—")
-          : (mf ? "—<div class=\"sub\">not in the CAS</div>" : "—")))}
+        : (kind === "equity" && !(cost > 0) && assetId
+          ? `<button class="linkish"
+            onclick="bpEquityImport('${esc(assetId)}')">Add cost from broker</button>`
+          : kind === "equity" ? `—<div class="sub">not in the holdings file</div>`
+            : (mf ? "—<div class=\"sub\">not in the CAS</div>" : "—")))}
       ${cell("Invested", moneyOrDash(cost))}
       ${cell("Current value", moneyOrDash(value))}
       ${cell("Gain", gainText, gain === null || gain === 0 ? "" : gain < 0 ? "neg" : "pos")}

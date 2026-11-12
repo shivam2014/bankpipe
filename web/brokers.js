@@ -64,7 +64,8 @@ export const EQUITY_BROKERS = [
   { id: "motilal", label: "Motilal Oswal",
     page: { url: "https://www.motilaloswal.com/", where: "Reports" } },
   { id: "zerodha", label: "Zerodha",
-    page: { url: "https://console.zerodha.com/", where: "Reports" } },
+    page: { url: "https://console.zerodha.com/portfolio/holdings",
+      where: "Portfolio → Holdings" } },
 ];
 
 export function equityBroker(id) {
