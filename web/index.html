@@ -818,9 +818,9 @@ const inr = (p) => {
   else out = tail;
   return (neg ? "-" : "") + out + "." + frac;
 };
-const compact = (p) => { const v = Math.abs(p || 0) / 100;
-  if (v >= 1e7) return (v / 1e7).toFixed(1) + "Cr";
-  if (v >= 1e5) return (v / 1e5).toFixed(1) + "L";
+const compact = (p, decimals = 1) => { const v = Math.abs(p || 0) / 100;
+  if (v >= 1e7) return (v / 1e7).toFixed(decimals) + "Cr";
+  if (v >= 1e5) return (v / 1e5).toFixed(decimals) + "L";
   if (v >= 1e3) return Math.round(v / 1e3) + "k"; return Math.round(v); };
 // A file name to the second, in local time, so two downloads on one day do not
 // arrive as the same file.
@@ -3918,9 +3918,10 @@ window.bpAlloc = (id) => {
     go("assets");
     return;
   }
-  // Shares and fund units are classes inside a demat, not categories of their
-  // own, so the drill-in lands on the account that holds them.
-  const target = id === "equity" || id === "mf" ? "demat" : id === "bond" ? "bonds" : id;
+  // Sections are classes, not account categories. Equities and fund units drill
+  // into their own class page; a demat with no class section falls back to the
+  // list of demat accounts inside renderCategory.
+  const target = id === "bond" ? "bonds" : id;
   target === "bank" ? window.bpBankGroup() : window.bpCategory(target);
 };
 window.bpAssetDonutClick = (event) => {
@@ -4873,7 +4874,7 @@ async function renderBankGroupAsync(host) {
       <div class="donut" id="bank-donut" style="background:conic-gradient(${stops});cursor:pointer"
         title="Each bank as a share of net worth; grey is the rest" onclick="bpDonutClick(event)">
         <div class="donut-hole"><div class="k">Net worth</div>
-          <div class="v">${DATA ? DATA.currency : "₹"} ${compact(netWorth)}</div>
+          <div class="v" title="${money(netWorth)}">${DATA ? DATA.currency : "₹"} ${compact(netWorth, 2)}</div>
           <div class="k">Banks ${bankPct}%</div></div>
       </div>
       <div style="flex:1;min-width:240px">
@@ -8626,7 +8627,15 @@ async function renderCategory() {
     const assets = await store.listAccounts();
     // The list is the class, not the asset category: bonds inside a demat belong
     // on the Bonds page even though the account is a demat.
-    const section = assetSections(assets).find((s) => s.id === (id === "bonds" ? "bond" : id));
+    const sections = assetSections(assets);
+    let section = sections.find((s) => s.id === (id === "bonds" ? "bond" : id));
+    // "Demat" is an account category, not a class section. Without this fallback
+    // the category page had nothing to show and read as "0 assets".
+    if (!section && id === "demat") {
+      const demat = assets.filter((a) => categoryOf(a) === "demat");
+      section = { id: "demat", label: "Demat", rows: demat,
+        total: totalAssets(demat) };
+    }
     const rows = section?.rows || [];
     const stale = staleImport(assets);
     const total = section?.total || 0;
@@ -8873,7 +8882,7 @@ function focusAllocationCardHtml(assets, selectedId) {
       title="Each slice is one asset in ${esc(selected.label.toLowerCase())}"
       onclick="bpFocusPieClick(event)">
       <div class="donut-hole"><div class="k">Net worth</div>
-        <div class="v">${DATA ? DATA.currency : "₹"} ${compact(total)}</div>
+        <div class="v" title="${money(total)}">${DATA ? DATA.currency : "₹"} ${compact(total, 2)}</div>
         <div class="k">${esc(selected.label)} ${selPct}%</div></div>
     </div>
     <div style="flex:1;min-width:250px">
@@ -8945,7 +8954,7 @@ function allocationCardHtml(assets, total) {
     <div class="donut" id="asset-donut" style="background:conic-gradient(${stops});cursor:pointer"
       title="Click a slice to see the assets in it" onclick="bpAssetDonutClick(event)">
       <div class="donut-hole"><div class="k">Net worth</div>
-        <div class="v">${DATA ? DATA.currency : "₹"} ${compact(total)}</div></div>
+        <div class="v" title="${money(total)}">${DATA ? DATA.currency : "₹"} ${compact(total, 2)}</div></div>
     </div>
     <div style="flex:1;min-width:250px">
       <h2 style="margin:0 0 8px">Allocation</h2>
@@ -9409,7 +9418,7 @@ function assetFocusCard(a) {
       title="This ${esc(categoryLabel(cat).toLowerCase())} against the rest of net worth"
       onclick="bpFocusPieClick(event)">
       <div class="donut-hole"><div class="k">Net worth</div>
-        <div class="v">${DATA ? DATA.currency : "₹"} ${compact(total)}</div>
+        <div class="v" title="${money(total)}">${DATA ? DATA.currency : "₹"} ${compact(total, 2)}</div>
         <div class="k">${esc(categoryLabel(cat))} ${selPct}%</div></div>
     </div>
     <div style="flex:1;min-width:240px">
