@@ -18,3 +18,11 @@ One contract belongs to one checkout. Parallel threads get separate worktrees; d
 
 Do not edit `.ratchet/`, bypass a hook with `--no-verify`, or widen scope silently. Put throwaway probes in the OS temp directory (`/tmp` on POSIX, `%TEMP%` on Windows), not in the repo.
 <!-- ratchet:end -->
+
+## UI work
+
+A change to a screen in `web/` starts from [`.opencode/skills/bankpipe-ui/SKILL.md`](.opencode/skills/bankpipe-ui/SKILL.md).
+
+- Rank before markup: one job, one primary action, at most six visible facts per card.
+- Run `node scripts/check-ui-tokens.mjs` before `cd web && node --test`.
+- A UI pull request carries before/after screenshots at 390 and 1280, light and dark, and the rubric score.
