@@ -3136,8 +3136,10 @@ function fieldSourcesHtml(broker) {
       ${row("CAS statement", "ISIN · bond name · interest rate · maturity · units · market value · DP and owner")}
       ${row("Portfolio Report", "invested (what you paid) · purchase date")}
       ${row("Upcoming Payouts", "payment frequency · next interest · next interest date")}
-      <div class="muted field-source-fields">Optional. Without it, the payment frequency and
-        the next interest date are estimated from the coupon and maturity.</div>
+      <div class="muted field-source-fields">Optional. It also carries the principal-return
+        schedule when DigiFInn provides one. Without it, the payment frequency and the next
+        interest date are estimated from the coupon and maturity, and a part redemption is
+        known only when SMEST or BSE shows a reduced face.</div>
       ${row("Fetch online (SMEST + BSE)", "credit rating · current market value")}
     </div></details>`;
 }
@@ -7877,10 +7879,11 @@ window.bpCashflowApply = async () => {
       const face = inferFace(p.cost_paise, p.quantity);
       const faceTotal = face && Number(p.quantity) > 0
         ? face * Number(p.quantity) * 100 : null;
+      const priorReturned = Number(p.returned_paise) || 0;
       const returned = faceTotal && g.future_principal_paise !== null
         && g.future_principal_paise !== undefined
         ? Math.max(0, faceTotal - Number(g.future_principal_paise))
-        : p.returned_paise;
+        : priorReturned;
       return {
         ...p,
         frequency: next.frequency || g.frequency || p.frequency,
@@ -7893,6 +7896,10 @@ window.bpCashflowApply = async () => {
         future_principal_paise: g.future_principal_paise ?? p.future_principal_paise,
         principal_dates: (g.principal_dates || []).join(",") || p.principal_dates,
         returned_paise: returned,
+        // Only claim this file as the source when it actually supplied a new
+        // return. A file that merely confirms an SMEST face change does not
+        // take the credit for it.
+        returned_source: returned > priorReturned ? "cashflow" : p.returned_source,
         purchase_date: p.purchase_date || g.investment_date || "",
         cost_paise: p.cost_paise ?? g.investment_paise ?? null,
       };
@@ -10171,7 +10178,6 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
   const heldGain = matured ? null : (v.ba?.lifetimeGain ?? v.expectedGain);
   const perUnit = v.value !== null && v.value !== undefined && qty > 0
     ? v.value / qty : null;
-  const payoutFile = window.bpBondPayoutFile || "";
   const progress = v.couponProgress === null || v.couponProgress === undefined
     ? null : Math.max(0, Math.min(100, v.couponProgress));
   const policyNote = v.couponLost
@@ -10272,7 +10278,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     </div>
     <div class="bond-sources">${[
       "CAS",
-      v.returned ? (v.returnedSource === "cashflow" || payoutFile ? "Cashflow Future"
+      v.returned ? (v.returnedSource === "cashflow" ? "Cashflow Future"
         : v.returnedSource === "bank" ? "bank" : "SMEST") : "",
       v.returnedRecordDate ? "BSE" : "",
       v.pastCoupon !== null && v.pastCoupon !== undefined ? "interest estimated" : "",
@@ -10538,8 +10544,6 @@ function holdingsBlock(rows, assetId) {
   </div>` : "";
   window.bpBondRows = groups.bond;
   window.bpBondAsset = assetId;
-  const bondAsset = (window.bpAssetsForFocus || []).find((a) => a.id === assetId);
-  window.bpBondPayoutFile = metaOf(bondAsset).payout_file || "";
   if (!window.bpBondSortState) window.bpBondSortState = { key: "maturity", dir: 1 };
   if (visible.length < 2) {
     const kind = visible[0]?.[0] || "bond";
