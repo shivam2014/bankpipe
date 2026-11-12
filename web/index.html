@@ -9451,6 +9451,9 @@ function bondRowView(h) {
   // measured against the full cost. Coupons already received and accrued
   // interest are also the seller's, so the total gain includes them.
   const returned = (ba && ba.returned) || 0;
+  const today = new Date().toISOString().slice(0, 10);
+  const pastReturn = String(h.redemption_dates || h.principal_dates || "")
+    .split(",").map((d) => d.trim()).filter((d) => d && d <= today).sort().pop() || "";
   return {
     h, ba,
     rating: bondRatingOf(h),
@@ -9473,6 +9476,7 @@ function bondRowView(h) {
     expectedGainPct: ba ? ba.totalGainPct : null,
     parts: ba?.schedule?.parts || 0,
     returned,
+    returnedAt: h.returned_at || pastReturn,
     shortSchedule: !!(ba && ba.schedule && ba.schedule.short),
     hasPrice,
     value: hasPrice ? h.value_paise : null,
@@ -9606,7 +9610,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Units", qty || "—")}
       ${cell("Face at issue", v.faceAtIssue ? money(v.faceAtIssue) : "—")}
       ${cell("Principal left", v.principalLeft ? `${money(v.principalLeft)}${
-        returned ? `<div class="sub">${money(returned)} already back</div>` : ""}${
+        returned ? `<div class="sub">${money(returned)} already back${
+          v.returnedAt ? ` on ${dateLabel(v.returnedAt)}` : ""}</div>` : ""}${
         v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
       ${cell("Market value · total",
         `${moneyOrDash(v.value)}${v.value === null ? "" : `<div class="sub">${marketSub}</div>`}`)}
