@@ -9738,15 +9738,21 @@ function holdingsCard(allRows, assetId) {
     ? `${missingCost} invested amount${missingCost === 1 ? "" : "s"} missing — edit the lot`
       + " with the pencil to add it."
     : "";
+  // The last fetch belongs to this portfolio only; opening another bond page
+  // must not show progress or a result about a different set of lots.
+  const fetchState = window.bpBondFetchStatus?.id === assetId
+    ? window.bpBondFetchStatus : null;
+  const fetching = !!fetchState && !fetchState.done && !fetchState.bad;
   const statusLine = bondBook
     ? `<div class="hold-bar">
         <span><b>${s.count} holding${s.count === 1 ? "" : "s"}</b></span>
         ${needsFetch ? `<span class="sep">·</span>
           <span>${missingDetails.join(" · ")}</span>
-          <button class="actlink"
-            title="Get each bond's name, rating, face value and BSE price from SMEST and BSE"
-            onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online to fill ${
-              needsCount === 1 ? "it" : "them"} →</button>`
+          ${fetching ? `<span>Fetching now…</span>`
+            : assetId ? `<button class="actlink"
+              title="Get each bond's name, rating, face value and BSE price from SMEST and BSE"
+              onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online to fill ${
+                needsCount === 1 ? "it" : "them"} →</button>` : ""}`
         : `<span class="sep">·</span><span>invested ${moneyOrDash(s.cost)}</span>
           <span class="sep">·</span><span>market value ${moneyOrDash(s.value)}${
             valueAsOf ? ` as of ${dateLabel(valueAsOf)}` : ""}</span>`}
@@ -9757,11 +9763,6 @@ function holdingsCard(allRows, assetId) {
         <span class="sep">·</span><span>invested ${moneyOrDash(s.cost)}</span>
         <span class="sep">·</span><span>market value ${moneyOrDash(s.value)}${
           valueAsOf ? ` as of ${dateLabel(valueAsOf)}` : ""}</span></div>`;
-  // The last fetch belongs to this portfolio only; opening another bond page
-  // must not show progress or a result about a different set of lots.
-  const fetchState = window.bpBondFetchStatus?.id === assetId
-    ? window.bpBondFetchStatus : null;
-
   return `<div class="card pad" style="margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0">Holdings</h2>
