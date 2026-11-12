@@ -40,13 +40,17 @@ export function inferFace(costPaise, quantity) {
 
 // The slice of the next coupon earned since the previous one. Estimated from the
 // frequency and the next interest date; real day counts vary by issuer.
-export function accruedInterest(annualCouponPaise, frequency, interestDate,
-  today = new Date().toISOString().slice(0, 10)) {
+function couponMonths(frequency) {
   const f = String(frequency || "").toLowerCase();
-  const months = f.includes("month") ? 1
+  return f.includes("month") ? 1
     : f.includes("quarter") ? 3
       : (f.includes("half") || f.includes("semi")) ? 6
         : (f.includes("annual") || f.includes("year")) ? 12 : 0;
+}
+
+export function accruedInterest(annualCouponPaise, frequency, interestDate,
+  today = new Date().toISOString().slice(0, 10)) {
+  const months = couponMonths(frequency);
   const to = String(interestDate || "").slice(0, 10);
   const coupon = Number(annualCouponPaise);
   if (!months || !to || !Number.isFinite(coupon) || coupon <= 0) {
@@ -62,86 +66,142 @@ export function accruedInterest(annualCouponPaise, frequency, interestDate,
     from: last.toISOString().slice(0, 10), to };
 }
 
+// How many coupons still land between today and maturity. A monthly bond with
+// its next coupon on the maturity date has one; a quarterly bond two years out
+// has eight. The walk is bounded so a bad frequency cannot spin.
+function futureCouponCount(interestDate, frequency, maturity, today) {
+  const months = couponMonths(frequency);
+  const start = String(interestDate || "").slice(0, 10);
+  const end = String(maturity || "").slice(0, 10);
+  const from = String(today || "").slice(0, 10);
+  if (!months || !start || !end || !from) return null;
+  const d = new Date(start + "T00:00:00Z");
+  const stop = new Date(end + "T00:00:00Z");
+  const now = new Date(from + "T00:00:00Z");
+  if (isNaN(d.getTime()) || isNaN(stop.getTime()) || isNaN(now.getTime())) return null;
+  let count = 0;
+  for (let i = 0; i < 480 && d <= stop; i++) {
+    if (d > now) count++;
+    d.setUTCMonth(d.getUTCMonth() + months);
+  }
+  return count;
+}
+
 export function bondAnalytics(h) {
   const parsed = parseBondLabel(h?.label);
   if (!parsed || parsed.couponPct === null || parsed.couponPct === undefined) return null;
   const qty = Number(h.quantity) || 0;
   const cost = Number(h.cost_paise);
   const storedFace = Number(h.face_paise) > 0 ? Number(h.face_paise) / 100 : 0;
-  const purchasedFace = storedFace || inferFace(cost, qty);
-  if (!qty || !purchasedFace || !Number.isFinite(cost) || cost <= 0) return null;
-  // The face bought and the face still outstanding are not the same after a
-  // part redemption. The purchase price is per ₹100 of what was bought; the
-  // market price and the coupon are per ₹100 of what is still to come.
-  const purchaseFaceTotal = purchasedFace * qty * 100; // paise
+  const inferred = inferFace(cost, qty);
+  const currentFace = storedFace || inferred;
+  if (!qty || !currentFace || !Number.isFinite(cost) || cost <= 0) return null;
+  const storedTotal = storedFace ? storedFace * qty * 100 : 0;
+  const inferredTotal = inferred ? inferred * qty * 100 : 0;
   const futurePrin = Number(h.future_principal_paise);
-  const faceTotal = Number.isFinite(futurePrin) && futurePrin > 0
-    ? futurePrin : purchaseFaceTotal;
+  const hasFuturePrin = Number.isFinite(futurePrin) && futurePrin > 0;
+  const explicitReturned = h.returned_paise === null || h.returned_paise === undefined
+    ? null : Number(h.returned_paise);
+  const today = new Date().toISOString().slice(0, 10);
+  const redemptions = String(h.redemption_dates || "").split(",")
+    .map((d) => d.trim()).filter(Boolean).sort();
+  const principalDates = String(h.principal_dates || "").split(",")
+    .map((d) => d.trim()).filter(Boolean).sort();
+  const firstPast = redemptions.filter((d) => d <= today).pop() || "";
+  // A schedule that promises less than the cost-implied face is not proof that
+  // the difference was returned. A past redemption date, or a stored face below
+  // the cost-implied one, is. Without that evidence the schedule is short and
+  // the gain is not claimed.
+  const pastWeReturn = [...redemptions, ...principalDates].some((d) => d <= today);
+  const storedLooksCurrent = storedTotal > 0 && storedTotal < inferredTotal;
+  const canDeriveReturn = pastWeReturn || storedLooksCurrent;
+  // The face a statement prints can be the face at purchase (CAS) or the face
+  // after a part repayment (SMEST). The larger of it and the cost-implied face
+  // is the face bought; the smaller is what is left. The difference is money
+  // already back, even when no payout file was imported.
+  const purchaseFaceTotal = Math.max(storedTotal, inferredTotal,
+    hasFuturePrin ? futurePrin + (explicitReturned > 0 ? explicitReturned : 0) : 0);
+  const faceTotal = hasFuturePrin
+    ? (canDeriveReturn && explicitReturned === null
+      ? Math.min(purchaseFaceTotal, futurePrin) : futurePrin)
+    : explicitReturned !== null ? Math.max(0, purchaseFaceTotal - explicitReturned)
+      : Math.min(purchaseFaceTotal, storedTotal || purchaseFaceTotal);
+  const returnedPaise = explicitReturned !== null ? explicitReturned
+    : hasFuturePrin && !canDeriveReturn ? 0
+      : Math.max(0, purchaseFaceTotal - faceTotal);
   const face = faceTotal / qty / 100;
-  const returnedPaise = Number(h.returned_paise) || 0;
+  const purchaseFace = purchaseFaceTotal / qty / 100;
   const price = (cost / purchaseFaceTotal) * 100;
   const buy = h.purchase_date || "";
   const years = buy ? yearsBetween(buy, parsed.maturity) : null;
-  const annualCoupon = (faceTotal * parsed.couponPct) / 100; // paise
-  let ytm = null, couponIncome = null, capitalGain = null, totalGain = null;
-  if (years !== null && years > 0) {
-    couponIncome = annualCoupon * years;
-    capitalGain = faceTotal + returnedPaise - cost;
-    totalGain = couponIncome + capitalGain;
-    // Standard approximate YTM. Coupon frequency is not in the export, so this
-    // is labelled approximate rather than pretending to be exact.
-    ytm = ((annualCoupon + capitalGain / years) / ((purchaseFaceTotal + cost) / 2)) * 100;
-  }
-  // A cashflow export states the whole remaining schedule, gross of tax. When it
-  // is there it beats face + coupon: it already knows about part redemptions.
-  const schedIn = h.future_interest_paise === null || h.future_interest_paise === undefined
-    ? null : Number(h.future_interest_paise);
-  const schedPrin = h.future_principal_paise === null || h.future_principal_paise === undefined
-    ? null : Number(h.future_principal_paise);
+  const annualCoupon = (faceTotal * parsed.couponPct) / 100; // paise for the face left
   // Coupons already received are not in the "future" export. Estimate them from
   // the rate and the redemption dates: original face before the first repayment,
   // what is left after it. The lifetime figures are what the person actually
   // gets back for the money invested.
-  const today = new Date().toISOString().slice(0, 10);
-  const redemptions = String(h.redemption_dates || "").split(",")
-    .map((d) => d.trim()).filter(Boolean).sort();
-  const firstPast = redemptions.filter((d) => d <= today).pop() || "";
-  let couponEstimate = couponIncome;
-  if (returnedPaise > 0 && years !== null && parsed.maturity) {
-    if (firstPast) {
-      const y1 = yearsBetween(buy, firstPast);
-      const y2 = yearsBetween(firstPast, parsed.maturity);
-      const c1 = y1 !== null ? (purchaseFaceTotal * parsed.couponPct / 100) * y1 : 0;
-      const c2 = y2 !== null && y2 > 0 ? (faceTotal * parsed.couponPct / 100) * y2 : 0;
-      couponEstimate = c1 + c2;
+  const yearsLeft = parsed.maturity ? yearsBetween(today, parsed.maturity) : null;
+  const periods = couponMonths(h.frequency) ? 12 / couponMonths(h.frequency) : null;
+  const couponsLeft = futureCouponCount(h.interest_date, h.frequency, parsed.maturity, today);
+  const futureCoupon = couponsLeft > 0 && periods
+    ? Math.round((annualCoupon / periods) * couponsLeft)
+    : Math.round(annualCoupon * Math.max(0, yearsLeft || 0));
+  let couponEstimate = futureCoupon;
+  if (years !== null && years > 0) {
+    if (returnedPaise > 0) {
+      if (firstPast) {
+        const y1 = yearsBetween(buy, firstPast);
+        const y2 = yearsBetween(firstPast, parsed.maturity);
+        const c1 = y1 !== null ? (purchaseFaceTotal * parsed.couponPct / 100) * y1 : 0;
+        const c2 = y2 !== null && y2 > 0 ? (faceTotal * parsed.couponPct / 100) * y2 : 0;
+        couponEstimate = c1 + c2;
+      } else {
+        // Without a recorded redemption date, use the face originally bought for
+        // the whole term. Better to overstate a little than to hide the coupons.
+        couponEstimate = (purchaseFaceTotal * parsed.couponPct / 100) * years;
+      }
     } else {
-      // Without a recorded redemption date, use the face originally bought for
-      // the whole term. Better to overstate a little than to hide the coupons.
-      couponEstimate = (purchaseFaceTotal * parsed.couponPct / 100) * years;
+      couponEstimate = annualCoupon * years;
     }
   }
-  const lifetimeTotal = couponEstimate === null ? null : purchaseFaceTotal + couponEstimate;
-  const lifetimeGain = lifetimeTotal === null ? null : lifetimeTotal - cost;
+  const couponIncome = couponEstimate;
+  const capitalGain = faceTotal + returnedPaise - cost;
+  const totalGain = couponEstimate + capitalGain;
+  const lifetimeTotal = purchaseFaceTotal + couponEstimate;
+  const lifetimeGain = lifetimeTotal - cost;
+  // Standard approximate YTM over the money actually invested: average coupons
+  // across the whole life, plus the pull to the face still outstanding.
+  const ytm = years !== null && years > 0
+    ? ((couponEstimate / years + capitalGain / years)
+      / ((purchaseFaceTotal + cost) / 2)) * 100
+    : null;
   const accrual = accruedInterest(annualCoupon, h.frequency, h.interest_date);
+  const schedIn = h.future_interest_paise === null || h.future_interest_paise === undefined
+    ? null : Number(h.future_interest_paise);
+  const schedPrin = h.future_principal_paise === null || h.future_principal_paise === undefined
+    ? null : Number(h.future_principal_paise);
   const schedule = schedIn !== null && schedPrin !== null
     && Number.isFinite(schedIn) && Number.isFinite(schedPrin)
     ? { interest: schedIn, principal: schedPrin, total: schedIn + schedPrin,
       // Face at purchase minus face still to come. A bond that returns part of
       // its principal early is not a loss; that money is already back.
-      returned: Number(h.returned_paise) || 0,
-      gain: (Number(h.returned_paise) || 0) + schedIn + schedPrin - cost,
+      returned: returnedPaise,
+      gain: returnedPaise + schedIn + schedPrin - cost,
       parts: String(h.principal_dates || "").split(",").filter(Boolean).length,
-      short: (Number(h.returned_paise) || 0) + schedIn + schedPrin < cost }
+      short: returnedPaise + schedIn + schedPrin < cost }
     : null;
   const value = Number(h.value_paise);
   const hasMarket = Number.isFinite(value) && value > 0 && Math.abs(value - cost) >= 1;
   const marketPrice = hasMarket ? (value / faceTotal) * 100 : null;
   const currentYield = hasMarket ? (annualCoupon / value) * 100 : (annualCoupon / cost) * 100;
   return {
-    ...parsed, qty, face, faceTotal, purchaseFaceTotal, cost, price, years,
+    ...parsed, qty, face, faceTotal, purchaseFace, purchaseFaceTotal, cost, price, years,
     faceInferred: !storedFace,
+    faceBoughtInferred: !storedFace || purchaseFace > storedFace,
+    returned: returnedPaise,
     purchase_date: buy,
-    annualCoupon, couponIncome, capitalGain, totalGain, ytm,
+    annualCoupon, couponIncome, futureCoupon,
+    pastCoupon: Math.max(0, couponEstimate - futureCoupon),
+    capitalGain, totalGain, ytm,
     couponEstimate, lifetimeTotal, lifetimeGain,
     accrued: accrual.accrued, accruedFrom: accrual.from, accruedTo: accrual.to,
     value: hasMarket ? value : null,
@@ -154,6 +214,15 @@ export function bondAnalytics(h) {
 // A sale changes the units, not the terms. The broker schedule on file was for
 // the old count, so scale its money with the units. A purchase keeps the
 // repayment already received: the new units did not get that earlier payment.
+// What the person actually walks away with if they sell today. The clean market
+// value is not the whole story: principal already returned, coupons already
+// received and the accrued slice of the next coupon are all cash in hand.
+export function soldGain(ba) {
+  if (!ba || !ba.hasMarket || ba.value === null || ba.value === undefined) return null;
+  return ba.value + (ba.returned || 0) + (ba.pastCoupon || 0)
+    + (ba.accrued || 0) - ba.cost;
+}
+
 export function carryBrokerFields(oldRow, newQty) {
   if (!oldRow) return {};
   const oldQty = Number(oldRow.quantity) || 0;
@@ -187,20 +256,23 @@ export function bondSummary(rows) {
   const ytmCost = withYtm.reduce((t, x) => t + x.cost, 0);
   const ytm = ytmCost
     ? withYtm.reduce((t, x) => t + x.ytm * x.cost, 0) / ytmCost : null;
-  const couponIncome = sum("couponIncome");
+  // The summary is about the money still to come. Coupons already paid are in
+  // the lifetime figures on each card, not here.
+  const couponIncome = sum("futureCoupon");
   const capitalGain = sum("capitalGain");
-  const totalGain = couponIncome + capitalGain;
+  const totalGain = items.reduce((t, x) => t + (x.futureCoupon || 0) + (x.capitalGain || 0), 0);
   const market = items.filter((x) => x.hasMarket);
   const marketValue = market.reduce((t, x) => t + x.value, 0);
   const marketCost = market.reduce((t, x) => t + x.cost, 0);
   // Prefer the imported schedule where a lot has one; fall back to the estimate.
   const expected = items.reduce((t, x) => t + (x.schedule ? x.schedule.total
-    : (x.faceTotal || 0) + (x.couponIncome || 0)), 0);
+    : (x.faceTotal || 0) + (x.futureCoupon || 0)), 0);
   const gainToMaturity = items.reduce((t, x) => t + (x.schedule
-    ? (x.schedule.short ? 0 : x.schedule.gain) : (x.totalGain || 0)), 0);
+    ? (x.schedule.short ? 0 : x.schedule.gain)
+    : (x.futureCoupon || 0) + (x.capitalGain || 0)), 0);
   const inParts = items.filter((x) => x.schedule && x.schedule.parts > 1).length;
   const shortSchedule = items.filter((x) => x.schedule && x.schedule.short).length;
-  const returned = items.reduce((t, x) => t + (x.schedule ? x.schedule.returned : 0), 0);
+  const returned = items.reduce((t, x) => t + (x.returned || 0), 0);
   return {
     count: items.length,
     cost, faceTotal, purchaseFaceTotal,
@@ -254,6 +326,7 @@ export function bondRatingChange(atPurchase, current) {
 export function bondFillPlan(row, fetched) {
   const details = fetched?.details || null;
   const market = fetched?.market || null;
+  const units = Number(row.quantity) || 0;
   const patch = {};
   if (details) {
     // The rating is the one field that is meant to move: `rating` is today's
@@ -266,11 +339,18 @@ export function bondFillPlan(row, fetched) {
     if (details.issuer && details.issuer !== String(row.issuer || "").trim()) {
       patch.issuer = details.issuer;
     }
-    // The CAS prints the face per bond; SMEST repeats it. Keep it so a discount
-    // purchase is not mistaken for a smaller face.
-    if (Number(details.face) > 0) {
-      const facePaise = Math.round(Number(details.face) * 100);
+    // SMEST prints the face now. Store the face bought instead, and keep the
+    // difference as principal already returned, so a part redemption cannot
+    // make the purchase yield look negative on the next render.
+    if (Number(details.face) > 0 && units > 0) {
+      const currentFace = Number(details.face);
+      const boughtFace = Math.max(currentFace, inferFace(row.cost_paise, units) || 0);
+      const facePaise = Math.round(boughtFace * 100);
       if (facePaise !== Number(row.face_paise || 0)) patch.face_paise = facePaise;
+      const back = Math.round((boughtFace - currentFace) * units * 100);
+      if (back > 0 && (row.returned_paise === null || row.returned_paise === undefined)) {
+        patch.returned_paise = back;
+      }
     }
     if (!String(row.frequency || "").trim() && details.frequency) patch.frequency = details.frequency;
     if (!String(row.interest_date || "").trim() && details.nextInterest) patch.interest_date = details.nextInterest;
@@ -283,7 +363,6 @@ export function bondFillPlan(row, fetched) {
     }
   }
   const ltp = Number(market?.ltp ?? details?.ltp) || 0;
-  const units = Number(row.quantity) || 0;
   if (ltp > 0 && units > 0) {
     // The face still outstanding beats the cost-inferred face: a part-redeemed
     // bond trades on what is left, not on what was bought.
@@ -304,8 +383,8 @@ export function bondFillPlan(row, fetched) {
     patch,
     added: !!(patch.frequency || patch.interest_date),
     ratingChanged: !!(patch.rating && String(row.rating || "").trim()),
-    terms: !!(patch.rating || patch.issuer || patch.face_paise || patch.frequency
-      || patch.interest_date || patch.redemption_dates),
+    terms: !!(patch.rating || patch.issuer || patch.face_paise || patch.returned_paise
+      || patch.frequency || patch.interest_date || patch.redemption_dates),
     priced: patch.value_paise !== undefined,
     unread: !details && !market,
   };

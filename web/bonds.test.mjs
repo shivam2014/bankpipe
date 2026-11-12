@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseBondLabel, inferFace, bondAnalytics, bondSummary, accruedInterest,
   BOND_RATINGS, bondRatingRank, bondFillPlan, bondGrade, bondRatingChange,
-  carryBrokerFields } from "./bonds.js";
+  carryBrokerFields, soldGain } from "./bonds.js";
 
 test("parses the coupon and maturity from a bond label", () => {
   const p = parseBondLabel("10.25% NAVI FINSERV PRIVATE LIMITED 31 DEC 2026");
@@ -72,6 +72,53 @@ test("a part-redeemed bond is priced on the principal still outstanding", () => 
   assert.ok(Math.abs(a.marketPrice - 60) < 0.01);
   // 1,00,000 still to come + 1,00,000 already back - 1,95,275.82 paid.
   assert.ok(Math.abs(a.capitalGain - 472418) < 2);
+});
+
+test("a face fetched after a part return is read as the current face, not the purchase face", () => {
+  // The T3 preview ledger held the face SMEST prints today (50,000 per unit)
+  // with no returned principal and no payout schedule. The cost and units imply
+  // a 1,00,000 face, so 1,00,000 came back and the old yield read -17.84%.
+  const a = bondAnalytics({
+    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    value_paise: 6000000, purchase_date: "2024-06-06", face_paise: 5000000,
+    frequency: "Monthly", interest_date: "2026-12-03",
+    redemption_dates: "2026-06-03,2026-12-03",
+  });
+  assert.equal(a.purchaseFaceTotal, 20000000);
+  assert.equal(a.faceTotal, 10000000);
+  assert.equal(a.returned, 10000000);
+  assert.ok(Math.abs(a.price - 97.63791) < 0.001);
+  assert.ok(a.ytm > 11.5 && a.ytm < 12.1, `ytm ${a.ytm}`);
+  assert.ok(Math.abs(a.capitalGain - 472418) < 2);
+  assert.ok(Math.abs(a.currentYield - 19.83) < 0.02);
+  assert.ok(Math.abs(a.marketPrice - 60) < 0.01);
+  assert.ok(Math.abs(a.futureCoupon - 99167) < 2, `future ${a.futureCoupon}`);
+  assert.ok(a.lifetimeTotal > 25000000 && a.lifetimeTotal < 25600000,
+    `total ${a.lifetimeTotal}`);
+  assert.ok(a.lifetimeGain > 5500000 && a.lifetimeGain < 6000000,
+    `gain ${a.lifetimeGain}`);
+  // Selling the whole position: 60,000 value + 1,00,000 back - 1,95,275.82.
+  assert.equal(6000000 + a.returned - 19527582, -3527582);
+});
+
+test("gain if sold includes the coupons already received", () => {
+  const a = bondAnalytics({
+    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    value_paise: 6000000, purchase_date: "2024-06-06", face_paise: 5000000,
+    frequency: "Monthly", interest_date: "2026-12-03",
+    redemption_dates: "2026-06-03,2026-12-03",
+  });
+  const gain = soldGain(a);
+  assert.equal(gain, a.value + a.returned + a.pastCoupon + a.accrued - a.cost);
+  assert.ok(gain > 0, `gain ${gain}`);
+});
+
+test("a part-redeemed lookup stores the purchase face and the money already back", () => {
+  const plan = bondFillPlan({ quantity: 2, cost_paise: 19527582 },
+    { details: { face: 50000 }, market: null });
+  assert.equal(plan.patch.face_paise, 10000000);
+  assert.equal(plan.patch.returned_paise, 10000000);
+  assert.equal(plan.terms, true);
 });
 
 test("a BSE quote uses the remaining face after a part redemption", () => {

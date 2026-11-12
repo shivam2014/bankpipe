@@ -1049,7 +1049,7 @@ import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { parseDigiFinnFile, mergeDigiFinn, scorePortfolio } from "./digifinn.js";
 import { bondAnalytics, bondSummary, parseBondLabel, inferFace,
   BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange,
-  carryBrokerFields } from "./bonds.js";
+  carryBrokerFields, soldGain } from "./bonds.js";
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport, IMPORT_SLOTS,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
@@ -9438,9 +9438,9 @@ function bondRowView(h) {
     && Math.abs(h.value_paise - h.cost_paise) >= 1);
   const periods = bondPeriods(h.frequency);
   // Principal already returned is money in hand, so a sale of the rest is
-  // measured against the full cost: value + returned - cost. Counting only the
-  // remaining value made a part-redeemed bond look like a large loss.
-  const returned = (ba && ba.schedule && ba.schedule.returned) || 0;
+  // measured against the full cost. Coupons already received and accrued
+  // interest are also the seller's, so the total gain includes them.
+  const returned = (ba && ba.returned) || 0;
   return {
     h, ba,
     rating: bondRatingOf(h),
@@ -9466,7 +9466,8 @@ function bondRowView(h) {
     shortSchedule: !!(ba && ba.schedule && ba.schedule.short),
     hasPrice,
     value: hasPrice ? h.value_paise : null,
-    gain: hasPrice ? h.value_paise + returned - h.cost_paise : null,
+    gain: hasPrice ? (ba ? soldGain(ba) : h.value_paise + returned - h.cost_paise) : null,
+    pastCoupon: ba?.pastCoupon ?? null,
     valueAsOf: String(h.as_of || "").slice(0, 10),
     accrued: ba?.accrued ?? null,
     accruedFrom: ba?.accruedFrom || "",
@@ -9577,11 +9578,15 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell(`Market value${v.value === null || v.value === undefined
         ? "" : ` (${valueSourceShort})`}`, moneyOrDash(v.value))}
       ${accruedCell}
-      ${cell("Gain if sold", v.gain === null || v.gain === undefined ? "—"
-        : signed(v.gain),
+      ${cell("Gain if sold now", v.gain === null || v.gain === undefined ? "—"
+        : `${signed(v.gain)}${v.returned || v.pastCoupon
+          ? `<div class="sub">${[v.returned ? `${money(v.returned)} back` : "",
+            v.pastCoupon ? `${money(v.pastCoupon)} coupons` : ""]
+            .filter(Boolean).join(" + ")}</div>` : ""}`,
         v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "")}
       ${cell("Total if held", heldTotal === null ? "—" : `${money(heldTotal)}${
-        v.returned ? `<div class="sub">includes coupons received</div>` : ""}`)}
+        v.returned ? `<div class="sub">includes ${money(v.returned)} back${
+          v.pastCoupon ? ` and ${money(v.pastCoupon)} coupons` : ""}</div>` : ""}`)}
       ${cell("Total gain", heldGain === null || heldGain === undefined ? "—"
         : `${signed(heldGain)}${v.returned
           ? `<div class="sub">coupons before today estimated</div>` : ""}`,
@@ -9633,6 +9638,18 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
               ].filter(Boolean).join(" · ")}${assetId && v.h.id ? ` · <button class="vupdate"
                 title="Fetch the latest price and terms for this bond"
                 onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Refresh</button>` : ""}</span></div>`}
+          ${v.gain === null ? "" : `<div class="bm-row"><span class="k">Gain if sold now</span>
+            <span class="v ${v.gain < 0 ? "neg" : "pos"}">${signed(v.gain)}</span>
+            <span class="sub">${[
+              `${money(v.value)} value`,
+              v.returned ? `${money(v.returned)} back` : "",
+              v.pastCoupon ? `${money(v.pastCoupon)} coupons` : "",
+              v.ba?.accrued ? `${money(v.ba.accrued)} accrued` : "",
+            ].filter(Boolean).join(" + ")} − ${money(v.h.cost_paise)} invested</span></div>`}
+          ${heldGain === null ? "" : `<div class="bm-row"><span class="k">Gain if held</span>
+            <span class="v ${heldGain < 0 ? "neg" : "pos"}">${signed(heldGain)}</span>
+            <span class="sub">${money(heldTotal)} total proceeds −
+              ${money(v.h.cost_paise)} invested</span></div>`}
           ${v.returned && v.ba?.purchaseFaceTotal && v.ba?.faceTotal
             ? `<div class="bm-note">Derived${payoutFile ? ` from ${esc(payoutFile)}` : ""}:
               ${money(v.ba.purchaseFaceTotal)} face bought − ${money(v.ba.faceTotal)} principal
@@ -9797,7 +9814,7 @@ function holdingsCard(allRows, assetId) {
         <th class="num">Invested</th><th class="num" title="${valueAsOf
           ? `Market value as of ${dateLabel(valueAsOf)}`
           : "Market value, when it was last marked"}">Market value</th>
-        <th class="num" title="Market value plus any principal already returned, minus invested; only relevant if sold">Gain if sold</th>
+        <th class="num" title="Market value plus principal already returned, coupons received and accrued interest, minus invested">Gain if sold now</th>
         <th class="num" title="Amount you receive at maturity: principal plus remaining interest">Maturity value</th>
         <th></th></tr>
       ${tableRows}</table></div>
