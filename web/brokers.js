@@ -1,11 +1,11 @@
-// Brokers that publish a bond portfolio you can import. DigiFInn is the first
-// one; adding another is a new entry here plus its parser, not a rewrite of the
-// portfolio page.
+// Brokers that publish a holding report you can import. DigiFInn and Motilal
+// Oswal are the first two; adding another is a new entry here plus its parser,
+// not a rewrite of the portfolio page.
 //
 // Each entry describes the reports a broker publishes. `slot` must match the
 // `kind` that the report parser returns, because the file picker checks the two
 // agree before it accepts a file. `optional` reports add detail when present but
-// never block a save.
+// never block a save. A report can be a PDF (`format: "pdf"`) instead of a CSV.
 
 import { parseReportFile } from "./digifinn-reports.js";
 
@@ -24,6 +24,18 @@ export const BOND_BROKERS = [
       { slot: "payouts", title: "Payouts report", optional: true,
         detail: "payment frequency and next interest",
         files: ["upcoming-payouts.csv"] },
+    ],
+  },
+  {
+    id: "motilal",
+    label: "Motilal Oswal",
+    parser: "motilal",
+    format: "pdf",
+    page: { url: "https://www.motilaloswal.com/", where: "Reports" },
+    reports: [
+      { slot: "portfolio", title: "Portfolio Holding Summary",
+        detail: "invested, purchase date, coupon, frequency and face",
+        files: ["Portfolio_Holding_Summary.pdf"], accept: ".pdf", format: "pdf" },
     ],
   },
 ];
@@ -58,8 +70,8 @@ export function parseBrokerReport(brokerId, text, fileName = "") {
 }
 
 // Equity statements carry the purchase date and invested amount the CAS never
-// prints. These brokers are registered now so the holding card can send a person
-// to the import; each file format is wired when its report is known.
+// prints. Zerodha's holdings XLSX and Motilal's Portfolio Holding Summary are
+// wired; another broker is a guide here plus a parser, not a new page.
 export const EQUITY_BROKERS = [
   { id: "motilal", label: "Motilal Oswal",
     page: { url: "https://www.motilaloswal.com/", where: "Reports" } },

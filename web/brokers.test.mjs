@@ -19,11 +19,13 @@ test("digifinn is the first broker, with one cost file and one optional payouts 
   assert.equal(new Set(b.reports.map((r) => r.slot)).size, b.reports.length);
 });
 
-test("every broker names a logo that ships with the app", () => {
+test("a broker logo, when set, ships with the app", () => {
   for (const b of BOND_BROKERS) {
     assert.ok(b.id && b.label && b.parser);
-    assert.equal(brokerLogo(b.id), b.logo);
-    assert.ok(existsSync(new URL(b.logo, import.meta.url)), `${b.id} logo missing`);
+    assert.equal(brokerLogo(b.id), b.logo || "");
+    if (b.logo) {
+      assert.ok(existsSync(new URL(b.logo, import.meta.url)), `${b.id} logo missing`);
+    }
     assert.ok(b.page?.url && b.page?.where);
   }
 });
@@ -36,6 +38,14 @@ test("the planner reports are the ones this app reads", () => {
   assert.ok(brokerReport("digifinn", "portfolio"));
   assert.ok(brokerReport("digifinn", "payouts"));
   assert.equal(brokerReport("digifinn", "nope"), null);
+});
+
+test("Motilal's holding summary is a PDF with no payouts report", () => {
+  const broker = bondBroker("motilal");
+  assert.equal(broker.parser, "motilal");
+  assert.equal(broker.format, "pdf");
+  assert.equal(brokerReport("motilal", "portfolio").accept, ".pdf");
+  assert.equal(brokerReport("motilal", "payouts"), null);
 });
 
 test("equity brokers start with Motilal Oswal and Zerodha", () => {

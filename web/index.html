@@ -500,6 +500,21 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .eq-unmatched{font-size:11px;color:var(--muted);margin-top:7px}
 .eq-unmatched summary{cursor:pointer}
 .eq-unmatched-list{display:grid;gap:2px;margin-top:5px}
+.motilal-pw{margin-top:10px;border-color:var(--amber)}
+.motilal-pw input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;
+ font:inherit;background:var(--bg);color:var(--ink);margin-top:8px}
+.motilal-pw-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.motilal-pw-msg{font-size:11px;color:var(--muted);margin-top:7px;line-height:1.5}
+.field-source-name{font-size:11px}
+.field-source-fields{font-size:11px;line-height:1.5}
+.field-source-summary{cursor:pointer;font-size:12px;color:var(--muted)}
+.import-note{font-size:11px;margin-top:7px;line-height:1.55}
+.import-step-title{font-size:13.5px;font-weight:600}
+.import-step-sub{font-weight:400;font-size:12px}
+.import-step-note{font-size:12px;margin-top:5px}
+.import-intro{font-size:13.5px;margin:-6px 0 14px}
+.import-report-title{font-size:12px}
+.motilal-note{font-size:12px;margin-top:12px}
 .eq-error{font-size:13.5px;color:var(--red)}
 .eq-preview table{width:100%;border-collapse:collapse;font-size:12px}
 .eq-preview th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
@@ -1118,6 +1133,7 @@ import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport, IMPORT_SLOTS,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
 import { parseZerodhaHoldingsSheets } from "./zerodha.js";
+import { parseMotilalPages, motilalHoldingPatch as motilalPatch } from "./motilal.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
 import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
@@ -3097,11 +3113,22 @@ function brokerPickerHtml(chosen, onclick) {
 // One reference for the question "where did this number come from": a file per
 // line, its fields underneath. Kept as a fold so it never competes with the
 // picker.
-function fieldSourcesHtml() {
-  const row = (file, fields) => `<div><b style="font-size:11.5px">${file}</b>
-    <div class="muted" style="font-size:11.5px;line-height:1.5">${fields}</div></div>`;
+function fieldSourcesHtml(broker) {
+  const row = (file, fields) => `<div><b class="field-source-name">${file}</b>
+    <div class="muted field-source-fields">${fields}</div></div>`;
+  if (broker?.parser === "motilal") {
+    return `<details style="margin-top:10px">
+      <summary class="field-source-summary">
+        Which field comes from which file</summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:9px">
+        ${row("CAS statement", "ISIN · name · units · market value · DP and owner")}
+        ${row("Motilal Portfolio Holding Summary", "invested · purchase date · coupon · frequency · maturity · face")}
+        <div class="muted field-source-fields">The report's market price and
+          market value are ignored: they are printed at par, not at the market.</div>
+      </div></details>`;
+  }
   return `<details style="margin-top:10px">
-    <summary style="cursor:pointer;font-size:12px;color:var(--muted)">
+    <summary class="field-source-summary">
       Which field comes from which file</summary>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:9px">
       ${row("CAS statement", "ISIN · bond name · interest rate · maturity · units · market value · DP and owner")}
@@ -3117,8 +3144,9 @@ function renderImport() {
   window.bpImportTargetOnce = false;
   setTimeout(() => window.bpZerodhaTargetNote?.(), 0);
   return `<h1>Import</h1>
-  <p class="muted" style="margin:-6px 0 14px;font-size:13px">Nothing is uploaded, and the app
-  never asks for a bank or broker password, OTP or PIN.</p>
+  <p class="muted import-intro">Nothing is uploaded. Bank and
+  broker logins, OTPs and PINs are never requested. A locked PDF is opened on this device with
+  the password you type; it is not saved.</p>
 
   <div class="card pad" style="margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
@@ -3133,13 +3161,16 @@ function renderImport() {
         onchange="bpCasFiles(this.files);this.value=''"></label>
     <div id="bond-cas-host" style="margin-top:10px"></div>
     <div style="margin-top:12px">
-      <div style="font-size:13px;font-weight:600">2. Bond cost and payouts
-        <span class="muted" style="font-weight:400;font-size:12px">optional — broker data,
-        bonds only</span></div>
-      <div class="muted" style="font-size:12px;margin-top:5px">It adds the cost and purchase
-        date, the payment frequency and the next interest. The demat can sit at any DP; the
-        file finds it by ISIN. Equities and funds already have their cost and value in the
-        CAS.</div>
+      <div class="import-step-title">2. Broker data
+        <span class="muted import-step-sub">optional — cost, purchase
+        date and terms</span></div>
+      <div class="muted import-step-note">${
+        bondBroker(window.bpImportBrokerChoice || "")?.parser === "motilal"
+          ? `It adds the cost, purchase date, coupon, frequency and face. The demat can sit at
+            any DP; the file finds it by ISIN. Motilal's report also covers equities and funds
+            in the same demat.`
+          : `It adds the cost and purchase date, the payment frequency and the next interest.
+            The demat can sit at any DP; the file finds it by ISIN. DigiFInn covers bonds.`}</div>
       <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
         text-transform:uppercase;margin-top:12px">Supported brokers</div>
       <div style="margin-top:7px">${brokerPickerHtml(window.bpImportBrokerChoice || "",
@@ -3152,18 +3183,22 @@ function renderImport() {
           ${(chosen.reports || []).filter((r) => ["portfolio", "payouts"].includes(r.slot)).map((r) => `
             <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
               flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
-              <div><b style="font-size:12.5px">${esc(r.title)}</b>
+              <div><b class="import-report-title">${esc(r.title)}</b>
                 <div class="muted" style="font-size:11.5px">${esc(r.detail || "")} ·
                   <code>${esc((r.files || []).join(" or "))}</code></div></div>
-              <label class="mini-btn">Choose<input type="file" accept=".csv" style="display:none"
+              <label class="mini-btn">Choose<input type="file"
+                accept="${esc(r.accept || ".csv")}" style="display:none"
                 onchange="bpImportBroker('${esc(r.slot)}','${esc(chosen.id)}',this.files[0]);this.value=''"></label>
             </div>`).join("")}
         </div>`;
       })()}
       <div id="import-broker-preview" style="margin-top:10px"></div>
-      ${fieldSourcesHtml()}
-      <div class="muted" style="font-size:11px;margin-top:7px;line-height:1.55">
-        Not used: Transaction, Investment, KYC, MITC. A second demat may append (1).</div>
+      ${fieldSourcesHtml(window.bpImportBrokerChoice ? bondBroker(window.bpImportBrokerChoice) : null)}
+      <div class="muted import-note">${
+        bondBroker(window.bpImportBrokerChoice || "")?.parser === "motilal"
+          ? `Not used: the report's market price and market value. They are printed at par,
+            not at the market.`
+          : `Not used: Transaction, Investment, KYC, MITC. A second demat may append (1).`}</div>
     </div>
     <div class="muted" style="font-size:11.5px;margin-top:8px">Updating? Re-import the CAS;
     cost already on matching bonds is kept.</div>
@@ -3174,9 +3209,9 @@ function renderImport() {
       <h2 style="margin:0">Equities</h2>
       <span class="muted eq-subhead">invested amount</span></div>
     <p class="muted" style="margin:6px 0 0;font-size:12.5px">The CAS gives the shares and their
-    value, not what you paid. A holdings export fills the invested amount. Purchase date needs
-    the Tradebook, which is optional. Files land on the demat by ISIN; nothing is written until
-    you confirm.</p>
+    value, not what you paid or when. A broker holdings report fills what the file carries;
+    purchase date stays blank when the export does not have it. Files land on the demat by ISIN;
+    nothing is written until you confirm.</p>
     <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
       text-transform:uppercase;margin-top:12px">Supported brokers</div>
     <div style="margin-top:7px;display:flex;gap:8px;flex-wrap:wrap">
@@ -3213,6 +3248,33 @@ function renderImport() {
           </div>
           <div id="eq-target-note" class="eq-target-note"></div>
           <div id="eq-zerodha-preview" class="eq-preview"></div>
+        </div>`;
+      }
+      if (b.id === "motilal") {
+        return `<div class="eq-guide">
+          <b class="eq-guide-title">Motilal Oswal Portfolio Holding Summary</b>
+          <ol class="eq-guide-steps">
+            <li>Open <a class="link" href="${esc(b.page.url)}" target="_blank"
+              rel="noopener">Motilal Oswal → Reports</a>.</li>
+            <li>Download the <b>Portfolio Holding Summary</b> PDF. Use “Since Inception” or the
+              snapshot date; the report date is read from the file.</li>
+            <li>Choose the PDF below. It is usually password protected; type the password
+              Motilal sent when asked. It is used once and not saved.</li>
+            <li>The report fills invested and purchase date by ISIN. It covers bonds,
+              equities and mutual funds in the same demat. Quantity and value stay from the
+              CAS.</li>
+          </ol>
+          <div class="eq-guide-note">The report's market price and market value are ignored:
+            they are printed at par, not at the market.</div>
+          <div class="eq-guide-actions">
+            <label class="btn primary">Choose Portfolio Holding Summary
+              <input type="file" accept=".pdf" style="display:none"
+                onchange="bpMotilalFile(this.files[0],{host:'eq-motilal-preview'});this.value=''"></label>
+            <a class="btn" href="${esc(b.page.url)}" target="_blank"
+              rel="noopener">Open Motilal reports ↗</a>
+          </div>
+          <div id="eq-target-note" class="eq-target-note"></div>
+          <div id="eq-motilal-preview" class="eq-preview"></div>
         </div>`;
       }
       return `<div class="eq-guide">
@@ -7443,7 +7505,7 @@ record and stops counting in net worth.` : ""}`)) return;
   }
 };
 // The CAS says how many bonds are held and what they are worth; it does not say
-// what was paid or when. That is the DigiFInn Holdings Report's job. This card
+// what was paid or when. That is the broker's holdings report's job. This card
 // puts the import where the bonds are, and writes the price onto the demat rows
 // instead of creating a second portfolio to look after.
 window.bpCostFill = async () => {
@@ -7485,7 +7547,8 @@ window.bpCostFill = async () => {
           <div class="muted" style="font-size:11.5px">${esc(r.detail || "")} ·
             <code>${esc((r.files || []).join(" or "))}</code>${
             last ? ` · last: <code>${esc(last)}</code>` : ""}</div></div>
-        <label class="mini-btn" style="white-space:nowrap">Choose<input type="file" accept=".csv" style="display:none"
+        <label class="mini-btn" style="white-space:nowrap">Choose<input type="file"
+          accept="${esc(r.accept || ".csv")}" style="display:none"
           onchange="${cost ? "bpCostFile" : "bpCashflowFile"}(this.files[0],{broker:'${esc(chosen)}'});this.value=''"></label>
       </div>`;
     };
@@ -7493,27 +7556,34 @@ window.bpCostFill = async () => {
         text-transform:uppercase">Supported brokers</div>
       <div style="margin-top:7px">${brokerPickerHtml(chosen, "bpBrokerSource")}</div>
       ${picked ? `
-        <div class="muted" style="font-size:12.5px;margin-top:12px">Broker data import from
-          <b>${esc(picked.label)}</b>. The CAS gives units, face value and market value. The
-          Portfolio Report adds what you paid and when; the Payouts report adds the payment
-          frequency and the next interest. Both are optional after the CAS.</div>
+        <div class="muted motilal-note">${picked.parser === "motilal"
+          ? `Broker data import from <b>Motilal Oswal</b>. The CAS gives units, face value and
+            market value. The Portfolio Holding Summary adds invested, purchase date, coupon,
+            frequency and face. It covers bonds, equities and funds in the same demat.`
+          : `Broker data import from <b>${esc(picked.label)}</b>. The CAS gives units, face
+            value and market value. The Portfolio Report adds what you paid and when; the
+            Payouts report adds the payment frequency and the next interest. Both are optional
+            after the CAS.`}</div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
           ${slots.length ? slots.map(reportRow).join("")
             : `<div class="muted" style="font-size:12px">No report formats are registered for
               this broker yet.</div>`}</div>
         <div id="cost-preview" style="margin-top:10px"></div>
         <div id="cashflow-preview" style="margin-top:10px"></div>
-        ${fieldSourcesHtml()}
+        ${fieldSourcesHtml(picked)}
         <div class="muted" style="font-size:11px;margin-top:7px">A second demat's download may
           append (1).</div>`
       : `<div class="muted" style="font-size:12px;margin-top:10px">Choose a broker to see the
           files it needs.</div>`}`;
     const status = missing.length
       ? `${missing.length} of ${live.length} bond${live.length === 1 ? "" : "s"} need a purchase price`
-      : hasPayouts
-        ? `cost and payouts on file · all ${live.length} bond${live.length === 1 ? "" : "s"} priced${
+      : picked?.parser === "motilal"
+        ? `cost and dates on file · all ${live.length} bond${live.length === 1 ? "" : "s"} priced${
           meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}`
-        : "prices on file · payouts not imported";
+        : hasPayouts
+          ? `cost and payouts on file · all ${live.length} bond${live.length === 1 ? "" : "s"} priced${
+            meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}`
+          : "prices on file · payouts not imported";
     // Folded by default: it is an occasional import, not something to read
     // every time the account is opened.
     host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
@@ -7559,6 +7629,13 @@ window.bpCostFile = async (file, opts = {}) => {
     const me = assets.find((a) => a.id === id);
     const brokerId = opts.broker || metaOf(me || {}).broker_source || "digifinn";
     const broker = bondBroker(brokerId);
+    if (broker?.parser === "motilal") {
+      await window.bpMotilalFile(file, {
+        host: fromImport ? "import-broker-preview" : "cost-preview",
+        id, fromImport, brokerId,
+      });
+      return;
+    }
     const parsed = parseBrokerReport(brokerId, await file.text(), file.name);
     if (parsed.kind !== "portfolio") {
       fail(`That is not the ${esc(broker.label)} Portfolio Report. Open
@@ -8016,6 +8093,239 @@ window.bpZerodhaApply = async () => {
   </div>`;
   window.bpZerodhaPlan = null;
 };
+// Motilal's Portfolio Holding Summary is one password-protected PDF for the
+// whole demat. BONDS, DIRECT EQUITY and MUTUAL FUND sections can each be
+// present. Cost, purchase date and the bond terms come from this file; its
+// market price and market value are printed at par and never written.
+function motilalSectionLabel(section) {
+  return section === "bond" ? "bond" : section === "equity" ? "equity" : "fund";
+}
+function motilalPreview(parsed, account, plan, fileName, host) {
+  const matched = plan.filter((item) => Object.keys(item.patch).length);
+  const total = plan.reduce((sum, item) => sum + (Number(item.row.cost_paise) || 0), 0);
+  const covered = new Set(plan.map((item) => item.row.isin));
+  const unmatched = parsed.rows.filter((row) => !covered.has(row.isin));
+  const rows = plan.map(({ row, holding, patch }) => {
+    const changes = Object.keys(patch).length > 0;
+    return `<div class="eq-plan-row">
+      <div class="eq-plan-main"><b>${esc(holding.label || row.label || row.isin)}</b>
+        <div class="eq-plan-sub">${esc(row.isin)} · ${motilalSectionLabel(row.section)}
+          · ${esc(holding.quantity ?? row.quantity ?? "—")} units
+          · bought ${row.purchase_date ? dateLabel(row.purchase_date) : "—"}</div></div>
+      <div class="eq-plan-side"><b>${row.cost_paise === null
+        ? "—" : money(row.cost_paise)}</b>
+        <div class="status ${changes ? "update" : "same"}">${changes
+          ? "will update" : "already set"}</div></div>
+    </div>`;
+  }).join("");
+  const unmatchedRows = unmatched.map((row) =>
+    `<div>${esc(row.label || "")} · ${esc(row.isin)} · ${motilalSectionLabel(row.section)}</div>`)
+    .join("");
+  window.bpMotilalPlan = { parsed, account, plan, fileName, hostId: host.id };
+  host.innerHTML = `<div class="card pad eq-preview">
+    <div class="eq-preview-head">
+      <b class="eq-preview-title">${esc(fileName)}</b>
+      <span class="muted">${parsed.asOf ? `as on ${dateLabel(parsed.asOf)}`
+        : "snapshot date not read"}</span></div>
+    <div class="eq-summary">${plan.length} of ${parsed.rows.length} ISINs match
+      ${esc(account.label || account.bank || "this demat")}.
+      Invested ${money(total)}.${matched.length
+        ? ` ${matched.length} will take invested, dates and terms.`
+        : " All matched facts are already set."}${unmatched.length
+        ? ` ${unmatched.length} not in this demat.` : ""}</div>
+    ${rows ? `<div class="eq-plan">${rows}</div>` : ""}
+    ${unmatched.length ? `<details class="eq-unmatched">
+      <summary>${unmatched.length} not in this demat</summary>
+      <div class="eq-unmatched-list">${unmatchedRows}</div></details>` : ""}
+    <div class="eq-actions">
+      <button class="btn primary" ${matched.length ? "" : "disabled"}
+        onclick="bpMotilalApply()">Save invested and dates</button>
+      <button class="btn" onclick="bpMotilalCancel()">Cancel</button>
+    </div>
+    <div class="eq-summary">Quantity and market value stay from the CAS. The report's
+      market price and value are ignored because they are printed at par.</div>
+  </div>`;
+}
+async function motilalBuild(parsed, account, fileName, host) {
+  const store = await import("./db.js");
+  const holdings = await store.listHoldings(account.id);
+  const byIsin = new Map(holdings
+    .map((holding) => [String(holding.security_id || "").toUpperCase(), holding]));
+  const plan = parsed.rows
+    .map((row) => ({ row, holding: byIsin.get(row.isin) }))
+    .filter((item) => item.holding)
+    .map((item) => ({ ...item, patch: motilalPatch(item.row, item.holding) }));
+  if (!plan.length) {
+    host.innerHTML = `<div class="card pad eq-error">No ISIN in this report matches a
+      holding in ${esc(account.label || account.bank || "that demat")}. Import the CAS
+      statement first.</div>`;
+    return;
+  }
+  motilalPreview(parsed, account, plan, fileName, host);
+}
+function motilalPrompt(host, name, wrong) {
+  return new Promise((resolve, reject) => {
+    window.bpMotilalLock = { resolve, reject };
+    host.innerHTML = `<div class="card pad motilal-pw">
+      <b>This PDF is locked</b>
+      <p class="muted motilal-pw-msg">${esc(name)} is password protected. Type the password
+        Motilal sent. It is usually PAN-based, not your BankPipe passphrase.</p>
+      <div class="motilal-pw-actions">
+        <input id="motilal-file-pw" type="password" autocomplete="off" spellcheck="false"
+          placeholder="PDF password" onkeydown="if(event.key==='Enter')bpMotilalUnlock()">
+        <button class="btn" onclick="bpMotilalUnlock()">Unlock</button>
+        <button class="btn" onclick="bpMotilalCancelPw()">Cancel</button>
+      </div>
+      <div id="motilal-pw-msg" class="motilal-pw-msg">${wrong
+        ? `<span class="eq-error">That password did not open the PDF. Check it and try again.</span>`
+        : ""}</div>
+      <div class="motilal-pw-msg">The password is used here and nowhere else. It is not saved,
+        and the file never leaves this device.</div>
+    </div>`;
+    const input = document.getElementById("motilal-file-pw");
+    if (input) { input.focus(); if (wrong) input.select(); }
+  });
+}
+window.bpMotilalUnlock = () => {
+  const lock = window.bpMotilalLock;
+  const input = document.getElementById("motilal-file-pw");
+  if (!lock || !input) return;
+  const password = input.value;
+  if (!password) {
+    const msg = document.getElementById("motilal-pw-msg");
+    if (msg) msg.textContent = "Type the PDF password first.";
+    return;
+  }
+  window.bpMotilalLock = null;
+  const resolve = lock.resolve;
+  input.value = "";
+  resolve(password);
+};
+window.bpMotilalCancelPw = () => {
+  const lock = window.bpMotilalLock;
+  if (!lock) return;
+  window.bpMotilalLock = null;
+  lock.reject({ cancelled: true });
+};
+window.bpMotilalFile = async (file, opts = {}) => {
+  const host = document.getElementById(opts.host || "motilal-preview");
+  if (!host || !file) return;
+  host.innerHTML = `<div class="eq-summary">Reading ${esc(file.name)}…</div>`;
+  try {
+    const { extractPdf } = await import("./pdf-statement.js");
+    const extracted = await extractPdf(await file.arrayBuffer(), {
+      onPassword: (attempt) => motilalPrompt(host, file.name, attempt?.wrong),
+    });
+    const parsed = parseMotilalPages(extracted.pages);
+    if (parsed.error) {
+      host.innerHTML = `<div class="card pad eq-error">${esc(parsed.error)}</div>`;
+      return;
+    }
+    if (!parsed.rows.length) {
+      host.innerHTML = `<div class="card pad eq-error">The report has no holdings rows.
+        Download the Portfolio Holding Summary again.</div>`;
+      return;
+    }
+    const store = await import("./db.js");
+    const accounts = (await store.listAccounts()).filter((a) => categoryOf(a) === "demat");
+    if (!accounts.length) {
+      host.innerHTML = `<div class="card pad eq-error">No demat account yet. Import the CAS
+        statement first; this report fills in what the CAS leaves out.</div>`;
+      return;
+    }
+    const targetId = opts.id || window.bpEquityImportTarget || "";
+    const scoped = targetId ? accounts.filter((a) => a.id === targetId) : accounts;
+    if (targetId && !scoped.length) {
+      host.innerHTML = `<div class="card pad eq-error">That demat account is no longer here.</div>`;
+      return;
+    }
+    const scored = [];
+    for (const account of scoped) {
+      const held = new Set((await store.listHoldings(account.id))
+        .map((holding) => String(holding.security_id || "").toUpperCase()));
+      scored.push({ account, hits: parsed.rows.filter((row) => held.has(row.isin)).length });
+    }
+    scored.sort((a, b) => b.hits - a.hits);
+    const live = scored.filter((item) => item.hits > 0);
+    if (!live.length) {
+      host.innerHTML = `<div class="card pad eq-error">No ISIN in this report matches a
+        holding in ${targetId ? "this demat" : "your demat accounts"}. Import the CAS
+        statement first.</div>`;
+      return;
+    }
+    if (!targetId && live.length > 1 && live[0].hits === live[1].hits) {
+      window.bpMotilalPending = { parsed, fileName: file.name, hostId: host.id };
+      host.innerHTML = `<div class="card pad">
+        <div><b>${esc(file.name)}</b></div>
+        <div class="eq-summary">These demats each match ${live[0].hits} of the report's
+          holdings. Choose the one this download belongs to.</div>
+        <div class="eq-actions">${live.map((item) => `<button class="btn"
+          onclick="bpMotilalPick(${jsArg(item.account.id)})">${esc(item.account.label
+            || item.account.bank || "Demat")}</button>`).join("")}</div>
+      </div>`;
+      return;
+    }
+    await motilalBuild(parsed, live[0].account, file.name, host);
+  } catch (e) {
+    if (e?.cancelled) {
+      host.innerHTML = `<div class="card pad eq-summary">Password entry was cancelled.
+        The file was not read.</div>`;
+      return;
+    }
+    host.innerHTML = `<div class="card pad eq-error">${esc(e?.message || String(e))}</div>`;
+  }
+};
+window.bpMotilalPick = async (accountId) => {
+  const pending = window.bpMotilalPending;
+  if (!pending) return;
+  const store = await import("./db.js");
+  const account = (await store.listAccounts()).find((a) => a.id === accountId);
+  const host = document.getElementById(pending.hostId);
+  if (!account || !host) return;
+  window.bpMotilalPending = null;
+  await motilalBuild(pending.parsed, account, pending.fileName, host);
+};
+window.bpMotilalCancel = () => {
+  const plan = window.bpMotilalPlan;
+  window.bpMotilalPlan = null;
+  window.bpMotilalPending = null;
+  if (!plan) return;
+  const host = document.getElementById(plan.hostId);
+  if (host) host.innerHTML = "";
+};
+window.bpMotilalApply = async () => {
+  const plan = window.bpMotilalPlan;
+  if (!plan) return;
+  const store = await import("./db.js");
+  let updated = 0, same = 0;
+  for (const item of plan.plan) {
+    if (!Object.keys(item.patch).length) { same += 1; continue; }
+    await store.upsertHolding(plan.account.id, { ...item.holding, ...item.patch });
+    updated += 1;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const account = (await store.listAccounts()).find((a) => a.id === plan.account.id);
+  if (account) {
+    await store.updateAccount(account.id, { meta: JSON.stringify({ ...metaOf(account),
+      broker_source: "motilal",
+      cost_source: "Motilal Oswal Portfolio Holding Summary",
+      cost_as_of: plan.parsed.asOf || "",
+      cost_file: plan.fileName || "",
+      cost_at: today }) });
+  }
+  const host = document.getElementById(plan.hostId);
+  if (host) host.innerHTML = `<div class="card pad">
+    <b class="eq-preview-title">${updated
+      ? `Holding facts filled for ${updated} holding${updated === 1 ? "" : "s"}.`
+      : "Nothing to update."}</b>
+    <div class="eq-summary">Quantity and market value were not changed.${
+      same ? ` ${same} already had these facts.` : ""}</div>
+    <div class="eq-actions"><button class="btn"
+      onclick="bpAsset(${jsArg(plan.account.id)})">Open ${esc(account?.label
+        || plan.account.label || "the demat")}</button></div>
+  </div>`;
+  window.bpMotilalPlan = null;
+};
 window.bpImportBrokerChoose = (id) => {
   window.bpImportBrokerChoice = id;
   go("import");
@@ -8024,6 +8334,10 @@ window.bpImportBroker = async (slot, brokerId, file) => {
   if (!file) return;
   const host = document.getElementById("import-broker-preview");
   const broker = bondBroker(brokerId || "digifinn");
+  if (broker?.parser === "motilal") {
+    await window.bpMotilalFile(file, { host: "import-broker-preview", brokerId: broker.id });
+    return;
+  }
   const fail = (html) => {
     if (host) host.innerHTML = `<div class="card pad" style="font-size:13px;color:var(--red)">${html}</div>`;
   };
