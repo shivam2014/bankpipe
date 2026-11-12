@@ -139,6 +139,7 @@ export function bondAnalytics(h) {
   const currentYield = hasMarket ? (annualCoupon / value) * 100 : (annualCoupon / cost) * 100;
   return {
     ...parsed, qty, face, faceTotal, purchaseFaceTotal, cost, price, years,
+    faceInferred: !storedFace,
     purchase_date: buy,
     annualCoupon, couponIncome, capitalGain, totalGain, ytm,
     couponEstimate, lifetimeTotal, lifetimeGain,

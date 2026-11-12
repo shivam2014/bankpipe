@@ -9469,6 +9469,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     : rawSource === "Manual" ? "manual" : "CAS";
   const valueSourceLong = rawSource === "BSE" ? "from BSE"
     : rawSource === "Manual" ? "entered by hand" : "from the CAS";
+  const faceNote = [v.returned ? "remaining" : "",
+    v.ba?.faceInferred ? "inferred — Fetch to confirm" : ""].filter(Boolean).join(" · ");
   const infoId = `info-accrued-${v.h.id || "x"}`;
   const accruedCell = `<div style="position:relative"><span class="k">Accrued interest
       <button type="button" class="info-btn" aria-label="What is accrued interest"
@@ -9515,7 +9517,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
       ${cell("Units", v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity)}
       ${cell("Face value", v.ba?.faceTotal ? `${money(v.ba.faceTotal)}${
-        v.returned ? `<div class="sub">remaining</div>` : ""}` : "—")}
+        faceNote ? `<div class="sub">${faceNote}</div>` : ""}` : "—")}
       ${cell("Invested", moneyOrDash(v.h.cost_paise))}
       ${cell(`Market value${v.value === null || v.value === undefined
         ? "" : ` (${valueSourceShort})`}`, moneyOrDash(v.value))}
@@ -9596,6 +9598,7 @@ function holdingsCard(allRows, assetId) {
   const missingCost = rows.filter((h) => h.cost_paise === null || h.cost_paise === undefined).length;
   const missingRating = rows.filter((h) => !bondRatingOf(h)).length;
   const missingName = rows.filter((h) => !String(h.issuer || "").trim()).length;
+  const missingFace = rows.filter((h) => !(Number(h.face_paise) > 0)).length;
   const views = rows.map(bondRowView).sort((a, b) => {
     const va = bondSortValue(a, state.key);
     const vb = bondSortValue(b, state.key);
@@ -9645,6 +9648,7 @@ function holdingsCard(allRows, assetId) {
   const summaryLine = bondBook
     ? [`${s.count} holding${s.count === 1 ? "" : "s"}`,
       ...(missingName ? [`${missingName} missing a name`] : []),
+      ...(missingFace ? [`${missingFace} face inferred`] : []),
       ...(missingRating ? [`${missingRating} need${missingRating === 1 ? "s" : ""} a rating`] : []),
       ...(missingCost ? [`${missingCost} missing invested`] : [])].join(" · ")
     : [`${s.count} holding${s.count === 1 ? "" : "s"}`, `invested ${moneyOrDash(s.cost)}`,
@@ -9661,7 +9665,7 @@ function holdingsCard(allRows, assetId) {
         ${assetId ? `<button class="btn" onclick="bpBondHoldingNew(${jsArg(assetId)})">Add holding</button>
         <button class="btn" title="Type the current market price of each bond"
           onclick="bpHoldingsEdit(${jsArg(assetId)})">Update values</button>
-        <button class="btn ${missingName || missingRating ? "primary" : ""}" title="Ask SMEST for each lot's latest credit rating and interest dates, and BSE for its last traded price. Nothing you typed is replaced."
+        <button class="btn ${missingName || missingRating || missingFace ? "primary" : ""}" title="Ask SMEST for each lot's latest credit rating and interest dates, and BSE for its last traded price. Nothing you typed is replaced."
           onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch latest</button>
         <details class="more-menu" style="margin-left:0">
           <summary class="btn" aria-label="More holding actions">More</summary>
@@ -9672,8 +9676,8 @@ function holdingsCard(allRows, assetId) {
         </details>` : ""}
         <div class="muted" style="font-size:12.5px">${summaryLine}</div>
       </div></div>
-    ${missingName || missingRating ? `<div class="muted" style="font-size:11.5px;margin:-4px 0 8px">
-      Missing details — <b>Fetch latest</b> fills the name, rating and price from
+    ${missingName || missingRating || missingFace ? `<div class="muted" style="font-size:11.5px;margin:-4px 0 8px">
+      Missing details — <b>Fetch latest</b> fills the name, rating, face value and price from
       SMEST and BSE.</div>` : ""}
     ${sortBar}
     <div id="bond-csv-preview"></div>
@@ -10549,6 +10553,11 @@ function renderBondHoldingForm() {
             oninput="bpBondLabelPreview()"></label>
         <label class="field">Units
           <input id="bh-units" value="${esc(val("quantity"))}" inputmode="decimal"></label>
+        <label class="field">Face value per unit (${currency()})
+          <input id="bh-face" value="${h?.face_paise ? inr(h.face_paise) : ""}"
+            placeholder="${bondAnalytics(h)?.face
+              ? `inferred ${inr(bondAnalytics(h).face * 100)}` : "e.g. 10,000"}"
+            inputmode="decimal"></label>
         <label class="field">Invested (${currency()})
           <input id="bh-cost" value="${moneyIn(h?.cost_paise)}" inputmode="decimal"></label>
         <label class="field">Purchase date
@@ -10723,7 +10732,7 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
       issuer: window.bpHoldingIssuer || "",
       redemption_dates: window.bpHoldingRedemptions || "",
       quantity: units, cost_paise: cost,
-      face_paise: prior?.face_paise ?? null,
+      face_paise: val("bh-face") ? parseMoney(val("bh-face")) : (prior?.face_paise ?? null),
       value_paise: val("bh-value") ? parseMoney(val("bh-value")) : null,
       value_source: val("bh-value") ? "Manual" : "",
       as_of: val("bh-value-date"),

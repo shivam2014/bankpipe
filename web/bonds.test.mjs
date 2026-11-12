@@ -127,8 +127,17 @@ test("the stored face value beats the cost heuristic", () => {
     future_principal_paise: 10000000,
   });
   assert.equal(a.purchaseFaceTotal, 10000000); // 10 × ₹10,000, not the ₹5,000 guess
+  assert.equal(a.faceInferred, false);
   assert.ok(a.ytm > 18 && a.ytm < 20.5, `ytm ${a.ytm}`);
   assert.ok(Math.abs(a.currentYield - 10.39) < 0.05, `current ${a.currentYield}`);
+  // Without the stored face, the old heuristic misreads the same lot.
+  const legacy = bondAnalytics({
+    label: "9.75% BNAL 27 NOV 2028", quantity: 10, cost_paise: 7356643,
+    value_paise: 9385020, purchase_date: "2025-02-12",
+    frequency: "Quarterly", interest_date: "2026-11-27",
+  });
+  assert.equal(legacy.faceInferred, true);
+  assert.equal(legacy.face, 5000);
 });
 
 test("a lookup stores the face value SMEST prints", () => {
