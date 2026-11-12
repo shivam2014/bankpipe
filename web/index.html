@@ -10446,6 +10446,38 @@ function valuationCard(a) {
     <div class="muted" style="font-size:11.5px;margin-top:8px">${note}</div>
   </div>`;
 }
+function classFocusCard(a, holdings, kind) {
+  const title = kind === "bond" ? "Bonds" : kind === "equity" ? "Equities" : "Mutual funds";
+  const rows = (holdings || []).filter((h) => holdingClass(h) === kind
+    && Number(h.value_paise) > 0)
+    .sort((x, y) => Number(y.value_paise) - Number(x.value_paise));
+  if (!rows.length) {
+    return `<div class="card pad class-ring-card"><div class="class-ring-body">
+      <h2 class="class-ring-title">${title} in this demat</h2>
+      <div class="muted class-ring-note">No ${title.toLowerCase()} in this account.</div>
+    </div></div>`;
+  }
+  const total = rows.reduce((t, h) => t + Number(h.value_paise), 0);
+  const base = kind === "bond" ? "var(--s2)" : kind === "equity" ? "var(--s4)" : "var(--s6)";
+  const tint = (i, n) => n <= 1 ? base
+    : `color-mix(in srgb, ${base} ${Math.round(95 - (i * 55) / Math.max(1, n - 1))}%, var(--card))`;
+  const slices = rows.map((h, i) => ({ value: Number(h.value_paise),
+    color: tint(i, rows.length),
+    label: kind === "mf" ? cleanFundLabel(h.label) : (h.label || "") }));
+  const legend = slices.map((s) => `<div class="legend-row">
+    <span class="dot" style="--dot:${s.color}"></span>
+    <span class="nm">${esc(s.label || "—")}</span>
+    <span class="amt">${money(s.value)}</span>
+    <span class="pct">${total ? ((s.value * 100) / total).toFixed(1) : "0.0"}%</span></div>`).join("");
+  return `<div class="card pad class-ring-card">
+    <div class="donut" style="background:conic-gradient(${sunArc(slices, 0, 100, 0.7).join(",")})">
+      <div class="donut-hole"><div class="k">${title}</div><div class="v">${money(total)}</div>
+        <div class="k">${rows.length} holding${rows.length === 1 ? "" : "s"}</div></div></div>
+    <div class="class-ring-body"><h2 class="class-ring-title">${title} in this demat</h2>
+      <div class="donut-legend">${legend}</div>
+      <div class="muted class-ring-note">Percentages are of this account's ${title.toLowerCase()}.</div>
+    </div></div>`;
+}
 function assetForm(a, factCount, defaultCat, holdings) {
   const cat = a ? categoryOf(a) : (defaultCat || "bank");
   const kinds = typesFor(cat);
@@ -10465,6 +10497,9 @@ function assetForm(a, factCount, defaultCat, holdings) {
   const hideIdentity = !!a && ["demat", "bonds"].includes(cat);
   const leanHide = hideIdentity ? 'style="display:none"' : "";
   const hasHoldings = (holdings || []).length > 0;
+  const focusClass = a && cat === "demat"
+    && ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
+    ? window.bpState.assetClass : "";
   const show = (cats) => cats.split(" ").includes(cat) ? "" : 'style="display:none"';
   const moneyIn = (v) => (v === null || v === undefined || v === "") ? "" : inr(v);
   const id = a ? a.id : "";
@@ -10485,7 +10520,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
         The bonds it paid for sit in ${esc((() => { try { return JSON.parse(a.meta || "{}").linked_label; } catch (e) { return ""; } })() || "a demat account")}.
         Its only job is to keep the purchase cost and dates so a gain can be shown.</div>` : ""}
   ${a && cat === "demat" ? dematHero(a, holdings) : ""}
-  ${a ? assetFocusCard(a) : ""}
+  ${focusClass ? classFocusCard(a, holdings, focusClass) : (a ? assetFocusCard(a) : "")}
   ${a && cat === "demat" ? assetDetailCard(a) : ""}
   ${a && cat === "demat" ? `<div id="cost-card"></div>` : ""}
   ${a && cat !== "demat" ? positionCard(a, holdings) : ""}
