@@ -3124,7 +3124,9 @@ function fieldSourcesHtml(broker) {
         ${row("CAS statement", "ISIN · name · units · market value · DP and owner")}
         ${row("Motilal Portfolio Holding Summary", "invested · purchase date · coupon · frequency · maturity · face")}
         <div class="muted field-source-fields">The report's market price and
-          market value are ignored: they are printed at par, not at the market.</div>
+          market value are ignored: they are printed at par, not at the market. The next
+          interest date and amount are estimated from the coupon and maturity; the report has
+          no payment history.</div>
       </div></details>`;
   }
   return `<details style="margin-top:10px">
@@ -3134,6 +3136,8 @@ function fieldSourcesHtml(broker) {
       ${row("CAS statement", "ISIN · bond name · interest rate · maturity · units · market value · DP and owner")}
       ${row("Portfolio Report", "invested (what you paid) · purchase date")}
       ${row("Upcoming Payouts", "payment frequency · next interest · next interest date")}
+      <div class="muted field-source-fields">Optional. Without it, the payment frequency and
+        the next interest date are estimated from the coupon and maturity.</div>
       ${row("Fetch online (SMEST + BSE)", "credit rating · current market value")}
     </div></details>`;
 }
@@ -7563,7 +7567,8 @@ window.bpCostFill = async () => {
           : `Broker data import from <b>${esc(picked.label)}</b>. The CAS gives units, face
             value and market value. The Portfolio Report adds what you paid and when; the
             Payouts report adds the payment frequency and the next interest. Both are optional
-            after the CAS.`}</div>
+            after the CAS. Without the Payouts report, the frequency and next interest are
+            estimated.`}</div>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
           ${slots.length ? slots.map(reportRow).join("")
             : `<div class="muted" style="font-size:12px">No report formats are registered for
@@ -7583,7 +7588,7 @@ window.bpCostFill = async () => {
         : hasPayouts
           ? `cost and payouts on file · all ${live.length} bond${live.length === 1 ? "" : "s"} priced${
             meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}`
-          : "prices on file · payouts not imported";
+          : "prices on file · payouts not imported · interest estimated";
     // Folded by default: it is an occasional import, not something to read
     // every time the account is opened.
     host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
