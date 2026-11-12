@@ -10522,11 +10522,12 @@ function assetForm(a, factCount, defaultCat, holdings) {
         The bonds it paid for sit in ${esc((() => { try { return JSON.parse(a.meta || "{}").linked_label; } catch (e) { return ""; } })() || "a demat account")}.
         Its only job is to keep the purchase cost and dates so a gain can be shown.</div>` : ""}
   ${a && cat === "demat" ? dematHero(a, holdings) : ""}
-  ${focusClass ? classFocusCard(a, holdings, focusClass) : (a ? assetFocusCard(a) : "")}
+  ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
+  ${!focusClass && a ? assetFocusCard(a) : ""}
   ${a && cat === "demat" ? assetDetailCard(a) : ""}
   ${a && cat === "demat" ? `<div id="cost-card"></div>` : ""}
+  ${focusClass ? classFocusCard(a, holdings, focusClass) : ""}
   ${a && cat !== "demat" ? positionCard(a, holdings) : ""}
-  ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
   ${a && cat !== "demat" ? assetDetailCard(a) : ""}
   ${a && (cat === "bonds" || cat === "demat") ? `<div id="recon-card"></div>` : ""}
   ${a ? valuationCard(a) : ""}
