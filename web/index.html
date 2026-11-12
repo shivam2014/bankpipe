@@ -790,7 +790,8 @@ table.resizable{table-layout:fixed;width:100%}
   .filter-grid .wide{grid-column:span 2}}
 td.neg{color:#a32b22}td.pos{color:#0b6b4f}
 .banner{display:flex;gap:10px;align-items:center;justify-content:space-between}
-.banner button{border:0;background:none;font:inherit;color:#7a4a08;cursor:pointer;opacity:.7}
+.banner button{border:0;background:none;font:inherit;color:#7a4a08;cursor:pointer;opacity:.7;
+ white-space:nowrap}
 .privacy-toggle{position:fixed;right:14px;bottom:72px;z-index:60;width:44px;height:44px;
  border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--ink);
  font-size:18px;line-height:1;box-shadow:0 8px 22px rgba(15,18,22,.18);cursor:pointer;
@@ -835,6 +836,11 @@ try {
   </div>
 </div></header>
 <main class="wrap">
+  <div class="banner" id="sample-banner" style="display:none" role="status">
+  <span><b>Sample data.</b> Demo accounts, holdings and transactions, not yours.
+  Edits here are temporary and never touch your own database.</span>
+  <button type="button" onclick="bpUseMyData()">Use my data</button>
+</div>
   <div class="banner" id="banner" style="display:none">
   <span>Browser-only build. Data stays in this browser.</span>
   <button onclick="bpHideBanner()" title="hide">&#10005;</button>
@@ -899,11 +905,22 @@ const fileStamp = (d = new Date()) => {
     + `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 };
 let DATA = null;
+// The app has one UI. `bp.demo` says the rows came from the sample portfolio,
+// which changes the label and the banner, never the screens.
+window.bp = { demo: false };
+const samplePill = () => (window.bp.demo ? ' <span class="pill warn">Sample</span>' : "");
+// Real-database actions would either fail with a storage message or, worse,
+// write over the person's own database. One guard keeps the sample honest.
+const bpGuardSample = (what) => {
+  if (!window.bp.demo) return false;
+  alert(`${what} needs your own data. Choose "Use my data" first.`);
+  return true;
+};
 const views = { home: renderHome, assets: renderAssets, accounts: renderAssets,
                 upcoming: renderUpcoming, import: renderImport,
                 transactions: renderTransactions, settings: renderSettings,
                 day: renderDay, account: renderAccount, report: renderReport,
-                holding: renderHolding, asset: renderAsset, addAccount: renderAsset,
+                asset: renderAsset, addAccount: renderAsset,
                 logins: renderLogins, verify: renderVerify, issues: renderIssues,
                 category: renderCategory, gaps: renderGaps, holdingEdit: renderHoldingEdit,
                 bondHolding: renderBondHoldingForm, duplicates: renderDuplicates,
@@ -977,9 +994,9 @@ function go(name, opts = {}) {
     if (window.bpMarkMode) window.bpMarkMode();
     if (window.bpDbState) window.bpDbState();
   }, 0);
-  if ((localStorage.getItem("bp.mode") || "demo") === "real"
+  if (!window.bp.demo && (localStorage.getItem("bp.mode") || "demo") === "real"
       && ["home", "assets", "transactions", "gaps", "issues", "upcoming",
-        "account", "category", "holding", "asset", "day", "report", "verify"].includes(name)) {
+        "account", "category", "asset", "day", "report", "verify"].includes(name)) {
     import("./db.js").then((store) => {
       if (!store.isUnlocked()) showDbUnlock();
     }).catch(() => {});
@@ -1155,24 +1172,12 @@ import { rowList } from "./receipt-rows.js";
 import { VAULT_SETTING, emptyVault, sealVault, openVault, safeUrl, upsertEntry, removeEntry } from "./secrets.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
 import { showDeleteAll } from "./db.js";
+import { seedDemoDb } from "./demo-store.js";
 import { SSOT_KEYS, manualSnapshot, manualUpdates } from "./ssot.js";
 import { restoreAnchor } from "./scroll-anchor.js";
 
 const KEY = "bankpipe.txns.v1";
 const loadTxns = () => JSON.parse(localStorage.getItem(KEY) || "[]");
-// The sample portfolio includes a small, fully invented transaction history so
-// the demo shows the same screens a real import does. It is only written once,
-// and never when the browser already holds transactions.
-async function seedDemoTransactions() {
-  if ((localStorage.getItem("bp.mode") || "demo") !== "demo") return;
-  if (loadTxns().length) return;
-  try {
-    const res = await fetch("demo-transactions.json");
-    if (!res.ok) return;
-    const rows = await res.json();
-    if (Array.isArray(rows) && rows.length) localStorage.setItem(KEY, JSON.stringify(rows));
-  } catch (e) { /* the demo still works without transactions */ }
-}
 function saveTxns(rows) {
   const seen = new Set(loadTxns().map(t => `${t.account}|${t.date}|${t.amount}|${t.balance}|${t.n}`));
   const merged = loadTxns(); let kept = 0, dup = 0;
@@ -1278,12 +1283,6 @@ async function bpBankKnownAccounts() {
     accounts = (await (await import("./db.js")).listAccounts())
       .filter((a) => ["bank", "cash"].includes(categoryOf(a)));
   } catch (e) {}
-  // In the sample portfolio there is no encrypted database to read, so match
-  // against the sample accounts. Nothing is written until the user imports.
-  if (!accounts.length && (localStorage.getItem("bp.mode") || "demo") === "demo"
-      && Array.isArray(DATA?.accounts)) {
-    accounts = DATA.accounts.filter((a) => ["bank", "cash"].includes(categoryOf(a)));
-  }
   return accounts;
 }
 
@@ -1893,12 +1892,17 @@ async function bpBatchImportOne(entry, batch) {
   const account = entry.accountId;
   const incoming = chronological(entry.parsed).map((row) => ({ ...row, account }));
   const ordered = reorderByChain(incoming);
-  const browser = saveTxns(ordered.rows);
+  // The browser copy is the fallback for a database that will not open. The
+  // sample portfolio always opens, and its edits must stay in memory, so it
+  // never writes one.
+  const browser = window.bp.demo ? { kept: 0, dup: 0 } : saveTxns(ordered.rows);
   let dbStats = null, dbError = "";
   try {
     const store = await import("./db.js");
     const timeout = (promise, ms, label) => Promise.race([promise, new Promise((_, reject) =>
       setTimeout(() => reject(new Error("timeout: " + label)), ms))]);
+    // openDb() returns whatever connection is open. In demo mode that is the
+    // in-memory sample store, so the rows land there and nowhere else.
     await timeout(store.openDb(), 8000, "openDb");
     dbStats = await store.importRows(account, ordered.rows,
       { closing: entry.closing ?? null, batch, receipt: bpStatementReceipt(entry, ordered) });
@@ -1952,27 +1956,6 @@ window.bpBatchImport = async () => {
 
 
 function renderIssues() {
-  if ((localStorage.getItem("bp.mode") || "demo") === "demo" && Array.isArray(DATA?.review)) {
-    const rows = DATA.review;
-    const body = rows.map((r) => `<tr><td style="white-space:nowrap">${esc(r.date || "—")}</td>
-      <td style="white-space:nowrap">${esc(r.account || "")}</td>
-      <td class="n ${r.amount < 0 ? "neg" : "pos"}">${amountInr(r.amount)}</td>
-      <td class="n">${amountInr(r.balance)}</td>
-      <td class="muted" style="font-size:12px">${esc(r.detail || "")}</td>
-      <td><span class="pill warn" style="white-space:nowrap">sample</span></td></tr>`).join("");
-    return `<h1>Review <span class="pill warn" style="vertical-align:middle">Sample</span></h1>
-      <div class="card pad" style="margin-bottom:14px">
-        <b>${rows.length} item${rows.length === 1 ? "" : "s"} need a decision</b>
-        <div class="muted" style="font-size:12.5px;margin-top:4px">A sample of the checks
-        BankPipe runs after an import: the balance chain and duplicate detection. Accept or
-        ignore each one in your own ledger.</div></div>
-      <div class="card"><table><tr><th>Date</th><th>Account</th>
-      <th class="n">Amount (${currency()})</th><th class="n">Balance (${currency()})</th>
-      <th>Check</th><th></th></tr>${body}</table></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn" onclick="go('transactions')">Open transactions</button>
-        <button class="btn" onclick="go('import')">Import a statement</button></div>`;
-  }
   const host = document.getElementById("view");
   host.innerHTML = `<h1>Review</h1><div class="card pad">loading…</div>`;
   (async () => {
@@ -3786,31 +3769,8 @@ function wireImport() {
   window.bpImportRender();
 }
 function renderTransactions() {
-  if ((localStorage.getItem("bp.mode") || "demo") === "real") {
-    renderRealTransactions(document.getElementById("view"));
-    return "<h1>Transactions</h1><div class='card pad'>loading…</div>";
-  }
-  const rows = loadTxns();
-  if (!rows.length) return `<h1>Transactions</h1><div class="card pad">Nothing imported yet.</div>`;
-  const sort = window.bpSortState || { key: "date", dir: -1 };
-  const sorted = rows.slice().sort((a, b) => {
-    const k = sort.key === "amount" ? "amount" : "date";
-    const av = a[k] ?? 0, bv = b[k] ?? 0;
-    return (av < bv ? -1 : av > bv ? 1 : 0) * sort.dir;
-  }).slice(0, 60);
-  const arrow = (k) => sort.key === k ? `<span class="arrow">${sort.dir < 0 ? "▼" : "▲"}</span>` : "";
-  const body = sorted.map(r => `<tr>
-    <td>${r.date ? `<a class="link" href="#" onclick="bpDay(${jsArg(r.date)});return false">${esc(r.date)}</a>` : "—"}</td>
-    <td><a class="link" href="#" onclick="bpAccount(${jsArg(r.account)});return false">${esc(r.account_label || r.account)}</a></td>
-    <td>${esc((r.description || "").slice(0, 48))}</td>
-    <td class="n ${r.amount < 0 ? "neg" : r.amount > 0 ? "pos" : ""}">${amountInr(r.amount)}${r.account_currency && r.account_currency !== "INR" ? " " + r.account_currency : ""}</td>
-    <td class="n">${amountInr(r.balance)}${r.account_currency && r.account_currency !== "INR" ? " " + r.account_currency : ""}</td></tr>`).join("");
-  return `<h1>Transactions <span class="muted" style="font-size:14px">${rows.length} held</span></h1>
-    <div class="card"><table>
-    <tr><th class="sort" onclick="bpSort('date')">Date${arrow("date")}</th><th>Account</th>
-    <th>Description</th>
-    <th class="n sort" onclick="bpSort('amount')">Amount (${currency()})${arrow("amount")}</th>
-    <th class="n">Balance (${currency()})</th></tr>${body}</table></div>`;
+  renderRealTransactions(document.getElementById("view"));
+  return `<h1>Transactions${samplePill()}</h1><div class='card pad'>loading…</div>`;
 }
 window.bpTxApply = () => {
   clearTimeout(window.bpTxLiveTimer);
@@ -4061,11 +4021,6 @@ window.bpAssetShow = (key) => {
   rerenderAssetsAnchored();
 };
 window.bpAlloc = (id) => {
-  if ((localStorage.getItem("bp.mode") || "demo") === "demo") {
-    if (["bonds", "gold", "insurance"].includes(id)) { bpHolding(id); return; }
-    go("assets");
-    return;
-  }
   // Sections are classes, not account categories. Equities and fund units drill
   // into their own class page; a demat with no class section falls back to the
   // list of demat accounts inside renderCategory.
@@ -4209,48 +4164,6 @@ window.bpRecheckAll = async (btn) => {
     if (btn) btn.disabled = false;
   }
 };
-function allHoldings() {
-  return Object.entries(DATA.holdings || {}).flatMap(([cls, h]) =>
-    h.rows.map(r => ({ ...r, cls, className: h.label })));
-}
-window.bpHoldingById = (id) => {
-  const row = allHoldings().find(r => String(r.id) === String(id));
-  if (row) { window.bpState = { ...(window.bpState || {}), holding: row.id }; go("holding"); }
-};
-window.bpHolding = (cls) => {
-  window.bpState = { ...(window.bpState || {}), holding: null, holdingClass: cls };
-  go("holding");
-};
-function renderHolding() {
-  const id = window.bpState?.holding;
-  const cls = window.bpState?.holdingClass;
-  if (!id && cls) {
-    const group = DATA.holdings[cls] || { rows: [], label: cls };
-    const rows = group.rows.map(r => `<a class="srow" href="#" onclick="bpHoldingById(${r.id});return false">
-      <div class="chip">${cls.slice(0,2).toUpperCase()}</div>
-      <div><div class="nm">${esc(r.label)}</div>
-        <div class="sub">${esc(r.holder || "")}</div></div>
-      <div class="vl">${money(r.value)}</div><div class="pc"></div></a>`).join("");
-    return `<h1>${esc(group.label)}</h1><div class="card">${rows}</div>
-      <div style="margin-top:14px"><button class="btn" onclick="go('home')">Back</button></div>`;
-  }
-  const row = allHoldings().find(r => String(r.id) === String(id));
-  if (!row) return `<h1>Holding</h1><div class="card pad">No such holding.</div>`;
-  const d = row.details || {};
-  const pairs = Object.entries(d).filter(([, v]) => v !== "" && v !== null)
-    .map(([k, v]) => `<div class="kv"><div class="k">${k.replace(/_/g, " ")}</div>
-      <div>${typeof v === "number" && /rate|price/.test(k) ? (v / 100).toFixed(2) : v}</div></div>`).join("");
-  const due = (DATA.upcoming || []).filter(u => String(u.id) === String(id));
-  const next = due.map(u => `<div class="srow"><div class="chip">${row.cls.slice(0,2).toUpperCase()}</div>
-    <div><div class="nm">${u.kind}</div><div class="sub">${u.date}</div></div>
-    <div class="vl">${money(u.amount)}</div><div class="pc"></div></div>`).join("");
-  return `<h1>${esc(row.label)}</h1>
-    <div class="hero"><div class="lbl">${esc(row.className)}${row.holder ? " · " + esc(row.holder) : ""}</div>
-      <div class="num">${money(row.value)}</div></div>
-    ${pairs ? `<h2>Details</h2><div class="card pad"><div class="kv">${pairs}</div></div>` : ""}
-    ${next ? `<h2>Scheduled</h2><div class="card">${next}</div>` : ""}
-    <div style="margin-top:14px"><button class="btn" onclick="go('home')">Back</button></div>`;
-}
 window.bpReport = (id) => { window.bpState = { ...(window.bpState || {}), report: id }; go("report"); };
 
 function txFilterCard(prefix, state, accounts, showAccount) {
@@ -5604,28 +5517,6 @@ function renderAccount() {
     const flash = window.bpAccountFlash || "";
     window.bpAccountFlash = "";
     if (!account) {
-      const demo = (DATA.accounts || []).find(a => a.id === id);
-      if (demo) {
-        const recent = loadTxns().filter(t => t.account === id).slice(0, 8);
-        const recentRows = recent.map(t => `<tr><td style="white-space:nowrap">${esc(t.date || "")}</td>
-          <td>${esc((t.description || "").slice(0, 64))}</td>
-          <td class="n ${t.amount < 0 ? "neg" : "pos"}">${amountInr(t.amount)}</td></tr>`).join("");
-        host.innerHTML = `<h1>${esc(demo.bank || demo.label)}</h1>
-          <div class="hero"><div class="lbl">${[demo.acct_type || "account", demo.number]
-            .filter(Boolean).join(" · ") || "account"}</div>
-            <div class="num">${demo.balance === null ? "no statement yet" : money(demo.balance)}</div>
-            <div class="chips"><span>${esc(demo.holder || "owner unknown")}</span>
-            <span>${demo.city || ""}</span><span>sample account</span></div></div>
-          ${recent.length ? `<h2 style="margin-top:20px">Recent transactions</h2>
-            <div class="card"><table><tr><th>Date</th><th>Description</th>
-              <th class="n">Amount (${currency()})</th></tr>${recentRows}</table></div>`
-            : `<div class="card pad" style="margin-top:14px">This is a sample account.
-              Import a real statement to see transactions, statements and monthly stats here.</div>`}
-          <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn" onclick="go('transactions')">All transactions</button>
-            <button class="btn" onclick="go('import')">Import a statement</button></div>`;
-        return;
-      }
       host.innerHTML = `<h1>Account</h1><div class="card pad">No such account: ${esc(id)}</div>`;
       return;
     }
@@ -6060,6 +5951,11 @@ window.bpDay = (d) => { window.bpState = { ...(window.bpState || {}), day: d }; 
 window.bpDbState = async () => {
   const el = document.getElementById("dbstate");
   if (!el) return;
+  if (window.bp.demo) {
+    el.textContent = "Database: sample data in memory — nothing here is saved.";
+    el.style.color = "";
+    return;
+  }
   try {
     const store = await import("./db.js");
     if (store.isUnlocked()) {
@@ -6072,7 +5968,7 @@ window.bpDbState = async () => {
   } catch (e) { el.textContent = ""; }
 };
 window.bpMarkMode = () => {
-  const m = localStorage.getItem("bp.mode") || "demo";
+  const m = window.bp.demo ? "demo" : (localStorage.getItem("bp.mode") || "demo");
   const d = document.getElementById("modeDemo"), r = document.getElementById("modeReal");
   if (d && r) {
     d.style.background = m === "demo" ? "var(--green)" : "var(--card)";
@@ -6081,17 +5977,18 @@ window.bpMarkMode = () => {
     r.style.color = m === "real" ? "#fff" : "inherit";
   }
 };
-window.bpMode = async (mode) => {
+// The sample portfolio is its own in-memory database, so switching sides opens
+// a different store. A reload is the shortest way to guarantee the demo
+// connection is gone and the real database was never touched.
+window.bpMode = (mode) => {
   localStorage.setItem("bp.mode", mode);
-  const note = document.getElementById("moderes");
-  if (note) note.textContent =
-    mode === "demo" ? "showing the sample portfolio" : "showing only your imported data";
-  bpMarkMode();
-  if (mode === "real") {
-    const ok = await ensureUnlocked();
-    if (!ok) return;
-  }
-  go("home");
+  location.assign(mode === "demo" ? "/?demo=1" : "/");
+};
+window.bpUseMyData = () => {
+  localStorage.setItem("bp.mode", "real");
+  const url = new URL(location.href);
+  url.searchParams.delete("demo");
+  location.assign(url.pathname + url.search);
 };
 window.bpStartOver = () => {
   if (document.getElementById("bp-erase")) return;
@@ -6140,16 +6037,14 @@ window.bpStartOver = () => {
   });
 };
 window.bpClear = async () => {
-  if (!confirm("Delete every asset and transaction imported on this device? The sample "
-    + "portfolio is not your data and stays available under Demo data. Backups in Drive "
+  if (bpGuardSample("Clearing data")) return;
+  if (!confirm("Delete every asset and transaction imported on this device? Backups in Drive "
     + "are untouched.")) return;
   const store = await import("./db.js");
   try { await store.snapshotDb("Before clearing all data"); } catch (e) {}
   await store.clearAll();
   localStorage.removeItem("bankpipe.txns.v1");
   localStorage.removeItem("bp.diagnostics.last");
-  // Land on the empty real view. Leaving the user in demo mode made it look as if
-  // clearing had failed, because the sample accounts never disappear.
   localStorage.setItem("bp.mode", "real");
   go("home");
 };
@@ -6160,6 +6055,7 @@ window.bpHideBanner = () => {
 
 window.bpReimportWorkbook = async (file) => {
   if (!file) return;
+  if (bpGuardSample("Replacing all data")) return;
   // Show the confirmation first. The passphrase is asked only after the user
   // confirms, so the order is file -> confirm -> unlock -> import.
   window.bpPendingReimport = file;
@@ -6509,7 +6405,7 @@ async function renderRealHome() {
     const stale = staleImport(assets);
     const sum = await store.summary();
     if (!assets.length) {
-      host.innerHTML = `<h1>Home</h1>
+      host.innerHTML = `<h1>Home${samplePill()}</h1>
         <div class="card pad"><b>Nothing added yet.</b>
         <p class="muted" style="font-size:13px">Import a bank statement and its asset is
         created for you, or add an asset by hand first. Everything stays on this device.</p>
@@ -6569,7 +6465,7 @@ async function renderRealHome() {
     if (ratingDrift.length) issues.push(`${ratingDrift.length} bond rating
       ${ratingDrift.length === 1 ? "has" : "have"} moved since purchase`);
 
-    host.innerHTML = `<h1>Home</h1>
+    host.innerHTML = `<h1>Home${samplePill()}</h1>
       ${stale ? staleImportCard() : ""}
       <div class="hero"><div class="lbl">Net worth</div>
         <div class="num">${valued ? money(total) : "—"}</div>
@@ -6960,6 +6856,7 @@ window.bpSetSnapshotKeep = async (value) => {
   }
 };
 window.bpSnapshotNow = async () => {
+  if (bpGuardSample("Saving a snapshot")) return;
   const note = document.getElementById("snap-note");
   try {
     const store = await import("./db.js");
@@ -9031,145 +8928,11 @@ window.bpStoreLegacyMeta = async () => {
   if (note) note.textContent = results.join(" · ");
   input.value = "";
 };
-// The sample portfolio is static, but the dashboard charts read the same asset
-// and flow shapes as the real ledger, so the demo shows the real screens.
-function demoAssets() {
-  const out = [];
-  for (const a of DATA.accounts || []) {
-    out.push({ id: a.id, category: "bank", label: a.label || a.bank, bank: a.bank,
-      number: a.number, holder: a.holder, city: a.city,
-      balance: a.balance, facts: a.balance === null ? 0 : 1 });
-  }
-  for (const [cls, h] of Object.entries(DATA.holdings || {})) {
-    const category = cls === "equity" || cls === "mf" ? "demat"
-      : cls === "ppf" ? "fd" : cls;
-    for (const r of h.rows || []) {
-      const d = r.details || {};
-      const meta = { source: "sample" };
-      if (category === "insurance") {
-        meta.premium_paise = r.value;
-        meta.sum_assured_paise = d.sum_assured || null;
-      }
-      out.push({ id: `demo-${cls}-${r.id}`, category, label: r.label, holder: r.holder,
-        value_paise: r.value, meta,
-        start_date: d.started || null,
-        maturity_date: d.matures || d.maturity || null,
-        rate_bps: d.rate || null });
-    }
-  }
-  return out;
-}
-function demoMonths() {
-  if (Array.isArray(DATA.flows) && DATA.flows.length) return DATA.flows;
-  const byMonth = new Map();
-  for (const t of loadTxns()) {
-    if (/Transfer (to|from)/i.test(t.description || "")) continue;
-    const month = String(t.date || "").slice(0, 7);
-    if (!month) continue;
-    const row = byMonth.get(month) || { month, inn: 0, out: 0, n: 0 };
-    if (t.amount > 0) row.inn += t.amount; else row.out += -t.amount;
-    row.n += 1;
-    byMonth.set(month, row);
-  }
-  return [...byMonth.values()].sort((a, b) => b.month.localeCompare(a.month));
-}
-function demoDueItems() {
-  const today = new Date().toISOString().slice(0, 10);
-  return (DATA.upcoming || [])
-    .filter((e) => e.date >= today)
-    .slice(0, 4)
-    .map((e) => {
-      const days = Math.ceil((Date.parse(e.date) - Date.parse(today)) / 86400000);
-      const d = new Date(e.date + "T00:00:00Z");
-      return { ...e,
-        monthShort: d.toLocaleString("en-IN", { month: "short", timeZone: "UTC" }).toUpperCase(),
-        day: e.date.slice(8, 10), year: e.date.slice(0, 4),
-        when: days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`,
-        dot: e.class === "bonds" ? "var(--blue)" : e.class === "insurance" ? "var(--amber)" : "var(--green)" };
-    });
-}
-function demoDueHtml(items) {
-  if (!items.length) return `<div class="muted" style="font-size:13px">No maturities recorded.</div>`;
-  return `<div class="timeline">${items.map((x) => `
-    <a class="tl-row" href="#" onclick="bpHoldingById(${x.id});return false">
-      <div class="tl-rail"><span class="tl-dot" style="background:${x.dot}"></span></div>
-      <div class="tl-date"><span class="m">${x.monthShort}</span><span class="d">${x.day}</span><span class="y">${x.year}</span></div>
-      <div class="tl-main"><div class="nm">${esc(x.label)}</div>
-        <div class="sub">${esc(x.kind)} · ${x.when}</div></div>
-      <div class="tl-amt">${money(x.amount)}</div>
-    </a>`).join("")}</div>`;
-}
+// One Home for both data sets: the sample portfolio is a database the real
+// screens read, not a second page.
 function renderHome() {
-  if ((localStorage.getItem("bp.mode") || "demo") === "real") {
-    renderRealHome();
-    return "<h1>Home</h1><div class='card pad'>loading…</div>";
-  }
-  const d = DATA, sym = d.currency;
-  const imported = d.accounts.filter(a => a.balance !== null).length;
-  const rows = Object.entries(d.holdings).map(([cls, h]) => {
-    const total = h.rows.reduce((s, r) => s + (r.value || 0), 0);
-    const pct = d.net_worth ? (total * 100 / d.net_worth) : 0;
-    return `<a class="srow" href="#" onclick="bpHolding(${jsArg(cls)});return false"><div class="chip">${esc(cls.slice(0,2).toUpperCase())}</div>
-      <div><div class="nm">${esc(h.label)}</div><div class="sub">${h.rows.length} holding(s)</div></div>
-      <div class="vl">${sym} ${inr(total)}</div><div class="pc">${pct.toFixed(0)}%</div></a>`;
-  }).join("");
-  const accts = d.accounts.map(a => {
-    const logo = bankLogo(a);
-    const mark = logo
-      ? `<img class="bank-logo" src="${logo}" alt="${esc(a.bank || "Bank")} logo">`
-      : `<div class="chip">${(a.acct_type || "ba").slice(0,2).toUpperCase()}</div>`;
-    return `<a class="srow" href="#" onclick="bpAccount(${jsArg(a.id)});return false">${mark}
-    <div><div class="nm">${esc(a.bank || a.label)}</div><div class="sub">${[a.holder, a.number, a.city].filter(Boolean).map(esc).join(" · ")}</div></div>
-    <div class="vl">${a.balance === null ? '<span class="muted">no statement</span>' : sym + " " + inr(a.balance)}</div>
-    <div class="pc">${a.balance === null ? "" : (a.balance * 100 / d.net_worth).toFixed(0) + "%"}</div></a>`;
-  }).join("");
-  const assets = demoAssets();
-  const months = demoMonths();
-  const due = demoDueItems();
-  const dueTotal = due.reduce((t, x) => t + (x.amount || 0), 0);
-  const insured = (d.holdings?.insurance?.rows || []);
-  const premiumsPaid = insured.reduce((t, r) => t + (r.value || 0), 0);
-  const cover = insured.reduce((t, r) => t + (r.details?.sum_assured || 0), 0);
-  return `<h1>Home <span class="pill warn" style="vertical-align:middle">Sample</span></h1>
-    <div class="card pad" style="margin-bottom:14px;display:flex;gap:14px;align-items:center;
-      justify-content:space-between;flex-wrap:wrap;background:var(--hair)">
-      <div style="font-size:13px"><b>Sample portfolio.</b> These are demo numbers, not your
-      accounts, and clearing your data does not remove them.</div>
-      <button class="btn" onclick="bpMode('real')">Use my data</button>
-    </div>
-    <div class="card pad" style="margin-bottom:14px;display:flex;gap:14px;align-items:center;
-      justify-content:space-between;flex-wrap:wrap">
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <span class="pill ${d.issues ? "warn" : "ok"}">${d.issues ? d.issues + " items need a decision" : "all statements reconciled"}</span>
-        <span class="muted" style="font-size:12.5px">${d.issues ? "Balance breaks and possible duplicates from the last import." : "Every statement's balance chain is consistent."}</span>
-      </div>
-      <a class="link" href="#" onclick="bpIssuesAll();return false" style="font-size:13px">Review →</a>
-    </div>
-    <div class="hero"><div class="lbl">Net worth</div><div class="num">${sym} ${inr(d.net_worth)}</div>
-      <div class="chips"><span>${imported} of ${d.accounts.length} bank accounts imported</span>
-      <span>${d.holdings ? Object.keys(d.holdings).length : 0} asset types</span></div>
-      <div style="font-size:12px;margin-top:10px;color:rgba(255,255,255,.75)">
-        net worth = every account balance + every holding value, excluding liabilities.
-        Sample snapshot generated ${(d.generated || "").slice(0, 10) || "today"}.</div></div>
-    <div class="dash" style="margin-top:14px">
-      ${allocationCardHtml(assets, d.net_worth)}
-      ${flowCardHtml(months, window.bpFlowMonth, { open: false })}
-      <div class="card pad"><h2 style="margin-top:0">Coming up</h2>
-        ${due.length ? `<div class="muted" style="font-size:11.5px;margin:-4px 0 4px">
-          ${money(dueTotal)} across ${due.length} maturit${due.length === 1 ? "y" : "ies"}</div>` : ""}
-        ${demoDueHtml(due)}
-        <div style="margin-top:10px"><button class="btn" onclick="go('upcoming')">All maturities</button></div></div>
-      <div class="card pad protection-card"><h2 style="margin-top:0">Protection</h2>
-        ${insured.length ? `<div class="stats">
-          <div><div class="k">Premiums paid</div><div class="v">${money(premiumsPaid)}</div></div>
-          <div><div class="k">Policy amount</div><div class="v">${money(cover)}</div></div>
-          <div><div class="k">Policies</div><div class="v">${insured.length}</div></div>
-        </div><div class="muted" style="font-size:12px;margin-top:8px">
-          Premiums paid count in net worth. The maturity amount does not.</div>`
-        : `<div class="muted" style="font-size:13px">No insurance policies yet.</div>`}</div>
-    </div>
-    <h2>Cash and bank</h2><div class="card">${accts}</div>
-    <h2>Holdings</h2><div class="card">${rows}</div>`;
+  renderRealHome();
+  return `<h1>Home${samplePill()}</h1><div class="card pad">loading…</div>`;
 }
 async function renderCategory() {
   const id = window.bpState?.category || "other";
@@ -9585,31 +9348,8 @@ function allocationCardHtml(assets, total) {
     </div></div>`;
 }
 function renderAssets() {
-  if ((localStorage.getItem("bp.mode") || "demo") === "real") {
-    renderRealAssets(document.getElementById("view"));
-    return "<h1>Assets</h1><div class='card pad'>loading…</div>";
-  }
-  const demo = DATA.accounts.map((a) => ({ ...a, category: categoryOf(a),
-    facts: a.balance === null ? 0 : 1 }));
-  const groups = assetSections(demo);
-  const holdings = Object.entries(DATA.holdings || {}).map(([cls, h]) => {
-    const total = h.rows.reduce((t, r) => t + (r.value || 0), 0);
-    return `<a class="srow" href="#" onclick="bpHolding(${jsArg(cls)});return false">
-      <div class="chip">${esc(cls.slice(0, 2).toUpperCase())}</div>
-      <div><div class="nm">${esc(h.label)}</div>
-        <div class="sub">${h.rows.length} holding${h.rows.length === 1 ? "" : "s"}</div></div>
-      <div class="vl">${money(total)}</div><div class="pc">›</div></a>`;
-  }).join("");
-  return `<h1>Assets <span class="pill warn" style="vertical-align:middle">Sample</span></h1>
-    <div class="card pad" style="margin-bottom:14px;display:flex;gap:14px;align-items:center;
-      justify-content:space-between;flex-wrap:wrap;background:var(--hair)">
-      <div style="font-size:13px"><b>Sample portfolio.</b> These are demo assets, not yours,
-      and clearing your data does not remove them.</div>
-      <button class="btn" onclick="bpMode('real')">Use my data</button></div>
-    ${allocationCardHtml(demoAssets(), DATA.net_worth)}
-    ${assetGroupsHtml(groups, (a) => `bpAccount(${jsArg(a.id)})`)}
-    <h2 style="margin-top:22px">Sample holdings</h2>
-    <div class="card" style="margin-top:8px">${holdings}</div>`;
+  renderRealAssets(document.getElementById("view"));
+  return `<h1>Assets${samplePill()}</h1><div class='card pad'>loading…</div>`;
 }
 async function renderRealAssets(host) {
   try {
@@ -9827,15 +9567,14 @@ async function renderRealAssets(host) {
       <button class="btn" onclick="bpAssetNew()">Add other asset</button>
       <button class="btn" onclick="go('import')">Import a statement</button></div>`;
     if (!assets.length) {
-      host.innerHTML = `<h1>Assets</h1>${actions}
+      host.innerHTML = `<h1>Assets${samplePill()}</h1>${actions}
         <div class="card pad"><b>No assets yet.</b>
         <p class="muted" style="font-size:13px;margin-bottom:0">Add a bank account, fixed
         deposit, demat account, bond, gold or cash. Import a statement and the bank account
-        is created from its preamble. The sample assets live under Demo data and are not
-        yours.</p></div>`;
+        is created from its preamble.</p></div>`;
       return;
     }
-    host.innerHTML = `<h1>Assets</h1>${actions}
+    host.innerHTML = `<h1>Assets${samplePill()}</h1>${actions}
       ${stale ? staleImportCard() : ""}
       ${showFdsOnly ? `<div class="hero"><div class="lbl">Fixed deposits</div>
         <div class="num">${activeFdTotal ? money(activeFdTotal) : "—"}</div>
@@ -12393,7 +12132,7 @@ function showDbUnlock() {
 }
 window.bpUseSample = () => {
   localStorage.setItem("bp.mode", "demo");
-  go("home");
+  location.assign("/?demo=1");
 };
 function showDbSetup() {
   document.getElementById("view").innerHTML = `<h1>Protect this database</h1>
@@ -12489,12 +12228,14 @@ window.bpSealDb = async () => {
   } catch (e) { dbError(String(e.message || e)); }
 };
 window.bpLockDb = async () => {
+  if (bpGuardSample("Locking the database")) return;
   const store = await import("./db.js");
   window.bpVault = null; window.bpVaultAt = 0; window.bpVaultEditId = null;
   store.lockDb();
   showDbUnlock();
 };
 window.bpChangeDbPass = () => {
+  if (bpGuardSample("Changing the passphrase")) return;
   const dialog = document.getElementById("pass-dialog");
   if (!dialog) return;
   document.getElementById("new-pass1").value = "";
@@ -12908,16 +12649,21 @@ window.bpUpcomingSet = (range) => {
   go("upcoming");
 };
 function renderUpcoming() {
-  if ((localStorage.getItem("bp.mode") || "demo") === "real") {
-    renderRealUpcoming(document.getElementById("view"));
-    return "<h1>Upcoming</h1><div class='card pad'>loading…</div>";
-  }
-  const d = DATA, sym = d.currency;
-  const rows = d.upcoming.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 24).map(e => `<tr style="cursor:pointer" onclick="bpHoldingById(${e.id})"><td>${e.date}</td><td>${esc(e.label)}</td>
-    <td>${esc(e.kind)}</td><td class="n">${e.amount ? sym + " " + inr(e.amount) : "—"}</td></tr>`).join("");
-  return `<h1>Upcoming <span class="pill warn" style="vertical-align:middle">Sample</span></h1>
-    <div class="card"><table>
-    <tr><th>Date</th><th>What</th><th>Kind</th><th class="n">Amount</th></tr>${rows}</table></div>`;
+  renderRealUpcoming(document.getElementById("view"));
+  return `<h1>Upcoming${samplePill()}</h1><div class='card pad'>loading…</div>`;
+}
+// The sample portfolio is a real database in memory: boot it, seed it from
+// data.json, and every page reads it exactly as it reads an import. `bp.demo`
+// carries the label; the screens themselves do not branch.
+async function startDemo() {
+  const txns = await fetch("demo-transactions.json")
+    .then((res) => (res.ok ? res.json() : []))
+    .catch(() => []);
+  const store = await import("./db.js");
+  await store.openDemoDb((s) => seedDemoDb(s, DATA, txns));
+  window.bp.demo = true;
+  const banner = document.getElementById("sample-banner");
+  if (banner) banner.style.display = "";
 }
 window.go = go;
 if (location.search.includes("selftest=seed") || location.search.includes("selftest=reload")) {
@@ -13033,11 +12779,20 @@ if (location.search.includes("selftest=seed") || location.search.includes("selft
       rows: r.rows.length, first: r.rows[0], second: r.rows[1] }, null, 1) + "</pre>";
 } else fetch("data.json").then(r => r.json()).then(async d => {
   DATA = d;
-  await seedDemoTransactions();
   nav();
-  const v = new URLSearchParams(location.search).get("view");
-  const mode = localStorage.getItem("bp.mode") || "demo";
-  if (mode === "real") {
+  const params = new URLSearchParams(location.search);
+  const v = params.get("view");
+  const wantDemo = params.get("demo") === "1"
+    || (localStorage.getItem("bp.mode") || "demo") !== "real";
+  if (wantDemo) {
+    try {
+      await startDemo();
+    } catch (e) {
+      document.getElementById("view").innerHTML = `<h1>Sample data</h1>
+        <div class="card pad">Could not open the sample portfolio: ${esc(String(e.message || e))}</div>`;
+      return;
+    }
+  } else {
     const ok = await ensureUnlocked();
     if (!ok) return;
   }

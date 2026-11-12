@@ -251,6 +251,7 @@ export function onDbSaved(fn) {
 }
 
 export async function snapshotDb(label = "") {
+  refuseOnDemo();
   if (!db) await openDb();
   if (!dbPassphrase) throw new Error("unlock the database to save a version");
   await persist();
@@ -1096,7 +1097,43 @@ export function makeStore(SQLlib, save) {
   return store;
 }
 
+// The sample portfolio reads through the same store as an import, so every page
+// works unchanged. The connection is in memory and the save hook is null: no
+// code path below can reach IndexedDB without a save function, which is what
+// keeps the demo off bankpipe.db.v1.
+let demoDb = false;
+
+export function isDemoDb() { return demoDb; }
+
+export async function useDemoStore(store) {
+  if (db) { try { db.close(); } catch (e) {} }
+  browserStore = store;
+  db = store.raw();
+  dbPassphrase = null;
+  dbSealed = false;
+  demoDb = true;
+  return store;
+}
+
+export async function openDemoDb(seed) {
+  SQL = await initSqlJs({ locateFile: (f) => `vendor/${f}` });
+  const store = makeStore(SQL, null);
+  await store.open();
+  await seed(store);
+  return useDemoStore(store);
+}
+
+// Restoring a file, saving a version or replacing the database are all real
+// database actions. In the demo they would either fail confusingly or write
+// over the person's own database, so they say what to do instead.
+function refuseOnDemo() {
+  if (demoDb) {
+    throw new Error('this is sample data; choose "Use my data" to open your own database');
+  }
+}
+
 export async function exportSealedDb() {
+  refuseOnDemo();
   const saved = await idbGet(DB_KEY);
   if (!saved) throw new Error("no database on this device");
   const bytes = new Uint8Array(saved);
@@ -1105,6 +1142,7 @@ export async function exportSealedDb() {
 }
 
 export async function importSealedDb(bytes) {
+  refuseOnDemo();
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   if (!isSealed(b)) throw new Error("not a sealed BankPipe database");
   await idbPut(DB_KEY, b.buffer);
@@ -1132,6 +1170,10 @@ export async function verifyDbPassphrase(passphrase) {
 
 export async function openDb(passphrase) {
   if (db) return db;
+  // Only reachable when nothing is open. A demo connection is always open, so
+  // this clears a flag left behind by a failed demo boot rather than letting a
+  // real database open underneath it.
+  demoDb = false;
   if (passphrase) dbPassphrase = passphrase;
   SQL = await initSqlJs({ locateFile: (f) => `vendor/${f}` });
   const saved = await idbGet(DB_KEY);
@@ -1188,6 +1230,7 @@ export function lockDb() {
   SQL = null;
   dbPassphrase = null;
   dbSealed = false;
+  demoDb = false;
 }
 
 export function isUnlocked() { return !!db; }
@@ -1628,6 +1671,7 @@ export async function resetDb() {
 export function currentStore() { return browserStore; }
 
 export async function importBytes(bytes) {
+  refuseOnDemo();
   if (!browserStore) await openDb();
   browserStore.raw().close();
   browserStore = makeStore(SQL, (b) => idbPut(DB_KEY, b.buffer));

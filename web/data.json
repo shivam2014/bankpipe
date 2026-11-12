@@ -103,7 +103,10 @@
      "holder": "TEST HOLDER 2",
      "details": {
       "qty": "300",
-      "price": 171200
+      "price": 171200,
+      "isin": "INE999900215",
+      "bought": "2022-06-14",
+      "buy": 147850
      }
     },
     {
@@ -113,7 +116,10 @@
      "holder": "TEST HOLDER 2",
      "details": {
       "qty": "400",
-      "price": 124500
+      "price": 124500,
+      "isin": "INE999900355",
+      "bought": "2023-01-19",
+      "buy": 108225
      }
     },
     {
@@ -123,7 +129,10 @@
      "holder": "TEST HOLDER 2",
      "details": {
       "qty": "400",
-      "price": 161500
+      "price": 161500,
+      "isin": "INE999900157",
+      "bought": "2021-11-03",
+      "buy": 174250
      }
     },
     {
@@ -133,7 +142,10 @@
      "holder": "TEST HOLDER 2",
      "details": {
       "qty": "300",
-      "price": 295500
+      "price": 295500,
+      "isin": "INE999900025",
+      "bought": "2022-09-27",
+      "buy": 261000
      }
     },
     {
@@ -143,7 +155,10 @@
      "holder": "TEST HOLDER 2",
      "details": {
       "qty": "180",
-      "price": 368800
+      "price": 368800,
+      "isin": "INE999900363",
+      "bought": "2024-02-08",
+      "buy": 390500
      }
     },
     {
@@ -153,7 +168,10 @@
      "holder": "Kavita",
      "details": {
       "qty": "1200",
-      "price": 43800
+      "price": 43800,
+      "isin": "INE999900223",
+      "bought": "2023-07-11",
+      "buy": 40250
      }
     },
     {
@@ -163,7 +181,10 @@
      "holder": "TEST HOLDER 2",
      "details": {
       "qty": "600",
-      "price": 74500
+      "price": 74500,
+      "isin": "INE999900231",
+      "bought": "2024-05-21",
+      "buy": 68200
      }
     },
     {
@@ -173,7 +194,10 @@
      "holder": "Kavita",
      "details": {
       "qty": "350",
-      "price": 178000
+      "price": 178000,
+      "isin": "INE999900371",
+      "bought": "2022-03-16",
+      "buy": 161500
      }
     },
     {
@@ -183,7 +207,10 @@
      "holder": "Kavita",
      "details": {
       "qty": "200",
-      "price": 289000
+      "price": 289000,
+      "isin": "INE999900389",
+      "bought": "2021-08-30",
+      "buy": 312000
      }
     },
     {
@@ -193,7 +220,10 @@
      "holder": "Kavita",
      "details": {
       "qty": "180",
-      "price": 265000
+      "price": 265000,
+      "isin": "INE999900397",
+      "bought": "2023-10-05",
+      "buy": 258000
      }
     },
     {
@@ -203,7 +233,10 @@
      "holder": "TEST HOLDER 2",
      "details": {
       "qty": "90",
-      "price": 715000
+      "price": 715000,
+      "isin": "INE999900405",
+      "bought": "2024-01-24",
+      "buy": 698000
      }
     },
     {
@@ -213,7 +246,10 @@
      "holder": "Kavita",
      "details": {
       "qty": "150",
-      "price": 342000
+      "price": 342000,
+      "isin": "INE999900413",
+      "bought": "2022-12-14",
+      "buy": 305000
      }
     },
     {
@@ -223,7 +259,10 @@
      "holder": "TEST HOLDER 2",
      "details": {
       "qty": "350",
-      "price": 168000
+      "price": 168000,
+      "isin": "INE999900421",
+      "bought": "2023-04-27",
+      "buy": 145500
      }
     }
    ]
@@ -240,7 +279,10 @@
      "details": {
       "units": "28450.312",
       "price": 6472,
-      "folio": "F20481"
+      "folio": "F20481",
+      "isin": "INF999900436",
+      "bought": "2021-05-10",
+      "buy": 4810
      }
     },
     {
@@ -251,7 +293,10 @@
      "details": {
       "units": "32000.000",
       "price": 3940,
-      "folio": "F20482"
+      "folio": "F20482",
+      "isin": "INF999900444",
+      "bought": "2022-02-18",
+      "buy": 3125
      }
     },
     {
@@ -262,7 +307,10 @@
      "details": {
       "units": "18500.000",
       "price": 4430,
-      "folio": "F20483"
+      "folio": "F20483",
+      "isin": "INF999900451",
+      "bought": "2023-03-09",
+      "buy": 3810
      }
     },
     {
@@ -273,7 +321,10 @@
      "details": {
       "units": "4200.000",
       "price": 16210,
-      "folio": "F20484"
+      "folio": "F20484",
+      "isin": "INF200K01UT6",
+      "bought": "2021-12-02",
+      "buy": 12040
      }
     },
     {
@@ -284,7 +335,10 @@
      "details": {
       "units": "20000.000",
       "price": 2055,
-      "folio": "F20485"
+      "folio": "F20485",
+      "isin": "INF999900469",
+      "bought": "2024-06-13",
+      "buy": 1980
      }
     }
    ]
@@ -295,7 +349,7 @@
    "rows": [
     {
      "id": 301,
-     "label": "7.15% IRFC 2031",
+     "label": "7.15% IRFC 15 May 2031",
      "value": 104000000,
      "holder": "TEST HOLDER 2",
      "details": {
@@ -304,12 +358,20 @@
       "rate": "7.15%",
       "maturity": "2031-05-15",
       "invested": 98000000,
-      "value": 104000000
+      "value": 104000000,
+      "face": 100000,
+      "frequency": "Annual",
+      "rating": "AAA",
+      "rating_at_purchase": "AAA",
+      "bought": "2024-05-15",
+      "interest": "2027-05-15",
+      "yield_bps": 748,
+      "as_of": "2026-10-31"
      }
     },
     {
      "id": 302,
-     "label": "8.10% Tata Capital 2028",
+     "label": "8.10% Tata Capital 20 Nov 2028",
      "value": 54250000,
      "holder": "TEST HOLDER 2",
      "details": {
@@ -318,12 +380,20 @@
       "rate": "8.10%",
       "maturity": "2028-11-20",
       "invested": 50000000,
-      "value": 54250000
+      "value": 54250000,
+      "face": 100000,
+      "frequency": "Annual",
+      "rating": "AAA",
+      "rating_at_purchase": "AA+",
+      "bought": "2023-11-20",
+      "interest": "2026-11-20",
+      "yield_bps": 810,
+      "as_of": "2026-10-31"
      }
     },
     {
      "id": 303,
-     "label": "7.40% HUDCO 2030",
+     "label": "7.40% HUDCO 10 Feb 2030",
      "value": 81440000,
      "holder": "Kavita",
      "details": {
@@ -332,7 +402,20 @@
       "rate": "7.40%",
       "maturity": "2030-02-10",
       "invested": 80000000,
-      "value": 81440000
+      "value": 81440000,
+      "face": 100000,
+      "frequency": "Half-yearly",
+      "rating": "AA",
+      "rating_at_purchase": "AA",
+      "bought": "2024-11-05",
+      "interest": "2027-02-10",
+      "yield_bps": 740,
+      "as_of": "2026-10-31",
+      "returned": 8000000,
+      "returned_at": "2026-04-10",
+      "redemption_date": "2026-04-10",
+      "future_principal": 72000000,
+      "future_interest": 18648000
      }
     }
    ]
@@ -412,7 +495,7 @@
      "value": 180000000,
      "holder": "TEST HOLDER 2",
      "details": {
-      "bank": "Bank",
+      "bank": "Bank of Baroda",
       "fd_no": "FD-0006",
       "rate": 705,
       "started": "2024-09-30",

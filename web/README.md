@@ -25,7 +25,8 @@ sends frame/nosniff headers.
 
 Deep links:
 
-- `?demo=1` — the sample portfolio, with no passphrase and no writes
+- `?demo=1` — the sample portfolio: an in-memory database seeded from `data.json`, read
+  by the same screens as an import, with no passphrase and no writes to `bankpipe.db.v1`
 - `?view=import` — Import
 - `?view=transactions` — Transactions
 - `?view=assets` — Assets
@@ -60,7 +61,9 @@ Current counts are generated on every commit:
 
 ## Storage
 
-- Transactions shown by the demo: `localStorage` (`bankpipe.txns.v1`).
+- The sample portfolio: an in-memory `sql.js` database seeded from `data.json` and
+  `demo-transactions.json` on every load. Its save hook is null, so it never writes
+  `bankpipe.db.v1`; edits made in the demo disappear on reload.
 - Ledger: `sql.js` + IndexedDB (`bankpipe.db.v1`). When a database passphrase is set, the
   blob is sealed with AES-256-GCM (PBKDF2-HMAC-SHA256 600,000 iterations) before it
   reaches IndexedDB.
