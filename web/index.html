@@ -9477,6 +9477,7 @@ function bondRowView(h) {
     parts: ba?.schedule?.parts || 0,
     returned,
     returnedAt: h.returned_at || pastReturn,
+    returnedRecordDate: h.returned_record_date || "",
     shortSchedule: !!(ba && ba.schedule && ba.schedule.short),
     hasPrice,
     value: hasPrice ? h.value_paise : null,
@@ -9612,6 +9613,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Principal left", v.principalLeft ? `${money(v.principalLeft)}${
         returned ? `<div class="sub">${money(returned)} already back${
           v.returnedAt ? ` on ${dateLabel(v.returnedAt)}` : ""}</div>` : ""}${
+        v.returnedRecordDate ? `<div class="sub">face reduced ${
+          dateLabel(v.returnedRecordDate)}</div>` : ""}${
         v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
       ${cell("Market value · total",
         `${moneyOrDash(v.value)}${v.value === null ? "" : `<div class="sub">${marketSub}</div>`}`)}
@@ -9626,6 +9629,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       `value ${valueSourceShort}`,
       v.valueAsOf ? dateLabel(v.valueAsOf) : "",
       v.returned ? (payoutFile ? `principal from ${esc(payoutFile)}` : "principal from SMEST") : "",
+      v.returnedRecordDate ? "BSE record date" : "",
       v.pastCoupon !== null && v.pastCoupon !== undefined ? "interest estimated" : "",
     ].filter(Boolean).join(" · ")}</div>`}
   </div>`;

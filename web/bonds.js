@@ -252,6 +252,9 @@ export function carryBrokerFields(oldRow, newQty) {
     future_principal_paise: scale(oldRow.future_principal_paise),
     returned_paise: ratio < 1 ? scale(oldRow.returned_paise)
       : (oldRow.returned_paise ?? null),
+    returned_at: oldRow.returned_at || "",
+    returned_record_date: oldRow.returned_record_date || "",
+    returned_source: oldRow.returned_source || "",
   };
 }
 
@@ -360,6 +363,11 @@ export function bondFillPlan(row, fetched) {
       const back = Math.round((boughtFace - currentFace) * units * 100);
       if (back > 0 && (row.returned_paise === null || row.returned_paise === undefined)) {
         patch.returned_paise = back;
+        patch.returned_source = "smest";
+        const today = new Date().toISOString().slice(0, 10);
+        const past = (details.redemptions || []).map(String)
+          .filter((d) => d && d <= today).sort().pop();
+        if (past) patch.returned_at = past;
       }
     }
     if (!String(row.frequency || "").trim() && details.frequency) patch.frequency = details.frequency;

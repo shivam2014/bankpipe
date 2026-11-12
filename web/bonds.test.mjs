@@ -136,6 +136,7 @@ test("a part-redeemed lookup stores the purchase face and the money already back
     { details: { face: 50000 }, market: null });
   assert.equal(plan.patch.face_paise, 10000000);
   assert.equal(plan.patch.returned_paise, 10000000);
+  assert.equal(plan.patch.returned_source, "smest");
   assert.equal(plan.terms, true);
 });
 
