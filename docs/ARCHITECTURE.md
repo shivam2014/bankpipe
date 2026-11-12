@@ -38,7 +38,8 @@ A save hook wakes the automatic backup scheduler after every write.
 
 There is no service worker, so there is no offline install or background sync.
 `localStorage` holds preferences, the demo flag, a device id and backup timestamps. The
-sample portfolio never enters SQLite.
+sample portfolio is seeded into an in-memory SQLite store from `data.json`; it never enters
+IndexedDB or touches the real database.
 
 Code: [`web/db.js`](../web/db.js), [`web/dbatrest.js`](../web/dbatrest.js),
 [`web/crypto.js`](../web/crypto.js).
