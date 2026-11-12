@@ -9657,6 +9657,8 @@ function bondFetchPanelBody(state) {
 window.bpBondFetchPanel = (assetId, state) => {
   window.bpBondFetchStatus = state ? { id: assetId, ...state } : null;
   const el = document.getElementById("bond-fetch-panel");
+  const link = document.getElementById("bond-fetch-link");
+  if (link) link.style.display = state && !state.done && !state.bad ? "none" : "";
   if (!el) return;
   if (!state) {
     el.style.display = "none";
@@ -9749,7 +9751,7 @@ function holdingsCard(allRows, assetId) {
         ${needsFetch ? `<span class="sep">·</span>
           <span>${missingDetails.join(" · ")}</span>
           ${fetching ? `<span>Fetching now…</span>`
-            : assetId ? `<button class="actlink"
+            : assetId ? `<button class="actlink" id="bond-fetch-link"
               title="Get each bond's name, rating, face value and BSE price from SMEST and BSE"
               onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online to fill ${
                 needsCount === 1 ? "it" : "them"} →</button>` : ""}`
