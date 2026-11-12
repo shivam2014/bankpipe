@@ -436,6 +436,11 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .bond-card .bond-name{font-size:13px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
 .bond-card .sub{font-size:10.5px;color:var(--muted);margin-top:2px}
 .bond-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin-top:10px}
+.bond-section{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair)}
+.bond-card-head + .bond-section{margin-top:10px;padding-top:0;border-top:0}
+.bond-section-title{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+ color:var(--muted);margin:0 0 7px}
+.bond-section .bond-grid{margin-top:7px}
 .bond-grid .k{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
 .bond-grid .v{display:block;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:1px}
 .bond-grid .v.neg{color:var(--red)}
@@ -9629,6 +9634,11 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     : rawSource === "Manual" ? "entered by hand" : "from the CAS";
   const qty = Number(v.h.quantity) || 0;
   const returned = v.returned || 0;
+  const still = v.expectedMaturity;
+  const heldTotal = matured ? null
+    : (v.ba?.lifetimeTotal ?? (still === null || still === undefined
+      ? null : still + returned));
+  const heldGain = matured ? null : (v.ba?.lifetimeGain ?? v.expectedGain);
   const perUnit = v.value !== null && v.value !== undefined && qty > 0
     ? v.value / qty : null;
   const payoutFile = window.bpBondPayoutFile || "";
@@ -9687,33 +9697,49 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Market value", moneyOrDash(v.value))}
     </div>
     <div class="bond-sources">Matured · terms from the CAS${v.rating ? " · rating from SMEST" : ""}</div>`
-    : `<div class="bond-grid">
-      ${cell("Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
-      ${cell("Current yield", v.currentYield === null || v.currentYield === undefined
-        ? "—" : `${v.currentYield.toFixed(2)}%`)}
+    : `<div class="bond-section">
+      <h3 class="bond-section-title">Purchase</h3>
+      <div class="bond-grid">
+        ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
+        ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
+        ${cell("Invested", moneyOrDash(v.h.cost_paise))}
+        ${cell("Units", qty || "—")}
+        ${cell("Face at issue", v.faceAtIssue ? money(v.faceAtIssue) : "—")}
+        ${cell("Payment frequency", esc(v.frequency))}
+        ${cell("Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
+        ${cell("Purchase rating", v.h.rating_at_purchase
+          ? esc(v.h.rating_at_purchase) : "—")}
+      </div>
     </div>
-    ${progressBlock}
-    <div class="bond-grid">
-      ${cell("Invested", moneyOrDash(v.h.cost_paise))}
-      ${cell("Units", qty || "—")}
-      ${cell("Face at issue", v.faceAtIssue ? money(v.faceAtIssue) : "—")}
-      ${cell("Principal left", v.principalLeft ? `${money(v.principalLeft)}${
-        returned ? `<div class="sub">${money(returned)} already back${
-          v.returnedAt ? ` on ${dateLabel(v.returnedAt)}` : ""}</div>` : ""}${
-        v.returnedRecordDate ? `<div class="sub">face reduced ${
-          dateLabel(v.returnedRecordDate)}${v.maturity ? ` · due ${dateLabel(v.maturity)}` : ""}</div>`
-          : v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
-      ${cell("Market value · total",
-        `${moneyOrDash(v.value)}${v.value === null ? "" : `<div class="sub">${marketSub}</div>`}`)}
-      ${cell("Market value · per unit", perUnit === null ? "—" : money(perUnit))}
-      ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
-      ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
-      ${cell("Payment frequency", esc(v.frequency))}
-      ${cell("Next interest", v.payout === null ? "—" : `${money(v.payout)}${
-        v.interestDate || v.payoutEstimated ? `<div class="sub">${
-          [v.interestDate ? dateLabel(v.interestDate) : "",
-            v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · ")
-        }</div>` : ""}`)}
+    <div class="bond-section">
+      <h3 class="bond-section-title">Market value</h3>
+      <div class="bond-grid">
+        ${cell("Total", `${moneyOrDash(v.value)}${
+          v.value === null ? "" : `<div class="sub">${marketSub}</div>`}`)}
+        ${cell("Per unit", perUnit === null ? "—" : money(perUnit))}
+        ${cell("Current yield", v.currentYield === null || v.currentYield === undefined
+          ? "—" : `${v.currentYield.toFixed(2)}%`)}
+      </div>
+    </div>
+    <div class="bond-section">
+      <h3 class="bond-section-title">Returns</h3>
+      <div class="bond-grid">
+        ${cell("Principal returned", returned ? `${money(returned)}${
+          v.returnedAt ? `<div class="sub">on ${dateLabel(v.returnedAt)}</div>` : ""}${
+          v.returnedRecordDate ? `<div class="sub">face reduced ${
+            dateLabel(v.returnedRecordDate)}</div>` : ""}` : "—")}
+        ${cell("Principal left", v.principalLeft ? `${money(v.principalLeft)}${
+          v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
+        ${cell("Next interest", v.payout === null ? "—" : `${money(v.payout)}${
+          v.interestDate || v.payoutEstimated ? `<div class="sub">${
+            [v.interestDate ? dateLabel(v.interestDate) : "",
+              v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · ")
+          }</div>` : ""}`)}
+        ${cell("Total if held", heldTotal === null ? "—" : `${money(heldTotal)}${
+          heldGain === null ? "" : `<div class="sub ${heldGain < 0 ? "neg" : "pos"}">${
+            heldGain < 0 ? "−" : "+"}${money(Math.abs(heldGain))} gain</div>`}`)}
+      </div>
+      ${progressBlock}
     </div>
     <div class="bond-sources">${[
       "CAS",
