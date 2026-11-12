@@ -9668,16 +9668,10 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
   return `<div class="bond-card">
     <div class="bond-card-head"><div><div class="bond-name">${esc(v.h.label || "—")}</div>
       <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
-        ? " · added by hand" : ""}${v.h.rating_at_purchase && !v.change
-        ? " · rating unchanged" : ""}</div></div>
+        ? " · added by hand" : ""}</div></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${matured ? `<span class="bond-rating">Matured</span>` : ""}
-        ${v.rating ? `<span class="bond-rating" title="${esc(v.h.rating_at_purchase
-          ? `Bought at ${v.h.rating_at_purchase}` : "Current credit rating")}">${esc(v.rating)}</span>` : ""}
-        ${v.change ? `<span class="muted" style="font-size:11px;color:${
-          v.change.down ? "var(--red)" : "var(--green)"}"
-          title="The rating this bond had when it was bought">${v.change.down ? "↓" : "↑"}
-          from ${esc(v.change.from)}</span>` : ""}
+        ${matured && v.rating ? `<span class="bond-rating" title="Current credit rating">${esc(v.rating)}</span>` : ""}
         ${assetId && v.h.id && !matured ? `<a class="mini-btn"
           href="https://smest.in/bond-details/x/${encodeURIComponent(v.h.security_id || "")}"
           target="_blank" rel="noopener"
@@ -9719,6 +9713,11 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         ${cell("Per unit", perUnit === null ? "—" : money(perUnit))}
         ${cell("Current yield", v.currentYield === null || v.currentYield === undefined
           ? "—" : `${v.currentYield.toFixed(2)}%`)}
+        ${cell("Current rating", v.rating ? `${esc(v.rating)}${
+          v.change ? `<div class="sub ${v.change.down ? "neg" : "pos"}">${
+            v.change.down ? "downgraded" : "upgraded"} from ${esc(v.change.from)}</div>`
+            : v.h.rating_at_purchase ? `<div class="sub">unchanged since purchase</div>` : ""
+        }` : "—")}
       </div>
     </div>
     <div class="bond-section">
