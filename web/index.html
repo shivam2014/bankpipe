@@ -9605,11 +9605,12 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
       ${cell("Invested", moneyOrDash(v.h.cost_paise))}
       ${cell("Units", qty || "—")}
       ${cell("Face at issue", v.faceAtIssue ? money(v.faceAtIssue) : "—")}
-      ${cell(`Principal left${returned ? `<div class="sub">${money(returned)} already back</div>` : ""}`,
-        v.principalLeft ? `${money(v.principalLeft)}${v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
-      ${cell(`Market value (total)${v.value === null ? "" : ` · ${valueSourceShort}`}`,
+      ${cell("Principal left", v.principalLeft ? `${money(v.principalLeft)}${
+        returned ? `<div class="sub">${money(returned)} already back</div>` : ""}${
+        v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
+      ${cell("Market value · total",
         `${moneyOrDash(v.value)}${v.value === null ? "" : `<div class="sub">${marketSub}</div>`}`)}
-      ${cell("Market value (per unit)", perUnit === null ? "—" : money(perUnit))}
+      ${cell("Market value · per unit", perUnit === null ? "—" : money(perUnit))}
       ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
       ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
       ${cell("Payment frequency", esc(v.frequency))}
