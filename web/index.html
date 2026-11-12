@@ -476,6 +476,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .broker-tile .where{font-weight:400;font-size:11px;color:var(--muted)}
 .broker-tile.on{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
 .eq-guide{margin-top:10px;padding:11px 12px;border:1px solid var(--line);border-radius:10px}
+.eq-subhead{font-size:11px}
 .eq-guide-title{font-size:13.5px;font-weight:620}
 .eq-guide-steps{font-size:12px;color:var(--muted);margin:6px 0 0 18px;padding:0;line-height:1.55}
 .eq-guide-note{font-size:11px;color:var(--muted);margin-top:5px}
@@ -487,7 +488,18 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .eq-preview-title{font-size:13.5px;font-weight:620}
 .eq-preview-sub{font-size:11px;color:var(--muted);margin-top:2px}
 .eq-preview-head .muted{font-size:11px}
-.eq-unmatched{font-size:11px;color:var(--muted);margin-top:7px;display:grid;gap:2px}
+.eq-plan{display:grid;margin-top:8px}
+.eq-plan-row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;
+ padding:8px 0;border-top:1px solid var(--hair)}
+.eq-plan-row:first-child{border-top:0}
+.eq-plan-main{min-width:0}
+.eq-plan-main b{font-size:12px}
+.eq-plan-side{text-align:right;white-space:nowrap}
+.eq-plan-side b{font-size:12px}
+.eq-plan-sub{font-size:11px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.eq-unmatched{font-size:11px;color:var(--muted);margin-top:7px}
+.eq-unmatched summary{cursor:pointer}
+.eq-unmatched-list{display:grid;gap:2px;margin-top:5px}
 .eq-error{font-size:13.5px;color:var(--red)}
 .eq-preview table{width:100%;border-collapse:collapse;font-size:12px}
 .eq-preview th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
@@ -3160,7 +3172,7 @@ function renderImport() {
   <div class="card pad" id="equity-broker-import">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0">Equities</h2>
-      <span class="muted" style="font-size:11.5px">cost and purchase date</span></div>
+      <span class="muted eq-subhead">invested amount</span></div>
     <p class="muted" style="margin:6px 0 0;font-size:12.5px">The CAS gives the shares and their
     value, not what you paid. A holdings export fills the invested amount. Purchase date needs
     the Tradebook, which is optional. Files land on the demat by ISIN; nothing is written until
@@ -7934,34 +7946,30 @@ window.bpZerodhaHoldings = async (file) => {
       const h = matches[0];
       const same = sameOf(row, h);
       const qtyDiff = Math.abs((Number(h.quantity) || 0) - row.quantity) > 0.0001;
-      return `<tr>
-        <td><b>${esc(row.symbol || h.label || "—")}</b>
-          <div class="eq-preview-sub">${esc(row.isin)}</div></td>
-        <td>${esc(h._asset.label || h._asset.bank || "Demat")}</td>
-        <td class="num">${h.quantity ?? "—"}</td>
-        <td class="num">${row.quantity}</td>
-        <td class="num">${money(row.averagePrice * 100)}</td>
-        <td class="num">${money(costOf(row, h))}</td>
-        <td><span class="status ${same ? "same" : "update"}">${same
-          ? "already set" : "will update"}${qtyDiff ? " · quantity differs" : ""}${
-          matches.length > 1 ? " · first demat" : ""}</span></td>
-      </tr>`;
+      return `<div class="eq-plan-row">
+        <div class="eq-plan-main"><b>${esc(row.symbol || h.label || "—")}</b>
+          <div class="eq-plan-sub">${esc(row.isin)} · ${h.quantity ?? "—"} units
+            · avg ${money(row.averagePrice * 100)}</div></div>
+        <div class="eq-plan-side"><b>${money(costOf(row, h))}</b>
+          <div class="status ${same ? "same" : "update"}">${same
+            ? "already set" : "will update"}${qtyDiff ? " · quantity differs" : ""}${
+            matches.length > 1 ? " · first demat" : ""}</div></div>
+      </div>`;
     }).join("");
-    const unmatchedRows = unmatched.slice(0, 8).map(({ row }) =>
-      `<div>${esc(row.symbol || "")} · ${esc(row.isin)} · not in ${
-        target ? "this demat" : "your demat accounts"}</div>`).join("");
+    const unmatchedRows = unmatched.map(({ row }) =>
+      `<div>${esc(row.symbol || "")} · ${esc(row.isin)}</div>`).join("");
     host.innerHTML = `<div class="card pad eq-preview">
       <div class="eq-preview-head">
         <b class="eq-preview-title">${esc(file.name)}</b>
         <span class="muted">${parsed.asOf ? `as on ${dateLabel(parsed.asOf)}`
           : "snapshot date not read"}</span></div>
       <div class="eq-summary">${matched.length} of ${parsed.rows.length} ISINs match.
-        Invested ${money(total)}.${unmatched.length ? ` ${unmatched.length} not in this demat.` : ""}</div>
-      ${matched.length ? `<table><thead><tr><th>Stock</th><th>Demat</th>
-        <th class="num">CAS units</th><th class="num">File units</th>
-        <th class="num">Average price</th><th class="num">Invested</th>
-        <th>Status</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
-      ${unmatchedRows ? `<div class="eq-unmatched">${unmatchedRows}</div>` : ""}
+        Invested ${money(total)}.${unmatched.length ? ` ${unmatched.length} not in ${
+          target ? "this demat" : "your demat accounts"}.` : ""}</div>
+      ${matched.length ? `<div class="eq-plan">${rows}</div>` : ""}
+      ${unmatched.length ? `<details class="eq-unmatched">
+        <summary>${unmatched.length} not in ${target ? "this demat" : "your demat accounts"}</summary>
+        <div class="eq-unmatched-list">${unmatchedRows}</div></details>` : ""}
       <div class="eq-actions">
         <button class="btn primary" ${hasUpdates ? "" : "disabled"}
           onclick="bpZerodhaApply()">Save invested amounts</button>
