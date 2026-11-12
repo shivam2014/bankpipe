@@ -164,6 +164,16 @@ export function bondAnalytics(h) {
     }
   }
   const couponIncome = couponEstimate;
+  const pastCoupon = Math.max(0, couponEstimate - futureCoupon);
+  const annualCouponBought = (purchaseFaceTotal * parsed.couponPct) / 100;
+  const totalPeriods = years !== null && periods ? Math.round(years * periods) : null;
+  const originalCouponEstimate = totalPeriods && totalPeriods > 0
+    ? Math.round((annualCouponBought / periods) * totalPeriods)
+    : (years !== null ? Math.round(annualCouponBought * years) : null);
+  const couponProgress = originalCouponEstimate > 0
+    ? Math.min(100, Math.max(0, (pastCoupon / originalCouponEstimate) * 100)) : null;
+  const couponLost = originalCouponEstimate !== null
+    ? Math.max(0, originalCouponEstimate - couponEstimate) : null;
   const capitalGain = faceTotal + returnedPaise - cost;
   const totalGain = couponEstimate + capitalGain;
   const lifetimeTotal = purchaseFaceTotal + couponEstimate;
@@ -199,8 +209,8 @@ export function bondAnalytics(h) {
     faceBoughtInferred: !storedFace || purchaseFace > storedFace,
     returned: returnedPaise,
     purchase_date: buy,
-    annualCoupon, couponIncome, futureCoupon,
-    pastCoupon: Math.max(0, couponEstimate - futureCoupon),
+    annualCoupon, couponIncome, futureCoupon, pastCoupon,
+    originalCouponEstimate, couponProgress, couponLost,
     capitalGain, totalGain, ytm,
     couponEstimate, lifetimeTotal, lifetimeGain,
     accrued: accrual.accrued, accruedFrom: accrual.from, accruedTo: accrual.to,

@@ -101,6 +101,24 @@ test("a face fetched after a part return is read as the current face, not the pu
   assert.equal(6000000 + a.returned - 19527582, -3527582);
 });
 
+test("coupon progress is measured against the original face", () => {
+  const a = bondAnalytics({
+    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    value_paise: 6000000, purchase_date: "2024-06-06", face_paise: 5000000,
+    frequency: "Monthly", interest_date: "2026-12-03",
+    redemption_dates: "2026-06-03,2026-12-03",
+  });
+  // 30 monthly coupons on 2,00,000 at 11.9% is 59,500; the early repayment
+  // removes 6,166 from the rest of the schedule.
+  assert.ok(a.originalCouponEstimate > 5900000 && a.originalCouponEstimate < 6000000,
+    `original ${a.originalCouponEstimate}`);
+  assert.ok(a.couponProgress > 87 && a.couponProgress < 89,
+    `progress ${a.couponProgress}`);
+  assert.ok(a.couponLost > 600000 && a.couponLost < 630000,
+    `lost ${a.couponLost}`);
+  assert.equal(a.pastCoupon, a.couponEstimate - a.futureCoupon);
+});
+
 test("gain if sold includes the coupons already received", () => {
   const a = bondAnalytics({
     label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
