@@ -9478,6 +9478,7 @@ function bondRowView(h) {
     returned,
     returnedAt: h.returned_at || pastReturn,
     returnedRecordDate: h.returned_record_date || "",
+    returnedSource: h.returned_source || "",
     shortSchedule: !!(ba && ba.schedule && ba.schedule.short),
     hasPrice,
     value: hasPrice ? h.value_paise : null,
@@ -9536,8 +9537,6 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
   const cell = (k, val, cls = "") => `<div><span class="k">${k}</span>
     <span class="v ${cls}">${val}</span></div>`;
   const rawSource = v.h.value_source || (v.h.source === "manual" ? "Manual" : "CAS");
-  const valueSourceShort = rawSource === "BSE" ? "BSE"
-    : rawSource === "Manual" ? "manual" : "CAS";
   const valueSourceLong = rawSource === "BSE" ? "from BSE"
     : rawSource === "Manual" ? "entered by hand" : "from the CAS";
   const qty = Number(v.h.quantity) || 0;
@@ -9614,22 +9613,25 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         returned ? `<div class="sub">${money(returned)} already back${
           v.returnedAt ? ` on ${dateLabel(v.returnedAt)}` : ""}</div>` : ""}${
         v.returnedRecordDate ? `<div class="sub">face reduced ${
-          dateLabel(v.returnedRecordDate)}</div>` : ""}${
-        v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
+          dateLabel(v.returnedRecordDate)}${v.maturity ? ` · due ${dateLabel(v.maturity)}` : ""}</div>`
+          : v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
       ${cell("Market value · total",
         `${moneyOrDash(v.value)}${v.value === null ? "" : `<div class="sub">${marketSub}</div>`}`)}
       ${cell("Market value · per unit", perUnit === null ? "—" : money(perUnit))}
       ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
       ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
       ${cell("Payment frequency", esc(v.frequency))}
-      ${cell(`Next interest${v.interestDate ? ` · ${dateLabel(v.interestDate)}` : ""}`,
-        v.payout === null ? "—" : `${money(v.payout)}${v.payoutEstimated ? `<div class="sub">estimated</div>` : ""}`)}
+      ${cell("Next interest", v.payout === null ? "—" : `${money(v.payout)}${
+        v.interestDate || v.payoutEstimated ? `<div class="sub">${
+          [v.interestDate ? dateLabel(v.interestDate) : "",
+            v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · ")
+        }</div>` : ""}`)}
     </div>
     <div class="bond-sources">${[
-      `value ${valueSourceShort}`,
-      v.valueAsOf ? dateLabel(v.valueAsOf) : "",
-      v.returned ? (payoutFile ? `principal from ${esc(payoutFile)}` : "principal from SMEST") : "",
-      v.returnedRecordDate ? "BSE record date" : "",
+      "CAS",
+      v.returned ? (v.returnedSource === "cashflow" || payoutFile ? "Cashflow Future"
+        : v.returnedSource === "bank" ? "bank" : "SMEST") : "",
+      v.returnedRecordDate ? "BSE" : "",
       v.pastCoupon !== null && v.pastCoupon !== undefined ? "interest estimated" : "",
     ].filter(Boolean).join(" · ")}</div>`}
   </div>`;
