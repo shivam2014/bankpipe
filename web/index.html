@@ -10484,7 +10484,7 @@ window.bpBondFetchAll = async (assetId, onlyId = "") => {
     }
     show({ label: "Latest details fetched", pct: 100, done: true,
       detail: `${counts.lots} bond${counts.lots === 1 ? "" : "s"} · ${marketSummary(counts)}.` });
-    window.bpAsset(assetId);
+    window.bpAssetRefresh(assetId);
   } finally {
     window.bpBondFetchBusy = false;
     setBusy(false);
@@ -11853,6 +11853,33 @@ window.bpAccountNewFd = () => {
 window.bpAsset = (id, classPart = "all") => {
   window.bpState = { ...(window.bpState || {}), asset: id, assetClass: classPart || "all" };
   go("asset");
+};
+// Re-render the page the person is already reading without moving them to the
+// top. Fetch online writes into this page, so it must keep the scroll position
+// and the class tab they were on.
+window.bpAssetRefresh = (id) => {
+  const y = window.scrollY;
+  const classPart = window.bpState?.asset === id
+    ? (window.bpState?.assetClass || "all") : "all";
+  window.bpState = { ...(window.bpState || {}), asset: id, assetClass: classPart };
+  go("asset", { keepScroll: true });
+  // The page paints in pieces. The first restore can land against the shorter
+  // loading document and clamp short, so put the person back once the cards
+  // have settled. Stop as soon as they scroll somewhere themselves.
+  let last = null;
+  let left = 3;
+  const settle = () => {
+    if (left-- <= 0) return;
+    setTimeout(() => {
+      const now = window.scrollY;
+      if (last === null || Math.abs(now - last) < 8) {
+        window.scrollTo(0, y);
+        last = window.scrollY;
+        settle();
+      }
+    }, 220);
+  };
+  settle();
 };
 window.bpAssetClass = (kind) => {
   window.bpState = { ...(window.bpState || {}), assetClass: kind || "all" };
