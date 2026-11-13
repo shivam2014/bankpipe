@@ -530,6 +530,8 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
  flex-wrap:wrap}
 .asset-import-head b{font-size:13.5px;font-weight:620}
 .asset-import-copy{font-size:12px;margin-top:5px;line-height:1.5}
+.import-report-detail{font-size:12px}
+.import-empty{font-size:12px;margin-top:10px}
 .field-source-name{font-size:11px}
 .field-source-fields{font-size:11px;line-height:1.5}
 .field-source-summary{cursor:pointer;font-size:12px;color:var(--muted)}
@@ -3116,17 +3118,6 @@ function digiFinnCardHtml(target, brokerId = "digifinn") {
    </details>
   </div>`;
 }
-// A source is chosen first, then its files. The tile is a button, not a link:
-// the selection decides which report rows render.
-function brokerPickerHtml(chosen, onclick) {
-  return `<div style="display:flex;gap:8px;flex-wrap:wrap">${BOND_BROKERS.map((b) => `
-    <button type="button" class="broker-tile${b.id === chosen ? " on" : ""}"
-      aria-pressed="${b.id === chosen}" onclick="${onclick}('${esc(b.id)}')">
-      ${b.logo ? `<img src="${esc(b.logo)}" alt="${esc(b.label)}">`
-        : `<span>${esc(b.label)}</span>`}
-      <span class="where">${esc(b.page?.where || "")}</span>
-    </button>`).join("")}</div>`;
-}
 // One reference for the question "where did this number come from": a file per
 // line, its fields underneath. Kept as a fold so it never competes with the
 // picker.
@@ -3160,6 +3151,112 @@ function fieldSourcesHtml(broker) {
       ${row("Fetch online (SMEST + BSE)", "credit rating · current market value")}
     </div></details>`;
 }
+function dematBrokerCoverage(id) {
+  return id === "motilal" ? "Bonds · Equities · Funds"
+    : id === "zerodha" ? "Equities" : "Bonds";
+}
+function dematBrokerPickerHtml(chosen, onclick) {
+  const seen = new Set();
+  const list = [...BOND_BROKERS, ...EQUITY_BROKERS]
+    .filter((b) => { if (seen.has(b.id)) return false; seen.add(b.id); return true; });
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap">${list.map((b) => `
+    <button type="button" class="broker-tile${b.id === chosen ? " on" : ""}"
+      aria-pressed="${b.id === chosen}" onclick="${onclick}('${esc(b.id)}')">
+      ${b.logo ? `<img src="${esc(b.logo)}" alt="${esc(b.label)}"><span>${esc(b.label)}</span>`
+        : `<span>${esc(b.label)}</span>`}
+      <span class="where">${esc(dematBrokerCoverage(b.id))}</span></button>`).join("")}</div>`;
+}
+function zerodhaImportGuideHtml(b) {
+  return `<div class="eq-guide">
+    <b class="eq-guide-title">Zerodha holdings XLSX</b>
+    <ol class="eq-guide-steps">
+      <li>Open <a class="link" href="${esc(b.page.url)}" target="_blank"
+        rel="noopener">Console → Portfolio → Holdings</a>.</li>
+      <li>Pick the snapshot date. This is a single date, not a range. Use today, or your
+        CAS statement date if you are reconciling.</li>
+      <li>Click <b>XLSX</b> next to Download.</li>
+      <li>Choose the file below. It fills invested for matching ISINs. Quantity and value
+        stay from the CAS.</li>
+    </ol>
+    <div class="eq-guide-note">The Tradebook is not needed for invested and gain.</div>
+    <div class="eq-guide-actions">
+      <label class="btn primary">Choose Holdings XLSX
+        <input type="file" accept=".xlsx,.xls" style="display:none"
+          onchange="bpZerodhaHoldings(this.files[0]);this.value=''"></label>
+      <a class="btn" href="${esc(b.page.url)}" target="_blank"
+        rel="noopener">Open Holdings ↗</a>
+    </div>
+    <div id="eq-target-note" class="eq-target-note"></div>
+    <div id="eq-zerodha-preview" class="eq-preview"></div>
+  </div>`;
+}
+function motilalImportGuideHtml(b) {
+  return `<div class="eq-guide">
+    <b class="eq-guide-title">Motilal Oswal Portfolio Holding Summary</b>
+    <ol class="eq-guide-steps">
+      <li>Open <a class="link" href="${esc(b.page.url)}" target="_blank"
+        rel="noopener">Motilal Oswal → Reports</a>.</li>
+      <li>Download the <b>Portfolio Holding Summary</b> PDF. Use “Since Inception” or the
+        snapshot date; the report date is read from the file.</li>
+      <li>Choose the PDF below. It is usually password protected; type the password
+        Motilal sent when asked. It is used once and not saved.</li>
+      <li>The report fills invested and purchase date by ISIN. It covers bonds,
+        equities and mutual funds in the same demat. Quantity and value stay from the
+        CAS.</li>
+    </ol>
+    <div class="eq-guide-note">The report's market price and market value are ignored:
+      they are printed at par, not at the market.</div>
+    <div class="eq-guide-actions">
+      <label class="btn primary">Choose Portfolio Holding Summary
+        <input type="file" accept=".pdf" style="display:none"
+          onchange="bpMotilalFile(this.files[0],{host:'eq-motilal-preview'});this.value=''"></label>
+      <a class="btn" href="${esc(b.page.url)}" target="_blank"
+        rel="noopener">Open Motilal reports ↗</a>
+    </div>
+    <div id="eq-target-note" class="eq-target-note"></div>
+    <div id="eq-motilal-preview" class="eq-preview"></div>
+  </div>`;
+}
+function digifinnImportReportsHtml(b) {
+  const rows = (b?.reports || []).filter((r) => ["portfolio", "payouts"].includes(r.slot))
+    .map((r) => `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
+        flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
+        <div><b class="import-report-title">${esc(r.title)}</b>
+          <div class="muted import-report-detail">${esc(r.detail || "")} ·
+            <code>${esc((r.files || []).join(" or "))}</code></div></div>
+        <label class="mini-btn">Choose<input type="file"
+          accept="${esc(r.accept || ".csv")}" style="display:none"
+          onchange="bpImportBroker('${esc(r.slot)}','${esc(b.id)}',this.files[0]);this.value=''"></label>
+      </div>`).join("");
+  return `<div class="muted import-step-note">The Portfolio Report fills invested and purchase
+      date for bonds; the Payouts report adds frequency, next interest and part redemptions.</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">${rows}</div>
+    <div id="import-broker-preview" style="margin-top:10px"></div>
+    ${fieldSourcesHtml(b)}
+    <div class="muted import-note">Not used: Transaction, Investment, KYC, MITC.
+      A second demat may append (1).</div>`;
+}
+function brokerImportBodyHtml() {
+  const chosen = window.bpImportBrokerChoice || "";
+  const bond = chosen ? bondBroker(chosen) : null;
+  const equity = chosen ? equityBroker(chosen) : null;
+  return `<div id="import-broker-step" style="margin-top:12px">
+    <div class="import-step-title">2. Broker reports
+      <span class="muted import-step-sub">optional — invested, dates and terms</span></div>
+    <div class="muted import-step-note">One demat holds bonds, equities and mutual funds.
+      The CAS creates all three; a broker file fills the classes it contains. Files land by
+      ISIN; nothing is written until you confirm.</div>
+    <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
+      text-transform:uppercase;margin-top:12px">Supported brokers</div>
+    <div style="margin-top:7px">${dematBrokerPickerHtml(chosen, "bpImportBrokerChoose")}</div>
+    ${chosen === "zerodha" ? zerodhaImportGuideHtml(equity)
+      : chosen === "motilal" ? `${motilalImportGuideHtml(equity || bond)}
+        ${fieldSourcesHtml(bond)}`
+        : chosen === "digifinn" ? digifinnImportReportsHtml(bond)
+          : `<div class="muted import-empty">Choose a broker to see
+            the files it needs.</div>`}
+  </div>`;
+}
 function renderImport() {
   window.bpDigiFinnPinned = "";
   // A target set by "Import statement" on an account page lasts one visit only.
@@ -3183,132 +3280,9 @@ function renderImport() {
       <input type="file" accept=".pdf" multiple id="bond-cas-input" style="display:none"
         onchange="bpCasFiles(this.files);this.value=''"></label>
     <div id="bond-cas-host" style="margin-top:10px"></div>
-    <div id="import-broker-step" style="margin-top:12px">
-      <div class="import-step-title">2. Broker data
-        <span class="muted import-step-sub">optional — cost, purchase
-        date and terms</span></div>
-      <div class="muted import-step-note">${
-        bondBroker(window.bpImportBrokerChoice || "")?.parser === "motilal"
-          ? `It adds the cost, purchase date, coupon, frequency and face. The demat can sit at
-            any DP; the file finds it by ISIN. Motilal's report also covers equities and funds
-            in the same demat.`
-          : `It adds the cost and purchase date, the payment frequency and the next interest.
-            The demat can sit at any DP; the file finds it by ISIN. DigiFInn covers bonds.`}</div>
-      <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
-        text-transform:uppercase;margin-top:12px">Supported brokers</div>
-      <div style="margin-top:7px">${brokerPickerHtml(window.bpImportBrokerChoice || "",
-        "bpImportBrokerChoose")}</div>
-      ${(() => {
-        const chosen = window.bpImportBrokerChoice ? bondBroker(window.bpImportBrokerChoice) : null;
-        if (!chosen) return `<div class="muted" style="font-size:12px;margin-top:10px">
-          Choose a broker to see the files it needs.</div>`;
-        return `<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-          ${(chosen.reports || []).filter((r) => ["portfolio", "payouts"].includes(r.slot)).map((r) => `
-            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
-              flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
-              <div><b class="import-report-title">${esc(r.title)}</b>
-                <div class="muted" style="font-size:11.5px">${esc(r.detail || "")} ·
-                  <code>${esc((r.files || []).join(" or "))}</code></div></div>
-              <label class="mini-btn">Choose<input type="file"
-                accept="${esc(r.accept || ".csv")}" style="display:none"
-                onchange="bpImportBroker('${esc(r.slot)}','${esc(chosen.id)}',this.files[0]);this.value=''"></label>
-            </div>`).join("")}
-        </div>`;
-      })()}
-      <div id="import-broker-preview" style="margin-top:10px"></div>
-      ${fieldSourcesHtml(window.bpImportBrokerChoice ? bondBroker(window.bpImportBrokerChoice) : null)}
-      <div class="muted import-note">${
-        bondBroker(window.bpImportBrokerChoice || "")?.parser === "motilal"
-          ? `Not used: the report's market price and market value. They are printed at par,
-            not at the market.`
-          : `Not used: Transaction, Investment, KYC, MITC. A second demat may append (1).`}</div>
-    </div>
+    ${brokerImportBodyHtml()}
     <div class="muted" style="font-size:11.5px;margin-top:8px">Updating? Re-import the CAS;
-    cost already on matching bonds is kept.</div>
-  </div>
-
-  <div class="card pad" id="equity-broker-import">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0">Equities</h2>
-      <span class="muted eq-subhead">invested amount</span></div>
-    <p class="muted" style="margin:6px 0 0;font-size:12.5px">The CAS gives the shares and their
-    value, not what you paid or when. A broker holdings report fills what the file carries;
-    purchase date stays blank when the export does not have it. Files land on the demat by ISIN;
-    nothing is written until you confirm.</p>
-    <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
-      text-transform:uppercase;margin-top:12px">Supported brokers</div>
-    <div style="margin-top:7px;display:flex;gap:8px;flex-wrap:wrap">
-      ${EQUITY_BROKERS.map((b) => `<button type="button"
-        class="broker-tile${window.bpEquityBrokerChoice === b.id ? " on" : ""}"
-        aria-pressed="${window.bpEquityBrokerChoice === b.id}"
-        onclick="bpEquityBrokerChoose('${esc(b.id)}')">
-        <span>${esc(b.label)}</span>
-        <span class="where">${esc(b.page?.where || "Reports")}</span></button>`).join("")}
-    </div>
-    ${(() => {
-      const b = window.bpEquityBrokerChoice ? equityBroker(window.bpEquityBrokerChoice) : null;
-      if (!b) return `<div class="muted" style="font-size:12px;margin-top:10px">
-        Choose a broker to see the statement it needs.</div>`;
-      if (b.id === "zerodha") {
-        return `<div class="eq-guide">
-          <b class="eq-guide-title">Zerodha holdings XLSX</b>
-          <ol class="eq-guide-steps">
-            <li>Open <a class="link" href="${esc(b.page.url)}" target="_blank"
-              rel="noopener">Console → Portfolio → Holdings</a>.</li>
-            <li>Pick the snapshot date. This is a single date, not a range. Use today, or your
-              CAS statement date if you are reconciling.</li>
-            <li>Click <b>XLSX</b> next to Download.</li>
-            <li>Choose the file below. It fills invested for matching ISINs. Quantity and value
-              stay from the CAS.</li>
-          </ol>
-          <div class="eq-guide-note">The Tradebook is not needed for invested and gain.</div>
-          <div class="eq-guide-actions">
-            <label class="btn primary">Choose Holdings XLSX
-              <input type="file" accept=".xlsx,.xls" style="display:none"
-                onchange="bpZerodhaHoldings(this.files[0]);this.value=''"></label>
-            <a class="btn" href="${esc(b.page.url)}" target="_blank"
-              rel="noopener">Open Holdings ↗</a>
-          </div>
-          <div id="eq-target-note" class="eq-target-note"></div>
-          <div id="eq-zerodha-preview" class="eq-preview"></div>
-        </div>`;
-      }
-      if (b.id === "motilal") {
-        return `<div class="eq-guide">
-          <b class="eq-guide-title">Motilal Oswal Portfolio Holding Summary</b>
-          <ol class="eq-guide-steps">
-            <li>Open <a class="link" href="${esc(b.page.url)}" target="_blank"
-              rel="noopener">Motilal Oswal → Reports</a>.</li>
-            <li>Download the <b>Portfolio Holding Summary</b> PDF. Use “Since Inception” or the
-              snapshot date; the report date is read from the file.</li>
-            <li>Choose the PDF below. It is usually password protected; type the password
-              Motilal sent when asked. It is used once and not saved.</li>
-            <li>The report fills invested and purchase date by ISIN. It covers bonds,
-              equities and mutual funds in the same demat. Quantity and value stay from the
-              CAS.</li>
-          </ol>
-          <div class="eq-guide-note">The report's market price and market value are ignored:
-            they are printed at par, not at the market.</div>
-          <div class="eq-guide-actions">
-            <label class="btn primary">Choose Portfolio Holding Summary
-              <input type="file" accept=".pdf" style="display:none"
-                onchange="bpMotilalFile(this.files[0],{host:'eq-motilal-preview'});this.value=''"></label>
-            <a class="btn" href="${esc(b.page.url)}" target="_blank"
-              rel="noopener">Open Motilal reports ↗</a>
-          </div>
-          <div id="eq-target-note" class="eq-target-note"></div>
-          <div id="eq-motilal-preview" class="eq-preview"></div>
-        </div>`;
-      }
-      return `<div class="eq-guide">
-        <b class="eq-guide-title">${esc(b.label)} equity statement</b>
-        <div class="eq-guide-note">Purchase date and invested amount per ISIN. The file format is
-          being added, so nothing is read yet.</div>
-        <div class="eq-guide-note">Open
-          <a class="link" href="${esc(b.page?.url || "#")}" target="_blank"
-            rel="noopener">${esc(b.page?.url || b.label)}</a> → ${esc(b.page?.where || "Reports")}</div>
-      </div>`;
-    })()}
+    cost already on matching holdings is kept.</div>
   </div>
 
   <div class="card pad">
@@ -7822,16 +7796,18 @@ window.bpCashflowCancel = () => {
 // From an equity holding that has no cost: land on the broker section of Import.
 window.bpEquityImport = (assetId = "") => {
   window.bpEquityImportTarget = assetId;
+  if (window.bpEquityBrokerChoice) window.bpImportBrokerChoice = window.bpEquityBrokerChoice;
   go("import");
-  setTimeout(() => document.getElementById("equity-broker-import")
-    ?.scrollIntoView({ block: "center", behavior: "smooth" }), 150);
+  setTimeout(() => document.getElementById("import-broker-step")
+    ?.scrollIntoView({ block: "start", behavior: "smooth" }), 150);
 };
 window.bpEquityBrokerChoose = (id) => {
   window.bpEquityBrokerChoice = id;
+  window.bpImportBrokerChoice = id;
   go("import");
   setTimeout(() => {
-    document.getElementById("equity-broker-import")
-      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    document.getElementById("import-broker-step")
+      ?.scrollIntoView({ block: "start", behavior: "smooth" });
     window.bpZerodhaTargetNote?.();
   }, 150);
 };
@@ -7849,17 +7825,17 @@ window.bpZerodhaTargetNote = async () => {
     const target = window.bpEquityImportTarget
       ? accounts.find((a) => a.id === window.bpEquityImportTarget) : null;
     if (target) {
-      host.textContent = `Filling invested in ${target.label || target.bank || target.id}.
+      host.textContent = `Filling the broker facts in ${target.label || target.bank || target.id}.
         Quantity and value stay from the CAS.`;
       return;
     }
     if (accounts.length === 1) {
-      host.textContent = `Filling invested in ${accounts[0].label || accounts[0].bank
+      host.textContent = `Filling the broker facts in ${accounts[0].label || accounts[0].bank
         || accounts[0].id}.`;
       return;
     }
     host.textContent = `${accounts.length} demat accounts. The file is matched by ISIN and
-      updates the account that holds each stock.`;
+      updates the account that holds it.`;
   } catch (e) {
     host.textContent = "";
   }
@@ -8215,6 +8191,8 @@ window.bpMotilalApply = async () => {
 window.bpImportBrokerChoose = (id) => {
   window.bpImportBrokerChoice = id;
   go("import");
+  setTimeout(() => document.getElementById("import-broker-step")
+    ?.scrollIntoView({ block: "start", behavior: "smooth" }), 150);
 };
 window.bpImportBroker = async (slot, brokerId, file) => {
   if (!file) return;
