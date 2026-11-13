@@ -25,9 +25,9 @@ function zipOf(name, body, method = 8) {
 }
 
 const ICDM = [
-  "ISIN,LTP,YIELD,FACE VALUE",
-  "INE000000001,99.50,10.25,100000",
-  "INE000000002,101.25,9.80,100000",
+  "ISIN,LTP,YIELD,FACE VALUE,Issuer Name,Coupon (%),Maturity Date",
+  "INE000000001,99.50,10.25,100000,TEST ISSUER ONE,10.25,06/11/2031",
+  "INE000000002,101.25,9.80,100000,TEST ISSUER TWO,9.80,15/09/2028",
 ].join("\n");
 
 const zip = zipOf("BhavCopy_ICDM.csv", ICDM);
@@ -58,7 +58,7 @@ test("the debt route turns a bhavcopy zip into per-ISIN prices", async () => {
   assert.equal(found.calls, 1);
 });
 
-test("the bond route answers with a quote when SMEST has no page", async () => {
+test("the bond route falls back to BSE terms when SMEST has no page", async () => {
   resetMarketCache();
   found.calls = 0;
   const res = await handleMarket(
@@ -66,9 +66,30 @@ test("the bond route answers with a quote when SMEST has no page", async () => {
     bseOnly);
   assert.equal(res.status, 200);
   const body = await res.json();
-  assert.equal(body.details, null);
+  assert.equal(body.details.source, "BSE");
+  assert.equal(body.details.issuer, "TEST ISSUER ONE");
+  assert.equal(body.details.coupon, 10.25);
+  assert.equal(body.details.maturity, "2031-11-06");
+  assert.equal(body.details.face, 100000);
+  assert.equal(body.detailsError, null);
   assert.equal(body.market.ltp, 99.5);
-  assert.match(body.detailsError, /SMEST/);
+});
+
+test("a BSE price without terms still names the missing terms", async () => {
+  resetMarketCache();
+  const priceOnly = zipOf("BhavCopy_ICDM.csv",
+    "ISIN,LTP\nINE000000003,99.50\nINE000000004,98.25\nINE999900298,97.75\n"
+    + "INE000000006,96.25\nINE000000007,95.50\nINE000000008,94.75");
+  const res = await handleMarket(
+    new Request("https://bankpipe.pages.dev/__market/bond?isin=INE000000003"),
+    async (url) => (url.includes("bseindia.com")
+      ? new Response(priceOnly, { status: 200 })
+      : new Response("nope", { status: 404 })));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.details, null);
+  assert.match(body.detailsError, /BSE has a price but no terms/);
+  assert.equal(body.market.ltp, 99.5);
 });
 
 test("a bond route with neither a quote nor terms says which side failed", async () => {

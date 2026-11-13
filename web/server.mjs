@@ -5,7 +5,7 @@ import { readFile, stat } from "node:fs/promises";
 import { inflateRawSync } from "node:zlib";
 import { dirname, extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseSmest } from "./bond-source.js";
+import { parseSmest, isoDate } from "./bond-source.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8801);
@@ -112,7 +112,8 @@ async function bseDay(iso) {
     const head = csvLine(lines[0] || "").map((h) => h.toLowerCase());
     const at = (name) => head.findIndex((h) => h.includes(name));
     const iIsin = at("isin"), iLtp = at("ltp"), iYield = at("yield"),
-      iFace = at("face value");
+      iFace = at("face value"), iIssuer = at("issuer"), iCoupon = at("coupon"),
+      iMaturity = at("maturity");
     if (iIsin < 0 || iLtp < 0) continue;
     for (const line of lines.slice(1)) {
       if (!line.trim()) continue;
@@ -124,7 +125,10 @@ async function bseDay(iso) {
       if (marketCache.has(isin)) continue;
       marketCache.set(isin, { ltp, date: iso,
         yield: iYield >= 0 ? Number(row[iYield]) || null : null,
-        face: iFace >= 0 ? Number(row[iFace]) || null : null });
+        face: iFace >= 0 ? Number(row[iFace]) || null : null,
+        issuer: iIssuer >= 0 ? String(row[iIssuer] || "").trim() : "",
+        coupon: iCoupon >= 0 ? Number(row[iCoupon]) || null : null,
+        maturity: iMaturity >= 0 ? isoDate(row[iMaturity]) : "" });
       found++;
     }
   }
@@ -187,6 +191,27 @@ async function bondDetails(isin) {
   bondCache.set(isin, { at: Date.now(), details: got.details });
   if (bondCache.size > 500) bondCache.delete(bondCache.keys().next().value);
   return { details: { ...got.details }, cached: false, answered: true };
+}
+
+// SMEST is the first source. If it has no page, the BSE debt file can still
+// supply the issuer, coupon, maturity and face. Keep this shape in step with
+// scripts/pages/market.js; both runtimes answer the same route.
+function bseDetails(isin, quote) {
+  if (!quote || (!quote.issuer && !quote.coupon && !quote.maturity)) return null;
+  return {
+    isin,
+    name: quote.issuer || "",
+    issuer: quote.issuer || "",
+    coupon: quote.coupon ?? null,
+    face: quote.face ?? null,
+    maturity: quote.maturity || "",
+    frequency: "",
+    nextInterest: "",
+    rating: null,
+    ltp: quote.ltp,
+    ltpDate: quote.date,
+    source: "BSE",
+  };
 }
 
 createServer(async (req, res) => {
@@ -262,15 +287,20 @@ createServer(async (req, res) => {
       const market = quote
         ? { ltp: quote.ltp, date: quote.date, face: quote.face, yield: quote.yield }
         : null;
-      const details = found ? { ...found } : null;
+      const fallback = !found && quote ? bseDetails(isin, quote) : null;
+      const details = found ? { ...found } : fallback;
       // The form needs one price to value a lot, so hand it the BSE trade.
       if (details && market) { details.ltp = market.ltp; details.ltpDate = market.date; }
       const body = Buffer.from(JSON.stringify({
         isin,
         details,
-        detailsError: details ? null : "SMEST does not list this ISIN",
+        detailsError: details ? null
+          : market ? "BSE has a price but no terms for this ISIN"
+            : (answered ? "SMEST and BSE do not list this ISIN"
+              : "SMEST did not answer and BSE has no row for this ISIN"),
         market,
         cached: bond.status === "fulfilled" ? bond.value.cached : false,
+        source: details?.source || null,
       }));
       res.writeHead(200, { ...SECURITY, "Content-Type": "application/json",
         "Content-Length": body.length, "Cache-Control": "no-store" });

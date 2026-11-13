@@ -11,7 +11,7 @@
 // Caches live in the isolate. They are a courtesy, not a promise: a cold worker
 // simply reads the exchange again.
 
-import { parseSmest } from "./bond-source.js";
+import { parseSmest, isoDate } from "./bond-source.js";
 
 const BSE_DEBT = "https://www.bseindia.com/download/BhavCopy/Debt/DEBTBHAVCOPY";
 const SMEST = "https://smest.in/bond-details/x/";
@@ -110,7 +110,8 @@ async function readDay(iso, fetchImpl) {
     const head = csvLine(lines[0] || "").map((h) => h.toLowerCase());
     const at = (name) => head.findIndex((h) => h.includes(name));
     const iIsin = at("isin"), iLtp = at("ltp"), iYield = at("yield"),
-      iFace = at("face value");
+      iFace = at("face value"), iIssuer = at("issuer"), iCoupon = at("coupon"),
+      iMaturity = at("maturity");
     if (iIsin < 0 || iLtp < 0) continue;
     for (const line of lines.slice(1)) {
       if (!line.trim()) continue;
@@ -121,7 +122,10 @@ async function readDay(iso, fetchImpl) {
       if (!Number.isFinite(ltp) || ltp <= 0) continue;
       priceCache.set(isin, { ltp, date: iso,
         yield: iYield >= 0 ? Number(row[iYield]) || null : null,
-        face: iFace >= 0 ? Number(row[iFace]) || null : null });
+        face: iFace >= 0 ? Number(row[iFace]) || null : null,
+        issuer: iIssuer >= 0 ? String(row[iIssuer] || "").trim() : "",
+        coupon: iCoupon >= 0 ? Number(row[iCoupon]) || null : null,
+        maturity: iMaturity >= 0 ? isoDate(row[iMaturity]) : "" });
       found++;
     }
   }
@@ -173,6 +177,28 @@ export async function bondDetails(isin, fetchImpl = fetch) {
   return { details: { ...got.details }, cached: false, answered: true };
 }
 
+// When SMEST has no page, the BSE debt file still carries the issuer, coupon,
+// maturity and face for the ISIN. It has no rating, frequency or next interest
+// date, so those stay blank and are named as still missing in the UI. This is
+// the backup, not a replacement: SMEST remains the first source.
+export function bseDetails(isin, quote) {
+  if (!quote || (!quote.issuer && !quote.coupon && !quote.maturity)) return null;
+  return {
+    isin,
+    name: quote.issuer || "",
+    issuer: quote.issuer || "",
+    coupon: quote.coupon ?? null,
+    face: quote.face ?? null,
+    maturity: quote.maturity || "",
+    frequency: "",
+    nextInterest: "",
+    rating: null,
+    ltp: quote.ltp,
+    ltpDate: quote.date,
+    source: "BSE",
+  };
+}
+
 // --- routes -----------------------------------------------------------------
 
 export async function handleMarket(request, fetchImpl = fetch) {
@@ -210,11 +236,16 @@ export async function handleMarket(request, fetchImpl = fetch) {
       return json({ isin, error: answered ? "not listed" : "unreachable" },
         answered ? 404 : 502);
     }
-    const details = found ? { ...found } : null;
+    const fallback = !found && market ? bseDetails(isin, market) : null;
+    const details = found ? { ...found } : fallback;
     if (details && market) { details.ltp = market.ltp; details.ltpDate = market.date; }
     return json({ isin, details,
-      detailsError: details ? null : "SMEST does not list this ISIN",
-      market, cached: bond.status === "fulfilled" ? bond.value.cached : false });
+      detailsError: details ? null
+        : market ? "BSE has a price but no terms for this ISIN"
+          : (answered ? "SMEST and BSE do not list this ISIN"
+            : "SMEST did not answer and BSE has no row for this ISIN"),
+      market, cached: bond.status === "fulfilled" ? bond.value.cached : false,
+      source: details?.source || null });
   }
 
   return json({ error: "not found" }, 404);

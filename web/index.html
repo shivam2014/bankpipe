@@ -10394,7 +10394,7 @@ async function marketBondData(isins, onProgress) {
 async function applyMarketData(store, assetId, lots, got, { termsOnly = false } = {}) {
   // One bucket per lot, so the sentence adds up to the number of bonds.
   const c = { lots: lots.length, priced: 0, changed: 0, filled: 0,
-    current: 0, unpriced: 0, unlisted: 0, unread: 0 };
+    current: 0, unpriced: 0, unlisted: 0, unread: 0, bse: 0 };
   for (const h of lots) {
     const data = got.get(String(h.security_id).toUpperCase()) || null;
     const plan = bondFillPlan(h, data);
@@ -10408,11 +10408,13 @@ async function applyMarketData(store, assetId, lots, got, { termsOnly = false } 
     if (plan.terms || priced) {
       await store.upsertHolding(assetId, { ...h, ...plan.patch });
     }
+    if (data?.details?.source === "BSE") c.bse++;
     if (!data || (data.status && data.status !== 404)) c.unread++;
     else if (!data.details) c.unlisted++;
     else if (priced && plan.patch.value_paise !== h.value_paise) c.priced++;
     else if (plan.ratingChanged) c.changed++;
     else if (plan.added) c.filled++;
+    else if (plan.terms) c.filled++;
     else if (!priced) c.unpriced++;
     else c.current++;
   }
@@ -10421,11 +10423,12 @@ async function applyMarketData(store, assetId, lots, got, { termsOnly = false } 
 function marketSummary(c) {
   const bits = [];
   if (c.priced) bits.push(`${c.priced} repriced from BSE`);
+  if (c.bse) bits.push(`${c.bse} term${c.bse === 1 ? "" : "s"} from BSE`);
   if (c.changed) bits.push(`${c.changed} rating${c.changed === 1 ? "" : "s"} updated`);
   if (c.filled) bits.push(`${c.filled} filled in`);
   if (c.current) bits.push(`${c.current} already current`);
   if (c.unpriced) bits.push(`${c.unpriced} had no trade, so the value is unchanged`);
-  if (c.unlisted) bits.push(`${c.unlisted} not listed on SMEST`);
+  if (c.unlisted) bits.push(`${c.unlisted} had no terms on SMEST or BSE`);
   if (c.unread) bits.push(`${c.unread} could not be read`);
   return bits.join(" · ") || "Nothing to do";
 }
@@ -11247,6 +11250,7 @@ window.bpBondFetch = async (assetId, holdingId, overwrite = false) => {
     set("bh-freq", fields.frequency);
     set("bh-rating", fields.rating);
     set("bh-payout-date", fields.interest_date);
+    set("bh-face", fields.face);
   }
   const market = data.market;
   // A lot is worth face × units × price. SMEST knows the face; without it,
@@ -11263,6 +11267,7 @@ window.bpBondFetch = async (assetId, holdingId, overwrite = false) => {
   const bits = [];
   if (!fields) bits.push("no terms came back, so the fields are unchanged");
   else {
+    if (data.details?.source === "BSE") bits.push("terms from BSE");
     if (fields.frequency) bits.push(`${fields.frequency.toLowerCase()} interest`);
     if (fields.rating) {
       const held = String(document.getElementById("bh-rating")?.value || "").trim();
