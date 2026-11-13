@@ -353,6 +353,11 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .bond-table th:first-child{z-index:3}
 .bond-table .pos{color:var(--green)}
 .bond-table .neg{color:var(--red)}
+.bond-table .sub.need{color:var(--amber)}
+.needs-details{margin-top:8px;font-size:11px;color:var(--muted)}
+.needs-details summary{cursor:pointer}
+.needs-list{display:grid;gap:4px;margin-top:6px}
+.needs-list b{color:var(--ink);font-weight:600}
 /* The book has thirteen columns. On desktop the table keeps the comparison
    columns and drops the four that repeat the bond name or live on the card:
    coupon, purchase date, maturity date and units. */
@@ -9959,7 +9964,8 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
   return `<div class="bond-card">
     <div class="bond-card-head"><div><div class="bond-name">${esc(v.h.label || "—")}</div>
       <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
-        ? " · added by hand" : ""}</div></div>
+        ? " · added by hand" : ""}${!String(v.h.issuer || "").trim()
+        ? ` · <span class="need">issuer name missing</span>` : ""}</div></div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         ${matured ? `<span class="bond-rating">Matured</span>` : ""}
         ${matured && v.rating ? `<span class="bond-rating" title="Current credit rating">${esc(v.rating)}</span>` : ""}
@@ -9989,11 +9995,14 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
         ${cell("Invested", moneyOrDash(v.h.cost_paise))}
         ${cell("Units", qty || "—")}
-        ${cell("Face at issue", v.faceAtIssue ? money(v.faceAtIssue) : "—")}
+        ${cell("Face at issue", v.faceAtIssue ? `${money(v.faceAtIssue)}${
+          !(Number(v.h.face_paise) > 0)
+            ? `<div class="sub">inferred from invested</div>` : ""}` : "—")}
         ${cell("Payment frequency", esc(v.frequency))}
         ${cell("Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
         ${cell("Purchase rating", v.h.rating_at_purchase
-          ? esc(v.h.rating_at_purchase) : "—")}
+          ? esc(v.h.rating_at_purchase)
+          : `—<div class="sub need">rating missing</div>`)}
       </div>
     </div>
     <div class="bond-section">
@@ -10008,7 +10017,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
           v.change ? `<div class="sub ${v.change.down ? "neg" : "pos"}">${
             v.change.down ? "downgraded" : "upgraded"} from ${esc(v.change.from)}</div>`
             : v.h.rating_at_purchase ? `<div class="sub">unchanged since purchase</div>` : ""
-        }` : "—", v.change ? (v.change.down ? "neg" : "pos") : "")}
+        }` : `—<div class="sub need">rating missing</div>`, v.change ? (v.change.down ? "neg" : "pos") : "")}
       </div>
     </div>
     <div class="bond-section">
@@ -10095,8 +10104,11 @@ function holdingsCard(allRows, assetId) {
     ${sortBtn("payout", "Next interest")}${sortBtn("value", "Market value")}</div>`;
   const tableRows = views.map((v) => `<tr>
       <td><div class="bond-name">${esc(v.h.label || "—")}</div>
-        <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "")}</div></td>
+        <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "")}</div>
+        ${!String(v.h.issuer || "").trim()
+          ? `<div class="sub need">issuer name missing</div>` : ""}</td>
       <td>${v.rating ? `<span class="bond-rating">${esc(v.rating)}</span>` : "—"}
+        ${!v.rating ? `<div class="sub need">rating missing</div>` : ""}
         ${v.change ? `<div class="sub ${v.change.down ? "neg" : "pos"}" style="margin-top:3px">
           ${v.change.down ? "downgraded" : "upgraded"} ${esc(v.change.from)} → ${esc(v.change.to)}</div>` : ""}</td>
       <td class="num">${v.coupon === null ? "—" : `${v.coupon}%`}</td>
@@ -10132,6 +10144,13 @@ function holdingsCard(allRows, assetId) {
   ].filter(Boolean);
   const needsFetch = missingDetails.length > 0;
   const needsCount = missingFace + missingName + missingRating;
+  const needsRows = bondRows.map((h) => {
+    const missing = [];
+    if (!(Number(h.face_paise) > 0)) missing.push("face value inferred");
+    if (!String(h.issuer || "").trim()) missing.push("issuer name");
+    if (!bondRatingOf(h)) missing.push("rating");
+    return missing.length ? { h, missing } : null;
+  }).filter(Boolean);
   const costNote = missingCost
     ? `${missingCost} invested amount${missingCost === 1 ? "" : "s"} missing — edit the lot`
       + " with the pencil to add it."
@@ -10180,6 +10199,13 @@ function holdingsCard(allRows, assetId) {
         </details>` : ""}
       </div></div>
     ${statusLine}
+    ${needsFetch ? `<details class="needs-details">
+      <summary>Which bonds need details?</summary>
+      <div class="needs-list">${needsRows.map(({ h, missing }) =>
+        `<div><b>${esc(h.label || h.security_id || "Bond")}</b>${
+          h.security_id ? ` · ${esc(h.security_id)}` : ""} — ${missing.join(", ")}</div>`)
+        .join("")}</div>
+    </details>` : ""}
     <div id="bond-fetch-panel" role="status" aria-live="polite"
       class="fetch-panel${fetchState?.done ? " done" : fetchState?.bad ? " bad" : ""}"
       style="${fetchState ? "" : "display:none"}">${
