@@ -582,6 +582,11 @@ textarea.inline-input{resize:vertical;min-height:48px}
 .fetch-panel .fp-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
  font-size:13px}
 .fetch-panel .fp-head b{font-weight:640}
+.fetch-panel .fp-right{display:flex;align-items:center;gap:6px}
+.fetch-panel .fp-close{width:30px;height:30px;border:1px solid var(--line);border-radius:99px;
+ background:var(--card);color:var(--muted);font-family:inherit;font-size:15px;font-weight:600;
+ line-height:1;cursor:pointer;padding:0}
+.fetch-panel .fp-close:hover{color:var(--ink);border-color:var(--green)}
 .fetch-panel .fp-detail{font-size:12px;color:var(--muted);margin-top:7px}
 .fetch-panel .progress-track{margin-top:9px}
 .hold-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px;
@@ -10051,8 +10056,12 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
 }
 function bondFetchPanelBody(state) {
   const pct = Math.max(0, Math.min(100, Math.round(Number(state.pct) || 0)));
+  const close = state.done || state.bad
+    ? `<button type="button" class="fp-close" aria-label="Dismiss fetch result"
+        title="Dismiss" onclick="bpBondFetchDismiss()">×</button>`
+    : "";
   return `<div class="fp-head"><b>${esc(state.label || "")}</b>
-      <span class="muted">${pct}%</span></div>
+      <span class="fp-right"><span class="muted">${pct}%</span>${close}</span></div>
     <div class="progress-track"><div class="progress-fill${state.bad ? " bad" : ""}"
       style="width:${pct}%"></div></div>
     ${state.detail ? `<div class="fp-detail">${esc(state.detail)}</div>` : ""}`;
@@ -10073,6 +10082,16 @@ window.bpBondFetchPanel = (assetId, state) => {
   el.className = `fetch-panel${state.done ? " done" : state.bad ? " bad" : ""}`;
   el.style.display = "";
   el.innerHTML = bondFetchPanelBody(state);
+};
+// The result is useful once, then it is just a banner over the book. Closing it
+// also clears the stored state so a re-render does not bring it back.
+window.bpBondFetchDismiss = () => {
+  window.bpBondFetchStatus = null;
+  const el = document.getElementById("bond-fetch-panel");
+  if (el) {
+    el.style.display = "none";
+    el.innerHTML = "";
+  }
 };
 function holdingsCard(allRows, assetId) {
   const { current: rows, matured } = splitMatured(allRows);
