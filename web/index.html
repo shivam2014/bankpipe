@@ -525,6 +525,11 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-flow{display:grid;gap:4px;margin-bottom:10px;font-size:12px;line-height:1.5}
 .import-flow b{font-weight:620;color:var(--ink)}
 .import-flow .actlink{margin-left:6px}
+.asset-import-card{margin-bottom:14px}
+.asset-import-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+ flex-wrap:wrap}
+.asset-import-head b{font-size:13.5px;font-weight:620}
+.asset-import-copy{font-size:12px;margin-top:5px;line-height:1.5}
 .field-source-name{font-size:11px}
 .field-source-fields{font-size:11px;line-height:1.5}
 .field-source-summary{cursor:pointer;font-size:12px;color:var(--muted)}
@@ -1176,7 +1181,7 @@ import { bondAnalytics, bondSummary, parseBondLabel, inferFace,
   BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange,
   carryBrokerFields, soldGain } from "./bonds.js";
 import { bondPrefill } from "./bond-source.js";
-import { BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport, IMPORT_SLOTS,
+import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
 import { parseZerodhaHoldingsSheets } from "./zerodha.js";
 import { parseMotilalPages, motilalHoldingPatch as motilalPatch } from "./motilal.js";
@@ -3178,7 +3183,7 @@ function renderImport() {
       <input type="file" accept=".pdf" multiple id="bond-cas-input" style="display:none"
         onchange="bpCasFiles(this.files);this.value=''"></label>
     <div id="bond-cas-host" style="margin-top:10px"></div>
-    <div style="margin-top:12px">
+    <div id="import-broker-step" style="margin-top:12px">
       <div class="import-step-title">2. Broker data
         <span class="muted import-step-sub">optional — cost, purchase
         date and terms</span></div>
@@ -7466,75 +7471,21 @@ window.bpCostFill = async () => {
     // files could have come from.
     const chosen = meta.broker_source
       || (meta.cost_file || payoutsFile ? "digifinn" : "");
-    const picked = chosen ? bondBroker(chosen) : null;
-    const logo = brokerLogo(chosen || "digifinn");
-    const slots = (picked?.reports || []).filter((r) => IMPORT_SLOTS.includes(r.slot));
-    const reportRow = (r) => {
-      const cost = r.slot === "portfolio";
-      const last = cost ? meta.cost_file : (meta.payout_file || meta.cashflow_file || "");
-      return `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;
-          flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px">
-        <div style="flex:1 1 260px;min-width:0"><b style="font-size:12.5px">${esc(r.title)}</b>${r.optional
-          ? ` <span class="muted" style="font-weight:400">optional</span>` : ""}
-          <div class="muted" style="font-size:11.5px">${esc(r.detail || "")} ·
-            <code>${esc((r.files || []).join(" or "))}</code>${
-            last ? ` · last: <code>${esc(last)}</code>` : ""}</div></div>
-        <label class="mini-btn" style="white-space:nowrap">Choose<input type="file"
-          accept="${esc(r.accept || ".csv")}" style="display:none"
-          onchange="${cost ? "bpCostFile" : "bpCashflowFile"}(this.files[0],{broker:'${esc(chosen)}'});this.value=''"></label>
-      </div>`;
-    };
-    const body = `<div class="import-flow">
-        <div><b>1. CAS statement</b> creates this demat and its holdings.
-          <button class="actlink" onclick="bpAssetCasImport()">Open Import →</button></div>
-        <div><b>2. Broker reports</b> fill invested, purchase date and terms. Choose below.</div>
-      </div>
-      <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
-        text-transform:uppercase">Supported brokers</div>
-      <div style="margin-top:7px">${brokerPickerHtml(chosen, "bpBrokerSource")}</div>
-      ${picked ? `
-        <div class="muted motilal-note">${picked.parser === "motilal"
-          ? `Broker data import from <b>Motilal Oswal</b>. The CAS gives units, face value and
-            market value. The Portfolio Holding Summary adds invested, purchase date, coupon,
-            frequency and face. It covers bonds, equities and funds in the same demat.`
-          : `Broker data import from <b>${esc(picked.label)}</b>. The CAS gives units, face
-            value and market value. The Portfolio Report adds what you paid and when; the
-            Payouts report adds the payment frequency and the next interest. Both are optional
-            after the CAS. Without the Payouts report, the frequency and next interest are
-            estimated.`}</div>
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-          ${slots.length ? slots.map(reportRow).join("")
-            : `<div class="muted" style="font-size:12px">No report formats are registered for
-              this broker yet.</div>`}</div>
-        <div id="cost-preview" style="margin-top:10px"></div>
-        <div id="cashflow-preview" style="margin-top:10px"></div>
-        ${fieldSourcesHtml(picked)}
-        <div class="muted" style="font-size:11px;margin-top:7px">A second demat's download may
-          append (1).</div>`
-      : `<div class="muted" style="font-size:12px;margin-top:10px">Choose a broker to see the
-          files it needs.</div>`}`;
+    const source = chosen ? bondBroker(chosen) : null;
+    const filled = source?.parser === "motilal" ? "cost and dates on file"
+      : hasPayouts ? "cost and payouts on file"
+        : "prices on file · payouts not imported";
     const status = missing.length
       ? `${missing.length} of ${live.length} bond${live.length === 1 ? "" : "s"} need a purchase price`
-      : picked?.parser === "motilal"
-        ? `cost and dates on file · all ${live.length} bond${live.length === 1 ? "" : "s"} priced${
-          meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}`
-        : hasPayouts
-          ? `cost and payouts on file · all ${live.length} bond${live.length === 1 ? "" : "s"} priced${
-            meta.cost_as_of ? ` · as of ${dateLabel(meta.cost_as_of)}` : ""}`
-          : "prices on file · payouts not imported · interest estimated";
-    // Folded by default: it is an occasional import, not something to read
-    // every time the account is opened.
-    host.innerHTML = `<div class="card pad" style="margin-bottom:14px">
-      <details>
-        <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">
-          <b style="color:var(--ink);font-weight:600">Broker data import</b>
-          <span class="muted">· step 2 after the CAS</span>
-          ${logo ? `<img src="${esc(logo)}" alt="${esc(bondBroker(chosen || "digifinn").label)}"
-            style="height:18px;vertical-align:-4px;margin:0 6px 0 4px">`
-            : ` · ${esc(bondBroker(chosen || "digifinn").label)} `}
-          · ${status}</summary>
-        <div style="margin-top:8px">${body}</div>
-      </details>
+      : `${source ? `${source.label} · ` : ""}${filled}`;
+    host.innerHTML = `<div class="card pad asset-import-card">
+      <div class="asset-import-head"><b>Broker data</b>
+        <span class="muted">${status}</span></div>
+      <div class="muted asset-import-copy">The CAS creates this demat and its holdings.
+        Broker reports fill invested, purchase date and terms. Both are imported on the
+        Import page: a new portfolio starts with the CAS, an existing one adds the broker
+        files there.</div>
+      <button class="btn" onclick="bpAssetImportBroker(${jsArg(id)})">Open Import</button>
     </div>`;
     window.bpCostPlan = null;
   } catch (e) {
@@ -7543,17 +7494,6 @@ window.bpCostFill = async () => {
 };
 // The source is a property of the account, not a global: a second demat could
 // arrive from a different platform.
-window.bpBrokerSource = async (id) => {
-  const store = await import("./db.js");
-  const asset = (await store.listAccounts()).find((a) => a.id === window.bpState?.asset);
-  if (!asset) return;
-  await store.updateAccount(asset.id, { meta: JSON.stringify({ ...metaOf(asset),
-    broker_source: id }) });
-  await window.bpCostFill?.();
-  // Re-rendering the card closes the details; the click just opened it.
-  const d = document.querySelector("#cost-card details");
-  if (d) d.open = true;
-};
 window.bpCostFile = async (file, opts = {}) => {
   if (!file) return;
   const fromImport = opts.fromImport === true;
@@ -7702,6 +7642,7 @@ window.bpCostApply = async () => {
     const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
     if (asset) {
       await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),
+        broker_source: plan.brokerId,
         cost_source: `${bondBroker(plan.brokerId).label} Portfolio Report`,
         cost_as_of: plan.parsed.asOf || "",
         cost_file: plan.parsed.fileName || "" }) });
@@ -7840,6 +7781,7 @@ window.bpCashflowApply = async () => {
     const asset = (await store.listAccounts()).find((a) => a.id === plan.id);
     if (asset) {
       await store.updateAccount(plan.id, { meta: JSON.stringify({ ...metaOf(asset),
+        broker_source: plan.brokerId,
         payout_source: plan.parsed.source === "cashflow"
           ? `${bondBroker(plan.brokerId).label} Cashflow Future`
           : `${bondBroker(plan.brokerId).label} Upcoming Payouts`,
@@ -11888,13 +11830,21 @@ window.bpAsset = (id, classPart = "all") => {
   go("asset");
 };
 // The CAS is the first import; the broker reports only fill what the CAS
-// leaves out. The asset page links back to step one instead of implying that
-// the broker file can create the demat on its own.
-window.bpAssetCasImport = () => {
+// leaves out. Both live on the Import page, so the asset page is a status card
+// and a link, not a second importer. The broker that last touched this account
+// is preselected for the person.
+window.bpAssetImportBroker = async (id) => {
+  try {
+    const store = await import("./db.js");
+    const asset = (await store.listAccounts()).find((a) => a.id === id);
+    window.bpImportBrokerChoice = metaOf(asset || {}).broker_source || "";
+  } catch (e) {
+    window.bpImportBrokerChoice = "";
+  }
   go("import");
   setTimeout(() => {
-    const input = document.getElementById("bond-cas-input");
-    input?.closest(".card")?.scrollIntoView({ block: "start", behavior: "smooth" });
+    const step = document.getElementById("import-broker-step");
+    step?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, 150);
 };
 // Re-render the page the person is already reading without moving them to the
