@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { casMovementAccountBos, casPreviewAccounts,
+import { casFolioHoldings, casImportUnits, casMovementAccountBos, casPreviewAccounts,
   casWritableHoldings } from "./cas-apply.js";
 
 // Regression guards for helpers added after dca90b3. They cannot run on that
@@ -51,4 +51,28 @@ test("the writable holding count drops a closed row and keeps a matured one", ()
       label: "9% TEST 01 Jan 2030", maturity: "2030-01-01" },
   ];
   assert.equal(casWritableHoldings(holdings, "2026-11-14").length, 2);
+});
+
+test("the inbox picks a movement-only demat so its sale is written", () => {
+  const accounts = [
+    { id: "demat-a", category: "demat", number: "1200000000000001" },
+    { id: "demat-b", category: "demat", number: "1200000000000002" },
+  ];
+  const units = casImportUnits({
+    accounts,
+    routeAccounts: [{ boId: "1200000000000001", assetId: "demat-a" }],
+    groups: [],
+    movements: [{ account: "1200000000000002" }],
+  });
+  assert.deepEqual([...units],
+    ["bo:1200000000000001", "bo:1200000000000002"]);
+});
+
+test("a zero-unit fund is not shown as a folio unit", () => {
+  const holdings = [
+    { kind: "mf", folio: "123", amc: "TEST", quantity: 0, valuePaise: 5000 },
+    { kind: "mf", folio: "124", amc: "TEST", quantity: 10, valuePaise: 5000 },
+    { kind: "bond", quantity: 1 },
+  ];
+  assert.deepEqual(casFolioHoldings(holdings).map((holding) => holding.folio), ["124"]);
 });

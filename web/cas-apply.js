@@ -187,6 +187,40 @@ export function casPreviewAccounts({ accounts = [], routeAccounts = [], movement
 }
 
 /**
+ * The account picks the CAS writer starts with. Every route account and folio is
+ * ticked, plus a demat named only by a movement so its disposal is written.
+ * @param {{accounts?: Array<object>, routeAccounts?: Array<object>,
+ *   groups?: Array<object>, movements?: Array<object>}} input
+ * @returns {Set<string>}
+ */
+export function casImportUnits({ accounts = [], routeAccounts = [], groups = [],
+  movements = [] } = {}) {
+  const units = new Set();
+  for (const account of routeAccounts || []) units.add(`bo:${account.boId}`);
+  for (const group of groups || []) {
+    if (group.kind === "mf" && group.folio) {
+      units.add(`mf:${String(group.amc || "").toLowerCase()}`);
+    }
+  }
+  for (const account of casPreviewAccounts({ accounts, routeAccounts, movements })) {
+    units.add(`bo:${account.boId}`);
+  }
+  return units;
+}
+
+/**
+ * The fund holdings a folio card can show. A zero-unit fund keeps a value but
+ * is not a folio the route or the writer can place, so the card must not show a
+ * phantom unit for it.
+ * @param {Array<object>} holdings
+ * @returns {Array<object>}
+ */
+export function casFolioHoldings(holdings = []) {
+  return (holdings || []).filter((holding) => holding.kind === "mf" && holding.folio
+    && Number(holding.quantity) > 0);
+}
+
+/**
  * The parsed holdings a write would keep. A closed position is dropped, except
  * a matured bond. The inbox count and the writer use the same list.
  * @param {Array<object>} holdings
@@ -1033,11 +1067,19 @@ export function planLinkedSales({ dematPlan = {}, dematAssetId = "", asOf = "",
       // A sold row written before the balance key carries the legacy key. It is
       // still this sale, so reconcile it rather than leave its cost stale. The
       // row can be in `sold` (built this run) or already in `rows` (history).
+      // Scoped keys are exact. An older unscoped key is only accepted when it
+      // identifies one disposed row, so two accounts cannot claim each other.
       const keys = [casEventKey(event, dematAssetId),
         casLegacyEventKey(event, dematAssetId)];
-      const dematSold = [...(dematPlan.sold || []),
-        ...(dematPlan.rows || []).filter((row) => row.disposed_at)]
-        .find((row) => keys.includes(row.txn_key));
+      const disposed = [...new Set([...(dematPlan.sold || []),
+        ...(dematPlan.rows || []).filter((row) => row.disposed_at)])];
+      let dematSold = disposed.find((row) => keys.includes(row.txn_key)) || null;
+      if (!dematSold) {
+        const unscoped = disposed.filter((row) =>
+          row.txn_key === casLegacyEventKey(event) || row.txn_key === casEventKey(event));
+        const unique = new Map(unscoped.map((row) => [row.txn_key, row]));
+        if (unique.size === 1) dematSold = [...unique.values()][0];
+      }
       if (!dematSold) continue;
       const before = dematSold.disposed_cost_paise;
       dematSold.disposed_cost_paise = sale.costPaise;
@@ -1045,15 +1087,16 @@ export function planLinkedSales({ dematPlan = {}, dematAssetId = "", asOf = "",
         && String(row.security_id || "").toUpperCase() === sale.isin
         && (Number(row.quantity) || 0) > 0);
       if (live) {
-        if (before !== null && before !== undefined) {
+        // A row with no cost has no basis to adjust; the linked portfolio's
+        // remaining cost is the only basis it can take. A known live cost is
+        // never overwritten with it.
+        if (live.cost_paise === null || live.cost_paise === undefined) {
+          if (sale.remainingCostPaise !== null && sale.remainingCostPaise !== undefined) {
+            live.cost_paise = sale.remainingCostPaise;
+          }
+        } else if (before !== null && before !== undefined && Number(before) > 0) {
           live.cost_paise = Math.max(0, (Number(live.cost_paise) || 0)
             + Number(before) - Number(sale.costPaise));
-        } else if ((live.cost_paise === null || live.cost_paise === undefined)
-          && sale.remainingCostPaise !== null && sale.remainingCostPaise !== undefined) {
-          // The demat row had no cost to adjust, so the linked plan's remaining
-          // cost is the only basis it can take. A known live cost is never
-          // overwritten with it.
-          live.cost_paise = sale.remainingCostPaise;
         }
         const liveCost = live.cost_paise === null || live.cost_paise === undefined
           ? null : Number(live.cost_paise);

@@ -282,3 +282,62 @@ test("a legacy sold row on file is reconciled through the real plan", () => {
   assert.equal(plan.rows.find((row) => !row.disposed_at).cost_paise, 54000);
   assert.equal(linked.reconciliations.length, 1);
 });
+
+// --- the fifth review round --------------------------------------------------
+
+test("a null live cost takes the linked remaining cost, not the old sold difference", () => {
+  const event = sale();
+  const soldRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 60, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", disposed_cost_paise: 72000,
+    txn_key: casLegacyEventKey(event, "demat-a") };
+  const liveRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 40, cost_paise: null, value_paise: 400000, as_of: "2026-08-31" };
+  const dematPlan = { events: [{ ...event, txn_key: casEventKey(event, "demat-a") }],
+    sold: [soldRow], rows: [liveRow, soldRow] };
+  const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+  const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
+    asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
+  assert.equal(soldRow.disposed_cost_paise, 66000);
+  assert.equal(liveRow.cost_paise, 44000);
+  assert.equal(linked.reconciliations.length, 1);
+});
+
+test("a sold row with a zero cost does not change a known live cost", () => {
+  const event = sale();
+  const soldRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 60, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", disposed_cost_paise: 0,
+    txn_key: casEventKey(event, "demat-a") };
+  const liveRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 40, cost_paise: 48000, value_paise: 400000, as_of: "2026-08-31" };
+  const dematPlan = { events: [{ ...event, txn_key: casEventKey(event, "demat-a") }],
+    sold: [soldRow], rows: [liveRow, soldRow] };
+  const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+  const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
+    asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
+  assert.equal(soldRow.disposed_cost_paise, 66000);
+  assert.equal(liveRow.cost_paise, 48000);
+  assert.equal(linked.reconciliations.length, 1);
+});
+
+test("an unscoped legacy sold row is reconciled when it is the only candidate", () => {
+  const event = sale();
+  const soldRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 60, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", disposed_cost_paise: 72000,
+    txn_key: casLegacyEventKey(event) };
+  const liveRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 40, cost_paise: 48000, value_paise: 400000, as_of: "2026-08-31" };
+  const dematPlan = { events: [{ ...event, txn_key: casEventKey(event, "demat-a") }],
+    sold: [soldRow], rows: [liveRow, soldRow] };
+  const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+  const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
+    asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
+  assert.equal(soldRow.disposed_cost_paise, 66000);
+  assert.equal(liveRow.cost_paise, 54000);
+  assert.equal(linked.reconciliations.length, 1);
+});

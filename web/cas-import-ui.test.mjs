@@ -42,6 +42,15 @@ test("the inbox preview includes a movement-named demat missing from the holding
   assert.match(html, /accounts: \[extra\.boId\]/);
 });
 
+test("the inbox picks a movement-only demat into its import set", () => {
+  assert.match(html, /const units = casImportUnits\(\{/);
+  assert.match(html, /movements: cas\.transactions/);
+});
+
+test("a zero-unit fund is not shown as a folio unit", () => {
+  assert.match(html, /for \(const holding of casFolioHoldings\(writableHoldings\)\)/);
+});
+
 test("unticking a seeded movement-only demat stops its sale", () => {
   assert.match(html, /card\.picked && \(named \|\| movementHome\)/);
 });

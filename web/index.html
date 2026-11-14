@@ -1371,9 +1371,9 @@ import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
   reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
-import { casClosedRow, casHoldingLabel, casImportHoldings, casMovementAccountBos,
-  casPreviewAccounts, casReplacePlan, casSafety, casWritableHoldings,
-  linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
+import { casClosedRow, casFolioHoldings, casHoldingLabel, casImportHoldings,
+  casImportUnits, casMovementAccountBos, casPreviewAccounts, casReplacePlan,
+  casSafety, casWritableHoldings, linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
 import { casSoldLines, soldHoldingsHtml, splitHoldings } from "./sold-view.js";
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
@@ -8834,11 +8834,12 @@ async function bpImportApplyCas(bundle, opts = {}) {
   };
   const accounts = await store.listAccounts();
   const route = casRoute(cas, accounts);
-  const units = new Set();
-  for (const account of route.accounts) units.add(`bo:${account.boId}`);
-  for (const group of [...route.groups, ...route.homeless]) {
-    if (group.kind === "mf" && group.folio) units.add(`mf:${String(group.amc || "").toLowerCase()}`);
-  }
+  const units = casImportUnits({
+    accounts,
+    routeAccounts: route.accounts,
+    groups: [...route.groups, ...route.homeless],
+    movements: cas.transactions,
+  });
   const key = `inbox-${String(bundle.key).replace(/[^a-z0-9]+/gi, "-")}`;
   window.bpCasCards = window.bpCasCards || {};
   window.bpCasCards[key] = {
@@ -9158,8 +9159,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       String(group.amc || "").toLowerCase()
         === String(holding.amc || "").toLowerCase());
     const folioSeen = new Map();
-    for (const holding of writableHoldings) {
-      if (holding.kind !== "mf" || !holding.folio) continue;
+    for (const holding of casFolioHoldings(writableHoldings)) {
       const group = folioGroupOf(holding);
       const amc = String(holding.amc || "Folio").trim();
       const key = `mf:${amc.toLowerCase()}`;
