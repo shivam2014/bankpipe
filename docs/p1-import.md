@@ -169,6 +169,13 @@ broker stay separate cards, and the statement's card says to import the broker
 first. The same exception keeps an ask about a bond the statement sold on the
 broker's own card, where it is visible, instead of behind one plan-wide accept.
 
+When a staged broker would actually put a cost on a disposed ISIN, the
+statement's primary is disabled and its card says "Import the Motilal report
+first", with a button that goes to that card. The gate is narrow. A broker with
+nothing to write, another account, another ISIN or a date it cannot pass leaves
+the statement ready, so the statement is never trapped behind a card that cannot
+be applied. `Import all` closes through the same ready flag.
+
 The card's added and updated counts are the plan's net rows, not the sum of its
 files. A row one file adds and another fills cost on is one added holding, not
 an add plus an update. The per-file lines say what each file does, not how many
@@ -180,6 +187,15 @@ A file that resolved to nothing still creates its own account beside an
 existing demat that only a later CAS can relabel. Grouping leaves that
 unchanged: there is no account id to join on, and inventing one is the stored
 mapping this phase forbids.
+
+### Follow-up: recover a sold-conflict accept
+
+Accepting a sold-conflict ask currently writes the report's live row beside the
+disposal. The durable fix is to keep the `disposed_at` row and fill
+`disposed_cost_paise` from the report's cost, so the wrong order is recoverable.
+It is not in Phase 2. It changes what an accepted ask writes, and it needs tests
+for a full sale, a partial sale, a re-purchase and a linked cost portfolio. The
+card gate prevents the wrong order in the meantime.
 
 ## Phase 3: one gate and one write per plan
 

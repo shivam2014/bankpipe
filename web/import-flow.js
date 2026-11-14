@@ -499,6 +499,64 @@ export function groupResolvedPlans(bundles = []) {
   return plans;
 }
 
+/**
+ * The accounts a statement's targets will write: one per distinct resolved id,
+ * plus one for each target that has no account yet. Two BO IDs that both
+ * resolve to one legacy account are one account, not two.
+ * @param {Array<{targetId?: string}>} targets
+ * @returns {{resolved: Array<string>, unresolved: number, count: number}}
+ */
+export function statementAccounts(targets = []) {
+  const resolved = [];
+  let unresolved = 0;
+  for (const target of targets || []) {
+    const id = String(target?.targetId || "");
+    if (!id) { unresolved += 1; continue; }
+    if (!resolved.includes(id)) resolved.push(id);
+  }
+  return { resolved, unresolved, count: resolved.length + unresolved };
+}
+
+/**
+ * The broker-first gate for a statement that disposes a security. It returns the
+ * staged broker plan that would put a cost on one of the disposed ISINs, or null
+ * when no broker would change that cost.
+ *
+ * A disposal can name its account. A broker only funds a disposal on its own
+ * account. A broker with nothing to write, another account, another ISIN, a
+ * purchase or maturity change, or a date it cannot pass does not gate. The
+ * narrow condition is what keeps the statement from being trapped behind a card
+ * that cannot be applied; an ask is not a block, because the person can answer
+ * it.
+ *
+ * @param {{accounts?: Array<string>, disposed?: Array<string|{isin?: string,
+ *   accountId?: string}>, brokers?: Array<{key: string, label?: string,
+ *   accountId?: string, blocked?: boolean, changes?: Array<{isin?: string,
+ *   group?: string, field?: string}>}>}} input
+ * @returns {{key: string, label: string}|null}
+ */
+export function movementGate({ accounts = [], disposed = [], brokers = [] } = {}) {
+  const owned = new Set((accounts || []).map((id) => String(id || "")).filter(Boolean));
+  const needs = (disposed || []).map((item) => (typeof item === "string"
+    ? { isin: String(item || "").toUpperCase(), accountId: "" }
+    : { isin: String(item?.isin || "").toUpperCase(),
+        accountId: String(item?.accountId || "") }))
+    .filter((item) => item.isin
+      && (!owned.size || !item.accountId || owned.has(item.accountId)));
+  if (!needs.length) return null;
+  for (const broker of brokers || []) {
+    if (!broker || broker.blocked) continue;
+    const accountId = String(broker.accountId || "");
+    const funds = needs.some((need) =>
+      (need.accountId ? need.accountId === accountId : owned.has(accountId))
+      && (broker.changes || []).some((change) =>
+        String(change?.isin || "").toUpperCase() === need.isin
+        && change?.group === "cost" && change?.field === "cost"));
+    if (funds) return { key: broker.key, label: broker.label || "broker report" };
+  }
+  return null;
+}
+
 // --- accounts ---------------------------------------------------------------
 
 function safeMeta(account) {

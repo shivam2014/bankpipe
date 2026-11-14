@@ -1346,7 +1346,7 @@ import { folioAdoptionPlan, folioHome, folioKey, folioTail, isFolioAccount,
   normalizeFolio } from "./folio.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, planMerge,
-  accountFieldState, mergeRowsFromPlan, planImportChains,
+  accountFieldState, mergeRowsFromPlan, planImportChains, movementGate, statementAccounts,
   importAccountSummary, normalizeAccount, parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
@@ -7335,14 +7335,45 @@ function bpImportBrokerChain(bundles) {
   };
 }
 
+function bpImportBrokerShort(family) {
+  return family === "motilal" ? "Motilal"
+    : family === "zerodha" ? "Zerodha"
+      : family === "digifinn" ? "DigiFInn" : "broker";
+}
+
+function bpImportPlanChanges(plan) {
+  const receipts = [{ plan: plan.head.plan }, ...(plan.extras || [])];
+  const out = [];
+  for (const receipt of receipts) {
+    for (const decision of receipt.plan?.decisions || []) {
+      for (const change of decision.changes || []) {
+        out.push({ isin: decision.isin, group: change.group, field: change.field });
+      }
+    }
+  }
+  return out;
+}
+
+function bpImportPlanDateBlocked(plan) {
+  return [{ plan: plan.head.plan }, ...(plan.extras || [])].some((receipt) =>
+    ["invalid", "future"].includes(receipt.plan?.incomingDateState));
+}
+
 function bpImportPlanForBundles(group, bundles) {
   const head = bundles[0];
   const extraBundles = bundles.slice(1);
   const acceptAsk = bundles.some((bundle) => bundle.acceptAsk);
   const chains = [];
-  const movements = head.family === "cas"
-    ? (head.base?.parsed?.transactions || []).length : 0;
-  const accountCount = head.family === "cas" ? (head.casTargets || []).length : 1;
+  const transactions = head.family === "cas"
+    ? (head.base?.parsed?.transactions || []) : [];
+  const movements = transactions.length;
+  const hasDebit = transactions.some((event) =>
+    Number(event.debitPaise) > 0
+    || String(event.side || "").toLowerCase() === "debit"
+    || /\b(sale|sold|sell|transfer\s*out|redemption|switch\s*out|withdrawal)\b/i
+      .test(String(event.type || "")));
+  const accountCount = head.family === "cas"
+    ? statementAccounts(head.casTargets).count : 1;
   if (head.family === "cas") {
     for (const target of head.casTargets || []) {
       const attached = extraBundles.filter((bundle) =>
@@ -7396,8 +7427,11 @@ function bpImportPlanForBundles(group, bundles) {
     summary: composed.summary,
     net: composed.net,
     warnings: [...new Set([...(head.plan?.warnings || []), ...composed.warnings,
-      ...(movements ? ["This statement records disposals. A broker report for the "
-        + "same account stays its own card; import it first to keep its cost on the disposal."]
+      ...(movements ? [hasDebit
+        ? "This statement records disposals. A broker report for the same account "
+          + "stays its own card; import it first to keep its cost on the disposal."
+        : "This statement records movements. A broker report for the same account "
+          + "stays its own card."]
         : []),
       ...(splitCas ? ["Two depository statements name the same account. "
         + "Import one, then the other."] : [])])],
@@ -7415,8 +7449,37 @@ function bpImportPlans(bundles = []) {
       && (bundle.base?.parsed?.transactions || []).length > 0,
   })));
   const byKey = new Map((bundles || []).map((bundle) => [bundle.key, bundle]));
-  return grouped.map((group) => bpImportPlanForBundles(group,
+  const plans = grouped.map((group) => bpImportPlanForBundles(group,
     group.members.map((key) => byKey.get(key)).filter(Boolean)));
+  // A statement that disposes a security cannot be the first click when another
+  // staged broker would put a cost on that security. The gate is narrow: a
+  // broker with nothing to write, another account, another ISIN or a date it
+  // cannot pass leaves the statement ready, so it is never trapped behind a card
+  // that cannot be applied.
+  const brokerPlans = plans.filter((plan) => plan.head.family !== "cas"
+    && plan.head.targetId).map((plan) => ({
+    key: plan.key,
+    label: bpImportBrokerShort(plan.head.family),
+    accountId: plan.head.targetId,
+    changes: bpImportPlanChanges(plan),
+    blocked: bpImportPlanDateBlocked(plan),
+  }));
+  for (const plan of plans) {
+    if (plan.head.family !== "cas" || !plan.head.base?.parsed?.transactions?.length) continue;
+    const disposed = (plan.head.casTargets || []).flatMap((target) =>
+      target.targetId && !target.plan?.identityOnly
+        ? (target.eventPlan?.rows || []).filter((row) => row.disposed_at)
+          .map((row) => ({ isin: row.security_id || row.isin,
+            accountId: target.targetId }))
+        : []);
+    plan.gate = movementGate({
+      accounts: [...new Set(plan.accounts || [])],
+      disposed,
+      brokers: brokerPlans,
+    });
+    if (plan.gate) plan.ready = false;
+  }
+  return plans;
 }
 
 async function bpImportInboxPrepare(force = false) {
@@ -7711,11 +7774,13 @@ function bpImportPlanHtml(plan) {
         ? ` · ${esc(dateLabel(file.asOf))}` : ""}${adds ? ` · ${esc(adds)}` : ""}</span>
     </div>`;
   }).join("");
-  const pill = !plan.ready
-    ? `<span class="import-pill warn">${plan.needsChoice ? "Choose an account" : "Check the file"}</span>`
-    : summary.ask && !plan.acceptAsk
-      ? `<span class="import-pill warn">Review the differences</span>`
-      : `<span class="import-pill good">Ready</span>`;
+  const pill = plan.gate
+    ? `<span class="import-pill warn">Import the ${esc(plan.gate.label)} report first</span>`
+    : !plan.ready
+      ? `<span class="import-pill warn">${plan.needsChoice ? "Choose an account" : "Check the file"}</span>`
+      : summary.ask && !plan.acceptAsk
+        ? `<span class="import-pill warn">Review the differences</span>`
+        : `<span class="import-pill good">Ready</span>`;
   const title = bpImportBundleLabel(bundle);
   const where = bundle.family === "cas" ? bpImportCasAccountsHtml(bundle) : bpImportMatchHtml(bundle);
   const countText = bpImportCategoryText(bundle.rows);
@@ -7774,6 +7839,8 @@ function bpImportPlanHtml(plan) {
     <div class="import-actions">
       <button class="btn primary" ${plan.ready && !state.applying ? "" : "disabled"}
         onclick="bpImportApplyPlan(${jsArg(plan.key)})">${esc(primary)}</button>
+      ${plan.gate ? `<button class="btn" onclick="bpImportGoToPlan(${jsArg(plan.gate.key)})">
+        Go to the ${esc(plan.gate.label)} report</button>` : ""}
       <button class="btn" onclick="bpImportReview(${jsArg(plan.key)})">Review differences</button>
       <button class="btn ghost" onclick="bpImportDropPlan(${jsArg(plan.key)})">Remove</button>
     </div>
@@ -8176,6 +8243,14 @@ window.bpImportReview = (key) => {
   }
 };
 
+window.bpImportGoToPlan = (key) => {
+  const card = document.querySelector(`[data-plan="${CSS.escape(String(key))}"]`);
+  if (!card) return;
+  card.scrollIntoView({ block: "center", behavior: bpImportScrollBehavior() });
+  card.setAttribute("tabindex", "-1");
+  card.focus({ preventScroll: true });
+};
+
 window.bpImportReviewAll = () => {
   const state = bpImportInboxState();
   const plans = state.plans || [];
@@ -8505,6 +8580,10 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
   const state = bpImportInboxState();
   const plan = (state.plans || []).find((item) => item.key === key);
   if (!plan || state.applying) return;
+  if (plan.gate) {
+    bpImportInboxStatus(`Nothing was written. Import the ${plan.gate.label} report first.`, "bad");
+    return;
+  }
   // Every file is checked before the first writer runs. A blocked file blocks
   // the plan; it is never skipped while the rest of the plan imports.
   const blocked = bpImportPlanBlockedReceipt(plan);
@@ -8615,9 +8694,8 @@ window.bpImportApplyAll = async () => {
     bpImportInboxStatus("Choose an account or review the differences for every plan first.", "bad");
     return;
   }
-  const total = plans.reduce((sum, plan) => sum +
-    (plan.summary.added || 0) + (plan.summary.updated || 0)
-    + (plan.summary.history || 0), 0);
+  const total = plans.reduce((sum, plan) => sum
+    + (plan.net?.added || 0) + (plan.net?.updated || 0) + (plan.net?.history || 0), 0);
   bpImportInboxStatus(`Importing ${total} holdings into ${plans.length} plan${plans.length === 1 ? "" : "s"}…`);
   const keys = plans.map((plan) => plan.key);
   let imported = 0;

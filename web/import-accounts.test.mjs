@@ -426,8 +426,43 @@ test("the card counts the net plan change, not the sum of its files", () => {
 
 test("the card and the receipt count every account the plan writes", () => {
   const plans = between("function bpImportPlanForBundles", "function bpImportPlans");
-  assert.match(plans, /accountCount = head\.family === "cas"\s*\n?\s*\? \(head\.casTargets \|\| \[\]\)\.length/);
+  assert.match(plans, /statementAccounts\(head\.casTargets\)/);
   assert.match(html, /plan\.accountCount > 1/);
   const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
   assert.match(apply, /plan\.accountCount > 1/);
+});
+
+test("a movement statement's card is gated on the broker that funds its disposal", () => {
+  const plans = between("function bpImportPlans", "async function bpImportInboxPrepare");
+  assert.match(plans, /movementGate\(\{/);
+  assert.match(plans, /plan\.gate = /);
+  assert.match(plans, /if \(plan\.gate\) plan\.ready = false/);
+  assert.match(plans, /eventPlan\?\.rows/, "the gate reads the disposal the writer will make");
+  assert.match(plans, /row\.disposed_at/);
+  assert.match(plans, /!target\.plan\?\.identityOnly/);
+  assert.match(plans, /accountId: target\.targetId/);
+  assert.match(html, /function bpImportPlanChanges/);
+  assert.match(html, /function bpImportPlanDateBlocked/);
+  assert.match(html, /Import the \$\{esc\(plan\.gate\.label\)\} report first/);
+  assert.match(html, /bpImportGoToPlan/);
+  const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
+  assert.match(apply, /if \(plan\.gate\)/);
+});
+
+test("the batch closes through the ready flag and reports the net", () => {
+  const render = between("function bpImportInboxRender", "async function bpImportInboxReadOne");
+  assert.match(render, /plans\.length > 0 && plans\.every\(\(plan\) => plan\.ready\)/);
+  const all = between("window.bpImportApplyAll = async", "window.bpImportUseWrongCas");
+  assert.doesNotMatch(all, /plan\.gate/,
+    "Import all is closed by the ready flag, not a gate special case");
+  assert.match(all, /plan\.net\?\.added/);
+  assert.match(all, /plan\.net\?\.updated/);
+  assert.match(all, /plan\.net\?\.history/);
+});
+
+test("a buy-only movement card says movements, not disposals", () => {
+  const plans = between("function bpImportPlanForBundles", "function bpImportPlans");
+  assert.match(plans, /hasDebit/);
+  assert.match(plans, /This statement records movements/);
+  assert.match(plans, /This statement records disposals/);
 });

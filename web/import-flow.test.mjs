@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
   parseTradebookMatrix, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, normalizeAccount, mergeRowsFromPlan, planStateAfter,
-  planImportChains } from "./import-flow.js";
+  planImportChains, movementGate, statementAccounts } from "./import-flow.js";
 import { casReplacePlan } from "./cas-apply.js";
 
 // Synthetic identifiers only. The real files are never committed.
@@ -1501,4 +1501,119 @@ test("a matured row moved to history is not also counted as updated", () => {
   });
   assert.equal(composed.net.history, 1);
   assert.equal(composed.net.updated, 0);
+});
+
+// --- the broker-first gate -------------------------------------------------
+
+const gateBroker = (over = {}) => ({
+  key: "motilal:9990001", label: "Motilal", accountId: "demat-1",
+  changes: [{ isin: other(2), group: "cost", field: "cost" }], blocked: false, ...over,
+});
+
+test("a movement statement gates on the broker that funds a disposed ISIN", () => {
+  assert.deepEqual(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker()] }), { key: "motilal:9990001", label: "Motilal" });
+});
+
+test("a broker with nothing to write does not trap the statement", () => {
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ changes: [] })] }), null);
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ changes: [
+      { isin: other(2), group: "cost", field: "purchase" }] })] }), null);
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ changes: [
+      { isin: other(2), group: "snapshot", field: "quantity" }] })] }), null);
+});
+
+test("a broker on another account or another ISIN does not gate", () => {
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ accountId: "demat-2" })] }), null);
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ changes: [
+      { isin: other(9), group: "cost", field: "cost" }] })] }), null);
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [],
+    brokers: [gateBroker()] }), null);
+});
+
+test("a date-blocked broker does not gate, and a later broker still can", () => {
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ blocked: true })] }), null);
+  assert.deepEqual(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ blocked: true }),
+      gateBroker({ key: "zerodha:z", label: "Zerodha" })] }),
+  { key: "zerodha:z", label: "Zerodha" });
+});
+
+test("a broker for another statement account does not fund this disposal", () => {
+  const disposed = [{ isin: other(2), accountId: "demat-1" }];
+  assert.equal(movementGate({ accounts: ["demat-1", "demat-2"], disposed,
+    brokers: [gateBroker({ accountId: "demat-2" })] }), null);
+  assert.deepEqual(movementGate({ accounts: ["demat-1", "demat-2"], disposed,
+    brokers: [gateBroker({ accountId: "demat-1" })] }),
+  { key: "motilal:9990001", label: "Motilal" });
+});
+
+test("the reviewer's pair gates the statement before the cost is lost", () => {
+  const live = { security_id: SOLD_ISIN, label: soldLabel, category: "bond",
+    quantity: 10, cost_paise: null, value_paise: 100000, as_of: "2026-09-30" };
+  const written = casReplacePlan({ parsed: saleParsed, existing: [live],
+    holdings: saleParsed.holdings, asOf: saleParsed.asOf,
+    events: saleParsed.transactions, assetId: "demat-1", accounts: [DEMAT_BO],
+    route: true });
+  const disposed = written.rows.filter((row) => row.disposed_at)
+    .map((row) => ({ isin: row.security_id || row.isin, accountId: "demat-1" }));
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    holdings_source: "cas", holdings_as_of: "2026-09-30" }) });
+  const broker = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, [live]), holdings: [live] },
+    today: "2026-11-15" });
+  const changes = broker.decisions.flatMap((decision) =>
+    (decision.changes || []).map((change) => ({ isin: decision.isin,
+      group: change.group, field: change.field })));
+  assert.deepEqual(movementGate({ accounts: ["demat-1"], disposed,
+    brokers: [{ key: "motilal:9990001", label: "Motilal", accountId: "demat-1",
+      changes }] }), { key: "motilal:9990001", label: "Motilal" });
+});
+
+test("the same pair with the cost already on file does not trap the statement", () => {
+  const live = { security_id: SOLD_ISIN, label: soldLabel, category: "bond",
+    quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
+    value_paise: 100000, as_of: "2026-09-30" };
+  const written = casReplacePlan({ parsed: saleParsed, existing: [live],
+    holdings: saleParsed.holdings, asOf: saleParsed.asOf,
+    events: saleParsed.transactions, assetId: "demat-1", accounts: [DEMAT_BO],
+    route: true });
+  const disposed = written.rows.filter((row) => row.disposed_at)
+    .map((row) => ({ isin: row.security_id || row.isin, accountId: "demat-1" }));
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    holdings_source: "broker", holdings_as_of: "2026-11-05",
+    cost_source: "motilal", cost_as_of: "2026-11-05" }) });
+  const broker = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, [live]), holdings: [live] },
+    today: "2026-11-15" });
+  assert.equal(broker.summary.added + broker.summary.updated
+    + broker.summary.history, 0, "the broker has nothing to write");
+  const changes = broker.decisions.flatMap((decision) =>
+    (decision.changes || []).map((change) => ({ isin: decision.isin,
+      group: change.group, field: change.field })));
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed,
+    brokers: [{ key: "motilal:9990001", label: "Motilal", accountId: "demat-1",
+      changes }] }), null);
+});
+
+test("statement accounts count a shared resolved target once", () => {
+  assert.deepEqual(statementAccounts([{ targetId: "legacy" }, { targetId: "legacy" }]),
+    { resolved: ["legacy"], unresolved: 0, count: 1 });
+  assert.deepEqual(statementAccounts([{ targetId: "demat-1" }, { targetId: "" },
+    { targetId: "" }]), { resolved: ["demat-1"], unresolved: 2, count: 3 });
+  assert.deepEqual(statementAccounts([]), { resolved: [], unresolved: 0, count: 0 });
 });
