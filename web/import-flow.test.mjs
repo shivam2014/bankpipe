@@ -1427,16 +1427,27 @@ test("the card's ask about a sold row cannot carry the broker's ask about anothe
 
 test("a broker imported before a full sale gives the disposal its cost", () => {
   const parsed = saleParsed;
-  const withCost = casReplacePlan({ parsed, existing: [{ security_id: SOLD_ISIN,
-    label: soldLabel, category: "bond", quantity: 10, cost_paise: 200000,
-    value_paise: 100000, as_of: "2026-09-30" }], holdings: parsed.holdings,
+  const live = { security_id: SOLD_ISIN, label: soldLabel, category: "bond",
+    quantity: 10, cost_paise: null, value_paise: 100000, as_of: "2026-09-30" };
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    holdings_source: "broker", holdings_as_of: "2026-09-30" }) });
+  const brokerPlan = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, [live]), holdings: [live] },
+    today: "2026-11-15" });
+  const funded = mergeRowsFromPlan([live], brokerPlan,
+    { family: "motilal", label: "Motilal Oswal holdings report", asOf: "2026-11-05" },
+    false);
+  assert.equal(funded[0].cost_paise, 200000, "the broker is the only source of cost");
+  const withCost = casReplacePlan({ parsed, existing: funded, holdings: parsed.holdings,
     asOf: parsed.asOf, events: parsed.transactions, assetId: "demat-1",
     accounts: [DEMAT_BO], route: true });
-  const withoutCost = casReplacePlan({ parsed, existing: [{ security_id: SOLD_ISIN,
-    label: soldLabel, category: "bond", quantity: 10, cost_paise: null,
-    value_paise: 100000, as_of: "2026-09-30" }], holdings: parsed.holdings,
-    asOf: parsed.asOf, events: parsed.transactions, assetId: "demat-1",
-    accounts: [DEMAT_BO], route: true });
+  const withoutCost = casReplacePlan({ parsed, existing: [{ ...live }],
+    holdings: parsed.holdings, asOf: parsed.asOf, events: parsed.transactions,
+    assetId: "demat-1", accounts: [DEMAT_BO], route: true });
   assert.equal(withCost.rows.find((row) => row.disposed_at).disposed_cost_paise, 200000);
   assert.equal(withoutCost.rows.find((row) => row.disposed_at).disposed_cost_paise, null);
 });
