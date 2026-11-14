@@ -360,6 +360,8 @@ test("two disposed rows with one unscoped legacy key are left alone", () => {
     const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
       asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
     assert.equal(linked.reconciliations.length, 0);
+    assert.match(linked.warnings.join(" "),
+      /2 old sold rows share this movement's key/);
     assert.equal(soldA.disposed_cost_paise, first);
     assert.equal(soldB.disposed_cost_paise, second);
     assert.equal(live.cost_paise, 48000);

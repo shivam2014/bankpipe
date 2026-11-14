@@ -1371,10 +1371,10 @@ import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
   reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
-import { casClosedRow, casFolioHoldings, casGroupByAsset, casHoldingLabel,
-  casImportHoldings, casImportUnits, casMovementAccountBos, casPreviewAccounts,
-  casReplacePlan, casSafety, casWritableHoldings, linkedCostPortfolios,
-  planLinkedSales } from "./cas-apply.js";
+import { casClosedRow, casDematRows, casFolioHoldings, casGroupByAsset,
+  casHoldingLabel, casImportHoldings, casImportUnits, casMovementAccountBos,
+  casPreviewAccounts, casReplacePlan, casSafety, casWritableHoldings,
+  linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
 import { casSoldLines, soldHoldingsHtml, splitHoldings } from "./sold-view.js";
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
@@ -9135,9 +9135,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     // One tick per account: a demat (BO ID) or a folio account (AMC). Rows are
     // never ticked on their own, so every imported account still equals the
     // total the statement printed for it.
-    const dematRowsOf = (bo) => writableHoldings
-      .filter((h) => String(h.account || "") === String(bo || "")
-        && !(h.kind === "mf" && h.folio));
+    const dematRowsOf = (bo) => casDematRows(writableHoldings, bo);
     // A movement can name a demat the holdings table omits. Seed the preview
     // with that account, empty, so its sale is planned and visible.
     const previewAccounts = casPreviewAccounts({
@@ -10777,10 +10775,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     }
   } else {
     const id = document.getElementById(`cas-target-${key}`)?.value || "";
-    if (id) {
-      byAsset.set(id, cas.holdings.filter((h) => !casClosedRow(h, importDay)
-        && !(h.kind === "mf" && h.folio && !(Number(h.quantity) > 0))));
-    }
+    if (id) byAsset.set(id, cas.holdings.filter((h) => !casClosedRow(h, importDay)));
   }
   // An account whose only movement is a sale has no holdings group. Add the
   // accounts the statement names so the event pass can record the disposal there.

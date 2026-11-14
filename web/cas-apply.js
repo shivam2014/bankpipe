@@ -233,14 +233,23 @@ export function casGroupByAsset({ holdings = [], groups = [],
   const out = new Map();
   for (const holding of holdings || []) {
     if (casClosedRow(holding, importDay)) continue;
-    // A zero-unit fund is not a folio the card or the route can place.
-    if (holding.kind === "mf" && holding.folio && !(Number(holding.quantity) > 0)) continue;
-    const group = (groups || []).find((item) => item.kind === holding.kind
-      && (holding.kind === "mf" && holding.folio
-        ? String(item.amc || "").toLowerCase() === String(holding.amc || "").toLowerCase()
-        : (!holding.account || !item.boId
-          || String(item.boId) === String(holding.account))));
+    // casRoute sends a positive folio row to its AMC account and leaves a
+    // zero-unit one in the demat. Mirror that decision here, or an AMC-first
+    // match sends the zero row to the folio group and the gate drops its value.
+    const isFolioRow = holding.kind === "mf" && holding.folio
+      && Number(holding.quantity) > 0;
+    const folioGroup = isFolioRow
+      ? (groups || []).find((item) => item.kind === "mf" && item.folio
+        && String(item.amc || "").toLowerCase()
+          === String(holding.amc || "").toLowerCase())
+      : null;
+    const group = folioGroup || (groups || []).find((item) => item.kind === holding.kind
+      && (!holding.account || !item.boId
+        || String(item.boId) === String(holding.account)));
     if (!group) continue;
+    // Only a folio group drops a zero-unit fund. In a demat group it is a row
+    // the route documented as staying, so the value must be written.
+    if (group.kind === "mf" && group.folio && !(Number(holding.quantity) > 0)) continue;
     const key = group.kind === "mf" && group.folio
       ? `mf:${String(group.amc || "").toLowerCase()}` : `bo:${String(group.boId || "")}`;
     if (picked && !picked.has(key)) continue;
@@ -248,6 +257,20 @@ export function casGroupByAsset({ holdings = [], groups = [],
     out.get(group.assetId).push(holding);
   }
   return out;
+}
+
+/**
+ * The demat rows a card unit counts. A positive folio row belongs to the folio
+ * unit; a zero-unit folio row the route left in the demat is still this
+ * account's row.
+ * @param {Array<object>} holdings
+ * @param {string} bo
+ * @returns {Array<object>}
+ */
+export function casDematRows(holdings = [], bo = "") {
+  return (holdings || []).filter((holding) =>
+    String(holding.account || "") === String(bo || "")
+    && !(holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0));
 }
 
 /**
@@ -1108,8 +1131,13 @@ export function planLinkedSales({ dematPlan = {}, dematAssetId = "", asOf = "",
         const unscoped = disposed.filter((row) =>
           row.txn_key === casLegacyEventKey(event) || row.txn_key === casEventKey(event));
         // `disposed` is a Set of row references, so two distinct rows that
-        // share one unscoped key are ambiguous. Never pick one at random.
+        // share one unscoped key are ambiguous. Never pick one at random, and
+        // say why the reconciliation did not happen.
         if (unscoped.length === 1) dematSold = unscoped[0];
+        else if (unscoped.length > 1) {
+          warnings.push(`${sale.isin}: ${unscoped.length} old sold rows share this `
+            + "movement's key; the demat sold cost is not reconciled.");
+        }
       }
       if (!dematSold) continue;
       const before = dematSold.disposed_cost_paise;

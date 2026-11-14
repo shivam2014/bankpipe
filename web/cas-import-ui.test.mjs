@@ -56,6 +56,17 @@ test("the writer groups rows through the shared folio rule", () => {
   assert.match(html, /picked: card\.picked \|\| null/);
 });
 
+test("a manual demat target keeps a zero-unit folio row", () => {
+  assert.match(html,
+    /if \(id\) byAsset\.set\(id, cas\.holdings\.filter\(\(h\) => !casClosedRow\(h, importDay\)\)\)/);
+  assert.equal(
+    /h\.kind === "mf" && h\.folio && !\(Number\(h\.quantity\) > 0\)/.test(html), false);
+});
+
+test("the card demat rows use the shared folio rule", () => {
+  assert.match(html, /const dematRowsOf = \(bo\) => casDematRows\(writableHoldings, bo\)/);
+});
+
 test("unticking a seeded movement-only demat stops its sale", () => {
   assert.match(html, /card\.picked && \(named \|\| movementHome\)/);
 });

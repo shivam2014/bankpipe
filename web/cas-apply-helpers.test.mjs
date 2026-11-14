@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { casFolioHoldings, casGroupByAsset, casImportUnits, casMovementAccountBos,
-  casPreviewAccounts, casWritableHoldings } from "./cas-apply.js";
+import { casDematRows, casFolioHoldings, casGroupByAsset, casImportUnits,
+  casMovementAccountBos, casPreviewAccounts,
+  casWritableHoldings } from "./cas-apply.js";
 
 // Regression guards for helpers added after dca90b3. They cannot run on that
 // commit because the helpers did not exist there. The planner behavior that the
@@ -95,4 +96,45 @@ test("a zero-unit fund is not shown as a folio unit", () => {
     { kind: "bond", quantity: 1 },
   ];
   assert.deepEqual(casFolioHoldings(holdings).map((holding) => holding.folio), ["124"]);
+});
+
+test("a zero-unit folio row the route left in the demat is written there", () => {
+  const zero = { kind: "mf", folio: "aaa", amc: "Test AMC", quantity: 0,
+    valuePaise: 5000, isin: "INF000000001", account: "BO1" };
+  const nullUnit = { ...zero, isin: "INF000000003", quantity: null, valuePaise: 0 };
+  const positive = { kind: "mf", folio: "bbb", amc: "Test AMC", quantity: 10,
+    valuePaise: 15000, isin: "INF999900287", account: "BO1" };
+  const importDay = "2026-11-14";
+  const dematGroup = { kind: "mf", folio: false, boId: "BO1", amc: "",
+    assetId: "demat-a" };
+  const folioGroup = { kind: "mf", folio: true, amc: "Test AMC", assetId: "mf-test",
+    boId: "" };
+  // The same AMC has a demat group and a folio group. casRoute leaves the zero
+  // row in the demat and sends the positive row to the folio, so the writer
+  // must split the rows the same way.
+  const writer = casGroupByAsset({ holdings: [zero, nullUnit, positive],
+    groups: [dematGroup, folioGroup], importDay });
+  assert.deepEqual(writer.get("demat-a").map((holding) => holding.isin),
+    ["INF000000001", "INF000000003"]);
+  assert.deepEqual(writer.get("mf-test").map((holding) => holding.isin),
+    ["INF999900287"]);
+  const card = casDematRows(casWritableHoldings([zero, nullUnit, positive], importDay),
+    "BO1");
+  assert.deepEqual(card.map((holding) => holding.isin),
+    ["INF000000001", "INF000000003"]);
+
+  // With no demat group offered, a zero row never falls into the folio account.
+  assert.equal(casGroupByAsset({ holdings: [zero], groups: [folioGroup], importDay })
+    .has("mf-test"), false);
+});
+
+test("casGroupByAsset honours the picked folio key", () => {
+  const positive = { kind: "mf", folio: "bbb", amc: "Test AMC", quantity: 10,
+    valuePaise: 15000, isin: "INF999900287", account: "BO1" };
+  const groups = [{ kind: "mf", folio: true, amc: "Test AMC", assetId: "mf-test",
+    boId: "" }];
+  assert.equal(casGroupByAsset({ holdings: [positive], groups,
+    picked: new Set(["mf:test amc"]) }).get("mf-test").length, 1);
+  assert.equal(casGroupByAsset({ holdings: [positive], groups,
+    picked: new Set() }).has("mf-test"), false);
 });
