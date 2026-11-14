@@ -71,7 +71,6 @@ h2{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted
  box-shadow:var(--sh)}
 .pad{padding:18px 16px}
 .health-heading{padding-left:16px;padding-right:16px}
-.demat-card{max-width:720px}
 .hero{border:0;color:#fff;padding:26px 28px;border-radius:var(--r);
  background:linear-gradient(135deg,#084b39,#0c6b50 48%,#0f8a68)}
 .hero .lbl{font-size:12.5px;color:rgba(255,255,255,.75)}
@@ -168,19 +167,6 @@ label.field textarea{resize:vertical;min-height:58px}
  font-weight:650}
 .stats .v{font-size:19px;font-weight:660;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .stats .v.pos{color:var(--green)}.stats .v.neg{color:var(--red)}
-.sync-danger{color:var(--red);font-size:12.5px;font-weight:600;line-height:1.5;
- display:grid;gap:4px;margin:0 0 10px}
-#df-sync-card .btn.danger{color:var(--red);
- border-color:color-mix(in srgb,var(--red) 40%,transparent)}
-#df-sync-card .btn.danger:hover{color:var(--red);border-color:var(--red);
- background:color-mix(in srgb,var(--red) 8%,var(--card))}
-.sync-details{margin-top:10px}
-.sync-details summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
-.sync-details .muted{font-size:11.5px;margin-top:6px}
-#bond-sync-dialog .btn.danger{background:var(--red);border-color:var(--red);color:var(--card)}
-#bond-sync-dialog .btn.danger:hover,
-#bond-sync-dialog .btn.danger:focus-visible{background:color-mix(in srgb,var(--red) 88%,#000);
- border-color:var(--red);color:var(--card)}
 .bar-row{display:grid;grid-template-columns:110px 1fr 120px;gap:12px;align-items:center;
  padding:7px 0;font-size:13px}
 .bar-track{height:7px;background:var(--hair);border-radius:99px;overflow:hidden;display:flex}
@@ -390,21 +376,6 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .how-values summary:hover{color:var(--ink)}
 .how-values[open] summary{margin-bottom:6px}
 .how-values .muted{font-size:12px;line-height:1.55}
-.df-summary{display:flex;align-items:center;gap:10px;padding:14px 20px;cursor:pointer;
- font-size:13.5px;font-weight:640;list-style:none}
-.df-summary::-webkit-details-marker{display:none}
-.df-summary::after{content:"›";color:var(--muted);font-size:15px;transform:rotate(90deg);
- transition:transform .15s}
-details[open]>.df-summary::after{transform:rotate(-90deg)}
-.df-summary .muted{font-weight:400;font-size:11.5px;margin-left:auto}
-.df-summary:hover{color:var(--green)}
-.df-slots{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-.df-slot{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--card)}
-.df-slot b{font-size:13px}
-.df-slot .muted{font-size:11.5px}
-.df-owner{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px;background:var(--card)}
-.df-pick{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.df-ok{color:var(--green);font-weight:600}
 .bond-market{font-size:11.5px;color:var(--muted);border-top:1px solid var(--hair);margin-top:8px;padding-top:7px}
 .bond-breakdown{border-top:1px solid var(--hair);margin-top:8px;padding-top:6px}
 .bond-breakdown summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
@@ -1069,18 +1040,6 @@ try {
     </div>
   </div>
 </dialog>
-<dialog id="bond-sync-dialog">
-  <div class="dialog-body">
-    <h2 id="bond-sync-title" style="margin-top:0">Apply bond sync?</h2>
-    <div id="bond-sync-dangers" class="sync-danger" style="display:none"></div>
-    <p id="bond-sync-summary" class="muted"
-      style="font-size:12.5px;margin:10px 0 0;white-space:pre-line"></p>
-    <div style="display:flex;gap:8px;margin-top:14px">
-      <button type="button" class="btn" id="bond-sync-cancel">Cancel</button>
-      <button type="button" class="btn danger" id="bond-sync-accept">Replace holdings</button>
-    </div>
-  </div>
-</dialog>
 <nav id="tabbar" class="tabbar" aria-label="Primary"></nav>
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="vendor/sql-wasm.js"></script>
@@ -1351,7 +1310,6 @@ import { buildFdGroups, fdHistoryValue, fdMatured, orderAccountsByFdTotal } from
 import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
-import { parseDigiFinnFile, mergeDigiFinn, scorePortfolio } from "./digifinn.js";
 import { bondAnalytics, bondSummary, parseBondLabel, inferFace,
   BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange,
   soldGain } from "./bonds.js";
@@ -1361,12 +1319,10 @@ import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
 import { parseZerodhaHoldingsSheets } from "./zerodha.js";
 import { parseMotilalPages, motilalHoldingPatch as motilalPatch } from "./motilal.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
-import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio,
-  parsePortfolioReport, parseInvestmentReport, parseTransactionReport,
+import { parsePortfolioReport, parseInvestmentReport, parseTransactionReport,
   parsePayoutReport, parseCashflowReport } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
-import { dematCardHtml, dematLast4, dematMismatchLine, dematText,
-  syncPreviewCardHtml } from "./demat-card.js";
+import { dematText } from "./demat-card.js";
 import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
   reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
@@ -1383,8 +1339,6 @@ import { detectImportFile, groupBundles, accountMatches, planMerge, accountField
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
-import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
-import { createBondSyncDialog } from "./bond-sync-dialog.js";
 import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
 import { countRows, receiptFrom, receiptTotals } from "./receipt.js";
 import { sheetAccountLabel } from "./receipt-label.js";
@@ -2849,527 +2803,6 @@ window.bpHoldingsApply = async (id) => {
     alert("Could not import the holdings: " + (e.message || e));
   }
 };
-window.bpDigiFinnReport = async (slot, file) => {
-  if (!file) return;
-  const state = window.bpDigiFinnReports
-    || (window.bpDigiFinnReports = { portfolio: null, investment: null, payouts: null,
-      files: {}, fileSizes: {} });
-  const host = document.getElementById("digifinn-preview");
-  const sig = `${file.size}|${file.lastModified}`;
-  const slotName = slot === "portfolio" ? "Portfolio" : slot === "investment" ? "Investment" : "Cashflow Future";
-  const duplicate = Object.entries(state.fileSizes || {})
-    .find(([k, v]) => k !== slot && v === sig);
-  if (duplicate) {
-    if (host) host.innerHTML = `<div class="card pad" style="color:var(--red);font-size:13px">
-      That file is already attached as the ${esc(duplicate[0])} report. Attach three different
-      reports.</div>`;
-    return;
-  }
-  try {
-    const parsed = parseReportFile(await file.text(), file.name);
-    const expected = slot === "payouts" ? "payouts" : slot;
-    if (parsed.kind === "transactions") {
-      const buys = parsed.rows.filter((r) => r.type === "BUY").length;
-      const dates = parsed.rows.map((r) => r.date).filter(Boolean).sort();
-      if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
-        <b>That is the Transactions Report</b>
-        <div class="muted" style="margin-top:4px">${parsed.rows.length} settled
-        trade${parsed.rows.length === 1 ? "" : "s"} (${buys} purchase${buys === 1 ? "" : "s"})${dates.length
-          ? `, ${dateLabel(dates[0])} to ${dateLabel(dates[dates.length - 1])}` : ""}.
-        Holdings come from the Portfolio Report, so this file is not needed for the sync.</div></div>`;
-      return;
-    }
-    if (parsed.kind === "unknown") {
-      if (host) host.innerHTML = `<div class="card pad" style="color:var(--red);font-size:13px">
-        This is not a recognised DigiFInn report. Use the Portfolio Report, Investment Report,
-        and Cashflow Future.</div>`;
-      return;
-    }
-    // The old Upcoming Payouts export still parses (its tests stay), but it only
-    // carries the first payment, so the import does not accept it any more.
-    if (parsed.kind === "payouts" && parsed.source !== "cashflow") {
-      if (host) host.innerHTML = `<div class="card pad" style="color:var(--red);font-size:13px">
-        ${esc("That is the Upcoming Payouts report. In DigiFInn, switch Reports & Documents to Cashflow Future and download that; it carries the whole schedule and any part redemptions.")}</div>`;
-      return;
-    }
-    if (parsed.kind !== expected) {
-      const which = parsed.kind === "portfolio" ? "Portfolio Report"
-        : parsed.kind === "investment" ? "Investment Report"
-        : parsed.kind === "payouts" ? "Cashflow Future"
-        : "an unknown report";
-      if (host) host.innerHTML = `<div class="card pad" style="color:var(--red);font-size:13px">
-        That file looks like ${esc(which)}, not ${esc(slot === "portfolio" ? "the Portfolio Report"
-          : slot === "investment" ? "the Investment Report" : "the Cashflow Future report")}.
-        Put it in the matching slot.</div>`;
-      return;
-    }
-    const count = parsed.rows ? parsed.rows.length : (parsed.groups ? parsed.groups.length : 0);
-    if (!count) {
-      if (host) host.innerHTML = `<div class="card pad" style="color:var(--red);font-size:13px">
-        The ${esc(slotName)} report has no rows. Download it again from DigiFInn.</div>`;
-      return;
-    }
-    state[slot] = parsed;
-    state.files[slot] = file.name;
-    state.fileSizes[slot] = sig;
-    // New reports mean the old "import anyway" consent no longer applies.
-    window.bpDigiFinnOverride = false;
-    window.bpDigiFinnSyncTarget = "";
-    if (host) host.innerHTML = "";
-    window.bpDigiFinnRenderStatus();
-    if (state.portfolio && state.investment && state.payouts) await window.bpDigiFinnReview();
-  } catch (e) {
-    if (host) host.innerHTML = `<div class="card pad" style="color:var(--red);font-size:13px">
-      ${esc(e.message || String(e))}</div>`;
-  }
-};
-window.bpDigiFinnRenderStatus = () => {
-  const state = window.bpDigiFinnReports;
-  const set = (id, loaded, label, name) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.className = loaded ? "df-ok" : "muted";
-    el.innerHTML = loaded ? `✓ ${esc(label)}<br><span class="muted"
-      style="font-weight:400;font-size:10.5px;line-height:1.3">${esc(name || "loaded")}</span>`
-      : "Missing";
-  };
-  set("df-status-portfolio", state?.portfolio, "Portfolio Report", state?.files?.portfolio);
-  set("df-status-investment", state?.investment, "Investment Report", state?.files?.investment);
-  set("df-status-payouts", state?.payouts, "Cashflow Future", state?.files?.payouts);
-  const status = document.getElementById("digifinn-status");
-  if (!status) return;
-  const missing = [];
-  if (!state?.portfolio) missing.push("Portfolio Report");
-  if (!state?.investment) missing.push("Investment Report");
-  if (!state?.payouts) missing.push("Cashflow Future");
-  status.innerHTML = missing.length
-    ? `Waiting for: ${missing.map(esc).join(", ")}.`
-    : "All three reports loaded. Review the portfolio match below.";
-};
-// The Demat a portfolio is already known by: the number a previous sync mapped
-// to it, else the portfolio's own field.
-async function digiFinnTargetDemat(asset) {
-  if (!asset) return "";
-  try {
-    const store = await import("./db.js");
-    const raw = await store.getSetting("bp.digifinn.demat");
-    const map = raw ? JSON.parse(raw) : {};
-    for (const [demat, id] of Object.entries(map)) if (id === asset.id) return demat;
-  } catch (e) {}
-  return asset.number || "";
-}
-
-window.bpDigiFinnKeepPortfolio = async () => {
-  // Keep the page's portfolio even though its Demat disagrees. The preview
-  // resets the consent when the destination changes, so pin it first.
-  const target = window.bpDigiFinnPinned || window.bpDigiFinnTarget || "";
-  window.bpDigiFinnOverride = true;
-  window.bpDigiFinnSyncTarget = target;
-  await window.bpDigiFinnSyncPreview(target);
-};
-window.bpDigiFinnReview = async () => {
-  const state = window.bpDigiFinnReports;
-  const host = document.getElementById("digifinn-preview");
-  if (!host || !state?.portfolio || !state?.investment || !state?.payouts) return;
-  const store = await import("./db.js");
-  const all = await store.listAccounts();
-  const bonds = all.filter((a) => categoryOf(a) === "bonds");
-  const today = new Date().toISOString().slice(0, 10);
-  const currentRows = state.portfolio.rows.filter((h) => {
-    const maturity = (parseBondLabel(h.label) || {}).maturity;
-    return !maturity || maturity >= today;
-  });
-  const currentPortfolio = { ...state.portfolio, rows: currentRows };
-  const scored = [];
-  for (const asset of bonds) {
-    const rows = await store.listHoldings(asset.id);
-    scored.push({ asset, score: scoreBondPortfolio(rows, currentPortfolio) });
-  }
-  scored.sort((a, b) => b.score.score - a.score.score);
-  let mapped = "";
-  try {
-    const raw = await store.getSetting("bp.digifinn.demat");
-    const map = raw ? JSON.parse(raw) : {};
-    mapped = map[state.portfolio.demat] || "";
-  } catch (e) {}
-  const mappedEntry = scored.find((x) => x.asset.id === mapped) || null;
-  const bestEntry = scored[0] || null;
-  const secondEntry = scored[1] || null;
-  const bestRatio = bestEntry?.score.of ? bestEntry.score.matched / bestEntry.score.of : 0;
-  const clearBest = !!bestEntry && bestEntry.score.matched >= 3 && bestRatio >= 0.6
-    && (!secondEntry || secondEntry.score.matched < bestEntry.score.matched);
-  const recommendedId = mapped || (clearBest ? bestEntry.asset.id : "");
-  window.bpDigiFinnMapped = mapped;
-  window.bpDigiFinnMappedLabel = mappedEntry?.asset.label || "";
-  window.bpDigiFinnReviewData = { state, scored, currentPortfolio, mapped,
-    mappedEntry, bestEntry, clearBest, recommendedId };
-  const demat = dematText(state.portfolio.demat);
-  const reportIdentity = assetIdentity({ number: demat,
-    holder: state.portfolio.identity?.name || "" }, { numberLabel: "Demat" });
-  const mappedIdentity = mappedEntry
-    ? assetIdentity({ ...mappedEntry.asset,
-        holder: mappedEntry.asset.holder || state.portfolio.identity?.name || "" })
-    : null;
-  const linked = mappedIdentity?.name
-    ? `This Demat is linked to ${mappedIdentity.name}.` : "";
-  // Rendered from a bond portfolio: the destination is already chosen, so skip the
-  // "new or existing" question and show what the apply would do to this portfolio.
-  const pinnedId = window.bpDigiFinnPinned || "";
-  const pinnedAsset = pinnedId ? bonds.find((a) => a.id === pinnedId) : null;
-  if (pinnedAsset) {
-    // The reports carry their own Demat; the portfolio the page was opened on may
-    // belong to somebody else's account. Warn before anything is written.
-    const targetDemat = await digiFinnTargetDemat(pinnedAsset);
-    const mismatch = matchDemat(demat, targetDemat) === "mismatch";
-    window.bpDigiFinnDemat = { target: pinnedAsset.id, reportDemat: demat, targetDemat, mismatch };
-    host.innerHTML = `<div id="df-sync-card"></div>`;
-    await window.bpDigiFinnSyncPreview(pinnedAsset.id);
-    return;
-  }
-  host.innerHTML = `<div class="card pad" style="background:var(--hair)">
-    <b>Is this a new bond portfolio?</b>
-    <div class="muted" style="font-size:12px;margin-top:4px">Reports are for
-      <b>${esc(reportIdentity.numberLine || "Demat not found")}</b>. ${esc(linked)} Check the Demat, lot count,
-      cost and example bonds before choosing.</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button class="btn" onclick="bpDigiFinnNewPrompt()">Yes — create a new portfolio</button>
-      <button class="btn" onclick="bpDigiFinnExistingPrompt()" ${scored.length ? "" : "disabled"}>
-        No — choose an existing portfolio</button>
-    </div>
-    <div id="df-owner-detail" style="margin-top:10px"></div>
-    <div id="df-sync-card" style="margin-top:10px"></div>
-  </div>`;
-};
-window.bpDigiFinnExistingPrompt = async () => {
-  const data = window.bpDigiFinnReviewData;
-  const host = document.getElementById("df-owner-detail");
-  if (!data || !host) return;
-  const store = await import("./db.js");
-  const raw = await store.getSetting("bp.digifinn.demat");
-  let map = {};
-  try { map = raw ? JSON.parse(raw) : {}; } catch (e) {}
-  const dematByAsset = {};
-  for (const [demat, id] of Object.entries(map)) dematByAsset[id] = demat;
-  const cards = [];
-  for (const { asset, score } of data.scored) {
-    const rows = await store.listHoldings(asset.id);
-    const cost = rows.reduce((t, r) => t + (r.cost_paise || 0), 0);
-    const demat = dematByAsset[asset.id] || "";
-    const last = metaOf(asset).holdings_as_of || "";
-    const samples = rows.slice(0, 2).map((r) => r.label).filter(Boolean);
-    const dematMatch = demat && data.state.portfolio.demat
-      && demat === data.state.portfolio.demat;
-    const identity = assetIdentity({
-      ...asset,
-      number: demat || asset.number,
-      holder: asset.holder || (dematMatch ? data.state.portfolio.identity?.name || "" : ""),
-    }, { numberLabel: "Demat" });
-    const recommended = dematMatch || (!data.mapped && data.recommendedId === asset.id);
-    cards.push(`<div class="df-owner">
-      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline">
-        <b>${esc(identity.label || asset.id)}</b>
-        ${recommended ? `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--green);color:#fff">${dematMatch ? "Demat match" : "Best ISIN match"}</span>` : ""}
-      </div>
-      <div class="muted" style="font-size:11.5px;margin-top:3px">${rows.length} lots ·
-        cost ${money(cost)} · ${identity.numberLine ? esc(identity.numberLine) : "No Demat linked"}</div>
-      <div class="muted" style="font-size:11.5px">${samples.length
-        ? `Holds ${samples.map(esc).join(" · ")}` : "No holdings yet"}</div>
-      <div class="muted" style="font-size:11px">Last sync ${esc(last || "never")}</div>
-      <button class="mini-btn" style="margin-top:7px" onclick="bpDigiFinnChoose(${jsArg(asset.id)})">
-        Use this portfolio</button>
-    </div>`);
-  }
-  const linkedIdentity = data.mappedEntry
-    ? assetIdentity({ ...data.mappedEntry.asset,
-        holder: data.mappedEntry.asset.holder || data.state.portfolio.identity?.name || "" })
-    : null;
-  const linkedName = linkedIdentity?.name || data.mapped;
-  host.innerHTML = `<div class="muted" style="font-size:11.5px">This Demat is
-    ${data.mapped ? `already linked to <b>${esc(linkedName)}</b>.` : "not linked to any portfolio yet."}</div>
-    ${cards.join("")}`;
-  const detail = document.getElementById("df-sync-card");
-  if (detail) detail.innerHTML = "";
-};
-window.bpDigiFinnNewPrompt = async () => {
-  if (window.bpDigiFinnMapped) {
-    if (!confirm(`This Demat is already linked to ${window.bpDigiFinnMappedLabel || window.bpDigiFinnMapped}. Create a new portfolio anyway?`)) return;
-  }
-  const host = document.getElementById("df-owner-detail");
-  if (host) host.innerHTML = "";
-  await window.bpDigiFinnSyncPreview("__new__");
-};
-window.bpDigiFinnChoose = async (id) => {
-  const host = document.getElementById("df-owner-detail");
-  if (host) host.innerHTML = "";
-  await window.bpDigiFinnSyncPreview(id);
-};
-function bondSyncPreviewBodyHtml({ sync, target, name, notes, footer }) {
-  return `${target === "__new__" ? name : ""}
-    <div class="stats" style="margin-top:10px">
-      <div><div class="k">Current</div><div class="v">${sync.current}</div></div>
-      <div><div class="k">Matured</div><div class="v">${sync.matured.length}</div></div>
-      <div><div class="k">New</div><div class="v">${sync.added}</div></div>
-      <div><div class="k">Updated</div><div class="v">${sync.updated}</div></div>
-      <div><div class="k">Removed</div><div class="v">${sync.removed}</div></div>
-    </div>
-    <details class="sync-details">
-      <summary>Details</summary>
-      ${(notes || []).map((w) => `<div class="muted">${esc(w)}</div>`).join("")}
-      <div class="muted">${esc(footer)}</div>
-    </details>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button class="btn" onclick="bpDigiFinnSyncApply()">Apply sync</button>
-      <button class="btn" onclick="bpDigiFinnCancel()">Cancel</button>
-    </div>`;
-}
-window.bpDigiFinnSyncPreview = async (target) => {
-  const state = window.bpDigiFinnReports;
-  const cardHost = document.getElementById("df-sync-card");
-  if (!cardHost || !state?.portfolio || !state?.investment || !state?.payouts) return;
-  // A new destination cancels an earlier "import anyway" consent; the reports
-  // changing does too, and bpDigiFinnReport clears it at that point.
-  if (window.bpDigiFinnSyncTarget !== target) {
-    window.bpDigiFinnOverride = false;
-    window.bpDigiFinnSyncTarget = target;
-  }
-  if (!target) {
-    window.bpDigiFinnSync = null;
-    window.bpDigiFinnTarget = "";
-    window.bpDigiFinnDemat = null;
-    window.bpDigiFinnWarnings = [];
-    window.bpDigiFinnDangers = [];
-    window.bpDigiFinnNoticeKinds = null;
-    cardHost.innerHTML = `<div class="muted" style="font-size:12px">Choose a portfolio above
-      before importing. Nothing will be written until you apply.</div>`;
-    return;
-  }
-  const store = await import("./db.js");
-  const all = await store.listAccounts();
-  const asset = target === "__new__" ? null : all.find((a) => a.id === target);
-  const allExisting = target === "__new__" ? [] : await store.listHoldings(target);
-  const manualLots = allExisting.filter((h) => h.source === "manual");
-  const existing = allExisting.filter((h) => h.source !== "manual");
-  const sync = buildBondSync({ portfolio: state.portfolio, investment: state.investment,
-    payouts: state.payouts, existing });
-  const reportDemat = state.portfolio.demat || "";
-  const reportHolder = state.portfolio.identity?.name || "";
-  const targetDemat = await digiFinnTargetDemat(asset);
-  const mismatch = !!asset && matchDemat(reportDemat, targetDemat) === "mismatch";
-  window.bpDigiFinnDemat = { target, reportDemat, targetDemat, mismatch };
-  const reportIdentity = assetIdentity({ number: dematText(reportDemat),
-    holder: reportHolder }, { numberLabel: "Demat" });
-  const targetIdentity = asset
-    ? assetIdentity({ ...asset, number: targetDemat || asset.number }) : null;
-  const mapped = window.bpDigiFinnMapped || "";
-  const mappedAsset = window.bpDigiFinnReviewData?.mappedEntry?.asset || null;
-  const mappedAssetWithHolder = mappedAsset
-    ? { ...mappedAsset, holder: mappedAsset.holder || reportHolder } : null;
-  const mappedIdentity = assetIdentity(mappedAssetWithHolder || { id: mapped });
-  const notices = bondSyncNotices(sync, {
-    target, mapped, mappedLabel: mappedIdentity.name || mapped, mismatch,
-    mismatchLine: dematMismatchLine(reportDemat, reportHolder),
-  });
-  if (state.portfolio.asOf && state.investment.asOf
-    && state.portfolio.asOf !== state.investment.asOf) {
-    notices.notes.push(`Portfolio report is as of ${state.portfolio.asOf}; Investment report is as of ${state.investment.asOf}.`);
-  }
-  const last = asset ? metaOf(asset).holdings_as_of || "" : "";
-  if (state.portfolio.asOf && last && state.portfolio.asOf < last) {
-    notices.notes.push(`This report is older than the last sync (${last}).`);
-  }
-  window.bpDigiFinnSync = sync;
-  window.bpDigiFinnTarget = target;
-  window.bpDigiFinnWarnings = notices.notes;
-  window.bpDigiFinnDangers = notices.dangers;
-  window.bpDigiFinnNoticeKinds = { mapping: notices.mapping, removed: notices.removed };
-  const newName = ["Bonds · DigiFInn", dematLast4(state.portfolio.demat)]
-    .filter(Boolean).join(" ");
-  const name = target === "__new__" ? `<label class="field">Portfolio name
-    <input id="df-new-name" value="${esc(newName)}"
-      autocomplete="off"></label>` : "";
-  const footer = `${sync.matched} of ${sync.current} current lots match this portfolio.`
-    + ` ${sync.matured.length} matured lots are excluded.`
-    + " Applying replaces the report holdings and keeps ratings and market values on matched rows."
-    + (manualLots.length ? ` ${manualLots.length} holding${manualLots.length === 1 ? "" : "s"}`
-      + " added by hand stay untouched." : "");
-  const expanded = !mismatch || window.bpDigiFinnOverride === true;
-  const body = expanded
-    ? bondSyncPreviewBodyHtml({ sync, target, name, notes: notices.notes, footer }) : "";
-  if (mismatch) {
-    cardHost.innerHTML = dematCardHtml({
-      target, reportDemat, reportHolder, targetDemat, mapped,
-      mappedAsset: mappedAssetWithHolder,
-      removed: sync.removed, current: sync.current,
-    }, { body });
-  } else {
-    const header = target === "__new__"
-      ? `<b>Create a portfolio for ${esc(reportIdentity.numberLine || "this Demat")}</b>`
-      : `<b>Applying to ${esc(targetIdentity?.full || reportIdentity.numberLine || "this portfolio")}</b>`;
-    const duplicate = target === "__new__" && notices.dangers.length
-      ? `<div class="sync-danger">${notices.dangers.map((w) =>
-          `<div>${esc(w)}</div>`).join("")}</div>` : "";
-    cardHost.innerHTML = syncPreviewCardHtml({ header, body, danger: duplicate });
-  }
-};
-window.bpDigiFinnCancel = () => {
-  window.bpDigiFinnSync = null;
-  window.bpDigiFinnTarget = "";
-  window.bpDigiFinnSyncTarget = "";
-  window.bpDigiFinnOverride = false;
-  window.bpDigiFinnDemat = null;
-  window.bpDigiFinnWarnings = [];
-  window.bpDigiFinnDangers = [];
-  window.bpDigiFinnNoticeKinds = null;
-  const host = document.getElementById("df-sync-card");
-  if (host) host.innerHTML = "";
-};
-let bondSyncDialog = null;
-function bpBondSyncAsk(options) {
-  bondSyncDialog = bondSyncDialog || createBondSyncDialog(document);
-  return bondSyncDialog ? bondSyncDialog.ask(options) : Promise.resolve(false);
-}
-window.bpDigiFinnSyncApply = async () => {
-  const state = window.bpDigiFinnReports;
-  const sync = window.bpDigiFinnSync;
-  const target = window.bpDigiFinnTarget;
-  if (!state || !sync || !target) return;
-  // Reports for another Demat are refused until the person says "Apply here anyway".
-  const dematState = window.bpDigiFinnDemat || {};
-  if (dematState.target === target && dematState.mismatch
-    && window.bpDigiFinnOverride !== true) {
-    alert("These reports belong to a different Demat. Use 'Apply here anyway' if you are sure.");
-    return;
-  }
-  const dangers = window.bpDigiFinnDangers || [];
-  const notes = window.bpDigiFinnWarnings || [];
-  const kinds = window.bpDigiFinnNoticeKinds || { mapping: false, removed: sync.removed };
-  const name = target === "__new__"
-    ? ((document.getElementById("df-new-name")?.value || "").trim()
-      || `Bonds · DigiFInn ${(state.portfolio.demat || "").slice(-4)}`)
-    : "";
-  const accepted = await bpBondSyncAsk({
-    heading: "Apply bond sync?",
-    dangerLines: dangers,
-    body: bondSyncConfirmText({ target, name, current: sync.current, notes }),
-    acceptLabel: bondSyncAcceptLabel(kinds),
-  });
-  if (!accepted) return;
-  const store = await import("./db.js");
-  let targetId = target;
-  if (target === "__new__") {
-    const base = slug(name);
-    const all = await store.listAccounts();
-    targetId = base;
-    let n = 2;
-    while (all.some((a) => a.id === targetId)) targetId = `${base}-${n++}`;
-    await store.createAccount({ id: targetId, label: name, category: "bonds", subtype: "bond" });
-  }
-  try {
-    try { await store.snapshotDb("Before DigiFInn bond sync"); } catch (e) {}
-    const today = new Date().toISOString().slice(0, 10);
-    await store.replaceHoldings(targetId, sync.holdings, today);
-    const all = await store.listAccounts();
-    const asset = all.find((a) => a.id === targetId);
-    const meta = metaOf(asset);
-    await store.updateAccount(targetId, { meta: JSON.stringify({ ...meta,
-      holdings_source: "digifinn-reports", holdings_as_of: today,
-      holdings_file: [state.files.portfolio, state.files.investment, state.files.payouts]
-        .filter(Boolean).join(" + ") }) });
-    if (state.portfolio.demat) {
-      try {
-        const raw = await store.getSetting("bp.digifinn.demat");
-        const map = raw ? JSON.parse(raw) : {};
-        map[state.portfolio.demat] = targetId;
-        await store.setSetting("bp.digifinn.demat", JSON.stringify(map));
-      } catch (e) {}
-      // The holder block stays in the encrypted database. The name and the
-      // demat number are shown back on the portfolio's own page; nothing here
-      // is logged or included in diagnostics.
-      const identity = state.portfolio.identity || {};
-      if (Object.keys(identity).length) {
-        try {
-          const raw = await store.getSetting("digifinn.identity");
-          const map = raw ? JSON.parse(raw) : {};
-          map[state.portfolio.demat] = { ...identity, as_of: today, portfolio: targetId };
-          await store.setSetting("digifinn.identity", JSON.stringify(map));
-        } catch (e) {}
-      }
-      // A bond portfolio is the demat account that holds it, so fill the fields
-      // a person would otherwise copy across from DigiFInn by hand.
-      const patch = importFillPlan(asset || {}, {
-        demat: state.portfolio.demat,
-        holder: identity.name,
-        broker: bondBroker("digifinn")?.label || "DigiFInn",
-      });
-      if (Object.keys(patch).length) await store.updateAccount(targetId, patch);
-    }
-    // The portfolio may have arrived after the statements. Join it now, so the
-    // order two files are imported in does not matter.
-    await window.bpConsolidate();
-    window.bpDigiFinnReports = null;
-    window.bpDigiFinnSync = null;
-    window.bpDigiFinnSyncTarget = "";
-    window.bpDigiFinnOverride = false;
-    window.bpDigiFinnDemat = null;
-    window.bpDigiFinnWarnings = [];
-    window.bpDigiFinnDangers = [];
-    window.bpDigiFinnNoticeKinds = null;
-    window.bpAsset(targetId);
-  } catch (e) {
-    alert("Could not apply the DigiFInn sync: " + (e.message || e));
-  }
-};
-function digiFinnCardHtml(target, brokerId = "digifinn") {
-  const broker = bondBroker(brokerId) || { id: "digifinn", label: "DigiFInn", reports: [] };
-  window.bpBondBroker = broker.id;
-  window.bpDigiFinnPinned = target ? target.id : "";
-  // Reports belong to the portfolio they were opened on; do not carry them across.
-  if (window.bpDigiFinnReportsFor !== (target ? target.id : "")
-    && window.bpDigiFinnReports?.portfolio) {
-    window.bpDigiFinnReports = null;
-    // A new portfolio is a new destination: forget the old Demat consent too.
-    window.bpDigiFinnOverride = false;
-    window.bpDigiFinnSyncTarget = "";
-    window.bpDigiFinnDemat = null;
-  }
-  window.bpDigiFinnReportsFor = target ? target.id : "";
-  if (!window.bpDigiFinnReports) {
-    window.bpDigiFinnReports = { portfolio: null, investment: null, payouts: null,
-      files: {}, fileSizes: {} };
-  }
-  return `<div class="card" id="digifinn-sync" style="margin-bottom:14px">
-   <details>
-    <summary class="df-summary">Import reports from ${esc(broker.label)}
-      <span class="muted">${broker.reports.length} reports</span></summary>
-    <div class="pad" style="padding-top:0">
-    <p class="muted" style="margin-top:0;font-size:13px">Replaces the holdings in
-      <b>${esc(target.label || target.bank || "this portfolio")}</b> with the report snapshot.
-      Only holdings change — not bank transactions, interest, ratings or market prices.</p>
-    <div class="muted" style="font-size:12.5px">Open
-      <a class="link" href="${esc(broker.page?.url || "#")}" target="_blank" rel="noopener">${esc(broker.page?.url || broker.label)}</a>
-      → <b>${esc(broker.page?.where || "Reports")}</b>. Download these and attach them here one by one:</div>
-    <div class="df-slots">
-      ${broker.reports.map((r, i) => `<div class="df-slot">
-        <div><b>${i + 1}. ${esc(r.title)}</b>
-          <div class="muted">${esc(r.detail || "")}</div>
-          <div class="muted">File: ${(r.files || []).map((f) => `<code>${esc(f)}</code>`).join(" or ")}</div></div>
-        <div class="df-pick"><span id="df-status-${esc(r.slot)}" class="muted">Missing</span>
-          <label class="mini-btn">Choose file<input type="file" accept=".csv" style="display:none"
-            onchange="bpDigiFinnReport('${esc(r.slot)}',this.files[0]);this.value=''"></label></div>
-      </div>`).join("")}
-    </div>
-    <div id="digifinn-status" class="muted" style="font-size:12px;margin-top:9px">
-      All three reports are required before the import unlocks.</div>
-    <div class="muted" style="font-size:11.5px;margin-top:6px">Attach the Cashflow Future
-      export: it carries the next payout, the full schedule and any part redemptions.</div>
-    <div id="digifinn-preview" style="margin-top:12px"></div>
-    <div class="muted" style="font-size:11.5px;margin-top:8px">A repeat sync replaces the current
-      holdings with the report snapshot. Ratings and market values on matched rows are kept;
-      matured lots are excluded. The raw reports are not stored.</div>
-  </div>
-   </details>
-  </div>`;
-}
 // One reference for the question "where did this number come from": a file per
 // line, its fields underneath. Kept as a fold so it never competes with the
 // picker.
@@ -3510,7 +2943,6 @@ function brokerImportBodyHtml() {
   </div>`;
 }
 function renderImport() {
-  window.bpDigiFinnPinned = "";
   // A target set by "Import statement" on an account page lasts one visit only.
   if (!window.bpImportTargetOnce) window.bpImportTarget = "";
   window.bpImportTargetOnce = false;
@@ -4051,7 +3483,6 @@ async function importWorkbook(file) {
     if (card) card.open = true;
   }
 }
-window.bpImportWorkbook = importWorkbook;
 
 function wireImport() {
   const input = document.getElementById("import-files");
@@ -7424,7 +6855,7 @@ window.bpCasFiles = async (files) => {
 const bpImportInboxState = () => {
   if (!window.bpImportInbox) {
     window.bpImportInbox = { entries: [], bundles: [], accountRows: null,
-      accountError: "", choices: {}, creates: {}, acceptAsk: {}, last: null,
+      accountError: "", choices: {}, acceptAsk: {},
       message: "", messageKind: "", preparing: false, pending: false, applying: false };
   }
   return window.bpImportInbox;
@@ -7601,7 +7032,7 @@ function bpImportResolveBroker(bundle) {
   bundle.targetId = targetId;
   bundle.create = !targetId && !bundle.match.tie;
   bundle.createLabel = bpImportBrokerOnlyLabel(bundle);
-  bundle.canCreate = bundle.match.matches.length === 0 || !!state.creates[bundle.key];
+  bundle.canCreate = bundle.match.matches.length === 0;
   const identity = bundle.accountKey
     ? { kind: bundle.accountKind || "bo", value: bundle.accountKey } : null;
   bundle.plan = bpImportPlanFor(bundle, targetId ? bpImportAccountRow(targetId) : null,
@@ -7843,7 +7274,6 @@ async function bpImportInboxPrepare(force = false) {
         if (entry) entry.bundleKey = bundle.key;
       }
       bundle.choice = state.choices[bundle.key] || "";
-      bundle.create = !!state.creates[bundle.key];
       bundle.acceptAsk = !!state.acceptAsk[bundle.key];
       if (bundle.family === "cas") bpImportResolveCas(bundle);
       else bpImportResolveBroker(bundle);
@@ -8127,17 +7557,6 @@ function bpImportInboxRender() {
         onclick="bpImportApplyAll()">Import all</button>
     </div></div>` : "";
   host.innerHTML = `${looseHtml}${batch}${bundles.map(bpImportBundleHtml).join("")}`;
-}
-
-function bpImportInboxEntryDescriptor(entry) {
-  return {
-    kind: entry.kind, name: entry.name, asOf: entry.asOf,
-    accountKey: entry.accountKey, accountKind: entry.accountKind,
-    rows: entry.rows, firstBuyByIsin: entry.firstBuyByIsin,
-    termsByIsin: entry.termsByIsin, termsByLabel: entry.termsByLabel,
-    parsed: entry.parsed, accounts: entry.casAccounts, file: entry.file,
-    entryId: entry.id,
-  };
 }
 
 async function bpImportInboxReadOne(entry) {
@@ -8448,16 +7867,6 @@ window.bpImportChoose = async (key, accountId) => {
     choiceKey === item.key || choiceKey.startsWith(`${item.key}:`));
   if (!bundle) return;
   state.choices[choiceKey] = accountId;
-  state.creates[bundle.key] = false;
-  await bpImportInboxPrepare();
-};
-
-window.bpImportCreate = async (key) => {
-  const state = bpImportInboxState();
-  const bundle = state.bundles.find((item) => item.key === key);
-  if (!bundle) return;
-  state.creates[key] = true;
-  state.choices[key] = "";
   await bpImportInboxPrepare();
 };
 
@@ -8479,7 +7888,6 @@ window.bpImportDropBundle = (key) => {
   const ids = new Set((bundle?.files || []).map((file) => file.entryId));
   state.entries = state.entries.filter((entry) => !ids.has(entry.id));
   delete state.choices[key];
-  delete state.creates[key];
   delete state.acceptAsk[key];
   bpImportInboxPrepare();
 };
@@ -8621,8 +8029,6 @@ async function bpImportUpdateAccountMeta(accountId, bundle, plan, account) {
     const costChanged = (plan?.decisions || []).some((decision) =>
       (decision.changes || []).some((change) => change.group === "cost"));
     if (snapshotChanged || !meta.holdings_as_of) {
-      meta.snapshot_source = bundle.family;
-      meta.snapshot_as_of = day || meta.snapshot_as_of || "";
       meta.holdings_source = bundle.family;
       meta.holdings_as_of = day || meta.holdings_as_of || "";
     }
@@ -8906,9 +8312,7 @@ window.bpImportApplyBundle = async (key, opts = {}) => {
     const ids = new Set((bundle.files || []).map((file) => file.entryId));
     state.entries = state.entries.filter((entry) => !ids.has(entry.id));
     delete state.choices[key];
-    delete state.creates[key];
     delete state.acceptAsk[key];
-    state.last = { ...result, family: bundle.family };
     await bpImportInboxPrepare(true);
     const extras = [];
     if (result.filled) extras.push(`${result.filled} empty value${result.filled === 1 ? "" : "s"} filled`);
@@ -12514,20 +11918,6 @@ window.bpBondSort = (key) => {
   const host = document.getElementById("bond-holdings");
   if (host && window.bpBondRows) host.innerHTML = holdingsCard(window.bpBondRows, window.bpBondAsset);
 };
-window.bpOpenBondImport = () => {
-  // One broker today, so open its card. When a second is registered, this is
-  // where the "which broker?" choice belongs.
-  window.bpOpenDigiFinn();
-};
-window.bpOpenDigiFinn = () => {
-  const card = document.getElementById("digifinn-sync");
-  if (!card) return;
-  const details = card.querySelector("details");
-  if (details) details.open = true;
-  card.scrollIntoView({ behavior: "smooth", block: "start" });
-  const first = card.querySelector("input[type=file]");
-  if (first) setTimeout(() => first.focus({ preventScroll: true }), 350);
-};
 // One press for the whole portfolio: SMEST gives each lot the rating, payment
 // frequency and next interest date it is missing, BSE gives it a price. Nothing
 // already on a row is rewritten, so it is safe to press again next week.
@@ -13037,7 +12427,6 @@ function assetForm(a, factCount, defaultCat, holdings) {
   const show = (cats) => cats.split(" ").includes(cat) ? "" : 'style="display:none"';
   const moneyIn = (v) => (v === null || v === undefined || v === "") ? "" : inr(v);
   const id = a ? a.id : "";
-  window.bpDigiFinnPinned = "";
   const heading = a ? (a.label || a.bank || a.id) : "Add an asset";
   return `<h1>${esc(heading)}</h1>
   ${a ? `<div class="muted" style="margin:-10px 0 14px;font-size:12px">Editing
