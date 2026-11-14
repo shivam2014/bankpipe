@@ -1227,19 +1227,25 @@ export function casRoute(parsed, assets = [], { adopt = {} } = {}) {
 
 /**
  * A CAS is only worth writing when it agrees with itself: the sum of the rows
- * must equal the total the statement prints. The caller passes both, and a
- * mismatch is a refusal, not an exception to review.
+ * must equal the total the statement prints. A mismatch is a refusal, not an
+ * exception to review. `printed` says whether the statement printed one at
+ * all: a missing total is not a match, because there is nothing to agree with.
+ * It is also not a mismatch. The caller decides which of the two it can safely
+ * do with rows the statement does not name.
  * @param {{holdings: Array<object>}} parsed
  * @param {number|null} statedTotalPaise
- * @returns {{ok: boolean, sumPaise: number, statedTotalPaise: number|null, diffPaise: number|null}}
+ * @returns {{ok: boolean, printed: boolean, sumPaise: number,
+ *   statedTotalPaise: number|null, diffPaise: number|null}}
  */
 export function casTotals(parsed, statedTotalPaise) {
   const sumPaise = (parsed?.holdings || [])
     .reduce((t, h) => t + (Number(h.valuePaise) || 0), 0);
-  if (statedTotalPaise === null || statedTotalPaise === undefined) {
-    return { ok: true, sumPaise, statedTotalPaise: null, diffPaise: null };
+  const printed = statedTotalPaise !== null && statedTotalPaise !== undefined
+    && Number.isFinite(Number(statedTotalPaise));
+  if (!printed) {
+    return { ok: true, printed: false, sumPaise, statedTotalPaise: null, diffPaise: null };
   }
   const diffPaise = sumPaise - Number(statedTotalPaise);
-  return { ok: diffPaise === 0, sumPaise, statedTotalPaise: Number(statedTotalPaise),
-    diffPaise };
+  return { ok: diffPaise === 0, printed: true, sumPaise,
+    statedTotalPaise: Number(statedTotalPaise), diffPaise };
 }

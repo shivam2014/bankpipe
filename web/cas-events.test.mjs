@@ -704,7 +704,10 @@ test("a foreign movement does not pin an absent row on another demat", () => {
     transactions: [{ isin: ISIN_B, account: ACCOUNT_B, security: "B BOND",
       date: "2026-08-12", type: "SALE", description: "SALE", quantity: 10,
       openingPaise: 5000, creditPaise: 0, debitPaise: 1000, closingPaise: 4000 }],
-    counts: { rows: 1, quarantined: 0 }, printedTotalPaise: null,
+    counts: { rows: 1, quarantined: 0 },
+    // The routing question is about a complete statement: the printed total
+    // matches, so this replace may remove a row the statement does not name.
+    printedTotalPaise: 10000000,
   };
   const existing = [
     { security_id: ISIN_A, label: "A BOND", category: "bond", quantity: 100,

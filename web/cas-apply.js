@@ -9,6 +9,13 @@ import { bondHomeOf, bondMaturity, carryBrokerFields, isLiveBondRow } from "./bo
 import { boId } from "./bo-id.js";
 import { folioKey, normalizeFolio } from "./folio.js";
 
+// The month words a bond label can already carry. `en-IN` prints September as
+// "Sept", four letters, so the old three-letter guard missed it and appended
+// the same date a second time; the short and long forms both match here.
+const LABEL_MONTHS = "Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?"
+  + "|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?";
+const LABEL_DATED = new RegExp(`\\d{1,2}\\s+(?:${LABEL_MONTHS})\\.?\\s+\\d{4}`, "i");
+
 /**
  * The label a CAS row is stored under. The label carries the coupon and the
  * maturity because the bond card reads them from there.
@@ -18,7 +25,7 @@ import { folioKey, normalizeFolio } from "./folio.js";
 export function casHoldingLabel(h) {
   const name = String(h.label || h.isin).replace(/\s+/g, " ").trim();
   if (h.kind !== "bond") return name;
-  if (/\d{1,2}\s+[A-Za-z]{3}\s+\d{4}/.test(name)) return name;
+  if (LABEL_DATED.test(name)) return name;
   const when = h.maturity
     ? new Date(`${h.maturity}T00:00:00Z`).toLocaleDateString("en-IN",
       { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
@@ -717,14 +724,17 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
 }
 
 /**
- * Whether a CAS may replace a demat. A row that did not parse is a partial
+ * Whether a CAS is safe to apply. A row that did not parse is a partial
  * statement, and a partial statement must never delete a holding. The printed
- * total is the second check: when the parser exposes one, the rows must add up
- * to it.
+ * total is the second check: when the statement prints one, the rows must add
+ * up to it. A statement that prints no total is not blocked — the rows it does
+ * name are still worth recording — but it is not `complete` either, because
+ * nothing proves it lists every row. Only a complete statement may replace the
+ * account, so absence never authorises a deletion on its own.
  * @param {{holdings?: Array<object>, counts?: object, printedTotalPaise?: number|null}} parsed
  * @param {number|null} [statedTotalPaise]
- * @returns {{blocked: boolean, complete: boolean, quarantined: number,
- *   totals: object, reasons: Array<string>}}
+ * @returns {{blocked: boolean, complete: boolean, totalPrinted: boolean,
+ *   quarantined: number, totals: object, reasons: Array<string>, note: string}}
  */
 export function casSafety(parsed = {}, statedTotalPaise = parsed?.printedTotalPaise) {
   const quarantined = Number(parsed?.counts?.quarantined) || 0;
@@ -733,11 +743,13 @@ export function casSafety(parsed = {}, statedTotalPaise = parsed?.printedTotalPa
   if (quarantined > 0) {
     reasons.push(`${quarantined} row${quarantined === 1 ? "" : "s"} could not be read; the statement is not safe to replace this account.`);
   }
-  if (!totals.ok) {
+  if (totals.printed && !totals.ok) {
     reasons.push("The rows do not add up to the total the statement prints; the statement is not safe to replace this account.");
   }
-  return { blocked: reasons.length > 0, complete: reasons.length === 0,
-    quarantined, totals, reasons };
+  const totalPrinted = totals.printed;
+  return { blocked: reasons.length > 0, complete: reasons.length === 0 && totalPrinted,
+    totalPrinted, quarantined, totals, reasons,
+    note: totalPrinted ? "" : "The statement prints no total, so the app cannot confirm that every holding is listed." };
 }
 
 /**
@@ -746,13 +758,16 @@ export function casSafety(parsed = {}, statedTotalPaise = parsed?.printedTotalPa
  * moves without a cost keeps the last known cost whole, while a debit the
  * statement explains allocates the cost of the units that left. A row the CAS
  * does not name is preserved by default, so a partial or older statement cannot
- * silently delete a holding. A row with a disposal record is history and always
+ * silently delete a holding. When the rows are preserved, `wouldDrop` names the
+ * ones a complete replace would remove, so the caller can ask about exactly
+ * those instead of a count. A row with a disposal record is history and always
  * survives, whatever the statement says.
  * @param {{existing?: Array<object>, holdings?: Array<object>, asOf?: string,
  *   preserveAbsent?: boolean, keepAbsent?: Iterable<string>,
  *   saleIsins?: Iterable<string>}} input
  * @returns {{rows: Array<object>, absent: Array<object>, dropped: Array<object>,
- *   manualKept: number, keptNewer: number, keptEvents: number, carried: number}}
+ *   wouldDrop: Array<object>, manualKept: number, keptNewer: number,
+ *   keptEvents: number, carried: number}}
  */
 export function casApplyRows({ existing = [], holdings = [], asOf = "",
   preserveAbsent = true, keepAbsent = [], saleIsins = [] } = {}) {
@@ -760,6 +775,13 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
     String(isin || "").toUpperCase()));
   const soldIsins = new Set([...saleIsins].map((isin) =>
     String(isin || "").toUpperCase()));
+  // What a removed row was worth: its priced value, or the cost behind it when
+  // the statement never priced it. The dialog shows the same number.
+  const worthPaise = (row) => {
+    const value = row?.value_paise;
+    if (value !== null && value !== undefined && value !== "") return Number(value) || 0;
+    return Number(row?.cost_paise) || 0;
+  };
   const oldByIsin = new Map();
   const withCost = new Map();
   for (const old of existing || []) {
@@ -814,6 +836,7 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
 
   const absent = [];
   const dropped = [];
+  const wouldDrop = [];
   let manualKept = 0;
   let keptNewer = 0;
   let keptEvents = 0;
@@ -846,34 +869,47 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
         reason: boughtAfter ? "bought after the statement date; kept"
           : keepForEvent.has(isin) ? "not in this statement; kept for a recorded movement"
             : "not in this statement; kept" });
+      // Preserving is the safe default, not a decision about the row. Record the
+      // ones a replace would remove, with their value, so the caller can name
+      // them instead of asking about a bare count.
+      if (preserveAbsent && !boughtAfter && !keepForEvent.has(isin)) {
+        wouldDrop.push({ isin, label: old.label || "", action: "remove",
+          reason: "not in the complete statement", value_paise: worthPaise(old) });
+      }
     } else {
       dropped.push({ isin, label: old.label || "", action: "remove",
-        reason: "not in the complete statement" });
+        reason: "not in the complete statement", value_paise: worthPaise(old) });
     }
   }
-  return { rows, absent, dropped, manualKept, keptNewer, keptEvents, carried };
+  return { rows, absent, dropped, wouldDrop, manualKept, keptNewer, keptEvents,
+    carried };
 }
 
 /**
  * The one decision the preview and the writer share. A blocked statement
  * returns the existing rows unchanged, so calling it is safe even when the UI
  * has not checked first. Absent rows are preserved unless the statement is
- * complete and the replace was explicitly confirmed. Movements are applied to
- * the rows this plan will write, so the sale a person sees is the sale stored.
+ * complete and the replace was explicitly confirmed. A complete statement is
+ * one that printed a total the rows add up to; `replaceWithoutTotal` is the one
+ * per-import way to remove rows for a statement that printed none, and it is an
+ * argument, so no later import inherits it. Movements are applied to the rows
+ * this plan will write, so the sale a person sees is the sale stored.
  * @param {{parsed?: object, existing?: Array<object>, holdings?: Array<object>,
  *   events?: Array<object>, assetId?: string, asOf?: string, confirmed?: boolean,
  *   merge?: boolean, safety?: object, accounts?: Array<string>,
- *   route?: boolean, manualTarget?: boolean}} input
+ *   route?: boolean, manualTarget?: boolean, replaceWithoutTotal?: boolean}} input
  * @returns {object}
  */
 export function casReplacePlan({ parsed = {}, existing = [], holdings = [], events = null,
   assetId = "", asOf = parsed?.asOf || "", confirmed = false, merge = false,
-  safety = null, accounts = [], route = false, manualTarget = false } = {}) {
+  safety = null, accounts = [], route = false, manualTarget = false,
+  replaceWithoutTotal = false } = {}) {
   const verdict = safety || casSafety(parsed);
   if (verdict.blocked) {
     return { ok: false, blocked: true, safety: verdict, rows: existing, absent: [],
-      dropped: [], manualKept: 0, keptNewer: 0, keptEvents: 0, carried: 0,
-      preserveAbsent: true, events: [], sold: [], conflicts: [], warnings: [] };
+      dropped: [], wouldDrop: [], wouldDropPaise: 0, manualKept: 0, keptNewer: 0,
+      keptEvents: 0, carried: 0, preserveAbsent: true, events: [], sold: [],
+      conflicts: [], warnings: [] };
   }
   const movements = events === null ? (parsed?.transactions || []) : (events || []);
   // Only this target's movements can pin a row it does not name. A sale that
@@ -891,9 +927,20 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
   // not a complete zero-row snapshot. A confirmed replace must not drop every
   // live row it does not name.
   const printedHoldings = Array.isArray(parsed?.holdings) && parsed.holdings.length > 0;
-  const preserveAbsent = merge || !(confirmed && verdict.complete && printedHoldings);
+  // A replace deletes every live row the statement does not name. That needs a
+  // deliberate yes plus proof the statement lists the whole account: a printed
+  // total that matched, or this import's explicit choice to go without one.
+  // The choice is an argument, never stored state, so the next import is closed.
+  const proof = verdict.totalPrinted === true
+    || (replaceWithoutTotal === true && verdict.totalPrinted === false
+      && (verdict.reasons || []).length === 0);
+  const preserveAbsent = merge || !(confirmed && proof && printedHoldings);
   const applied = casApplyRows({ existing, holdings, asOf, preserveAbsent,
     keepAbsent: eventIsins, saleIsins });
+  // A folio account merges by design, so it never offers to remove a row.
+  const wouldDrop = merge ? [] : (applied.wouldDrop || []);
+  const wouldDropPaise = wouldDrop.reduce((total, row) =>
+    total + (Number(row.value_paise) || 0), 0);
   // An event already on file was applied by an earlier import. The holdings
   // table inside the statement can be older than the rows that import wrote, so
   // a rebuilt row must not resurrect units the sale already removed. Keep the
@@ -922,12 +969,13 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
   }
   if (!movements.length) {
     return { ok: true, blocked: false, safety: verdict, preserveAbsent, ...applied,
-      events: [], sold: [], conflicts: [], warnings: [] };
+      wouldDrop, wouldDropPaise, events: [], sold: [], conflicts: [], warnings: [] };
   }
   const result = applyCasEvents(baseRows, movements, { asOf, assetId, accounts, route,
     manualTarget, known: parsed?.holdings || [] });
   return {
     ok: true, blocked: false, safety: verdict, preserveAbsent, ...applied,
+    wouldDrop, wouldDropPaise,
     rows: result.rows,
     events: result.applied,
     sold: result.sold,

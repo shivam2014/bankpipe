@@ -213,3 +213,29 @@ test("adoption replaces the manual total and writes the folio on the account", (
   assert.match(html, /nextMeta\.folios = \[\.\.\.new Set\(\[\.\.\.known, \.\.\.folios\]\)\]/);
   assert.match(html, /if \(nextNumber\) patch\.number = nextNumber;/);
 });
+
+test("a statement with no printed total offers keep or a named removal, never a default replace", () => {
+  // The card says the statement cannot prove it lists everything.
+  assert.match(html, /This statement prints no total\./);
+  // The gate is the absence of a printed total, not a client-side flag.
+  assert.match(html, /if \(replaceGate && !safety\.totalPrinted\) \{/);
+  // The rows and their value are on screen before the destructive choice.
+  assert.match(html, /keeps the \$\{one \? "holding" : `\$\{removing\} holdings`\} on file/);
+  assert.match(html, /money\(removingPaise\)/);
+  assert.match(html, /wouldDrop\.slice\(0, 5\)/);
+  // Keeping is the primary; removing is a separate button.
+  assert.match(html, /onclick="bpCasImportKeep\('\$\{key\}'\)"/);
+  assert.match(html, /onclick="bpCasImportReplaceNoTotal\('\$\{key\}'\)"/);
+  // The override is one argument on one call, not a stored acceptance.
+  assert.match(html,
+    /window\.bpCasImportReplaceNoTotal = \(key = "cas-host"\) =>\s*\n\s*window\.bpCasImport\(key, true, \{ replaceAbsent: true, replaceWithoutTotal: true \}\);/);
+  assert.match(html, /replaceWithoutTotal: allowAbsentRemoval && !!opts\.replaceWithoutTotal/);
+  assert.equal(/card\.replaceWithoutTotal|state\.replaceWithoutTotal|acceptNoTotal/.test(html),
+    false);
+});
+
+test("the printed-total dialog keeps its replace path", () => {
+  assert.match(html, /} else if \(replaceGate\) \{/);
+  assert.match(html, /onclick="bpCasImportConfirm\('\$\{key\}'\)"/);
+  assert.match(html, /Replace and import<\/button>/);
+});

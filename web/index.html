@@ -7227,6 +7227,11 @@ function bpImportResolveCas(bundle) {
   if (safety.blocked) {
     bundle.plan.blocking = true;
     bundle.plan.warnings = [...new Set([...bundle.plan.warnings, ...safety.reasons])];
+  } else if (!safety.totalPrinted) {
+    // An inbox import never replaces an account today. Say why a row on file can
+    // survive the statement, instead of leaving "Ready" unexplained.
+    bundle.plan.warnings = [...new Set([...bundle.plan.warnings,
+      `${safety.note} This import keeps every holding the statement does not name.`])];
   }
   // A movements-only statement with no account on file has nowhere to write its
   // disposals. Saying "ready" would create nothing and drop the file. A movement
@@ -8825,6 +8830,13 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
       ${safety.blocked ? `<div class="import-wrong"><b>This statement cannot replace the account.</b>
         <div class="muted">${esc(safety.reasons.join(" "))}</div></div>` : ""}
+      ${!safety.blocked && !safety.totalPrinted && cas.holdings.length
+        ? `<div class="import-wrong">
+        <b>This statement prints no total.</b>
+        <div class="muted">The app cannot confirm that it lists every holding. Importing adds
+          the rows it names and keeps every holding it does not; it can only replace the
+          account if you choose that after seeing exactly what would be removed.</div></div>`
+        : ""}
       <label class="field" style="margin-top:8px">Belongs to
         <input id="cas-owner-${hostId}" value="${esc(cardState.owner || "")}"
           placeholder="Account holder"
@@ -10344,26 +10356,72 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     const manualTargetId = document.getElementById(`cas-target-${key}`)?.value || "";
     const today = new Date().toISOString().slice(0, 10);
     const asOf = cas.asOf || today;
-    // The preview and the writer call the same planner. A row the statement does
-    // not name is counted as staying unless the complete statement was confirmed.
+    // The preview and the writer call the same planner. Count what the file adds
+    // and keeps, and name separately the rows a replace would remove.
     let replacing = 0;
     let incoming = 0;
     let removing = 0;
+    let removingPaise = 0;
     let staying = 0;
+    const wouldDrop = [];
     for (const [assetId, holdings] of byAsset) {
       const existing = await store.listHoldings(assetId);
       const asset = assetOf(assetId);
       const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
       const preview = casReplacePlan({ parsed: cas, existing, holdings, asOf,
-        events: cas.transactions, assetId, confirmed: !movementsOnly, merge: folioAccount,
+        events: cas.transactions, assetId, merge: folioAccount,
         accounts: boIdsOf.get(assetId) || [], route: true, safety,
         manualTarget: !!manualTargetId && manualTargetId === assetId });
       replacing += existing.length;
       incoming += holdings.length;
-      removing += preview.dropped.length;
-      staying += preview.absent.length + preview.manualKept;
+      removing += preview.wouldDrop.length;
+      removingPaise += preview.wouldDropPaise;
+      staying += preview.absent.length - preview.wouldDrop.length + preview.manualKept;
+      for (const row of preview.wouldDrop) {
+        wouldDrop.push({ ...row, account: asset?.label || "" });
+      }
     }
-    if (replacing && !confirmed && !movementsOnly) {
+    const replaceGate = replacing && !confirmed && !movementsOnly;
+    // A statement that printed no total cannot prove it lists the whole account.
+    // Its rows can still be imported; removing one it does not name takes a
+    // separate choice that names the rows and their value. The choice travels as
+    // an argument on this call, so the next file starts from the closed default.
+    if (replaceGate && !safety.totalPrinted) {
+      if (removing > 0) {
+        let ask = document.getElementById(`cas-confirm-${key}`);
+        if (!ask) {
+          ask = document.createElement("div");
+          ask.id = `cas-confirm-${key}`;
+          host.insertAdjacentElement("afterend", ask);
+        }
+        const one = removing === 1;
+        const rows = wouldDrop.slice(0, 5).map((row) =>
+          `<li>${esc(row.label || row.isin)}${row.account ? ` · ${esc(row.account)}` : ""}${
+            row.value_paise ? ` · ${money(row.value_paise)}` : ""}</li>`).join("");
+        ask.innerHTML = `<div class="card pad import-wrong">
+          <b>This statement prints no total. Import it without replacing the account?</b>
+          <div class="muted">The app cannot confirm that it lists every holding. Importing
+            keeps the ${one ? "holding" : `${removing} holdings`} on file it does not name${
+            removingPaise ? `, worth ${money(removingPaise)}` : ""}, and replaces only the
+            rows it names.</div>
+          <ul class="muted import-ask-list">${rows}${
+            removing > 5 ? `<li>and ${removing - 5} more</li>` : ""}</ul>
+          <div class="muted">It writes into ${places} account${places === 1 ? "" : "s"}.
+            A backup is saved first, and nothing is written until you choose.</div>
+          <div class="import-actions">
+            <button class="btn primary" onclick="bpCasImportKeep('${key}')">
+              Import and keep ${removing === 1 ? "1 holding" : `all ${removing}`}</button>
+            <button class="btn danger" onclick="bpCasImportReplaceNoTotal('${key}')">
+              Remove ${removing === 1 ? "it" : `all ${removing}`} and import</button>
+            <button class="btn" onclick="bpCasImportCancel('${key}')">Cancel</button>
+          </div>
+          <div class="muted import-note">
+            Choose Remove only if you know this file lists the whole account.</div></div>`;
+        ask.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        return;
+      }
+      // Nothing would be removed, so the additive import is the only outcome.
+    } else if (replaceGate) {
       // A browser confirm() blocks the page and looks like an error. Ask in the
       // page, under the statement, and keep the preview visible behind it.
       let ask = document.getElementById(`cas-confirm-${key}`);
@@ -10372,17 +10430,16 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
         ask.id = `cas-confirm-${key}`;
         host.insertAdjacentElement("afterend", ask);
       }
-      ask.innerHTML = `<div class="card pad" style="border-color:var(--amber);margin-top:10px">
+      ask.innerHTML = `<div class="card pad import-wrong">
         <b>Replace ${replacing} existing holding${replacing === 1 ? "" : "s"} with ${incoming}
           from the ${esc(cas.depository || "demat")} statement?</b>
         <div class="muted">${removing
           ? `${removing} holding${removing === 1 ? "" : "s"} not named in this statement will be removed.`
           : "No holding will be removed."}${staying
           ? ` ${staying} other${staying === 1 ? "" : "s"} stay unchanged.` : ""}</div>
-        <div class="muted" style="font-size:12.5px;margin-top:4px">
-          It writes into ${places} account${places === 1 ? "" : "s"}. A backup is saved first,
-          and nothing is written until you confirm.</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <div class="muted">It writes into ${places} account${places === 1 ? "" : "s"}.
+          A backup is saved first, and nothing is written until you confirm.</div>
+        <div class="import-actions">
           <button class="btn primary" onclick="bpCasImportConfirm('${key}')">
             Replace and import</button>
           <button class="btn" onclick="bpCasImportCancel('${key}')">Cancel</button>
@@ -10411,6 +10468,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
         events: cas.transactions, assetId,
         confirmed: allowAbsentRemoval && confirmed && !movementsOnly, merge: folioAccount,
         accounts: boIdsOf.get(assetId) || [], route: true, safety,
+        replaceWithoutTotal: allowAbsentRemoval && !!opts.replaceWithoutTotal,
         manualTarget: !!manualTargetId && manualTargetId === assetId });
       if (!plan.ok) {
         if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
@@ -10558,6 +10616,12 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
   }
 };
 window.bpCasImportConfirm = (key = "cas-host") => window.bpCasImport(key, true, { replaceAbsent: true });
+// The no-total gate offers two answers. Keeping is the additive import; removing
+// is this one call with this one flag, never a stored acceptance, so the next
+// file starts from the closed default.
+window.bpCasImportKeep = (key = "cas-host") => window.bpCasImport(key, true);
+window.bpCasImportReplaceNoTotal = (key = "cas-host") =>
+  window.bpCasImport(key, true, { replaceAbsent: true, replaceWithoutTotal: true });
 window.bpCasImportCancel = (key = "cas-host") => {
   document.getElementById(`cas-confirm-${key}`)?.remove();
 };
