@@ -351,6 +351,36 @@ test("holdings keep rating, frequency and purchase yield", async () => {
   assert.equal(row.purchase_date, "2025-01-01");
 });
 
+test("a disposal record keeps its event key and stays out of cost totals", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "sold-demat", label: "Demat", category: "demat" });
+  store.replaceHoldings("sold-demat", [{
+    security_id: "INE000000031", label: "9.00% TEST BOND 31 Dec 2028", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0,
+    disposed_at: "2026-08-12", disposed_quantity: 40, disposed_type: "sale",
+    disposed_source: "CAS", disposed_reason: "SALE", disposed_cost_paise: 80000,
+    txn_key: "INE000000031|2026-08-12|sale|40|a1b2c3d4",
+    as_of: "2026-08-12",
+  }, {
+    security_id: "INE000000032", label: "8.00% OTHER BOND", category: "bond",
+    quantity: 5, cost_paise: 50000, value_paise: 52000,
+  }], "2026-08-31");
+  const rows = store.listHoldings("sold-demat");
+  const sold = rows.find((row) => row.security_id === "INE000000031");
+  assert.equal(sold.quantity, 0);
+  assert.equal(sold.disposed_at, "2026-08-12");
+  assert.equal(sold.disposed_quantity, 40);
+  assert.equal(sold.disposed_type, "sale");
+  assert.equal(sold.disposed_source, "CAS");
+  assert.equal(sold.disposed_cost_paise, 80000);
+  assert.equal(sold.txn_key, "INE000000031|2026-08-12|sale|40|a1b2c3d4");
+  const totals = store.query("SELECT SUM(cost_paise) AS cost, SUM(value_paise) AS value"
+    + " FROM holding WHERE asset_id='sold-demat'")[0];
+  assert.equal(totals.cost, 50000);
+  assert.equal(totals.value, 52000);
+});
+
 test("holdings totals appear on the asset row", async () => {
   const store = makeStore(SQL, null);
   await store.open();

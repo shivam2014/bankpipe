@@ -424,7 +424,10 @@ export function groupBundles(files = []) {
     bundle.optional = optionals;
     bundle.rows = rows;
     bundle.asOf = base?.asOf || "";
-    bundle.ready = !!(base && rows.length);
+    // A CAS can carry only movements: a bond bought and sold inside the period
+    // never prints in a holdings table. The sale is still the import.
+    const hasMovements = base?.kind === "cas" && (base?.parsed?.transactions || []).length > 0;
+    bundle.ready = !!(base && (rows.length || hasMovements));
     bundle.rowCount = rows.length;
     bundle.isinCount = new Set(rows.map(rowIsin).filter(Boolean)).size;
     bundle.accountKey = bundle.accountKey || base?.accountKey || "";
@@ -625,7 +628,20 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   const inRows = (incoming?.rows || []).map(normalizeIncoming).filter((row) => row.isin || row.label);
   const oldByIsin = new Map();
   const oldByLabel = new Map();
+  const soldByIsin = new Map();
   for (const row of oldRows) {
+    // A disposal is history, not a holding the next report can revive. A report
+    // that names it again is a re-purchase or a disagreement, and both are a
+    // question rather than a silent overwrite of the recorded sale.
+    if (row.disposed_at) {
+      if (row.isin) {
+        const prior = soldByIsin.get(row.isin);
+        if (!prior || String(row.disposed_at) > String(prior.disposed_at)) {
+          soldByIsin.set(row.isin, row);
+        }
+      }
+      continue;
+    }
     if (row.isin) oldByIsin.set(row.isin, row);
     if (row.label) oldByLabel.set(norm(row.label), row);
   }
@@ -726,6 +742,49 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   for (const row of inRows) {
     const old = oldByIsin.get(row.isin) || (!row.isin ? oldByLabel.get(norm(row.label)) : null);
     if (!old) {
+      const sold = row.isin ? soldByIsin.get(row.isin) : null;
+      if (sold) {
+        const soldDate = String(sold.disposed_at || "").slice(0, 10);
+        const reportAfter = !!incomingState.date && !!soldDate
+          && incomingState.date >= soldDate;
+        const showsUnits = row.quantity !== null && Number(row.quantity) > 0;
+        const noUnits = row.quantity !== null && Number(row.quantity) <= 0;
+        if (noUnits) {
+          kept += 1;
+          decisions.push({ isin: row.isin, label: row.label, action: "keep",
+            existing: sold, next: sold, changes: [], flags: ["sold"],
+            reason: "matches the recorded disposal" });
+          continue;
+        }
+        if (!showsUnits) {
+          skipped += 1;
+          decisions.push({ isin: row.isin, label: row.label, action: "skip",
+            existing: sold, next: null, changes: [], flags: ["sold-conflict"],
+            reason: "the report carries no quantity for a bond already recorded as sold" });
+          continue;
+        }
+        if (!reportAfter || !canAdd) {
+          skipped += 1;
+          decisions.push({ isin: row.isin, label: row.label, action: "skip",
+            existing: sold, next: null, changes: [], flags: ["sold-conflict"],
+            reason: reportAfter ? "a recorded sale leaves no live row to update"
+              : "older than the recorded sale" });
+          continue;
+        }
+        ask += 1;
+        const next = { ...row };
+        if (!next.asOf) next.asOf = incomingState.date || "";
+        decisions.push({
+          isin: row.isin, label: row.label, action: "ask", existing: sold, next,
+          changes: [{ ...fieldChange("snapshot", "quantity", 0, row.quantity,
+            incoming?.label || incoming?.kind, incomingState.date), requiresConfirm: true,
+          soldConflict: true }],
+          flags: ["sold-conflict"],
+          reason: `the CAS records ${sold.disposed_quantity ?? 0} sold on ${soldDate}; `
+            + `this report still shows ${row.quantity}`,
+        });
+        continue;
+      }
       const maturity = row.maturity || parseBondLabel(row.label)?.maturity || "";
       // A matured bond is history, not a live holding. An older CAS still brings
       // it across, so the final set does not depend on which file arrived first.
@@ -758,6 +817,14 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
     const rowFlags = [];
     const quantityDiffers = row.quantity !== null && moneyDifferent(old.quantity, row.quantity);
     const valueDiffers = row.valuePaise !== null && moneyDifferent(old.valuePaise, row.valuePaise);
+    // A sale recorded from a CAS is a fact. A newer report that shows more units
+    // than the sale left behind is a disagreement to surface, not a quantity to
+    // take silently.
+    const sold = row.isin ? soldByIsin.get(row.isin) : null;
+    const soldConflict = !!sold && !!incomingState.date
+      && incomingState.date >= String(sold.disposed_at || "").slice(0, 10)
+      && row.quantity !== null && old.quantity !== null
+      && Number(row.quantity) > Number(old.quantity) + 1e-9;
     const incomingName = incoming?.kind === "cas" ? "CAS" : (incoming?.label || incoming?.kind);
     // A broker report newer than the last CAS disagrees with the depository for
     // quantity or value. That is a question, not a silent overwrite. A cost-only
@@ -847,6 +914,15 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
     if (identityOnly) {
       // The CAS still owns the account's identity; no holding field moves.
     }
+    if (soldConflict) {
+      rowFlags.push("sold-conflict");
+      for (const change of changes) {
+        if (change.group === "snapshot" && change.field === "quantity") {
+          change.requiresConfirm = true;
+          change.soldConflict = true;
+        }
+      }
+    }
 
     if (costMode !== "keep") {
       const immutableManual = costMode === "fill-empty" && manualExisting && old.costPaise !== null;
@@ -905,7 +981,9 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
     if (needsConfirm) {
       ask += 1;
       decisions.push({ isin: row.isin || old.isin, label: row.label || old.label, action: "ask",
-        existing: old, next, changes, flags: rowFlags, reason: "same date or manual cost" });
+        existing: old, next, changes, flags: rowFlags, reason: soldConflict
+          ? "the report shows more units than a recorded sale left"
+          : "same date or manual cost" });
     } else if (changedFields.length || changes.length) {
       updated += 1;
       decisions.push({ isin: row.isin || old.isin, label: row.label || old.label, action: "update",
@@ -922,6 +1000,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   const absent = [];
   for (const old of oldRows) {
     if (old.isin && incomingIsins.has(old.isin)) continue;
+    if (old.disposed_at) continue;
     if (!old.isin) continue;
     if (categories.size && old.category && !categories.has(old.category)) continue;
     if (old.source === "manual") {

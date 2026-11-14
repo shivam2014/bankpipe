@@ -427,6 +427,19 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .info-pop b{font-weight:650}
 .bond-cards{display:none;flex-direction:column;gap:8px;margin-top:10px}
 .matured-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.cas-sales{margin-top:10px;border-top:1px solid var(--hair);padding-top:8px}
+.cas-sales b{font-size:13.5px}
+.cas-sales ul{margin:6px 0 0;padding-left:18px}
+.cas-sales li{font-size:12px;margin-top:2px}
+.sold-holdings{margin-top:12px;border-top:1px solid var(--hair);padding-top:10px}
+.sold-holdings summary{cursor:pointer;font-size:12px;color:var(--muted);list-style:none}
+.sold-holdings summary::-webkit-details-marker{display:none}
+.sold-note{font-size:12px;margin-top:6px}
+.sold-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.sold-row{display:flex;justify-content:space-between;align-items:center;gap:10px;
+ flex-wrap:wrap;border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+.sold-name{font-weight:620}
+.sold-figs{font-size:12px;color:var(--muted)}
 .holding-cards{display:flex;flex-direction:column;gap:8px;margin-top:10px}
 .class-group{margin-bottom:12px}
 .class-group-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
@@ -7660,6 +7673,25 @@ function bpImportResolveCas(bundle) {
   bundle.casTargets = [...dematTargets, ...folioTargets];
   bundle.plans = bundle.casTargets.map((target) => target.plan);
   bundle.plan = bpImportAggregatePlans(bundle.plans);
+  // The sale is part of the preview, not a surprise in the write. This calls the
+  // same planner the writer uses, with the same rows and the same movements.
+  const saleLines = [];
+  const saleConflicts = [];
+  const saleEvents = [];
+  for (const target of bundle.casTargets) {
+    if (!target.targetId) continue;
+    const existing = bpImportAccountRow(target.targetId)?.holdings || [];
+    const plan = casReplacePlan({ parsed: base?.parsed || {}, existing,
+      holdings: target.rows || [], events: base?.parsed?.transactions || [],
+      assetId: target.targetId, asOf: bundle.asOf || "", confirmed: false });
+    saleLines.push(...casEventLines(plan));
+    saleConflicts.push(...(plan.conflicts || []));
+    saleEvents.push(...(plan.events || []).filter((event) => event.status !== "already"
+      && event.side === "debit"));
+  }
+  bundle.saleLines = saleLines;
+  bundle.saleConflicts = saleConflicts;
+  bundle.saleEvents = saleEvents;
   const safety = casSafety(base?.parsed || {});
   bundle.casSafety = safety;
   if (safety.blocked) {
@@ -7859,6 +7891,9 @@ function bpImportPlanItems(bundle) {  const summary = bundle.plan?.summary || {}
   const change = [];
   if (summary.added) change.push(`Add ${summary.added} holding${summary.added === 1 ? "" : "s"}`);
   if (summary.updated) change.push(`Update ${summary.updated} holding${summary.updated === 1 ? "" : "s"}`);
+  if (bundle.saleEvents?.length) change.push(`Record ${bundle.saleEvents.length} sale${
+    bundle.saleEvents.length === 1 ? "" : "s"} or transfer${
+    bundle.saleEvents.length === 1 ? "" : "s"} as sold`);
   if (summary.history) change.push(`Move ${summary.history} matured bond${summary.history === 1 ? "" : "s"} to history`);
   const identityChanging = bundle.family === "cas"
     ? (bundle.casTargets || []).some((target) =>
@@ -7921,10 +7956,12 @@ function bpImportBundleHtml(bundle) {
   const warning = (bundle.plan?.warnings || []).length
     ? `<div class="muted import-note">${esc(bundle.plan.warnings.join(" "))}</div>` : "";
   const planned = summary.added + summary.updated + summary.history;
+  const sales = bundle.saleEvents?.length || 0;
   const primary = bundle.family === "cas"
     ? (bundle.plan?.identityOnly
       ? "Attach identity and fill empty values"
-      : planned ? `Import ${planned} holdings` : "Attach identity")
+      : planned ? `Import ${planned} holdings`
+        : sales ? `Record ${sales} sale${sales === 1 ? "" : "s"}` : "Attach identity")
     : `${bundle.create && !bundle.targetId ? "Create account and import " : "Import "}${
       planned} ${bundle.family === "zerodha" ? "equities" : "holdings"}`;
   return `<div class="card pad import-bundle" data-bundle="${esc(bundle.key)}">
@@ -7937,6 +7974,7 @@ function bpImportBundleHtml(bundle) {
     </div>
     <div class="import-files">${files}</div>
     ${where}
+    ${casSaleHtml(bundle.saleLines || [], bundle.saleConflicts || [])}
     <div class="import-change-grid">
       <div class="import-change"><b>What will change</b><ul>${changes.change.map((item) =>
         `<li>${esc(item)}</li>`).join("")}</ul></div>
@@ -8046,7 +8084,7 @@ async function bpImportInboxReadOne(entry) {
       } else if (detected.kind === "cas") {
         const { parseCas } = await import("./cas.js");
         const parsed = parseCas(pdf);
-        if (!parsed.holdings.length) {
+        if (!parsed.holdings.length && !(parsed.transactions || []).length) {
           throw new Error("No holdings could be read from this PDF. It may have no text layer.");
         }
         entry.parsed = parsed;
@@ -8398,6 +8436,13 @@ function bpImportHoldingRow(next, bundle, manual) {
     returned_at: next.returned_at || "",
     returned_record_date: next.returned_record_date || "",
     returned_source: next.returned_source || "",
+    disposed_at: next.disposed_at || "",
+    disposed_quantity: next.disposed_quantity ?? null,
+    disposed_type: next.disposed_type || "",
+    disposed_source: next.disposed_source || "",
+    disposed_reason: next.disposed_reason || "",
+    disposed_cost_paise: next.disposed_cost_paise ?? null,
+    txn_key: next.txn_key || "",
     source_row: next.sourceRow || next.source_row || 0,
     as_of: next.asOf || bundle.asOf || "",
     rating_at_purchase: next.rating_at_purchase || "",
@@ -8420,6 +8465,9 @@ function bpImportRowsFromPlan(holdings, plan, bundle, acceptAsk) {
   };
   for (const holding of holdings || []) {
     if (holding.source === "manual") continue;
+    // A disposal record is history. No decision may replace or revive it; a
+    // re-purchase after it becomes a new, separate live row.
+    if (holding.disposed_at) { push(holding); continue; }
     const key = String(holding.security_id || "").toUpperCase();
     const decision = decisions.get(key);
     if (!decision || decision.action === "keep" || decision.action === "skip"
@@ -8431,7 +8479,9 @@ function bpImportRowsFromPlan(holdings, plan, bundle, acceptAsk) {
     push(bpImportHoldingRow(decision.next, bundle, manual.get(key)));
   }
   for (const decision of plan.decisions) {
-    if (decision.action === "add") {
+    if (decision.action === "add"
+      || (decision.action === "ask" && acceptAsk
+        && (decision.flags || []).includes("sold-conflict"))) {
       push(bpImportHoldingRow(decision.next, bundle,
         manual.get(String(decision.isin || "").toUpperCase())));
     }
@@ -8862,6 +8912,28 @@ function bpCasPasswordPrompt(host, wrong) {
     setTimeout(() => input?.focus(), 0);
   });
 }
+function casEventLines(plan) {
+  return (plan?.events || []).filter((event) => event.status !== "already")
+    .map((event) => {
+      const what = event.kind === "sale" ? "Sold"
+        : event.kind === "transfer-out" ? "Transferred out"
+          : event.kind === "purchase" ? "Bought"
+            : event.kind === "transfer-in" ? "Transferred in" : "Disposed";
+      const moved = event.from === event.to
+        ? `${event.to} still held`
+        : `${event.from} → ${event.to} held`;
+      return `${what} ${event.quantity} units of ${event.isin} on ${event.date}: ${moved}`;
+    });
+}
+function casSaleHtml(lines, conflicts) {
+  if (!lines.length && !(conflicts || []).length) return "";
+  return `<div class="cas-sales"><b>Sales and transfers in this statement</b>
+    ${lines.length ? `<ul>${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
+    ${(conflicts || []).length ? `<div class="import-wrong"><b>The report on file disagrees.</b>
+      <div class="muted">${esc(conflicts.map((conflict) => conflict.message).join(" "))}</div>
+    </div>` : ""}
+  </div>`;
+}
 window.bpCasFile = async (file, hostId = "cas-host") => {
   const host = document.getElementById(hostId);
   if (!host || !file) return;
@@ -8898,7 +8970,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     window.bpCasParsed = cas;
     // Never store the File on this name: it is the function the next file calls.
     window.bpCasCurrentFile = file;
-    if (!cas.holdings.length) {
+    if (!cas.holdings.length && !(cas.transactions || []).length) {
       host.innerHTML = `<div class="muted" style="font-size:12.5px">No holdings could be
         read. ${cas.counts.quarantined} row(s) had no readable ISIN or value, so nothing was
         taken from this file.</div>`;
@@ -8952,6 +9024,23 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const cardState = window.bpCasCards[hostId];
     cardState.units = units;
     if (!cardState.picked) cardState.picked = new Set(units.map((u) => u.key));
+    // The preview and the writer both call casReplacePlan with the same event
+    // list. What is shown here is the row set the import will store.
+    const salePlans = [];
+    if ((cas.transactions || []).length) {
+      for (const account of route.accounts || []) {
+        if (!account.assetId) continue;
+        if (cardState.picked && !cardState.picked.has(`bo:${account.boId}`)) continue;
+        const existing = await store.listHoldings(account.assetId);
+        const mine = dematRowsOf(account.boId);
+        salePlans.push(casReplacePlan({ parsed: cas, existing, holdings: mine,
+          events: cas.transactions, assetId: account.assetId, asOf: cas.asOf || "",
+          confirmed: false }));
+      }
+    }
+    const saleLines = salePlans.flatMap((plan) => casEventLines(plan));
+    const saleConflicts = salePlans.flatMap((plan) => plan.conflicts || []);
+    cardState.eventAssets = route.accounts.map((account) => account.assetId).filter(Boolean);
     // The statement names its holder. That is the one field the file can default
     // for the person importing, and it can be corrected before anything is written.
     if (cardState.owner === undefined) cardState.owner = cas.holder || "";
@@ -8974,18 +9063,21 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       .map((g) => unitKey(g)))];
     const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
     const createHint = "";
-    const canImport = units.some((u) => picked.has(u.key)) && !safety.blocked;
+    const canImport = (units.some((u) => picked.has(u.key)) || saleLines.length > 0)
+      && !safety.blocked;
     const manual = !route.demat && targets.length
       ? `<label class="field" style="margin-top:10px">No account number in this PDF. Write all
         of it into
         <select id="cas-target-${hostId}">${targets.map((a) => `<option value="${esc(a.id)}">${
           esc(a.label || a.id)}</option>`).join("")}</select></label>`
       : "";
-    const nothing = !units.length;
+    const nothing = !units.length && !saleLines.length;
     const shapeText = casShapeText(casShape(pdf, cas));
     // A statement that produced no value at all did not parse: say so and give a
-    // report that can be shared, instead of offering an Import button.
-    const broken = total === 0;
+    // report that can be shared, instead of offering an Import button. A
+    // statement that only records movements still parsed, and its sales are the
+    // point.
+    const broken = total === 0 && !saleLines.length;
     // The report is always available: a parse can be wrong without being empty,
     // and that is exactly the case worth debugging.
     const shapeBlock = `<details style="margin-top:8px">
@@ -9013,6 +9105,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       ${broken ? `<div class="muted" style="font-size:12px;margin-top:8px;color:var(--red)">
         This statement did not parse, so nothing will be written.</div>` : ""}
       ${unitRows}
+      ${casSaleHtml(saleLines, saleConflicts)}
       ${missing && !canImport ? `<div class="muted" style="font-size:12px;margin-top:6px;${
         route.demat ? "" : "color:var(--red)"}">${route.demat
         ? (route.groups.length
@@ -9085,7 +9178,8 @@ window.bpAttachFill = async () => {
     const assets = await store.listAccounts();
     const me = assets.find((a) => a.id === id);
     if (!me || categoryOf(me) !== "demat") { host.innerHTML = ""; return; }
-    const positions = (await store.listHoldings(id)).filter((h) => h.category === "bond");
+    const positions = (await store.listHoldings(id))
+      .filter((h) => h.category === "bond" && !h.disposed_at);
     const missing = positions.filter((h) => h.cost_paise === null);
     if (!positions.length) { host.innerHTML = ""; return; }
     const sources = assets.filter((a) => categoryOf(a) === "bonds"
@@ -10176,7 +10270,8 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
       const maturity = String(p.maturity || parsed?.maturity || "");
       return !!maturity && maturity < today;
     };
-    const closedPosition = (p) => p.quantity !== null && p.quantity !== undefined
+    const closedPosition = (p) => !p.disposed_at
+      && p.quantity !== null && p.quantity !== undefined
       && Number.isFinite(Number(p.quantity)) && Number(p.quantity) <= 0
       && !(Number(p.value_paise) > 0) && !maturedRow(p);
     const closedCount = dematRows.reduce((t, d) =>
@@ -10368,7 +10463,32 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   }
   window.bpCasRoute = casRoute(cas, await store.listAccounts());
   if (card) card.route = window.bpCasRoute;
-  if (!window.bpCasRoute.groups.length) {
+  // A bond sold in full is absent from the holdings table, so the routing has no
+  // group for it. Its account still has to receive the disposal record: find the
+  // demat this statement names that already holds the security the movements
+  // name, and let the event pass write it.
+  const movementIsins = new Set((cas.transactions || [])
+    .map((event) => String(event.isin || "").toUpperCase()).filter(Boolean));
+  const eventAssets = [];
+  if (movementIsins.size) {
+    const statementBos = new Set([cas.demat, ...(cas.accounts || []).map((a) => a.boId)]
+      .filter(Boolean).map((value) => boId(value).boId || String(value)));
+    const manualTarget = document.getElementById(`cas-target-${key}`)?.value || "";
+    for (const account of await store.listAccounts()) {
+      const named = String(account.category || "") === "demat"
+        && statementBos.has(boId(account.number || account.bo_id || "").boId);
+      if (!named && account.id !== manualTarget) continue;
+      if (card.picked && named && !card.picked.has(`bo:${boId(account.number || "").boId}`)) {
+        continue;
+      }
+      const held = await store.listHoldings(account.id);
+      if (held.some((row) => movementIsins.has(String(row.security_id || "").toUpperCase()))) {
+        eventAssets.push(account.id);
+      }
+    }
+  }
+  card.eventAssets = eventAssets;
+  if (!window.bpCasRoute.groups.length && !(cas.transactions || []).length) {
     const host = document.getElementById(key);
     if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Created the
       demat account. Import again to write the holdings.</div>`;
@@ -10428,6 +10548,11 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     const id = document.getElementById(`cas-target-${key}`)?.value || "";
     if (id) byAsset.set(id, cas.holdings.filter((h) => !closed(h)));
   }
+  // An account whose only movement is a sale has no holdings group. Add the
+  // accounts the statement names so the event pass can record the disposal there.
+  for (const assetId of card.eventAssets || []) {
+    if (assetId && !byAsset.has(assetId)) byAsset.set(assetId, []);
+  }
   if (!byAsset.size) return;
   const places = byAsset.size;
   try {
@@ -10447,7 +10572,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       const asset = assetOf(assetId);
       const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
       const preview = casReplacePlan({ parsed: cas, existing, holdings, asOf,
-        confirmed: true, merge: folioAccount, safety });
+        events: cas.transactions, assetId, confirmed: true, merge: folioAccount, safety });
       replacing += existing.length;
       incoming += holdings.length;
       removing += preview.dropped.length;
@@ -10485,6 +10610,8 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     let written = 0;
     let carriedCount = 0;
     let keptNewer = 0;
+    let soldCount = 0;
+    const conflictMessages = [];
     for (const [assetId, holdings] of byAsset) {
       const existing = await store.listHoldings(assetId);
       const asset = assetOf(assetId);
@@ -10493,6 +10620,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       // from several statements and AMCs, so it always merges.
       const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
       const plan = casReplacePlan({ parsed: cas, existing, holdings, asOf,
+        events: cas.transactions, assetId,
         confirmed: allowAbsentRemoval && confirmed, merge: folioAccount, safety });
       if (!plan.ok) {
         if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
@@ -10503,6 +10631,8 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       written += holdings.length;
       carriedCount += plan.carried;
       keptNewer += plan.keptNewer;
+      soldCount += (plan.sold || []).length;
+      for (const conflict of plan.conflicts || []) conflictMessages.push(conflict.message);
       if (asset) {
         const meta = metaOf(asset);
         // A folio account's value now comes from its units, so the old manual
@@ -10564,7 +10694,10 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     delete window.bpCasCards?.[key];
     if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Imported ${
       written} holdings into ${places} account${places === 1 ? "" : "s"}.${
+      soldCount ? ` ${soldCount} sale${soldCount === 1 ? "" : "s"} or transfer${
+        soldCount === 1 ? "" : "s"} recorded as sold; they stay on the account as history.` : ""}${
       skipped ? ` ${skipped} had no matching account and were not written.` : ""}${
+      conflictMessages.length ? ` ${conflictMessages.join(" ")}` : ""}${
       auto.attached ? ` Cost and purchase dates attached to ${auto.attached} bond${
         auto.attached === 1 ? "" : "s"} from ${auto.portfolios} portfolio${
         auto.portfolios === 1 ? "" : "s"}.${auto.absorbed
@@ -11600,13 +11733,14 @@ async function bondRatingDrift(store, assets) {
 }
 function splitMatured(rows = []) {
   const today = new Date().toISOString().slice(0, 10);
-  const current = [], matured = [];
+  const current = [], matured = [], disposed = [];
   for (const h of rows) {
+    if (h.disposed_at) { disposed.push(h); continue; }
     const maturity = (parseBondLabel(h.label) || {}).maturity || "";
     if (maturity && maturity < today) matured.push({ ...h, maturity });
     else current.push(h);
   }
-  return { current, matured };
+  return { current, matured, disposed };
 }
 function bondCardHtml(v, assetId, { matured = false } = {}) {
   const moneyOrDash = (x) => x === null || x === undefined ? "—" : money(x);
@@ -12019,14 +12153,47 @@ function holdingCards(rows, kind = "", { header = true, assetId = "" } = {}) {
         <span class="muted holding-bits">${bits}</span>${addButton}</div></div>
     <div class="holding-cards">${cards}</div></div>`;
 }
+function soldHoldingsHtml(rows, assetId) {
+  if (!rows.length) return "";
+  const typeLabel = (h) => h.disposed_type === "sale" ? "Sold"
+    : h.disposed_type === "transfer-out" ? "Transferred out" : "Disposed";
+  const row = (h) => `<div class="sold-row">
+      <div><div class="sold-name">${esc(h.label || h.security_id || "Holding")}</div>
+        <div class="muted">${esc(h.security_id || "")}${h.disposed_reason
+          ? ` · ${esc(h.disposed_reason)}` : ""}</div></div>
+      <div class="sold-figs"><b>${esc(typeLabel(h))}</b>
+        ${h.disposed_quantity === null || h.disposed_quantity === undefined
+          ? "—" : esc(h.disposed_quantity)} units
+        ${h.disposed_at ? ` · ${esc(dateLabel(h.disposed_at))}` : ""}
+        ${h.disposed_cost_paise ? ` · cost ${esc(money(h.disposed_cost_paise))}` : ""}</div>
+      ${h.id ? `<button class="mini-btn" title="Remove this recorded disposal"
+        onclick="bpBondHoldingDelete(${jsArg(assetId)}, ${jsArg(h.id)})">Remove</button>` : ""}
+    </div>`;
+  return `<details class="sold-holdings"><summary>Sold and transferred out (${rows.length})
+      · not counted</summary>
+      <div class="muted sold-note">Recorded from the depository statement. These units are no
+      longer held, so they sit outside every total above. The date and quantity are what the
+      CAS printed.</div>
+      <div class="sold-list">${rows.slice()
+        .sort((a, b) => String(b.disposed_at || "").localeCompare(String(a.disposed_at || "")))
+        .map(row).join("")}</div>
+    </details>`;
+}
 function holdingsBlock(rows, assetId) {
-  const list = rows || [];
+  const all = rows || [];
+  const list = all.filter((row) => !row.disposed_at);
+  const soldHtml = soldHoldingsHtml(all.filter((row) => !!row.disposed_at), assetId);
   const asset = (window.bpAssetsForFocus || []).find((a) => a.id === assetId);
   const cat = categoryOf(asset);
   const isDemat = cat === "demat";
   const isFolio = isFundAccount(asset);
   if (!list.length) {
-    if (!isDemat && cat !== "bonds") return "";
+    if ((!isDemat && cat !== "bonds") || soldHtml) {
+      return soldHtml ? `<div class="card pad holdings-empty">
+        <h2 class="holding-title">No live holdings</h2>
+        <div class="muted holdings-empty-note">Every position this account held has been sold
+        or transferred out.</div></div>${soldHtml}` : "";
+    }
     const add = isFolio
       ? `<button class="btn primary" onclick="bpManualHoldingNew(${jsArg(assetId)},${jsArg("mf")})">
           Add mutual fund</button>`
@@ -12045,7 +12212,7 @@ function holdingsBlock(rows, assetId) {
         : isDemat
           ? "Add a fund or share by hand, add a bond, or import a statement."
           : "Add a lot by hand, or import a broker report."}</div>
-      <div class="holding-head-actions">${add}</div></div>`;
+      <div class="holding-head-actions">${add}</div></div>${soldHtml}`;
   }
   const groups = { bond: [], equity: [], mf: [] };
   for (const row of list) groups[holdingClass(row)].push(row);
@@ -12064,7 +12231,7 @@ function holdingsBlock(rows, assetId) {
   const showTabs = (isDemat && !isFolio) || filled.length > 1;
   const tabs = showTabs ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px">
     <button class="btn ${focus === "all" ? "primary" : ""}" onclick="bpAssetClass('all')">All
-      <span class="muted">${rows.length}</span></button>
+      <span class="muted">${list.length}</span></button>
     ${tabKinds.map((kind) => {
       const count = (groups[kind] || []).length;
       return `<button class="btn ${focus === kind ? "primary" : ""}"${
@@ -12077,10 +12244,10 @@ function holdingsBlock(rows, assetId) {
   if (!window.bpBondSortState) window.bpBondSortState = { key: "maturity", dir: 1 };
   if (visible.length < 2) {
     const kind = visible[0]?.[0] || "bond";
-    const list = visible[0]?.[1] || rows;
+    const shown = visible[0]?.[1] || list;
     return `${tabs}${kind === "bond"
-      ? `<div id="bond-holdings">${holdingsCard(list, assetId)}</div>`
-      : holdingCards(list, kind, { assetId })}`;
+      ? `<div id="bond-holdings">${holdingsCard(shown, assetId)}</div>`
+      : holdingCards(shown, kind, { assetId })}${soldHtml}`;
   }
   const total = (list) => list.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
   const html = visible.map(([kind, list]) => `<div style="display:flex;
@@ -12089,7 +12256,7 @@ function holdingsBlock(rows, assetId) {
       <span class="muted" style="font-size:12px">${money(total(list))}</span></div>
     ${kind === "bond" ? `<div id="bond-holdings">${holdingsCard(list, assetId)}</div>`
       : holdingCards(list, kind, { header: false, assetId })}`).join("");
-  return `${tabs}${html}`;
+  return `${tabs}${html}${soldHtml}`;
 }
 window.bpBondSort = (key) => {
   const cur = window.bpBondSortState || { key: "maturity", dir: 1 };

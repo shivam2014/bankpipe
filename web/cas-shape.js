@@ -41,6 +41,7 @@ export function casShape(pdf, parsed) {
     dematFound: !!(parsed?.demat && parsed.demat.length),
     rowsRead: rows.length,
     quarantined: Number(parsed?.counts?.quarantined) || 0,
+    trades: Array.isArray(parsed?.transactions) ? parsed.transactions.length : 0,
     kinds,
     withValue: rows.filter((h) => Number(h.valuePaise) > 0).length,
     withIsin: rows.filter((h) => /^IN[A-Z0-9]{10}$/.test(String(h.isin || ""))).length,
@@ -57,7 +58,8 @@ export function casShapeText(shape) {
     `columns          ${(shape.columns || []).join(" ")}`,
     `account          depository ${shape.depositoryFound ? "yes" : "no"}`
       + ` · demat number ${shape.dematFound ? "yes" : "no"}`,
-    `rows             ${shape.rowsRead} read · ${shape.quarantined} quarantined`,
+    `rows             ${shape.rowsRead} read · ${shape.quarantined} quarantined`
+      + ` · ${shape.trades || 0} trade${(shape.trades || 0) === 1 ? "" : "s"}`,
     `kinds            ${Object.entries(shape.kinds || {}).map(([k, n]) => `${k} ${n}`).join(" · ") || "none"}`,
     `fields           value ${shape.withValue} · isin ${shape.withIsin}`
       + ` · maturity ${shape.maturityParsed}`,

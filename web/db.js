@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS holding(
   purchase_date TEXT, interest_date TEXT, source_row INTEGER,
   as_of TEXT, value_source TEXT, redemption_dates TEXT,
   returned_at TEXT, returned_record_date TEXT, returned_source TEXT,
+  disposed_at TEXT, disposed_quantity REAL, disposed_type TEXT,
+  disposed_source TEXT, disposed_reason TEXT, disposed_cost_paise INTEGER,
   txn_key TEXT UNIQUE);
 CREATE INDEX IF NOT EXISTS holding_asset ON holding(asset_id);
 CREATE TABLE IF NOT EXISTS import_run(
@@ -143,7 +145,10 @@ function migrate(conn) {
     ["redemption_dates", "TEXT"], ["value_source", "TEXT"],
     ["face_paise", "INTEGER"], ["returned_paise", "INTEGER"],
     ["returned_at", "TEXT"], ["returned_record_date", "TEXT"],
-    ["returned_source", "TEXT"]]) {
+    ["returned_source", "TEXT"],
+    ["disposed_at", "TEXT"], ["disposed_quantity", "REAL"],
+    ["disposed_type", "TEXT"], ["disposed_source", "TEXT"],
+    ["disposed_reason", "TEXT"], ["disposed_cost_paise", "INTEGER"]]) {
     if (!hhave.has(name)) conn.run(`ALTER TABLE holding ADD COLUMN ${name} ${type}`);
   }
   // The workbook put the credit rating in category. Move it to rating once;
@@ -529,15 +534,16 @@ export function makeStore(SQLlib, save) {
       [assetId]);
     let inserted = 0;
     for (const r of rows || []) {
-      const key = [assetId, r.security_id, r.label, r.category, r.rating, r.frequency,
-        r.yield_bps, r.payout_paise, r.quantity, r.cost_paise, r.value_paise,
+      const key = r.txn_key || [assetId, r.security_id, r.label, r.category, r.rating,
+        r.frequency, r.yield_bps, r.payout_paise, r.quantity, r.cost_paise, r.value_paise,
         r.source_row].join("|");
       conn.run("INSERT OR REPLACE INTO holding(asset_id,security_id,label,issuer,category,"
         + "rating,frequency,yield_bps,payout_paise,quantity,cost_paise,value_paise,face_paise,purchase_date,"
         + "interest_date,rating_at_purchase,future_interest_paise,"
         + "future_principal_paise,principal_dates,redemption_dates,value_source,returned_paise,"
-        + "returned_at,returned_record_date,returned_source,source_row,as_of,txn_key,"
-        + "source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        + "returned_at,returned_record_date,returned_source,disposed_at,disposed_quantity,"
+        + "disposed_type,disposed_source,disposed_reason,disposed_cost_paise,"
+        + "source_row,as_of,txn_key,source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [assetId, r.security_id || "", r.label || "", r.issuer || "", r.category || "",
          r.rating || "", r.frequency || "",
          r.yield_bps === undefined ? null : r.yield_bps,
@@ -553,6 +559,8 @@ export function makeStore(SQLlib, save) {
          r.principal_dates || "", r.redemption_dates || "", r.value_source || "",
          r.returned_paise ?? null,
          r.returned_at || "", r.returned_record_date || "", r.returned_source || "",
+         r.disposed_at || "", r.disposed_quantity ?? null, r.disposed_type || "",
+         r.disposed_source || "", r.disposed_reason || "", r.disposed_cost_paise ?? null,
          r.source_row || 0,
          r.as_of || asOf || "", key, "report"]);
       inserted++;
@@ -757,6 +765,8 @@ export function makeStore(SQLlib, save) {
     + " yield_bps, payout_paise, quantity, cost_paise, value_paise, face_paise, purchase_date,"
     + " interest_date, future_interest_paise, future_principal_paise, principal_dates,"
     + " returned_paise, returned_at, returned_record_date, returned_source,"
+    + " disposed_at, disposed_quantity, disposed_type, disposed_source, disposed_reason,"
+    + " disposed_cost_paise, txn_key,"
     + " as_of, value_source, redemption_dates,"
     + " source_row, source FROM holding WHERE asset_id=? ORDER BY label", [assetId]);
   store.upsertHolding = (assetId, h) => {
@@ -1548,7 +1558,8 @@ export async function listHoldings(assetId) {
 function reconMeta(asset) {
   try { return JSON.parse(asset?.meta || "{}") || {}; } catch (e) { return {}; }
 }
-const isBondRow = (row) => String(row?.category || "").toLowerCase() === "bond";
+const isBondRow = (row) => !row?.disposed_at
+  && String(row?.category || "").toLowerCase() === "bond";
 const isFundDemat = (asset) => String(asset?.category || "") === "demat"
   && /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
 

@@ -336,6 +336,70 @@ function applyPlan(holdings, plan) {
   return [...out.values()];
 }
 
+test("a newer broker that shows the pre-sale quantity asks before overwriting the sale", () => {
+  const sold = holding({ quantity: 0, cost_paise: 0, value_paise: 0,
+    disposed_at: "2026-08-12", disposed_quantity: 4, disposed_type: "sale",
+    disposed_source: "CAS", disposed_reason: "SALE", as_of: "2026-08-12" });
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-12",
+      rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
+        quantity: 10, valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] }),
+    existing: existingAccount({
+      snapshot: { source: "cas", asOf: "2026-08-31" },
+      holdings: [holding({ quantity: 6, as_of: "2026-08-31" }), sold],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.summary.ask, 1);
+  const decision = plan.decisions.find((item) => item.action === "ask");
+  assert.equal(decision.flags.includes("sold-conflict"), true);
+  const change = decision.changes.find((item) => item.field === "quantity");
+  assert.equal(change.requiresConfirm, true);
+  assert.equal(change.soldConflict, true);
+  assert.match(decision.reason, /recorded sale/i);
+  assert.equal(decision.next.quantity, 10);
+  assert.equal(change.from, 6);
+  assert.equal(change.to, 10);
+});
+
+test("a report that names a fully sold bond is a question, not a revival", () => {
+  const sold = holding({ quantity: 0, cost_paise: 0, value_paise: 0,
+    disposed_at: "2026-08-12", disposed_quantity: 10, disposed_type: "sale",
+    disposed_source: "CAS", disposed_reason: "SALE", as_of: "2026-08-12" });
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-12",
+      rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
+        quantity: 10, valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] }),
+    existing: existingAccount({
+      snapshot: { source: "cas", asOf: "2026-08-12" },
+      holdings: [sold],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.summary.ask, 1);
+  const decision = plan.decisions.find((item) => item.action === "ask");
+  assert.equal(decision.flags.includes("sold-conflict"), true);
+  assert.match(decision.reason, /sold on 2026-08-12/);
+  assert.equal(plan.decisions.some((item) => item.action === "update"), false);
+});
+
+test("a report that omits a sold bond leaves its record alone", () => {
+  const sold = holding({ security_id: isin(2), quantity: 0, cost_paise: 0, value_paise: 0,
+    disposed_at: "2026-08-12", disposed_quantity: 5, disposed_type: "sale",
+    disposed_source: "CAS", disposed_reason: "SALE", as_of: "2026-08-12" });
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-12" }),
+    existing: existingAccount({
+      snapshot: { source: "cas", asOf: "2026-08-12" },
+      holdings: [holding(), sold],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.decisions.some((item) => String(item.isin) === isin(2)), false);
+  assert.equal(plan.absent.some((item) => String(item.isin) === isin(2)), false);
+  assert.equal(plan.summary.ask, 0);
+});
+
 test("a newer broker report takes quantity, cost and date while the CAS keeps identity", () => {
   const plan = planMerge({
     incoming: incoming(),

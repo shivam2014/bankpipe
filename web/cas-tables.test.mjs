@@ -22,7 +22,7 @@ const HOLD_HEADER = [
 
 const txnRow = (isin, y) => [
   text(isin, 50, y), text("SOME SECURITY", 142, y), text("BUY", 234, y),
-  text("01-09-2026", 327, y), money("10", 390, y), money("5", 420, y),
+  text("01-09-2026", 327, y), money("10", 390, y), money("14", 420, y),
   money("9", 470, y), money("15", 520, y), money("9", 578, y),
 ];
 const holdRow = (isin, qty, value, y) => [
@@ -40,6 +40,15 @@ test("transaction rows are not holdings, even though they carry ISINs", () => {
   assert.deepEqual(out.holdings.map((h) => h.isin).sort(),
     ["INE000000003", "INE000000004"]);
   assert.equal(out.holdings.find((h) => h.isin === "INE000000004").valuePaise, 10075260);
+  // The same two rows are movements, read with their own balance check.
+  assert.equal(out.transactions.length, 2);
+  assert.equal(out.transactions[0].isin, "INE000000001");
+  assert.equal(out.transactions[0].quantity, 14);
+  assert.equal(out.transactions[0].openingPaise, 1000);
+  assert.equal(out.transactions[0].creditPaise, 1400);
+  assert.equal(out.transactions[0].debitPaise, 900);
+  assert.equal(out.transactions[0].closingPaise, 1500);
+  assert.equal(out.counts.quarantined, 0);
 });
 
 test("a value is read from the value column, not the price beside it", () => {
