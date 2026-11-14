@@ -95,30 +95,33 @@ builders, write buttons, confirmation gates and planners stay flat. The deleted
 code was already unreachable, so it was never in those live counts. Phase 0
 moves lines, tests and shape-only tests down; Phases 1-3 move the live counts.
 
-## Phase 1: the money bugs (tests first)
+## Phase 1: the money bugs (landed at `34cf97a`)
 
-Three defects, no shared fix:
+Three defects, three commits, one failing test each:
 
-- **W6, two planners disagree.** Same-date CAS, quantity 10 to 12, no cost in
-  the file: `planMerge` previews cost 100000 (old cost unchanged), while
-  `casReplacePlan` writes 120000 (cost scaled by quantity). Probe against
-  `616b515` confirms both. The inbox shows the first and writes the second.
-- **W7, re-import is not idempotent.** `accountFieldState` returns identity
-  without a value (`web/import-flow.js:551-553`), so an identical broker
-  re-import reports `identityChange: alias`, the writer runs
-  `replaceHoldings`, and then reports 0 holdings imported. A no-op must not
-  write.
-- **W8, one ISIN attaches an account.** Broker matching attaches on a single
-  overlapping ISIN (`web/index.html:7599`), while CAS refuses below 80 percent
-  (`:7642`). There is no reachable "create anyway" button.
+- **W6, two planners disagreed.** Same-date CAS, quantity 10 to 12, no cost in
+  the file: `planMerge` previewed cost 100000 while `casReplacePlan` wrote
+  120000. **Settled rule: cost is evidence, not arithmetic.** The writer keeps
+  the stored cost whole when a quantity moves without a cost in the statement,
+  and the preview says the last known cost is kept. It states otherwise only
+  when the statement names a debit; then cost is allocated to the units that
+  left, which the sale and FIFO path needs. A blanket removal of scaling was
+  rejected for that reason.
+- **W7, re-import was not idempotent.** `accountFieldState` now reads the key
+  already stored in `meta.ucid`, `meta.client_id` or `meta.demat` and compares
+  it case-insensitively with the incoming one. Equal key plus equal date yields
+  no change and no write; a genuinely different key still reports an alias.
+- **W8, one ISIN attached an account.** Both resolvers now use one `attachId`:
+  a real identity, or 80 percent ISIN overlap. Below that the file is a listed
+  candidate with no target, and creation is offered only when nothing matches.
 
-Removes: one of the two cost rules, the spurious alias change, the single-ISIN
+Removed: the second cost rule, the spurious alias change, the single-ISIN
 auto-attach.
 
-Can break: a CAS re-import stops writing when nothing changed; a broker file
-with one overlap now asks instead of attaching; cost on a quantity change
-becomes the scaled value the writer already uses. Each needs a failing test
-before the fix. Do not fold these into Phase 0.
+Residual, and it cannot be closed without the stored mapping this phase
+forbids: a broker file that matches nothing still creates a broker-only
+account, and a later CAS can create a second demat for the same holding because
+no BO ID to broker-key map exists. That is Phase 2/3 identity work.
 
 ## Phase 2: one plan per resolved account
 
