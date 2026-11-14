@@ -588,8 +588,8 @@ function moneyDifferent(a, b) {
   return Math.abs(Number(a) - Number(b)) > 1;
 }
 
-function fieldChange(group, field, from, to, source, asOf) {
-  return { group, field, from, to, source, asOf, requiresConfirm: false };
+function fieldChange(group, field, from, to, source, asOf, extra = {}) {
+  return { group, field, from, to, source, asOf, requiresConfirm: false, ...extra };
 }
 
 function fieldsWouldChange(oldRow, nextRow, keys) {
@@ -638,10 +638,29 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   const unsafeDate = incomingState.state === "invalid" || incomingState.state === "future";
   const existingSource = String(existing.snapshot?.source || "");
   const hasExistingSnapshot = !!(existing.snapshot?.asOf);
-  const identityOnly = incoming?.kind === "cas" && hasExistingSnapshot
+  // A manual snapshot is the person's own record, so an older CAS still only
+  // attaches identity there. A broker snapshot is different: the depository is
+  // the authority for what is still held, even when its statement is older.
+  const manualSnapshot = existingSource === "manual" || !!existing.cost?.manual;
+  const olderCas = incoming?.kind === "cas" && hasExistingSnapshot
     && existingSource !== "cas" && oldRows.length > 0 && relation === "older";
+  // An older CAS that would move a live quantity or value is a source change.
+  // One that would only add history or fill an empty field stays identity-only.
+  const casLiveChange = olderCas && inRows.some((row) => {
+    const old = oldByIsin.get(row.isin)
+      || (!row.isin ? oldByLabel.get(norm(row.label)) : null);
+    if (!old) return false;
+    return (row.quantity !== null && moneyDifferent(old.quantity, row.quantity))
+      || (row.valuePaise !== null && moneyDifferent(old.valuePaise, row.valuePaise));
+  });
+  const identityOnly = olderCas && (manualSnapshot || !casLiveChange);
   const olderWithData = hasExistingSnapshot && relation === "older" && oldRows.length > 0;
   const undatedWithData = hasExistingSnapshot && relation === "undated" && oldRows.length > 0;
+  // The one exception to "older snapshots do not overwrite": a dated, safe CAS
+  // owns quantity and value. The latest broker still owns cost and terms.
+  const casQuantityTake = incoming?.kind === "cas" && !unsafeDate
+    && incomingState.state === "dated" && relation === "older"
+    && hasExistingSnapshot && oldRows.length > 0 && !identityOnly;
   const canTakeSnapshot = !unsafeDate && !identityOnly && !olderWithData && !undatedWithData
     && snapshotDecision({ relation, incomingState: incomingState.state, existing: existing.snapshot }).take;
   const canAdd = !unsafeDate && !identityOnly && !olderWithData && !undatedWithData;
@@ -659,7 +678,9 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   } else if (incomingState.state === "undated") {
     warnings.push("The report has no date. It will fill empty fields and add new rows, but it will not overwrite dated data.");
   }
-  if (identityOnly) {
+  if (casQuantityTake) {
+    warnings.push("This CAS is older than the broker data on file. Its quantity and value replace the broker's; cost and terms stay from the newer broker report.");
+  } else if (identityOnly) {
     warnings.push("This CAS is older than the broker data on file. Its identity will attach; the newer holdings stay.");
   } else if (olderWithData) {
     warnings.push("This snapshot is older than the data on file. It will only fill empty fields.");
@@ -708,7 +729,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       const maturity = row.maturity || parseBondLabel(row.label)?.maturity || "";
       // A matured bond is history, not a live holding. An older CAS still brings
       // it across, so the final set does not depend on which file arrived first.
-      if (!canAdd && identityOnly && maturity && maturity < now) {
+      if (!canAdd && (identityOnly || casQuantityTake) && maturity && maturity < now) {
         decisions.push({ isin: row.isin, label: row.label, action: "history", existing: null,
           next: { ...row, quantity: 0, valuePaise: 0, asOf: incomingState.date || "" },
           changes: [fieldChange("snapshot", "quantity", row.quantity, 0, "maturity", maturity)],
@@ -719,13 +740,16 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
         added += 1;
         const next = { ...row };
         if (!next.asOf) next.asOf = incomingState.date || "";
+        if (incoming?.kind === "cas" && next.valuePaise !== null
+          && !next.valueSource) next.valueSource = "CAS";
         decisions.push({ isin: row.isin, label: row.label, action: "add", existing: null,
           next, changes: [], flags: [], reason: "new holding" });
       } else {
         skipped += 1;
         decisions.push({ isin: row.isin, label: row.label, action: "skip", existing: null,
           next: null, changes: [], flags: ["older-snapshot"],
-          reason: identityOnly ? "older CAS: identity only" : "older than the data on file" });
+          reason: identityOnly ? "older CAS: identity only"
+            : casQuantityTake ? "older CAS: no live row is added" : "older than the data on file" });
       }
       continue;
     }
@@ -734,41 +758,90 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
     const rowFlags = [];
     const quantityDiffers = row.quantity !== null && moneyDifferent(old.quantity, row.quantity);
     const valueDiffers = row.valuePaise !== null && moneyDifferent(old.valuePaise, row.valuePaise);
-    if (snapshotChangeAllowed && !sameDate) {
+    const incomingName = incoming?.kind === "cas" ? "CAS" : (incoming?.label || incoming?.kind);
+    // A broker report newer than the last CAS disagrees with the depository for
+    // quantity or value. That is a question, not a silent overwrite. A cost-only
+    // difference is still the broker's to take.
+    const brokerAfterCas = incoming?.kind !== "cas" && hasExistingSnapshot
+      && existingSource === "cas" && relation === "newer" && !unsafeDate;
+    const quantityConflict = brokerAfterCas && quantityDiffers;
+    const valueConflict = brokerAfterCas && valueDiffers;
+    if (casQuantityTake) {
       if (quantityDiffers) {
         next.quantity = row.quantity;
         changes.push(fieldChange("snapshot", "quantity", old.quantity, row.quantity,
-          incoming?.label || incoming?.kind, incomingState.date));
+          incomingName, incomingState.date, {
+            fromSource: existingSource || "broker",
+            fromAsOf: existing.snapshot?.asOf || "",
+          }));
       }
       if (valueDiffers) {
         next.valuePaise = row.valuePaise;
-        next.valueSource = incoming?.kind === "cas" ? "CAS" : (incoming?.label || incoming?.kind);
+        next.valueSource = "CAS";
         changes.push(fieldChange("snapshot", "value", old.valuePaise, row.valuePaise,
-          incoming?.kind === "cas" ? "CAS" : (incoming?.label || incoming?.kind), incomingState.date));
+          "CAS", incomingState.date, {
+            fromSource: existingSource || "broker",
+            fromAsOf: existing.snapshot?.asOf || "",
+          }));
+      }
+      if (quantityDiffers || valueDiffers) next.asOf = incomingState.date || old.asOf;
+    } else if (quantityConflict || valueConflict) {
+      const from = { fromSource: existingSource || "broker",
+        fromAsOf: existing.snapshot?.asOf || "" };
+      if (quantityConflict) {
+        next.quantity = row.quantity;
+        changes.push({ ...fieldChange("snapshot", "quantity", old.quantity, row.quantity,
+          incomingName, incomingState.date, from), requiresConfirm: true });
+      }
+      if (valueConflict) {
+        next.valuePaise = row.valuePaise;
+        next.valueSource = incomingName;
+        changes.push({ ...fieldChange("snapshot", "value", old.valuePaise, row.valuePaise,
+          incomingName, incomingState.date, from), requiresConfirm: true });
+      }
+      if (quantityConflict || valueConflict) next.asOf = incomingState.date || old.asOf;
+    } else if (snapshotChangeAllowed && !sameDate) {
+      if (quantityDiffers) {
+        next.quantity = row.quantity;
+        changes.push(fieldChange("snapshot", "quantity", old.quantity, row.quantity,
+          incomingName, incomingState.date));
+      }
+      if (valueDiffers) {
+        next.valuePaise = row.valuePaise;
+        next.valueSource = incomingName;
+        changes.push(fieldChange("snapshot", "value", old.valuePaise, row.valuePaise,
+          incomingName, incomingState.date));
       }
       if (quantityDiffers || valueDiffers) next.asOf = incomingState.date || old.asOf;
     } else if (sameDate) {
       if (quantityDiffers) {
         next.quantity = row.quantity;
         changes.push({ ...fieldChange("snapshot", "quantity", old.quantity, row.quantity,
-          incoming?.label || incoming?.kind, incomingState.date), requiresConfirm: true });
+          incomingName, incomingState.date), requiresConfirm: true });
       }
       if (valueDiffers) {
         next.valuePaise = row.valuePaise;
+        next.valueSource = incomingName;
         changes.push({ ...fieldChange("snapshot", "value", old.valuePaise, row.valuePaise,
-          incoming?.kind === "cas" ? "CAS" : (incoming?.label || incoming?.kind),
-          incomingState.date), requiresConfirm: true });
+          incomingName, incomingState.date), requiresConfirm: true });
       }
     } else if (olderWithData || undatedWithData) {
       if (old.quantity === null && row.quantity !== null) {
         next.quantity = row.quantity;
         changes.push(fieldChange("snapshot", "quantity", old.quantity, row.quantity,
-          incoming?.label || incoming?.kind, incomingState.date));
+          incomingName, incomingState.date));
       }
-      if (old.valuePaise === null && row.valuePaise !== null) {
+      // A value belongs to the quantity it was struck at. An older or undated
+      // report cannot put its value on a different, newer quantity.
+      const valueQuantityMatches = old.quantity === null || row.quantity === null
+        || !moneyDifferent(old.quantity, row.quantity);
+      if (old.valuePaise === null && row.valuePaise !== null && valueQuantityMatches) {
         next.valuePaise = row.valuePaise;
+        next.valueSource = incomingName;
         changes.push(fieldChange("snapshot", "value", old.valuePaise, row.valuePaise,
-          incoming?.kind === "cas" ? "CAS" : (incoming?.label || incoming?.kind), incomingState.date));
+          incomingName, incomingState.date));
+      } else if (old.valuePaise === null && row.valuePaise !== null) {
+        rowFlags.push("value-quantity-mismatch");
       }
     }
     if (identityOnly) {

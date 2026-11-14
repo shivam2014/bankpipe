@@ -662,12 +662,35 @@ function holderName(items) {
 }
 
 /**
+ * The total a statement prints for the whole portfolio. Only an explicit
+ * "Grand Total" is trusted: a section "Total" or a page "Sub Total" is not the
+ * whole account and must not become the check.
+ * @param {Array<object>} items
+ * @returns {number|null} paise
+ */
+function grandTotalPaise(items) {
+  let total = null;
+  for (const page of new Set(items.map((i) => i.page))) {
+    const pageItems = items.filter((i) => i.page === page);
+    for (const line of linesOf(pageItems, 3)) {
+      const text = line.items.slice().sort((a, b) => a.x - b.x)
+        .map((i) => i.str).join(" ");
+      if (!/\bgrand\s+total\b/i.test(text)) continue;
+      const cells = line.items.filter((i) => NUMBER.test(i.str))
+        .sort((a, b) => a.x - b.x);
+      if (cells.length) total = rupees(cells[cells.length - 1].str);
+    }
+  }
+  return total;
+}
+
+/**
  * Read a CAS. Holdings tables are read by their own columns; a statement with no
  * usable header falls back to the band rule.
  * @param {{pages: Array<{items: Array<{str: string, x: number, y: number,
  *   width?: number}>}>}} pdf
  * @returns {{depository: string, holdings: Array<object>, sections: object,
- *   warnings: Array<object>, counts: object}}
+ *   warnings: Array<object>, counts: object, printedTotalPaise: number|null}}
  */
 export function parseCas(pdf) {
   const items = itemsOf(pdf);
@@ -725,6 +748,7 @@ export function parseCas(pdf) {
     sections,
     warnings: result.warnings,
     counts: { rows: holdings.length, quarantined: result.quarantined },
+    printedTotalPaise: grandTotalPaise(items),
   };
 }
 

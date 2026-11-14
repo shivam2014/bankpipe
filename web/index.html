@@ -1341,7 +1341,7 @@ import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { parseDigiFinnFile, mergeDigiFinn, scorePortfolio } from "./digifinn.js";
 import { bondAnalytics, bondSummary, parseBondLabel, inferFace,
   BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange,
-  carryBrokerFields, soldGain } from "./bonds.js";
+  soldGain } from "./bonds.js";
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
@@ -1358,6 +1358,7 @@ import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
   reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
+import { casHoldingLabel, casReplacePlan, casSafety } from "./cas-apply.js";
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, accountMatches, planMerge, accountFieldState,
@@ -7200,17 +7201,6 @@ window.bpDownloadSnapshot = async (key) => {
 // A CAS holding becomes a holding row. The label carries the coupon and the
 // maturity because the bond card reads them from there, and the depository does
 // not give us a purchase date: cost stays missing until a broker report arrives.
-function casHoldingLabel(h) {
-  const name = String(h.label || h.isin).replace(/\s+/g, " ").trim();
-  if (h.kind !== "bond") return name;
-  if (/\d{1,2}\s+[A-Za-z]{3}\s+\d{4}/.test(name)) return name;
-  const when = h.maturity
-    ? new Date(`${h.maturity}T00:00:00Z`).toLocaleDateString("en-IN",
-      { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })
-    : "";
-  const coupon = h.couponPct === null || h.couponPct === undefined ? "" : `${h.couponPct}% `;
-  return `${coupon}${name}${when ? ` ${when}` : ""}`.trim();
-}
 // One queue for every file. The type is guessed per row and can be changed per
 // row, because a bank CSV and a broker CSV look identical from the outside.
 window.bpImportQueue = window.bpImportQueue || [];
@@ -7605,7 +7595,8 @@ function bpImportResolveBroker(bundle) {
     ? { kind: bundle.accountKind || "bo", value: bundle.accountKey } : null;
   bundle.plan = bpImportPlanFor(bundle, targetId ? bpImportAccountRow(targetId) : null,
     bundle.rows, identity);
-  bundle.ready = !!(bundle.plan && !bundle.plan.blocking
+  const dateBlocked = ["invalid", "future"].includes(bundle.plan?.incomingDateState);
+  bundle.ready = !!(bundle.plan && !dateBlocked
     && (bundle.plan.summary.ask === 0 || bundle.acceptAsk)
     && (targetId || bundle.canCreate));
   bundle.needsChoice = bundle.match.tie && !targetId;
@@ -7669,13 +7660,20 @@ function bpImportResolveCas(bundle) {
   bundle.casTargets = [...dematTargets, ...folioTargets];
   bundle.plans = bundle.casTargets.map((target) => target.plan);
   bundle.plan = bpImportAggregatePlans(bundle.plans);
+  const safety = casSafety(base?.parsed || {});
+  bundle.casSafety = safety;
+  if (safety.blocked) {
+    bundle.plan.blocking = true;
+    bundle.plan.warnings = [...new Set([...bundle.plan.warnings, ...safety.reasons])];
+  }
   bundle.needsChoice = bundle.casTargets.some((target) =>
     target.match.tie && !target.targetId && !target.createChoice);
   bundle.create = bundle.casTargets.some((target) => !target.targetId);
-  bundle.ready = bundle.casTargets.length > 0 && bundle.casTargets.every((target) =>
-    target.plan && !target.plan.blocking
-    && (target.plan.summary.ask === 0 || bundle.acceptAsk)
-    && (target.targetId || !target.match.tie || target.createChoice));
+  bundle.ready = !safety.blocked && bundle.casTargets.length > 0
+    && bundle.casTargets.every((target) => target.plan
+      && !["invalid", "future"].includes(target.plan.incomingDateState)
+      && (target.plan.summary.ask === 0 || bundle.acceptAsk)
+      && (target.targetId || !target.match.tie || target.createChoice));
 }
 
 async function bpImportInboxPrepare(force = false) {
@@ -7846,9 +7844,13 @@ function bpImportAskLines(bundle) {
     ? (bundle.casTargets || []).flatMap((target) => target.plan?.decisions || [])
     : (bundle.plan?.decisions || []);
   return decisions.filter((decision) => decision.action === "ask").slice(0, 5).map((decision) => {
-    const changes = (decision.changes || []).map((change) =>
-      `${bpImportFieldLabel(change.field)} ${change.from ?? "empty"} → ${change.to ?? "empty"}`)
-      .join(", ");
+    const changes = (decision.changes || []).map((change) => {
+      const from = `${change.from ?? "empty"}${change.fromSource
+        ? ` (${change.fromSource}${change.fromAsOf ? ` ${change.fromAsOf}` : ""})` : ""}`;
+      const to = `${change.to ?? "empty"}${change.source
+        ? ` (${change.source}${change.asOf ? ` ${change.asOf}` : ""})` : ""}`;
+      return `${bpImportFieldLabel(change.field)} ${from} → ${to}`;
+    }).join(", ");
     return `${decision.label || decision.isin}: ${changes}`;
   });
 }
@@ -7870,12 +7872,13 @@ function bpImportPlanItems(bundle) {  const summary = bundle.plan?.summary || {}
     "Other accounts with overlapping ISINs are untouched",
     bundle.plan?.identityOnly
       ? "Newer quantities, cost and dates stay; only empty fields fill from this older statement"
-      : "Quantity and value come from the newest dated snapshot",
+      : "Quantity and value come from the newest safe statement; the latest broker keeps cost and terms",
   ];
   const stillMore = ["Cost you entered by hand is kept unless you confirm"];
   if (summary.flagged) stillMore.push(`${summary.flagged} row${summary.flagged === 1 ? "" : "s"} absent from the newer report stay and are flagged`);
   if (summary.skipped) stillMore.push(`${summary.skipped} row${summary.skipped === 1 ? "" : "s"} from an older snapshot are not added`);
-  if (bundle.family === "cas") stillMore.push("A broker's cost and purchase date are not replaced by the statement");
+  if (bundle.family === "cas") stillMore.push("A broker's cost and purchase date are not replaced by the statement",
+    "Rows the statement does not name stay on the account");
   return { change, still, stillMore };
 }
 
@@ -7908,7 +7911,8 @@ function bpImportBundleHtml(bundle) {
     ? `<div class="import-wrong"><b>${summary.ask} difference${summary.ask === 1 ? "" : "s"}
         need${summary.ask === 1 ? "s" : ""} your decision.</b>
       <div class="muted">The report and the data on file carry the same date, or the difference
-        would replace a cost you entered by hand. Choose what to keep.</div>
+        would replace a cost you entered by hand, or a newer broker disagrees with a quantity
+        or value a CAS set. Choose what to keep.</div>
       ${askLines.length ? `<ul class="muted import-ask-list">${askLines
         .map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
       <div class="import-actions">
@@ -8048,7 +8052,11 @@ async function bpImportInboxReadOne(entry) {
         entry.parsed = parsed;
         entry.kind = "cas";
         entry.broker = "";
-        entry.asOf = parsed.asOf;
+        entry.asOf = parsed.asOf || detected.asOf;
+        // The writer reads the statement date from the parsed object. A period
+        // statement whose own wording the parser missed still has the detected
+        // period end, and that is the date its quantity and value belong to.
+        parsed.asOf = entry.asOf;
         const accounts = parsed.accounts || [];
         entry.casAccounts = (accounts.length ? accounts : [{ boId: parsed.demat || "",
           dpName: "", holdings: parsed.holdings }]).map((account) => ({
@@ -8537,7 +8545,7 @@ async function bpImportApplyBroker(bundle, opts = {}) {
   const identity = bundle.accountKey
     ? { kind: bundle.accountKind || "bo", value: bundle.accountKey } : null;
   const plan = bpImportPlanFor(bundle, { account, holdings }, bundle.rows, identity);
-  if (plan.blocking) {
+  if (["invalid", "future"].includes(plan.incomingDateState)) {
     bpImportInboxStatus("The file's date needs checking before it can be imported.", "bad");
     return { ok: false };
   }
@@ -8573,7 +8581,13 @@ async function bpImportApplyCas(bundle, opts = {}) {
     bpImportInboxStatus("No demat account was read from this statement.", "bad");
     return { ok: false };
   }
-  if (targets.some((target) => target.plan?.blocking)) {
+  const safety = casSafety(bundle.base?.parsed || {});
+  if (safety.blocked) {
+    bpImportInboxStatus(safety.reasons.join(" "), "bad");
+    return { ok: false };
+  }
+  if (targets.some((target) => target.plan
+    && ["invalid", "future"].includes(target.plan.incomingDateState))) {
     bpImportInboxStatus("The statement's date needs checking before it can be imported.", "bad");
     return { ok: false };
   }
@@ -8606,8 +8620,8 @@ async function bpImportApplyCas(bundle, opts = {}) {
     }
     await store.updateAccount(target.targetId, patch);
   }
-  // An older CAS still fills fields the newer broker report left empty. It does
-  // not touch quantity, cost or dates, because those already have a newer source.
+  // An older CAS only fills fields a manual record left empty. It does not touch
+  // quantity, cost or dates, because a person's own entry outranks the depository.
   let filled = 0;
   let history = 0;
   for (const target of identityOnly) {
@@ -8630,8 +8644,15 @@ async function bpImportApplyCas(bundle, opts = {}) {
   }
   const parsed = bundle.base?.parsed;
   if (!parsed) throw new Error("The statement is no longer in memory. Choose it again.");
-  const importIsins = new Set(importTargets.flatMap((target) => target.rows || [])
-    .map((row) => String(row.isin || "").toUpperCase()).filter(Boolean));
+  // A row the plan skipped (an older CAS cannot add a live row) is not written.
+  const importIsins = new Set();
+  for (const target of importTargets) {
+    for (const decision of target.plan?.decisions || []) {
+      if (decision.action === "skip") continue;
+      const isin = String(decision.isin || "").toUpperCase();
+      if (isin) importIsins.add(isin);
+    }
+  }
   const holdings = (parsed.holdings || []).filter((holding) =>
     importIsins.has(String(holding.isin || "").toUpperCase())).map((holding) => {
     if (holding.costPaise === null || holding.costPaise === undefined) return holding;
@@ -8662,7 +8683,7 @@ async function bpImportApplyCas(bundle, opts = {}) {
   window.bpCasCards = window.bpCasCards || {};
   window.bpCasCards[key] = {
     cas, route, file: bundle.base?.file || null, owner: cas.holder || "",
-    picked: units.size ? units : undefined,
+    picked: units.size ? units : undefined, safety,
   };
   let host = document.getElementById("cas-inbox-apply");
   if (!host) {
@@ -8872,6 +8893,8 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       return;
     }
     const cas = parseCas(pdf);
+    if (!cas.asOf) cas.asOf = detected.asOf;
+    const safety = casSafety(cas);
     window.bpCasParsed = cas;
     // Never store the File on this name: it is the function the next file calls.
     window.bpCasCurrentFile = file;
@@ -8889,7 +8912,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     // Every file keeps its own preview and its own Import button: two statements
     // read in one batch must not overwrite each other's receipt.
     window.bpCasCards = window.bpCasCards || {};
-    window.bpCasCards[hostId] = { cas, route, file };
+    window.bpCasCards[hostId] = { cas, route, file, safety };
     const total = cas.holdings.reduce((t, h) => t + (Number(h.valuePaise) || 0), 0);
     const kinds = Object.entries(cas.sections || {})
       .map(([k, n]) => {
@@ -8951,7 +8974,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       .map((g) => unitKey(g)))];
     const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
     const createHint = "";
-    const canImport = units.some((u) => picked.has(u.key));
+    const canImport = units.some((u) => picked.has(u.key)) && !safety.blocked;
     const manual = !route.demat && targets.length
       ? `<label class="field" style="margin-top:10px">No account number in this PDF. Write all
         of it into
@@ -8981,6 +9004,8 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         · ${money(total)}${cas.asOf ? ` · as on ${esc(cas.asOf)}` : ""}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">${esc(kinds)}${
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
+      ${safety.blocked ? `<div class="import-wrong"><b>This statement cannot replace the account.</b>
+        <div class="muted">${esc(safety.reasons.join(" "))}</div></div>` : ""}
       <label class="field" style="margin-top:8px">Belongs to
         <input id="cas-owner-${hostId}" value="${esc(cardState.owner || "")}"
           placeholder="Account holder"
@@ -10253,6 +10278,13 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   const cas = card.cas || window.bpCasParsed;
   const route = card.route || window.bpCasRoute;
   if (!cas || !route) return;
+  const safety = card.safety || casSafety(cas);
+  if (safety.blocked) {
+    const host = document.getElementById(key);
+    if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
+      <div class="muted">${esc(safety.reasons.join(" "))}</div></div>`;
+    return;
+  }
   const store = await import("./db.js");
   const { boId } = await import("./bo-id.js");
   const where = cas.depository || "";
@@ -10344,12 +10376,21 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   }
   await window.bpCasImport(key, confirmed);
 };
-window.bpCasImport = async (key = "cas-host", confirmed = false) => {
+window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
   const card = (window.bpCasCards || {})[key] || {};
   const cas = card.cas || window.bpCasParsed;
   const route = card.route || window.bpCasRoute || { groups: [], homeless: [] };
   const host = document.getElementById(key);
   if (!cas) return;
+  const safety = card.safety || casSafety(cas);
+  if (safety.blocked) {
+    if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
+      <div class="muted">${esc(safety.reasons.join(" "))}</div></div>`;
+    return;
+  }
+  // Removing a row the statement does not name is destructive. Only the explicit
+  // "Replace and import" answer allows it, and only for a complete statement.
+  const allowAbsentRemoval = !!opts.replaceAbsent;
   // One write per account, never one per class: two classes in the same demat
   // account would otherwise replace each other.
   const byAsset = new Map();
@@ -10391,14 +10432,27 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
   const places = byAsset.size;
   try {
     const store = await import("./db.js");
-    // A question is only worth asking when an answer can differ. Writing into an
-    // account that holds nothing replaces nothing, and the receipt above has
-    // already shown what is going in.
+    const accounts = await store.listAccounts();
+    const assetOf = (id) => accounts.find((item) => item.id === id);
+    const today = new Date().toISOString().slice(0, 10);
+    const asOf = cas.asOf || today;
+    // The preview and the writer call the same planner. A row the statement does
+    // not name is counted as staying unless the complete statement was confirmed.
     let replacing = 0;
-    for (const assetId of byAsset.keys()) {
-      replacing += (await store.listHoldings(assetId)).length;
+    let incoming = 0;
+    let removing = 0;
+    let staying = 0;
+    for (const [assetId, holdings] of byAsset) {
+      const existing = await store.listHoldings(assetId);
+      const asset = assetOf(assetId);
+      const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
+      const preview = casReplacePlan({ parsed: cas, existing, holdings, asOf,
+        confirmed: true, merge: folioAccount, safety });
+      replacing += existing.length;
+      incoming += holdings.length;
+      removing += preview.dropped.length;
+      staying += preview.absent.length + preview.manualKept;
     }
-    const incoming = [...byAsset.values()].reduce((t, rows) => t + rows.length, 0);
     if (replacing && !confirmed) {
       // A browser confirm() blocks the page and looks like an error. Ask in the
       // page, under the statement, and keep the preview visible behind it.
@@ -10411,6 +10465,10 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
       ask.innerHTML = `<div class="card pad" style="border-color:var(--amber);margin-top:10px">
         <b>Replace ${replacing} existing holding${replacing === 1 ? "" : "s"} with ${incoming}
           from the ${esc(cas.depository || "demat")} statement?</b>
+        <div class="muted">${removing
+          ? `${removing} holding${removing === 1 ? "" : "s"} not named in this statement will be removed.`
+          : "No holding will be removed."}${staying
+          ? ` ${staying} other${staying === 1 ? "" : "s"} stay unchanged.` : ""}</div>
         <div class="muted" style="font-size:12.5px;margin-top:4px">
           It writes into ${places} account${places === 1 ? "" : "s"}. A backup is saved first,
           and nothing is written until you confirm.</div>
@@ -10424,83 +10482,27 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
     }
     document.getElementById(`cas-confirm-${key}`)?.remove();
     try { await store.snapshotDb("Before CAS import"); } catch (e) {}
-    const today = new Date().toISOString().slice(0, 10);
     let written = 0;
     let carriedCount = 0;
     let keptNewer = 0;
-    const asOf = cas.asOf || today;
     for (const [assetId, holdings] of byAsset) {
-      // A new statement must not wipe the cost a portfolio already gave this
-      // account. The units may move; the price per unit stays.
       const existing = await store.listHoldings(assetId);
-      const oldByIsin = new Map(existing.map((old) =>
-        [String(old.security_id || "").toUpperCase(), old]));
-      const prior = new Map();
-      for (const old of existing) {
-        if (old.cost_paise === null || old.cost_paise === undefined) continue;
-        prior.set(String(old.security_id || "").toUpperCase(), old);
-      }
-      const rows = holdings.map((h) => {
-        const isin = String(h.isin || "").toUpperCase();
-        const old = prior.get(isin);
-        const oldRow = oldByIsin.get(isin);
-        const qty = Number(h.quantity) || 0;
-        const oldQty = old ? Number(old.quantity) || 0 : 0;
-        const carried = old && qty > 0 && oldQty > 0
-          ? Math.round(Number(old.cost_paise) * (qty / oldQty)) : null;
-        if (carried) carriedCount += 1;
-        // The CAS often has the maturity but not the coupon; a previous Holdings
-        // Report label does have both. Keep that label across a CAS update.
-        const nextLabel = casHoldingLabel(h);
-        const keepOld = h.kind === "bond" && !/\d+(?:\.\d+)?%/.test(nextLabel)
-          && /\d+(?:\.\d+)?%/.test(oldRow?.label || "");
-        return {
-          security_id: h.isin,
-          label: keepOld ? oldRow.label : nextLabel,
-          issuer: oldRow?.issuer || "",
-          category: h.kind,
-          frequency: h.frequency || oldRow?.frequency || "",
-          quantity: h.quantity,
-          face_paise: h.faceValuePaise ?? oldRow?.face_paise ?? null,
-          // The statement's own invested amount wins over a value carried from a
-          // previous import: a fund's cost column is now read correctly, and a
-          // re-import is how an older, wrong cost gets corrected.
-          cost_paise: h.costPaise ?? carried ?? null,
-          value_paise: h.valuePaise,
-          value_source: "CAS",
-          purchase_date: carried && old ? old.purchase_date || "" : "",
-          // A statement does not repeat what a broker report taught the row:
-          // payout schedule, rating, part redemptions. Re-importing the CAS used
-          // to wipe them, so a bond that had already returned half its principal
-          // started showing the full amount as still to come. A sale changes the
-          // units, so the schedule money scales with them.
-          ...carryBrokerFields(oldRow, h.quantity),
-          // The value is the statement's own mark, so it carries the statement's
-          // date, not the day the file happened to be imported.
-          as_of: asOf,
-        };
-      });
-      // A statement is a snapshot of one day. A unit bought after that day is
-      // not missing from the account, it is too new to be on the paper.
-      const stamped = new Set(holdings.map((h) => String(h.isin || "").toUpperCase()));
-      for (const old of existing) {
-        const isin = String(old.security_id || "").toUpperCase();
-        if (!isin || stamped.has(isin)) continue;
-        if (!old.purchase_date || old.purchase_date <= asOf) continue;
-        rows.push({ ...old });
-        keptNewer += 1;
-      }
-      const asset = (await store.listAccounts()).find((a) => a.id === assetId);
-      // A demat statement is the complete truth for its BO ID, so it replaces.
-      // A folio account collects folios from several statements and AMCs, so it
-      // merges; replacing would drop the folios the other statement contributed.
+      const asset = assetOf(assetId);
+      // A demat statement is the complete truth for its BO ID, and a confirmed
+      // replace may drop what it does not name. A folio account collects folios
+      // from several statements and AMCs, so it always merges.
       const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
-      const finalRows = folioAccount
-        ? [...new Map([...await store.listHoldings(assetId), ...rows]
-          .map((r) => [String(r.security_id || "").toUpperCase(), r])).values()]
-        : rows;
-      await store.replaceHoldings(assetId, finalRows, asOf);
-      written += rows.length;
+      const plan = casReplacePlan({ parsed: cas, existing, holdings, asOf,
+        confirmed: allowAbsentRemoval && confirmed, merge: folioAccount, safety });
+      if (!plan.ok) {
+        if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
+          <div class="muted">${esc(plan.safety.reasons.join(" "))}</div></div>`;
+        return;
+      }
+      await store.replaceHoldings(assetId, plan.rows, asOf);
+      written += holdings.length;
+      carriedCount += plan.carried;
+      keptNewer += plan.keptNewer;
       if (asset) {
         const meta = metaOf(asset);
         // A folio account's value now comes from its units, so the old manual
@@ -10575,7 +10577,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false) => {
     alert("Could not import the CAS: " + (e.message || e));
   }
 };
-window.bpCasImportConfirm = (key = "cas-host") => window.bpCasImport(key, true);
+window.bpCasImportConfirm = (key = "cas-host") => window.bpCasImport(key, true, { replaceAbsent: true });
 window.bpCasImportCancel = (key = "cas-host") => {
   document.getElementById(`cas-confirm-${key}`)?.remove();
 };

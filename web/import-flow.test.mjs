@@ -378,7 +378,7 @@ test("a newer CAS takes quantity and value but never overwrites the broker's cos
   assert.equal(decision.next.purchaseDate, "2024-06-06");
 });
 
-test("an older CAS after newer broker data attaches identity only", () => {
+test("an older CAS takes quantity and value while the broker keeps cost", () => {
   const plan = planMerge({
     incoming: {
       kind: "cas", label: "CAS", asOf: "2026-09-30",
@@ -395,16 +395,18 @@ test("an older CAS after newer broker data attaches identity only", () => {
     }),
     today: "2026-11-14",
   });
-  assert.equal(plan.identityOnly, true);
+  assert.equal(plan.relation, "older");
+  assert.equal(plan.identityOnly, false);
   assert.equal(plan.identityChange.action, "replace");
   assert.equal(plan.summary.added, 0);
-  assert.equal(plan.summary.updated, 0);
-  assert.equal(plan.summary.kept, 1);
-  assert.match(plan.warnings.join(" "), /older than the broker data/i);
-  const decision = plan.decisions[0];
-  assert.equal(decision.next.quantity, 10);
-  assert.equal(decision.next.valuePaise, 100000);
+  assert.equal(plan.summary.updated, 1);
+  const decision = plan.decisions.find((item) => item.action === "update");
+  assert.equal(decision.next.quantity, 7);
+  assert.equal(decision.next.valuePaise, 90000);
+  assert.equal(decision.next.valueSource, "CAS");
   assert.equal(decision.next.costPaise, 200000);
+  assert.equal(decision.next.purchaseDate, "2024-06-06");
+  assert.equal(decision.next.asOf, "2026-09-30");
 });
 
 test("an older CAS adds a matured row as history so file order does not lose it", () => {
@@ -443,7 +445,7 @@ test("an older CAS adds a matured row as history so file order does not lose it"
   assert.equal(matured.valuePaise, 0);
 });
 
-test("an older CAS fills a broker row's empty value but not its quantity or cost", () => {
+test("an older CAS replaces a broker row's quantity and value but not cost", () => {
   const plan = planMerge({
     incoming: {
       kind: "cas", label: "CAS", asOf: "2026-09-30",
@@ -460,12 +462,154 @@ test("an older CAS fills a broker row's empty value but not its quantity or cost
     }),
     today: "2026-11-14",
   });
-  assert.equal(plan.identityOnly, true);
+  assert.equal(plan.relation, "older");
+  assert.equal(plan.identityOnly, false);
   assert.equal(plan.summary.updated, 1);
-  const decision = plan.decisions[0];
-  assert.equal(decision.next.quantity, 10);
+  const decision = plan.decisions.find((item) => item.action === "update");
+  assert.equal(decision.next.quantity, 7);
   assert.equal(decision.next.valuePaise, 90000);
+  assert.equal(decision.next.valueSource, "CAS");
   assert.equal(decision.next.costPaise, 200000);
+  assert.equal(decision.next.purchaseDate, "2024-06-06");
+});
+
+test("an older safe CAS sets quantity and value while the broker keeps cost and terms", () => {
+  const plan = planMerge({
+    incoming: {
+      kind: "cas", label: "CAS", asOf: "2026-10-31",
+      identity: { kind: "bo", value: "1200000012345678" }, categories: ["bond"],
+      rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
+        quantity: 40, valuePaise: 400000, costPaise: null, purchaseDate: "" }],
+    },
+    existing: existingAccount({
+      identity: { source: "broker", asOf: "2026-11-05" },
+      snapshot: { source: "broker", asOf: "2026-11-05" },
+      cost: { source: "motilal", asOf: "2026-11-05" },
+      holdings: [holding({ quantity: 100, value_paise: 1000000, cost_paise: 200000,
+        purchase_date: "2024-06-06", as_of: "2026-11-05" })],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.relation, "older");
+  assert.equal(plan.identityOnly, false);
+  assert.equal(plan.summary.updated, 1);
+  const decision = plan.decisions.find((item) => item.action === "update");
+  assert.equal(decision.next.quantity, 40);
+  assert.equal(decision.next.valuePaise, 400000);
+  assert.equal(decision.next.costPaise, 200000);
+  assert.equal(decision.next.purchaseDate, "2024-06-06");
+  assert.equal(decision.next.asOf, "2026-10-31");
+  const quantity = decision.changes.find((change) => change.field === "quantity");
+  assert.equal(quantity.fromSource, "broker");
+  assert.equal(quantity.fromAsOf, "2026-11-05");
+});
+
+test("a newer broker report asks before changing a CAS-sourced quantity", () => {
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-05", rows: [{ isin: isin(1),
+      label: "9.00% TEST BOND 31 Dec 2026", category: "bond", quantity: 100,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] }),
+    existing: existingAccount({
+      snapshot: { source: "cas", asOf: "2026-10-31" },
+      cost: { source: "motilal", asOf: "2026-10-31" },
+      holdings: [holding({ quantity: 40, value_paise: 400000, cost_paise: 200000,
+        purchase_date: "2024-06-06", as_of: "2026-10-31" })],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.relation, "newer");
+  assert.equal(plan.summary.ask, 1);
+  assert.equal(plan.blocking, true);
+  const decision = plan.decisions.find((item) => item.action === "ask");
+  const quantity = decision.changes.find((change) => change.field === "quantity");
+  assert.equal(quantity.requiresConfirm, true);
+  assert.equal(quantity.fromSource, "cas");
+  assert.equal(quantity.fromAsOf, "2026-10-31");
+  assert.equal(quantity.asOf, "2026-11-05");
+});
+
+test("a newer broker report takes a cost-only difference without asking", () => {
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-05", rows: [{ isin: isin(1),
+      label: "9.00% TEST BOND 31 Dec 2026", category: "bond", quantity: 40,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] }),
+    existing: existingAccount({
+      snapshot: { source: "cas", asOf: "2026-10-31" },
+      cost: { source: "motilal", asOf: "2026-10-31" },
+      holdings: [holding({ quantity: 40, value_paise: 400000, cost_paise: 150000,
+        purchase_date: "2024-01-01", as_of: "2026-10-31" })],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.summary.ask, 0);
+  assert.equal(plan.blocking, false);
+  const decision = plan.decisions.find((item) => item.action === "update");
+  assert.equal(decision.next.quantity, 40);
+  assert.equal(decision.next.valuePaise, 400000);
+  assert.equal(decision.next.costPaise, 200000);
+});
+
+test("a broker report that omits a CAS bond keeps it and flags it", () => {
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-05", rows: [] }),
+    existing: existingAccount({
+      snapshot: { source: "cas", asOf: "2026-10-31" },
+      cost: { source: "motilal", asOf: "2026-10-31" },
+      holdings: [holding({ quantity: 40, value_paise: 400000, cost_paise: 200000,
+        purchase_date: "2024-06-06", as_of: "2026-10-31" })],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.absent.length, 1);
+  assert.equal(plan.absent[0].action, "flag");
+  assert.equal(plan.summary.flagged, 1);
+  assert.equal(plan.summary.history, 0);
+  const rows = applyPlan([holding({ quantity: 40, value_paise: 400000,
+    cost_paise: 200000, purchase_date: "2024-06-06", as_of: "2026-10-31" })], plan);
+  assert.equal(rows[0].quantity, 40);
+});
+
+test("an older CAS never adds a live row to the broker snapshot", () => {
+  const plan = planMerge({
+    incoming: {
+      kind: "cas", label: "CAS", asOf: "2026-10-31",
+      identity: { kind: "bo", value: "1200000012345678" }, categories: ["bond"],
+      rows: [{ isin: other(8), label: "8.00% NEW BOND 31 Dec 2027", category: "bond",
+        quantity: 5, valuePaise: 50000, costPaise: null, purchaseDate: "" }],
+    },
+    existing: existingAccount({
+      snapshot: { source: "broker", asOf: "2026-11-05" },
+      cost: { source: "motilal", asOf: "2026-11-05" },
+      holdings: [holding({ quantity: 100, value_paise: 1000000, cost_paise: 200000,
+        purchase_date: "2024-06-06", as_of: "2026-11-05" })],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.summary.added, 0);
+  assert.equal(plan.summary.skipped, 1);
+});
+
+test("an older CAS does not put its value on a quantity it did not take", () => {
+  const plan = planMerge({
+    incoming: {
+      kind: "cas", label: "CAS", asOf: "",
+      identity: { kind: "bo", value: "1200000012345678" }, categories: ["bond"],
+      rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
+        quantity: 40, valuePaise: 400000, costPaise: null, purchaseDate: "" }],
+    },
+    existing: existingAccount({
+      snapshot: { source: "broker", asOf: "2026-11-05" },
+      cost: { source: "motilal", asOf: "2026-11-05" },
+      holdings: [holding({ quantity: 100, value_paise: null, value_source: "",
+        cost_paise: 200000, purchase_date: "2024-06-06", as_of: "2026-11-05" })],
+    }),
+    today: "2026-11-14",
+  });
+  const decision = plan.decisions[0];
+  assert.equal(decision.next.quantity, 100);
+  assert.equal(decision.next.valuePaise, null);
+  assert.equal(decision.next.valueSource, "");
+  assert.ok(decision.flags.includes("value-quantity-mismatch"));
 });
 
 test("manual cost is never overwritten silently", () => {

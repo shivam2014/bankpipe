@@ -182,6 +182,26 @@ test("an unstated total is not a failure", () => {
   assert.equal(res.diffPaise, null);
 });
 
+test("the printed grand total is exposed for the safety check", () => {
+  const total = line([500, "Grand Total"], [620, "4,00,000.00"]);
+  const out = parseCas({ pages: [page([
+    heading("Corporate Bonds"),
+    [line([60, "INE999900272"], [430, "27-Nov-2028"], [600, "10.00"],
+      [660, "10,000.00"], [730, "10,075.26"], [800, "1,00,752.60"])],
+    [total],
+  ])] });
+  assert.equal(out.printedTotalPaise, 40000000);
+});
+
+test("a statement without a grand total leaves the check unstated", () => {
+  const out = parseCas({ pages: [page([
+    heading("Corporate Bonds"),
+    [line([60, "INE999900272"], [430, "27-Nov-2028"], [600, "10.00"],
+      [660, "10,000.00"], [730, "10,075.26"], [800, "1,00,752.60"])],
+  ])] });
+  assert.equal(out.printedTotalPaise, null);
+});
+
 // --- routing into the accounts already on file -----------------------------
 
 const accounts = [
