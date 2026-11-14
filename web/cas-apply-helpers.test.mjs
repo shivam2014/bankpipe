@@ -109,19 +109,31 @@ test("a zero-unit folio row the route left in the demat is written there", () =>
     assetId: "demat-a" };
   const folioGroup = { kind: "mf", folio: true, amc: "Test AMC", assetId: "mf-test",
     boId: "" };
-  // The same AMC has a demat group and a folio group. casRoute leaves the zero
-  // row in the demat and sends the positive row to the folio, so the writer
-  // must split the rows the same way.
-  const writer = casGroupByAsset({ holdings: [zero, nullUnit, positive],
-    groups: [dematGroup, folioGroup], importDay });
-  assert.deepEqual(writer.get("demat-a").map((holding) => holding.isin),
-    ["INF000000001", "INF000000003"]);
-  assert.deepEqual(writer.get("mf-test").map((holding) => holding.isin),
-    ["INF999900287"]);
-  const card = casDematRows(casWritableHoldings([zero, nullUnit, positive], importDay),
-    "BO1");
-  assert.deepEqual(card.map((holding) => holding.isin),
-    ["INF000000001", "INF000000003"]);
+  // Group order is whatever casRoute inserted first. The split must not depend
+  // on it: the zero rows go to the demat, the positive row to the folio.
+  for (const groups of [[dematGroup, folioGroup], [folioGroup, dematGroup]]) {
+    const writer = casGroupByAsset({ holdings: [zero, nullUnit, positive],
+      groups, importDay });
+    assert.deepEqual(writer.get("demat-a").map((holding) => holding.isin),
+      ["INF000000001", "INF000000003"]);
+    assert.deepEqual(writer.get("mf-test").map((holding) => holding.isin),
+      ["INF999900287"]);
+    const card = casDematRows(casWritableHoldings([zero, nullUnit, positive],
+      importDay), "BO1");
+    const cardValue = card.reduce((sum, holding) => sum + holding.valuePaise, 0)
+      + casFolioHoldings(casWritableHoldings([zero, nullUnit, positive], importDay))
+        .reduce((sum, holding) => sum + holding.valuePaise, 0);
+    const writerValue = [...writer.values()].flat()
+      .reduce((sum, holding) => sum + holding.valuePaise, 0);
+    assert.equal(cardValue, 20000);
+    assert.equal(writerValue, cardValue);
+  }
+
+  // A positive folio row with no folio group must not fall into the demat.
+  // The card shows it as a new folio unit, so unticking that unit must stop
+  // the write instead of silently writing it to the demat.
+  assert.equal(casGroupByAsset({ holdings: [positive], groups: [dematGroup],
+    importDay }).has("demat-a"), false);
 
   // With no demat group offered, a zero row never falls into the folio account.
   assert.equal(casGroupByAsset({ holdings: [zero], groups: [folioGroup], importDay })

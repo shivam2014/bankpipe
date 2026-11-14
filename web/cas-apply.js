@@ -233,23 +233,21 @@ export function casGroupByAsset({ holdings = [], groups = [],
   const out = new Map();
   for (const holding of holdings || []) {
     if (casClosedRow(holding, importDay)) continue;
-    // casRoute sends a positive folio row to its AMC account and leaves a
-    // zero-unit one in the demat. Mirror that decision here, or an AMC-first
-    // match sends the zero row to the folio group and the gate drops its value.
+    // Mirror casRoute exactly. A positive folio row belongs to its AMC folio
+    // account and nowhere else. Every other row, including a zero-unit folio
+    // row the route left in the demat, belongs to a non-folio group matched by
+    // account. Offering the folio group to the fallback made the result depend
+    // on which group the route happened to insert first.
     const isFolioRow = holding.kind === "mf" && holding.folio
       && Number(holding.quantity) > 0;
-    const folioGroup = isFolioRow
+    const group = isFolioRow
       ? (groups || []).find((item) => item.kind === "mf" && item.folio
         && String(item.amc || "").toLowerCase()
           === String(holding.amc || "").toLowerCase())
-      : null;
-    const group = folioGroup || (groups || []).find((item) => item.kind === holding.kind
-      && (!holding.account || !item.boId
-        || String(item.boId) === String(holding.account)));
+      : (groups || []).find((item) => !item.folio && item.kind === holding.kind
+        && (!holding.account || !item.boId
+          || String(item.boId) === String(holding.account)));
     if (!group) continue;
-    // Only a folio group drops a zero-unit fund. In a demat group it is a row
-    // the route documented as staying, so the value must be written.
-    if (group.kind === "mf" && group.folio && !(Number(holding.quantity) > 0)) continue;
     const key = group.kind === "mf" && group.folio
       ? `mf:${String(group.amc || "").toLowerCase()}` : `bo:${String(group.boId || "")}`;
     if (picked && !picked.has(key)) continue;
