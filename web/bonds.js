@@ -4,9 +4,66 @@
 // No prices are fetched here: this is arithmetic on what the ledger holds.
 
 import { yearsBetween } from "./finance.js";
+import { boId } from "./bo-id.js";
 
 const MONTHS = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
   JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
+
+// A disposal is history. Only a live bond participates in a link, a reconcile
+// or a cost calculation.
+export const isLiveBondRow = (row) => !row?.disposed_at
+  && String(row?.category || "").toLowerCase() === "bond";
+
+function assetMeta(asset) {
+  try {
+    return typeof asset?.meta === "string" ? JSON.parse(asset.meta) || {} : (asset?.meta || {});
+  } catch (e) {
+    return {};
+  }
+}
+
+// A holding lot with no quantity is unknown, not empty. A zero is a closed
+// position and does not participate in a link or a cost calculation.
+const hasUnits = (row) => row?.quantity === null || row?.quantity === undefined
+  || Number(row.quantity) > 0;
+
+/**
+ * The demat account a bond portfolio feeds. The explicit link wins, then the
+ * demat number the portfolio names, then the demat holding most of its ISINs.
+ * The overlap is counted over distinct ISINs, so a portfolio with several lots
+ * of one bond cannot outvote two other bonds, and history is not counted.
+ * @param {Array<object>} lots
+ * @param {object} asset a bond portfolio
+ * @param {Array<object>} demats
+ * @param {Map<string, Array<object>>} positionsOf
+ * @returns {string} demat account id, or ""
+ */
+export function bondHomeOf(lots, asset, demats, positionsOf) {
+  const meta = assetMeta(asset);
+  if (meta.linked_asset && demats.some((d) => d.id === meta.linked_asset)) {
+    return meta.linked_asset;
+  }
+  const wanted = boId(meta.demat || asset?.number || "").boId;
+  if (wanted) {
+    const hit = demats.find((d) => boId(d.number).boId === wanted);
+    if (hit) return hit.id;
+  }
+  const isins = new Set();
+  for (const lot of lots || []) {
+    if (lot?.disposed_at || !hasUnits(lot)) continue;
+    const isin = String(lot.security_id || "").toUpperCase();
+    if (isin) isins.add(isin);
+  }
+  const count = new Map();
+  for (const isin of isins) {
+    for (const demat of demats) {
+      if (!(positionsOf.get(demat.id) || []).some((p) =>
+        String(p.security_id || "").toUpperCase() === isin && hasUnits(p))) continue;
+      count.set(demat.id, (count.get(demat.id) || 0) + 1);
+    }
+  }
+  return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+}
 
 // Face values seen in Indian retail bond lots. Pick the one that makes the
 // clean price closest to 100; that is the only sane unit for the lot.

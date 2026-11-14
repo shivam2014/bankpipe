@@ -22,7 +22,7 @@ const HOLD_HEADER = [
 
 const txnRow = (isin, y) => [
   text(isin, 50, y), text("SOME SECURITY", 142, y), text("BUY", 234, y),
-  text("01-09-2026", 327, y), money("10", 390, y), money("5", 420, y),
+  text("01-09-2026", 327, y), money("10", 390, y), money("14", 420, y),
   money("9", 470, y), money("15", 520, y), money("9", 578, y),
 ];
 const holdRow = (isin, qty, value, y) => [
@@ -40,6 +40,15 @@ test("transaction rows are not holdings, even though they carry ISINs", () => {
   assert.deepEqual(out.holdings.map((h) => h.isin).sort(),
     ["INE000000003", "INE000000004"]);
   assert.equal(out.holdings.find((h) => h.isin === "INE000000004").valuePaise, 10075260);
+  // The same two rows are movements, read with their own balance check.
+  assert.equal(out.transactions.length, 2);
+  assert.equal(out.transactions[0].isin, "INE000000001");
+  assert.equal(out.transactions[0].quantity, 14);
+  assert.equal(out.transactions[0].openingPaise, 1000);
+  assert.equal(out.transactions[0].creditPaise, 1400);
+  assert.equal(out.transactions[0].debitPaise, 900);
+  assert.equal(out.transactions[0].closingPaise, 1500);
+  assert.equal(out.counts.quarantined, 0);
 });
 
 test("a value is read from the value column, not the price beside it", () => {
@@ -161,4 +170,56 @@ test("a fund holding fractional units still uses units x NAV for its value", () 
   assert.equal(out.holdings.length, 1);
   assert.equal(out.holdings[0].valuePaise, 7147);
   assert.equal(out.holdings[0].quantity, 0.145);
+});
+
+test("a holding with -- units and zero value is a closed row, not a live null", () => {
+  const out = parseCas({ pages: [page([
+    ...HOLD_HEADER,
+    text("INE000000003", 51, 520), text("SOME SECURITY", 152, 520),
+    text("--", 245, 520), text("--", 300, 520), text("--", 337, 520),
+    money("0.00", 578, 520),
+  ])] });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].quantity, 0);
+  assert.equal(out.holdings[0].valuePaise, 0);
+});
+
+test("a folio number split across two lines is joined, not truncated", () => {
+  const out = parseCas({ pages: [page([
+    text("Scheme Name", 29, 332), text("ISIN", 107, 332), text("Folio No.", 144, 332),
+    text("ARN Code", 181, 332), text("Bal", 232, 332), text("NAV", 262, 332),
+    text("Valuation", 345, 332),
+    text("SOME FUND", 21, 305), text("INF000000001", 92, 300),
+    money("900000001", 174, 300), text("93/0", 152, 294),
+    money("100", 256, 300), money("50", 291, 300),
+    money("4,000.00", 340, 300), money("5,000.00", 390, 300),
+  ])] });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].folio, "90000000193/0");
+  assert.equal(out.holdings[0].quantity, 100);
+  assert.equal(out.holdings[0].valuePaise, 500000);
+});
+
+test("a holdings table continued on the next page uses the header above it", () => {
+  const bondHeader = (y) => [
+    text("ISIN", 50, y), text("ISIN Name", 127, y), text("Coupon / Rate", 217, y),
+    text("Maturity", 310, y), text("Quantity", 363, y),
+    text("Face Value per Bond", 415, y), text("Value in", 526, y),
+  ];
+  const bondRow = (isin, y) => [
+    text(isin, 50, y), text("SOME BOND", 127, y), money("9.75", 305, y),
+    text("27-11-2028", 310, y), money("10", 410, y), money("1,000.00", 470, y),
+    money("1,00,000.00", 578, y),
+  ];
+  const out = parseCas({ pages: [
+    { items: [...HOLD_HEADER, ...holdRow("INE000000003", 5, "58,360.00", 560),
+      ...bondHeader(300), ...bondRow("INE999900298", 260)] },
+    { items: [...bondRow("INE000000006", 500)] },
+  ] });
+  const continued = out.holdings.find((holding) => holding.isin === "INE000000006");
+  assert.ok(continued);
+  assert.equal(continued.kind, "bond");
+  assert.equal(continued.quantity, 10);
+  assert.equal(continued.maturity, "2028-11-27");
+  assert.equal(continued.valuePaise, 10000000);
 });

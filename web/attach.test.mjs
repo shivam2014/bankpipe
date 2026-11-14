@@ -369,3 +369,55 @@ test("a snapshot older than the statement only supplies cost", () => {
   assert.equal(out.rows[0].quantity, 100);
   assert.equal(out.rows[0].cost_paise, 18000000);
 });
+
+// --- sold history survives a holdings file ----------------------------------
+
+const soldRow = {
+  security_id: "INE1", label: "TEST BOND", quantity: 0, value_paise: 0,
+  disposed_at: "2026-08-12", disposed_quantity: 40, disposed_type: "sale",
+  disposed_source: "CAS", disposed_reason: "SALE", disposed_cost_paise: 80000,
+  txn_key: "INE1|2026-08-12|sale|40|abcd1234",
+};
+
+test("a cost file keeps a sold row on file", () => {
+  const out = planCostFile({
+    positions: [held("INE1", 8), { ...soldRow }],
+    rows: [{ security_id: "INE1", quantity: 10, cost_paise: 100000,
+      purchase_date: "2026-05-01" }],
+    asOf: "2026-10-31",
+  });
+  assert.equal(out.rows.length, 2);
+  assert.equal(out.rows.filter((row) => row.disposed_at).length, 1);
+});
+
+test("a newer snapshot keeps sold rows and names the units it sells", () => {
+  const out = planSnapshot({
+    positions: [held("INE1", 100, { cost_paise: 18000000 }), { ...soldRow }],
+    rows: [snap("INE1", 80)],
+    fileAsOf: "2026-11-09",
+    statementAsOf: "2026-09-30",
+  });
+  assert.equal(out.mode, "reconcile");
+  assert.equal(out.rows.filter((row) => row.disposed_at).length, 1);
+  assert.deepEqual(out.sold, [{ isin: "INE1", from: 100, to: 80, quantity: 20 }]);
+});
+
+test("a newer snapshot names a position it drops as sold", () => {
+  const out = planSnapshot({
+    positions: [held("INE1", 100), held("INE2", 5, { cost_paise: 5000 })],
+    rows: [snap("INE1", 100)],
+    fileAsOf: "2026-11-09",
+    statementAsOf: "2026-09-30",
+  });
+  assert.deepEqual(out.sold, [{ isin: "INE2", from: 5, to: 0, quantity: 5 }]);
+});
+
+test("a newer snapshot keeps a manual row's source", () => {
+  const out = planSnapshot({
+    positions: [held("INE1", 100, { source: "manual" })],
+    rows: [snap("INE1", 80)],
+    fileAsOf: "2026-11-09",
+    statementAsOf: "2026-09-30",
+  });
+  assert.equal(out.rows[0].source, "manual");
+});

@@ -12,9 +12,14 @@
 //
 // So the row unit here is the *table*: a header line is found by its labels
 // (ISIN, quantity, value), each ISIN is assigned to the nearest header above it,
-// and only holdings tables are read. A statement that carries no recognisable
-// header falls back to the older band rule, which serves layouts where a holding
-// is a block of lines around one ISIN.
+// and holdings and transactions are read by different column rules. A statement
+// that carries no recognisable header falls back to the older band rule, which
+// serves layouts where a holding is a block of lines around one ISIN.
+//
+// The transactions table is where an off-platform sale lives. A holding that is
+// gone from the holdings table, or still printed at its old quantity, is not a
+// reason to keep it: the debit and the closing balance are the record. Every row
+// must satisfy opening + credit - debit = closing, or it is quarantined whole.
 //
 // Numbers in these PDFs are right-aligned, so a column is keyed by the right
 // edge of its text, not the left. Reading by left edge is what made wide amounts
@@ -33,6 +38,13 @@ const NUMBER = /^\d[\d,]*(\.\d+)?$/;
 const VALUE_LABEL = /^value\b|value\s*in|valuation/i;
 const QUANTITY_LABEL = /no\.\s*of\s*(shares|bonds|units)|^quantity$|^current$|^bal$|^balance$|\(units\)/i;
 const ISIN_LABEL = /^isin\b/i;
+const DATE_LABEL = /\bdate\b/i;
+const TYPE_LABEL = /transaction|description|particulars|narration|^type$/i;
+const OPENING_LABEL = /op\.?\s*bal|opening\s*bal/i;
+const CLOSING_LABEL = /cl\.?\s*bal|closing\s*bal/i;
+const CREDIT_LABEL = /^credit\b/i;
+const DEBIT_LABEL = /^debit\b/i;
+const STAMP_LABEL = /stamp/i;
 const LABEL = /isin|security|scheme|company|folio|arn|distributor|value|valuation|quantity|current|frozen|pledge|balance|op\.?\s*bal|cl\.?\s*bal|transaction|description|date|amount|nav|price|maturity|coupon|face|profit|loss|stamp|credit|debit|units|cost|invest/i;
 
 const tidy = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
@@ -94,6 +106,14 @@ function amcByFolio(items) {
 }
 
 function rupees(text) {
+  const n = Number(String(text).replace(/,/g, ""));
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+}
+
+// The balance columns of a CAS transaction table are printed units, but the
+// importer's event shape carries them at the same hundredth scale as money so a
+// row adds up in integers. `quantity` stays the units the row actually moved.
+function hundredths(text) {
   const n = Number(String(text).replace(/,/g, ""));
   return Number.isFinite(n) ? Math.round(n * 100) : null;
 }
@@ -245,7 +265,24 @@ function detectTables(items) {
         : cols.some((c) => /^folio/i.test(c.str)) ? "mf"
           : cols.some((c) => /^maturity/i.test(c.str) || /^coupon/i.test(c.str)) ? "bond"
             : "equity";
-      tables.push({ page, y: line.y, cols, holdings, kind });
+      // A transactions table names an ISIN, a date and a movement. A holdings
+      // table can carry a maturity date but never a credit and a debit, so the
+      // two headers cannot be confused even when both sit on one page.
+      const transactions = !holdings
+        && cols.some((c) => ISIN_LABEL.test(c.str))
+        && cols.some((c) => DATE_LABEL.test(c.str))
+        && (cols.some((c) => CREDIT_LABEL.test(c.str))
+          || cols.some((c) => DEBIT_LABEL.test(c.str))
+          || cols.some((c) => OPENING_LABEL.test(c.str))
+          || cols.some((c) => CLOSING_LABEL.test(c.str)));
+      // A mutual fund trade table has no ISIN column: the ISIN is printed in the
+      // folio heading above it. It is identified by its date, description and
+      // Units heading, never by the money columns beside them.
+      const mfTransactions = !holdings && !transactions
+        && cols.some((c) => DATE_LABEL.test(c.str))
+        && cols.some((c) => /transaction\s*description|^description$/i.test(c.str))
+        && cols.some((c) => /^units?\b/i.test(c.str));
+      tables.push({ page, y: line.y, cols, holdings, transactions, mfTransactions, kind });
     }
   }
   return tables;
@@ -257,8 +294,10 @@ function readTables(items, tables, headers = []) {
   const headerFor = (anchor) => tables
     .filter((t) => t.page === anchor.page && t.y > anchor.y)
     .sort((a, b) => a.y - b.y)[0]
+    // A table continued from the previous page belongs to the header printed
+    // last on that page, not the first one.
     || tables.filter((t) => t.page < anchor.page)
-      .sort((a, b) => b.page - a.page || b.y - a.y)[0]
+      .sort((a, b) => b.page - a.page || a.y - b.y)[0]
     || null;
 
   const groups = new Map();
@@ -288,15 +327,20 @@ function readTables(items, tables, headers = []) {
       // below the lowest of them, or the labels are read as the row's values.
       const headerBottom = table.cols.length
         ? Math.min(...table.cols.map((c) => c.y)) : table.y - 1;
-      const high = index === 0 ? headerBottom - 1 : (rows[index - 1].y + anchor.y) / 2;
+      // A table continued from the previous page has no header bound on this
+      // page. Its first row reads down to the top of the page; the next rows use
+      // the neighbour printed above them on the same page.
+      const prevOnPage = rows.slice(0, index).filter((row) => row.page === anchor.page).pop();
+      const nextOnPage = rows.slice(index + 1).find((row) => row.page === anchor.page);
+      const high = prevOnPage ? (prevOnPage.y + anchor.y) / 2
+        : table.page < anchor.page ? Infinity : headerBottom - 1;
       // A table ends with a Sub Total line. The last row must stop above it, or
       // the total is read as that row's value.
       const totalLine = items.filter((i) => i.page === anchor.page && i.y < anchor.y
         && i.y > anchor.y - 90 && /^(sub\s*total|total)$/i.test(i.str))
         .sort((a, b) => b.y - a.y)[0];
-      const low = index === rows.length - 1
-        ? (totalLine ? totalLine.y + 2 : anchor.y - 42)
-        : (anchor.y + rows[index + 1].y) / 2;
+      const low = nextOnPage ? (anchor.y + nextOnPage.y) / 2
+        : (totalLine ? totalLine.y + 2 : anchor.y - 42);
       const band = items.filter((i) => i.page === anchor.page && i.y <= high && i.y > low
         && i !== anchor && i.x > 20);
       const cells = band.filter((i) => NUMBER.test(i.str));
@@ -324,6 +368,16 @@ function readTables(items, tables, headers = []) {
           .sort((a, b) => b.right - a.right)[0] || null;
       };
       const qtyCell = find(QUANTITY_LABEL);
+      // A closed position prints "--" in its quantity column. The cell is not a
+      // number, so the column map never sees it; read the dash directly or the
+      // row would become a live holding with no units.
+      const dashUnder = (re) => {
+        const cols = table.cols.filter((c) => re.test(c.str));
+        if (!cols.length) return null;
+        return band.find((i) => /^[-–—]+$/.test(i.str)
+          && cols.includes(colAt(i.right))) || null;
+      };
+      const qtyDash = qtyCell ? null : dashUnder(QUANTITY_LABEL);
       // A folio table prints "Current" for the value and "Bal" for the units,
       // beside a profit column. Two of those columns can share a heading in the
       // bilingual header, so a fund's value is settled by the identity the
@@ -339,7 +393,7 @@ function readTables(items, tables, headers = []) {
           || [...perColumn.values()].sort((a, b) => b.right - a.right)[0]
           || null)
         : [...perColumn.values()].sort((a, b) => b.right - a.right)[0] || null;
-      if (!valueCell && !qtyCell) return;
+      if (!valueCell && !qtyCell && !qtyDash) return;
       // A date is text, not a number, so it is not in the column map.
       const maturityCol = table.cols.find((c) => /maturity/i.test(c.str));
       const dateCell = band.find((i) => isoAny(i.str)
@@ -355,8 +409,9 @@ function readTables(items, tables, headers = []) {
         ? table.cols.find((c) => /^folio/i.test(c.str)) : null;
       const folioCell = folioCol
         ? band.filter((i) => colAt(i.right) === folioCol)
-          .sort((a, b) => b.str.length - a.str.length)[0] || null
-        : null;
+          .sort((a, b) => b.y - a.y || a.x - b.x)
+        : [];
+      const folioText = folioCell.length ? tidy(folioCell.map((i) => i.str).join("")) : "";
       const costCell = table.kind === "mf"
         ? fundCostCell(cells, valueCell, fund) : null;
       // The scheme name is every text line in the band; "CFGP - TestOne Asset
@@ -405,7 +460,7 @@ function readTables(items, tables, headers = []) {
           : /monthly|twelve times a year|12 times/i.test(freqText) ? "Monthly"
             : /half[- ]yearly|twice a year|two times/i.test(freqText) ? "Half-yearly"
               : /annual|annually|once a year|yearly/i.test(freqText) ? "Annual" : "";
-      const folio = folioCell ? tidy(folioCell.str) : "";
+      const folio = folioText;
       const fullAmc = table.kind === "mf"
         ? fullAmcName(amcFor(table, items) || amcMap.get(folio) || fundHouseFromLabel(label))
         : "";
@@ -424,7 +479,7 @@ function readTables(items, tables, headers = []) {
         folio,
         amc,
         amcFull: fullAmc,
-        quantity: qtyCell ? quantity(qtyCell.str) : null,
+        quantity: qtyCell ? quantity(qtyCell.str) : qtyDash ? 0 : null,
         faceValuePaise: faceCell ? rupees(faceCell.str) : null,
         pricePaise: null,
         costPaise: costCell ? rupees(costCell.str) : null,
@@ -436,6 +491,321 @@ function readTables(items, tables, headers = []) {
     });
   }
   return out;
+}
+
+/**
+ * Read the transactions table. A row is a movement between two printed
+ * balances: opening + credit - debit = closing. A row that does not add up, or
+ * whose date or balances are missing, is quarantined whole, so an unbalanced
+ * trade can never reach the holding it would change.
+ *
+ * Balance columns are quantities on a depository statement. They are returned
+ * at hundredths (the app's money scale) so the check is integer-exact;
+ * `quantity` is the units the row moved.
+ * @param {Array<object>} items
+ * @param {Array<object>} tables
+ * @param {Array<object>} headers
+ * @returns {{transactions: Array<object>, warnings: Array<object>, quarantined: number}}
+ */
+function readTransactions(items, tables, headers) {
+  const out = [];
+  const warnings = [];
+  let quarantined = 0;
+  const txnTables = tables.filter((t) => t.transactions);
+  if (!txnTables.length) return { transactions: out, warnings, quarantined };
+  // A statement prints the ISIN once for a block of movements and prints the
+  // opening balance on the block's first row only. The next rows continue from
+  // the closing balance above them, so the chain is the printed one, not a guess.
+  const lastClosing = new Map();
+  let lastIsin = "";
+  let lastOwner = null;
+  for (const table of txnTables) {
+    const pageItems = items.filter((i) => i.page === table.page);
+    const isinCol = table.cols.find((c) => ISIN_LABEL.test(c.str));
+    const dateCol = table.cols.find((c) => DATE_LABEL.test(c.str));
+    const typeCol = table.cols.find((c) => TYPE_LABEL.test(c.str));
+    const owner = accountFor(table, headers);
+    const ownerKey = owner?.boId || "";
+    if (ownerKey !== lastOwner) { lastIsin = ""; lastOwner = ownerKey; }
+    const colAt = (right) => {
+      let best = null;
+      for (const col of table.cols) if (col.x <= right + 1) best = col;
+      return best;
+    };
+    // A bilingual header prints the English label and a Hindi fragment at
+    // almost the same x, and the value can sit under either one. A split label
+    // prints "Op." and "Bal" on two lines. Read the labels within a few points
+    // of the column, not only the one item the value happens to sit under.
+    const FULL_ROLE = /^(isin|security|company|scheme|transaction|particulars|date|credit|debit|stamp|duty|op\.?\s*bal|cl\.?\s*bal|opening|closing|balance)$/i;
+    const labelWindow = (col) => {
+      if (FULL_ROLE.test(col.str.trim())) return col.str;
+      return table.cols.filter((c) => Math.abs(c.x - col.x) <= 14)
+        .map((c) => c.str).join(" ");
+    };
+    const cellFor = (perColumn, re) => {
+      for (const [col, cell] of perColumn) {
+        if (re.test(col.str) || re.test(labelWindow(col))) return cell;
+      }
+      return null;
+    };
+    const headerBottom = table.cols.length
+      ? Math.min(...table.cols.map((c) => c.y)) : table.y - 1;
+    const nextHeader = tables.filter((t) => t.page === table.page && t.y < table.y)
+      .sort((a, b) => b.y - a.y)[0] || null;
+    const bottom = nextHeader ? nextHeader.y + 2 : -Infinity;
+    const range = pageItems.filter((i) => i.y <= headerBottom - 1 && i.y > bottom);
+    const isins = range.filter((i) => isIsin(i.str)).sort((a, b) => b.y - a.y);
+    // The row unit is the date, not the ISIN. A real statement prints the ISIN
+    // once for a block of movements and leaves the next rows' ISIN cell blank;
+    // grouping by ISIN read ten trades as one row with the last row's balances.
+    const dates = range.filter((i) => isoAny(i.str)
+      && (!dateCol || Math.abs(i.x - dateCol.x) <= 60))
+      .sort((a, b) => b.y - a.y);
+    // A movement prints a date. A line of balances with none inside the block is
+    // a row the reader cannot place; reading it into the row above takes the
+    // wrong units, and dropping it loses a trade. Quarantine it and keep its
+    // cells out of every band. Lines below the last row are totals and footers,
+    // not movements.
+    const stray = new Set();
+    const blockBottom = dates.length ? Math.min(...dates.map((date) => date.y)) - 42 : -Infinity;
+    const balanceCols = table.cols.filter((c) =>
+      [OPENING_LABEL, CREDIT_LABEL, DEBIT_LABEL, CLOSING_LABEL, STAMP_LABEL]
+        .some((re) => re.test(c.str) || re.test(labelWindow(c))));
+    const isBalanceNumber = (item) => NUMBER.test(item.str)
+      && balanceCols.includes(colAt(item.right));
+    for (const line of linesOf(range, 3)) {
+      if (line.y <= blockBottom) continue;
+      if (dates.some((date) => Math.abs(date.y - line.y) <= 4)) continue;
+      const text = line.items.map((i) => i.str).join(" ");
+      if (/^(sub\s*total|total|grand\s*total)\b/i.test(text)) continue;
+      if (!line.items.some(isBalanceNumber)) continue;
+      if (line.items.some((i) => isIsin(i.str))) continue;
+      for (const item of line.items) stray.add(item);
+      quarantined += 1;
+      warnings.push({ code: "txn_no_date", count: 1, isin: "redacted" });
+    }
+    dates.forEach((anchor, index) => {
+      const high = index === 0 ? headerBottom - 1 : (dates[index - 1].y + anchor.y) / 2;
+      const totalLine = pageItems.filter((i) => i.y < anchor.y
+        && i.y > anchor.y - 90 && /^(sub\s*total|total|grand\s*total)$/i.test(i.str))
+        .sort((a, b) => b.y - a.y)[0];
+      const low = index === dates.length - 1
+        ? (totalLine ? totalLine.y + 2 : Math.max(anchor.y - 42, bottom))
+        : (anchor.y + dates[index + 1].y) / 2;
+      // A block prints its ISIN once, above the first row, and its later rows
+      // carry no ISIN of their own. The nearest ISIN at or above the row is the
+      // block's; the topmost ISIN on the page would give every continuation row
+      // the first block's security.
+      const isinCell = isins.filter((i) => i.y >= anchor.y - 2)
+        .sort((a, b) => a.y - b.y)[0] || null;
+      const isin = isinCell
+        ? String(isinCell.str).toUpperCase().replace(/\s+/g, "") : lastIsin;
+      if (isinCell) lastIsin = isin;
+      const band = pageItems.filter((i) => i.y <= high && i.y > low
+        && i !== anchor && i.x > 20 && !stray.has(i));
+      const dashCellFor = (re) => {
+        const col = table.cols.find((c) => re.test(c.str) || re.test(labelWindow(c)));
+        if (!col) return null;
+        return band.find((i) => /^[-–—]+$/.test(i.str) && colAt(i.right) === col) || null;
+      };
+      const perColumn = new Map();
+      for (const cell of band.filter((i) => NUMBER.test(i.str))) {
+        const col = colAt(cell.right);
+        if (!col || col === isinCol) continue;
+        const prev = perColumn.get(col);
+        if (!prev || cell.right > prev.right) perColumn.set(col, cell);
+      }
+      const openingCell = cellFor(perColumn, OPENING_LABEL);
+      const creditCell = cellFor(perColumn, CREDIT_LABEL);
+      const debitCell = cellFor(perColumn, DEBIT_LABEL);
+      const closingCell = cellFor(perColumn, CLOSING_LABEL);
+      const stampCell = cellFor(perColumn, STAMP_LABEL);
+      const texts = band.filter((i) => /[A-Za-z]{2}/.test(i.str) && !isoAny(i.str)
+        && !isIsin(i.str)).sort((a, b) => a.x - b.x);
+      // The transaction type sits under its own heading; anything left of it is
+      // the security name. A real statement prints the description starting a
+      // little left of the heading, so the split is the midpoint between the
+      // security and transaction columns, not the heading's left edge.
+      const securityCol = table.cols.find((c) => /^security|company|scheme|isin\s*name/i
+        .test(c.str));
+      const typeLimit = typeCol
+        ? (securityCol ? (securityCol.x + typeCol.x) / 2 : typeCol.x - 2)
+        : (anchor.x ?? Infinity);
+      const security = tidy(texts.filter((i) => i.x < typeLimit).map((i) => i.str).join(" "));
+      const moved = texts.filter((i) => i.x >= typeLimit && i !== anchor);
+      const type = moved.length ? tidy(moved[0].str) : "";
+      const description = tidy(moved.map((i) => i.str).join(" "));
+      const openingPrinted = openingCell ? hundredths(openingCell.str) : null;
+      // A statement prints "--" for a column with nothing in it. The column
+      // exists, so the movement is zero, not unreadable.
+      const creditPaise = creditCell ? hundredths(creditCell.str) : 0;
+      const debitPaise = debitCell ? hundredths(debitCell.str) : 0;
+      const closingPaise = closingCell ? hundredths(closingCell.str) : null;
+      const carryKey = `${ownerKey}|${isin}`;
+      // The opening column can print "--" for a position opened in this period.
+      // The cell is not a number, so the column map never sees it; without the
+      // dash the row is quarantined as txn_no_opening instead of balanced.
+      const openingDash = !openingCell && !!dashCellFor(OPENING_LABEL);
+      let openingPaise = openingPrinted;
+      if (openingPaise === null) {
+        if (lastClosing.has(carryKey)) openingPaise = lastClosing.get(carryKey);
+        else if (openingDash && closingPaise !== null) {
+          openingPaise = closingPaise - creditPaise + debitPaise;
+        }
+      }
+      const date = isoAny(anchor.str);
+      const quantity = Math.max(Math.abs(creditPaise), Math.abs(debitPaise)) / 100;
+      const balanced = openingPaise !== null && closingPaise !== null
+        && openingPaise + creditPaise - debitPaise === closingPaise;
+      // A row with no movement is a brought-forward line, not a trade.
+      if (balanced && quantity === 0) {
+        lastClosing.set(carryKey, closingPaise);
+        return;
+      }
+      if (!isin || !date || !balanced) {
+        quarantined += 1;
+        warnings.push({ code: !isin ? "txn_no_isin" : !date ? "txn_no_date"
+          : openingPaise === null ? "txn_no_opening" : "txn_unbalanced",
+        count: 1, isin: "redacted" });
+        return;
+      }
+      lastClosing.set(carryKey, closingPaise);
+      out.push({
+        isin,
+        security,
+        account: owner?.boId || "",
+        date,
+        type,
+        description,
+        quantity,
+        openingPaise,
+        creditPaise,
+        debitPaise,
+        closingPaise,
+        stampDutyPaise: stampCell ? hundredths(stampCell.str) : null,
+      });
+    });
+    // An ISIN line that carries balances but no date cannot become a row. Keep
+    // it as a quarantine instead of dropping a movement silently.
+    for (const isinItem of isins) {
+      if (dates.some((date) => Math.abs(date.y - isinItem.y) <= 4)) continue;
+      const sameLine = pageItems.some((i) => Math.abs(i.y - isinItem.y) <= 2
+        && NUMBER.test(i.str) && i !== isinItem);
+      if (!sameLine) continue;
+      quarantined += 1;
+      warnings.push({ code: "txn_no_date", count: 1, isin: "redacted" });
+    }
+  }
+  return { transactions: out, warnings, quarantined };
+}
+
+/**
+ * Read a mutual fund trade table. The ISIN is in the folio heading above the
+ * table, and the only quantity is the Units column: Amount, NAV and Price are
+ * money and are never used as the moved units.
+ * @param {Array<object>} items
+ * @param {Array<object>} tables
+ * @returns {{transactions: Array<object>, warnings: Array<object>, quarantined: number}}
+ */
+function readMfTransactions(items, tables) {
+  const out = [];
+  const warnings = [];
+  let quarantined = 0;
+  const mfTables = tables.filter((t) => t.mfTransactions);
+  if (!mfTables.length) return { transactions: out, warnings, quarantined };
+  const isUnitLabel = (str) => /^units?\b/i.test(str)
+    && !/amount|nav|price|stamp|value|charges|duty/i.test(str);
+  for (const table of mfTables) {
+    const pageItems = items.filter((i) => i.page === table.page);
+    const dateCol = table.cols.find((c) => DATE_LABEL.test(c.str));
+    const headerBottom = table.cols.length
+      ? Math.min(...table.cols.map((c) => c.y)) : table.y - 1;
+    const nextHeader = tables.filter((t) => t.page === table.page && t.y < table.y)
+      .sort((a, b) => b.y - a.y)[0] || null;
+    const bottom = nextHeader ? nextHeader.y + 2 : -Infinity;
+    const range = pageItems.filter((i) => i.y <= headerBottom - 1 && i.y > bottom);
+    // The section heading names the scheme and its ISIN. The nearest ISIN above
+    // the table wins; a table continued across a page break uses the last one
+    // printed on the earlier page, not the first.
+    const isinHit = pageItems.filter((i) => i.y > table.y
+      && /INF[A-Z0-9]{9}/.test(i.str)).sort((a, b) => a.y - b.y)[0]
+      || items.filter((i) => i.page < table.page && /INF[A-Z0-9]{9}/.test(i.str))
+        .sort((a, b) => b.page - a.page || a.y - b.y)[0] || null;
+    const isin = (String(isinHit?.str || "").match(/INF[A-Z0-9]{9}/) || [])[0] || "";
+    const schemeLine = isinHit
+      ? linesOf(pageItems.filter((i) => i.y > isinHit.y), 3)
+        .sort((a, b) => a.y - b.y)
+        .find((line) => /[A-Za-z]{3}/.test(line.items.map((i) => i.str).join(" ")))
+      : null;
+    const scheme = schemeLine
+      ? tidy(schemeLine.items.map((i) => i.str).join(" ")) : "";
+    const dates = range.filter((i) => isoAny(i.str)
+      && (!dateCol || Math.abs(i.x - dateCol.x) <= 60))
+      .sort((a, b) => b.y - a.y);
+    dates.forEach((anchor, index) => {
+      const high = index === 0 ? headerBottom - 1 : (dates[index - 1].y + anchor.y) / 2;
+      const low = index === dates.length - 1
+        ? Math.max(anchor.y - 42, bottom)
+        : (anchor.y + dates[index + 1].y) / 2;
+      const band = pageItems.filter((i) => i.y <= high && i.y > low
+        && i !== anchor && i.x > 20);
+      // The trade's Units sit on the date's line. The opening and closing unit
+      // balances print on their own lines above and below it, so reading the
+      // whole block picked 106.538 (the balance before the trade) over 3.394
+      // (the units bought). The money columns are never the quantity.
+      let unitsCell = null;
+      for (const cell of band.filter((i) => NUMBER.test(i.str)
+        && Math.abs(i.y - anchor.y) <= 2)) {
+        const col = table.cols.filter((c) => c.x <= cell.right + 1).pop();
+        if (col && isUnitLabel(col.str)) { unitsCell = cell; break; }
+      }
+      const texts = band.filter((i) => /[A-Za-z]{2}/.test(i.str) && !isoAny(i.str))
+        .sort((a, b) => b.y - a.y || a.x - b.x);
+      const description = tidy(texts
+        .filter((i) => !/^(opening|closing)\s+balance\b/i.test(i.str))
+        .map((i) => i.str).join(" "));
+      const date = isoAny(anchor.str);
+      const quantity = unitsCell
+        ? Math.abs(Number(String(unitsCell.str).replace(/,/g, ""))) : 0;
+      const side = /switch\s*out|redeem|redemption|withdraw|sale|sold|sell/i.test(description)
+        ? "debit"
+        : /switch\s*in|purchase|sip|systematic\s*investment|allot|subscri|reinvest|buy|bought/i
+          .test(description)
+          ? "credit" : "";
+      if (!quantity) {
+        // A cash dividend prints an amount and no units; that is not a movement
+        // of the holding. A row that names a trade but has no readable units is
+        // a partial read and must stop the statement instead of disappearing.
+        if (side) {
+          quarantined += 1;
+          warnings.push({ code: "mf_no_units", count: 1, isin: "redacted" });
+        }
+        return;
+      }
+      if (!isin || !date) {
+        quarantined += 1;
+        warnings.push({ code: !isin ? "mf_no_isin" : "mf_no_date", count: 1,
+          isin: "redacted" });
+        return;
+      }
+      out.push({
+        isin,
+        security: scheme,
+        account: "",
+        date,
+        type: description,
+        description,
+        side,
+        quantity,
+        openingPaise: null,
+        creditPaise: null,
+        debitPaise: null,
+        closingPaise: null,
+        stampDutyPaise: null,
+      });
+    });
+  }
+  return { transactions: out, warnings, quarantined };
 }
 
 // The four numeric cells to the right of the date are quantity, face, price and
@@ -664,33 +1034,45 @@ function holderName(items) {
 /**
  * The total a statement prints for the whole portfolio. Only an explicit
  * "Grand Total" is trusted: a section "Total" or a page "Sub Total" is not the
- * whole account and must not become the check.
+ * whole account and must not become the check. The first Grand Total is the
+ * portfolio summary; a later one can be a section total, as in a CDSL
+ * transaction statement whose mutual fund folio prints its own Grand Total.
  * @param {Array<object>} items
  * @returns {number|null} paise
  */
 function grandTotalPaise(items) {
-  let total = null;
   for (const page of new Set(items.map((i) => i.page))) {
     const pageItems = items.filter((i) => i.page === page);
-    for (const line of linesOf(pageItems, 3)) {
+    const lines = linesOf(pageItems, 3);
+    for (const line of lines) {
       const text = line.items.slice().sort((a, b) => a.x - b.x)
         .map((i) => i.str).join(" ");
       if (!/\bgrand\s+total\b/i.test(text)) continue;
       const cells = line.items.filter((i) => NUMBER.test(i.str))
         .sort((a, b) => a.x - b.x);
-      if (cells.length) total = rupees(cells[cells.length - 1].str);
+      if (cells.length) return rupees(cells[cells.length - 1].str);
+      // The label can print on its own line with its number just above or below.
+      // The first Grand Total is the portfolio one; a later folio total must not
+      // become the check when the first label's number sits on an adjacent line.
+      const near = lines.filter((other) => Math.abs(other.y - line.y) <= 12)
+        .flatMap((other) => other.items).filter((i) => NUMBER.test(i.str))
+        .sort((a, b) => a.x - b.x);
+      return near.length ? rupees(near[near.length - 1].str) : null;
     }
   }
-  return total;
+  return null;
 }
 
 /**
- * Read a CAS. Holdings tables are read by their own columns; a statement with no
- * usable header falls back to the band rule.
+ * Read a CAS. Holdings tables are read by their own columns; the transactions
+ * table is read as dated movements with its own balance check. A statement with
+ * no usable holdings header falls back to the band rule, unless the only header
+ * it carries is a transactions table.
  * @param {{pages: Array<{items: Array<{str: string, x: number, y: number,
  *   width?: number}>}>}} pdf
- * @returns {{depository: string, holdings: Array<object>, sections: object,
- *   warnings: Array<object>, counts: object, printedTotalPaise: number|null}}
+ * @returns {{depository: string, holdings: Array<object>, transactions: Array<object>,
+ *   sections: object, warnings: Array<object>, counts: object,
+ *   printedTotalPaise: number|null}}
  */
 export function parseCas(pdf) {
   const items = itemsOf(pdf);
@@ -709,21 +1091,32 @@ export function parseCas(pdf) {
 
   const tables = detectTables(items);
   const headers = accountHeaders(items);
+  const movements = readTransactions(items, tables, headers);
+  const mfMovements = readMfTransactions(items, tables);
+  const transactions = [...movements.transactions, ...mfMovements.transactions];
   let result = tables.some((t) => t.holdings)
     ? { holdings: readTables(items, tables, headers), warnings: [], quarantined: 0 }
     : { holdings: [], warnings: [], quarantined: 0 };
-  if (!result.holdings.length) result = readBands(items);
+  // The band rule reads every ISIN band as a holding. A document whose only
+  // header is a transactions table would then turn trades into holdings, which
+  // is the mistake this parser exists to avoid.
+  if (!result.holdings.length && !tables.some((t) => t.transactions || t.mfTransactions)) {
+    result = readBands(items);
+  }
 
   // The same ISIN can appear in a transaction table and again in the holdings
-  // table, and a page break can repeat a row. One holding, one entry.
-  const byIsin = new Map();
+  // table, and a page break can repeat a row. One holding per account and ISIN:
+  // a consolidated statement can hold the same security in two demats, and
+  // keying by ISIN alone dropped one account's row.
+  const byAccountIsin = new Map();
   for (const holding of result.holdings) {
-    const prev = byIsin.get(holding.isin);
+    const key = `${holding.account || ""}|${holding.isin}`;
+    const prev = byAccountIsin.get(key);
     if (!prev || (holding.valuePaise || 0) > (prev.valuePaise || 0)) {
-      byIsin.set(holding.isin, holding);
+      byAccountIsin.set(key, holding);
     }
   }
-  const holdings = [...byIsin.values()];
+  const holdings = [...byAccountIsin.values()];
   // One statement can hold several demat accounts; each keeps its own.
   const byAccount = new Map();
   for (const holding of holdings) {
@@ -744,10 +1137,15 @@ export function parseCas(pdf) {
     asOf: asOfDate(text),
     holder: holderName(items),
     holdings,
+    transactions,
     accounts,
     sections,
-    warnings: result.warnings,
-    counts: { rows: holdings.length, quarantined: result.quarantined },
+    warnings: [...result.warnings, ...movements.warnings, ...mfMovements.warnings],
+    counts: {
+      rows: holdings.length,
+      quarantined: result.quarantined + movements.quarantined + mfMovements.quarantined,
+      transactions: transactions.length,
+    },
     printedTotalPaise: grandTotalPaise(items),
   };
 }

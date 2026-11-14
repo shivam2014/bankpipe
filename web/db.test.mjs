@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { makeStore, showDeleteAll, verifySealedDb } from "./db.js";
 import { sealBytes } from "./dbatrest.js";
+import { applyCasEvents, casApplyRows, casEventKey } from "./cas-apply.js";
 
 const require = createRequire(import.meta.url);
 const initSqlJs = require("./vendor/sql-wasm.js");
@@ -317,6 +318,44 @@ test("manual holdings survive a report sync", async () => {
   assert.equal(store.listHoldings("bonds1").length, 0);
 });
 
+test("a replaced manual lot keeps its manual source", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "bonds-manual", label: "Bonds", category: "bonds" });
+  store.upsertHolding("bonds-manual", { security_id: "INE000000001",
+    label: "10.00% TEST 31 DEC 2030", quantity: 100, cost_paise: 100000,
+    purchase_date: "2024-01-01" });
+  const [manual] = store.listHoldings("bonds-manual");
+  assert.equal(manual.source, "manual");
+  store.replaceHoldings("bonds-manual", [
+    { ...manual, quantity: 60, cost_paise: 60000 },
+    { security_id: "INE000000001", label: "10.00% TEST 31 DEC 2030",
+      category: "bond", quantity: 0, cost_paise: 0, value_paise: 0,
+      disposed_at: "2026-08-12", disposed_quantity: 40, disposed_type: "sale",
+      disposed_source: "CAS", disposed_reason: "SALE", disposed_cost_paise: 40000 },
+  ], "2026-08-31");
+  const rows = store.listHoldings("bonds-manual");
+  const live = rows.find((row) => !row.disposed_at);
+  assert.equal(live.quantity, 60);
+  assert.equal(live.source, "manual");
+  assert.equal(rows.filter((row) => row.disposed_at).length, 1);
+});
+
+test("a CAS plan carries a manual holding's source through replaceHoldings", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "cas-manual", label: "Demat", category: "demat" });
+  store.upsertHolding("cas-manual", { security_id: "INE000000001",
+    label: "10.00% MANUAL 31 DEC 2030", quantity: 100, cost_paise: 100000 });
+  const before = store.listHoldings("cas-manual");
+  assert.equal(before[0].source, "manual");
+  const plan = casApplyRows({ existing: before, asOf: "2026-08-31",
+    holdings: [{ isin: "INE000000001", label: "MANUAL BOND", kind: "bond",
+      quantity: 100, valuePaise: 1000000, couponPct: 10, maturity: "2030-12-31" }] });
+  store.replaceHoldings("cas-manual", plan.rows, "2026-08-31");
+  assert.equal(store.listHoldings("cas-manual")[0].source, "manual");
+});
+
 test("holdings replace as a snapshot, not append", async () => {
   const store = makeStore(SQL, null);
   await store.open();
@@ -349,6 +388,65 @@ test("holdings keep rating, frequency and purchase yield", async () => {
   assert.equal(row.yield_bps, 1100);
   assert.equal(row.payout_paise, 87055);
   assert.equal(row.purchase_date, "2025-01-01");
+});
+
+test("a disposal record keeps its event key and stays out of cost totals", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "sold-demat", label: "Demat", category: "demat" });
+  store.replaceHoldings("sold-demat", [{
+    security_id: "INE000000031", label: "9.00% TEST BOND 31 Dec 2028", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0,
+    disposed_at: "2026-08-12", disposed_quantity: 40, disposed_type: "sale",
+    disposed_source: "CAS", disposed_reason: "SALE", disposed_cost_paise: 80000,
+    txn_key: "INE000000031|2026-08-12|sale|40|a1b2c3d4",
+    as_of: "2026-08-12",
+  }, {
+    security_id: "INE000000032", label: "8.00% OTHER BOND", category: "bond",
+    quantity: 5, cost_paise: 50000, value_paise: 52000,
+  }], "2026-08-31");
+  const rows = store.listHoldings("sold-demat");
+  const sold = rows.find((row) => row.security_id === "INE000000031");
+  assert.equal(sold.quantity, 0);
+  assert.equal(sold.disposed_at, "2026-08-12");
+  assert.equal(sold.disposed_quantity, 40);
+  assert.equal(sold.disposed_type, "sale");
+  assert.equal(sold.disposed_source, "CAS");
+  assert.equal(sold.disposed_cost_paise, 80000);
+  assert.equal(sold.txn_key, "INE000000031|2026-08-12|sale|40|a1b2c3d4");
+  const totals = store.query("SELECT SUM(cost_paise) AS cost, SUM(value_paise) AS value"
+    + " FROM holding WHERE asset_id='sold-demat'")[0];
+  assert.equal(totals.cost, 50000);
+  assert.equal(totals.value, 52000);
+  const liveCount = store.query("SELECT COUNT(*) AS n FROM holding"
+    + " WHERE asset_id='sold-demat' AND (disposed_at IS NULL OR disposed_at='')")[0].n;
+  assert.equal(liveCount, 1);
+});
+
+test("the same sale leaves a sold row in each account that holds it", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "acct-a", label: "Demat A", category: "demat" });
+  store.createAccount({ id: "acct-b", label: "Demat B", category: "demat" });
+  const event = { isin: "INE000000041", date: "2026-08-12", type: "SALE",
+    description: "SALE", quantity: 100, openingPaise: 10000, creditPaise: 0,
+    debitPaise: 10000, closingPaise: 0 };
+  const lot = () => ({ security_id: "INE000000041", label: "TEST BOND",
+    category: "bond", quantity: 100, cost_paise: 100000, value_paise: 100000,
+    as_of: "2026-07-31" });
+  const a = applyCasEvents([lot()], [event], { assetId: "acct-a" });
+  const b = applyCasEvents([lot()], [event], { assetId: "acct-b" });
+  store.replaceHoldings("acct-a", a.rows, "2026-08-31");
+  store.replaceHoldings("acct-b", b.rows, "2026-08-31");
+  const aRows = store.listHoldings("acct-a");
+  const bRows = store.listHoldings("acct-b");
+  assert.equal(aRows.length, 1);
+  assert.equal(bRows.length, 1);
+  assert.equal(aRows[0].disposed_at, "2026-08-12");
+  assert.equal(bRows[0].disposed_at, "2026-08-12");
+  assert.equal(aRows[0].txn_key, casEventKey(event, "acct-a"));
+  assert.equal(bRows[0].txn_key, casEventKey(event, "acct-b"));
+  assert.notEqual(aRows[0].txn_key, bRows[0].txn_key);
 });
 
 test("holdings totals appear on the asset row", async () => {
