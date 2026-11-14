@@ -532,10 +532,18 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
     || b.hits - a.hits || a.label.localeCompare(b.label));
   const tie = matches.length > 1 && !matches[0].identity && !matches[1].identity
     && matches[0].hits === matches[1].hits;
+  const top = matches[0] || null;
+  const share = top && top.of ? top.hits / top.of : 0;
+  // One attach rule for both report families. A file's BO ID, UCID or client ID
+  // names the account. Without one, an ISIN overlap has to explain most of the
+  // file; one match out of five hundred does not buy a whole snapshot a home.
+  const attachId = !tie && top && (top.identity || (top.hits > 0 && share >= 0.8))
+    ? top.id : "";
   return {
     matches, total: wanted.length, tie,
-    bestId: !tie && matches.length ? matches[0].id : "",
-    identityId: matches.length && matches[0].identity ? matches[0].id : "",
+    bestId: !tie && top ? top.id : "",
+    attachId,
+    identityId: top && top.identity ? top.id : "",
   };
 }
 

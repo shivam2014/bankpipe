@@ -187,6 +187,40 @@ test("equal overlap without an identity match is a tie, not a silent pick", () =
   assert.equal(result.matches.length, 2);
 });
 
+test("a single overlapping ISIN does not name an account to auto-attach", () => {
+  const accounts = [{ id: "demat-1", label: "Demat", category: "demat",
+    subtype: "equity", number: "IN99990006111111", meta: "",
+    holdings: [{ security_id: isin(1), quantity: 1 }] }];
+  const file = { rows: Array.from({ length: 20 }, (_, i) => ({ isin: isin(i + 1) })) };
+  for (const options of [{}, { forCas: true }]) {
+    const result = accountMatches(file, accounts, options);
+    assert.equal(result.matches.length, 1);
+    // The candidate is still listed so a person can choose it. It is not
+    // evidence enough to move 500 rows into that account unasked.
+    assert.equal(result.bestId, "demat-1");
+    assert.equal(result.attachId, "");
+  }
+});
+
+test("an 80 percent overlap names the account for both report families", () => {
+  const accounts = [{ id: "demat-1", label: "Demat", category: "demat",
+    subtype: "equity", number: "IN99990006111111", meta: "",
+    holdings: Array.from({ length: 4 }, (_, i) => ({ security_id: isin(i + 1) })) }];
+  const file = { rows: Array.from({ length: 5 }, (_, i) => ({ isin: isin(i + 1) })) };
+  for (const options of [{}, { forCas: true }]) {
+    assert.equal(accountMatches(file, accounts, options).attachId, "demat-1");
+  }
+});
+
+test("an identity match names the account even with no overlapping ISIN", () => {
+  const accounts = [{ id: "demat-1", label: "Demat", category: "demat",
+    subtype: "equity", number: "IN99990006111111", meta: "",
+    holdings: [] }];
+  const file = { accountKey: "IN99990006111111", accountKind: "bo",
+    rows: Array.from({ length: 20 }, (_, i) => ({ isin: isin(i + 1) })) };
+  assert.equal(accountMatches(file, accounts).attachId, "demat-1");
+});
+
 test("the two CAS data facts produce the expected account hits", () => {
   const nsdl = { accountKey: "IN99990001344321", accountKind: "bo",
     rows: [

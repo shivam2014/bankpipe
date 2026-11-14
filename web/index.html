@@ -7027,12 +7027,13 @@ function bpImportResolveBroker(bundle) {
   let targetId = state.choices[bundle.key] || "";
   if (targetId && !bpImportAccountRow(targetId)) targetId = "";
   if (!targetId && bundle.match.identityId) targetId = bundle.match.identityId;
-  if (!targetId && bundle.match.bestId) targetId = bundle.match.bestId;
-  if (!targetId && bundle.match.tie) targetId = "";
+  if (!targetId && bundle.match.attachId) targetId = bundle.match.attachId;
   bundle.targetId = targetId;
-  bundle.create = !targetId && !bundle.match.tie;
-  bundle.createLabel = bpImportBrokerOnlyLabel(bundle);
   bundle.canCreate = bundle.match.matches.length === 0;
+  // A weak overlap is a question, not a default. Only a file that matches
+  // nothing on file may create an account; a near miss would be a duplicate.
+  bundle.create = bundle.canCreate;
+  bundle.createLabel = bpImportBrokerOnlyLabel(bundle);
   const identity = bundle.accountKey
     ? { kind: bundle.accountKind || "bo", value: bundle.accountKey } : null;
   bundle.plan = bpImportPlanFor(bundle, targetId ? bpImportAccountRow(targetId) : null,
@@ -7041,7 +7042,7 @@ function bpImportResolveBroker(bundle) {
   bundle.ready = !!(bundle.plan && !dateBlocked
     && (bundle.plan.summary.ask === 0 || bundle.acceptAsk)
     && (targetId || bundle.canCreate));
-  bundle.needsChoice = bundle.match.tie && !targetId;
+  bundle.needsChoice = !targetId && bundle.match.matches.length > 0;
 }
 
 function bpImportResolveCas(bundle) {
@@ -7064,14 +7065,9 @@ function bpImportResolveCas(bundle) {
     let targetId = choice && !createChoice ? choice : "";
     if (targetId && !bpImportAccountRow(targetId)) targetId = "";
     if (!targetId && match.identityId) targetId = match.identityId;
-    if (!targetId && match.bestId && !match.tie) {
-      const best = match.matches.find((candidate) => candidate.id === match.bestId);
-      const share = best?.of ? best.hits / best.of : 0;
-      // A CAS names its own BO ID. ISIN overlap is only strong enough to attach
-      // to a broker-only account when it explains most of the statement; one
-      // matching ISIN out of thirteen is a different demat.
-      if (best && (best.identity || (best.hits > 0 && share >= 0.8))) targetId = best.id;
-    }
+    // The matcher owns the threshold for both report families: identity, or an
+    // 80 percent ISIN overlap. The CAS resolver no longer keeps its own copy.
+    if (!targetId && match.attachId) targetId = match.attachId;
     const targetRow = targetId ? bpImportAccountRow(targetId) : null;
     const plan = bpImportPlanFor(bundle, targetRow, rows,
       { kind: "bo", value: account.boId });
@@ -7302,7 +7298,7 @@ function bpImportMatchHtml(bundle) {
   const chosen = bundle.targetId || "";
   const rows = matches.map((match) => {
     const chosenNow = match.id === chosen;
-    const best = bundle.match.bestId === match.id;
+    const best = bundle.match.attachId === match.id;
     const meta = [
       match.identityKind ? `${match.identityKind} match` : "ISIN overlap",
       match.brokerOnly ? "broker-only · no CAS to check against" : "",
