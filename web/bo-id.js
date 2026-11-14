@@ -1,8 +1,8 @@
 // A demat account is spelled three different ways in the wild: the BO ID a
 // depository prints, the same number with stray spaces or dashes from a report,
 // and a broker's own client code. Only the first two identify an account. A
-// client code is a label, never a key: 9999000005 is a Motilal client code and
-// 6638002 a UCID, and neither can be compared with a BO ID.
+// client code is a label, never a key: TEST500 is a broker client code and
+// TEST0001 a UCID, and neither can be compared with a BO ID.
 //
 // The old matcher compared the last six digits, which cannot tell two accounts
 // apart when they share a tail. This reads the whole number instead. Pure: no

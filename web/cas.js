@@ -51,9 +51,9 @@ export function cleanFundLabel(value) {
   return tidy(s);
 }
 
-// The first word of a scheme is the fund house only by luck ("Mirae",
-// "Aditya"). The AMC name is the prefix before the first scheme word:
-// "Mirae Asset | Large and Midcap Fund" names Mirae Asset Mutual Fund.
+// The first word of a scheme is the fund house only by luck ("TestOne",
+// "TestThree"). The AMC name is the prefix before the first scheme word:
+// "TestOne Asset | Large and Midcap Fund" names TestOne Asset Mutual Fund.
 const SCHEME_WORD = /\b(Large|Mid|Small|Multi|Flexi|ELSS|Liquid|Cash|Overnight|Money|Ultra|Short|Long|Gilt|Credit|Corporate|Banking|Infrastructure|Tax|Savings|Dynamic|Balanced|Hybrid|Index|Equity|Debt|Value|Growth|Dividend|Monthly|Income|Arbitrage|Bluechip|Emerging|Focused|Contra|Children|Retirement|Conservative|Aggressive|Frontline)\b/i;
 export function fundHouseFromLabel(value) {
   const text = String(value || "").replace(/\(formerly[^)]*\)/gi, " ")
@@ -359,8 +359,8 @@ function readTables(items, tables, headers = []) {
         : null;
       const costCell = table.kind === "mf"
         ? fundCostCell(cells, valueCell, fund) : null;
-      // The scheme name is every text line in the band; "CFGP - Mirae Asset
-      // Liquid Fund" names Mirae, whatever column the statement puts it in.
+      // The scheme name is every text line in the band; "CFGP - TestOne Asset
+      // Liquid Fund" names TestOne, whatever column the statement puts it in.
       const nameCells = table.kind === "mf"
         ? band.filter((i) => /[A-Za-z]{2}/.test(i.str) && !NUMBER.test(i.str)
           && !i.str.startsWith("(")

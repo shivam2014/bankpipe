@@ -4,8 +4,8 @@
 // compared whole.
 //
 // It used to compare the last six digits, which cannot separate two accounts
-// that share a tail: IN99990009183122 and IN99990010183122 are different clients
-// of one DP and both end 183122. Six digits are not an identity.
+// that share a tail: IN99990001344321 and IN99990004344321 are different clients
+// of one DP and both end 344321. Six digits are not an identity.
 //
 // "unknown" is not a failure. A client code, a truncated number or an empty
 // field cannot confirm or deny a demat, and refusing that import would block the
