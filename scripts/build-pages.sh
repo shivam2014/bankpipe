@@ -22,6 +22,14 @@ rsync -a "$ROOT/web/" "$OUT/public/" \
   --exclude 'private/' \
   --exclude '*.test.mjs' \
   --exclude 'fixtures/' \
+  --exclude 'tools/' \
+  --exclude '*.pdf' \
+  --exclude '*.bpk' \
+  --exclude '*.db' \
+  --exclude '*.db-wal' \
+  --exclude '*.db-shm' \
+  --exclude '*.sqlite' \
+  --exclude 'import-denylist.txt' \
   --exclude 'server.mjs' \
   --exclude 'README.md' \
   --exclude 'node_modules/'
@@ -45,9 +53,6 @@ cat > "$OUT/public/version.json" <<JSON
 {"version":"$STAMP","commit":"$COMMIT","built":"$BUILT"}
 JSON
 
-if [ -d "$OUT/public/private" ]; then
-  echo "refusing to build: private/ leaked into the bundle" >&2
-  exit 1
-fi
+node "$ROOT/scripts/check-pages-privacy.mjs" "$OUT/public"
 
 echo "built $OUT"

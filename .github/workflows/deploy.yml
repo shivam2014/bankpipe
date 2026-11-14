@@ -43,6 +43,9 @@ jobs:
       - name: Build the Pages bundle
         run: BP_COMMIT="$(git rev-parse --short HEAD)" bash scripts/build-pages.sh
 
+      - name: Check the Pages bundle for private files
+        run: node scripts/check-pages-privacy.mjs build/pages/public
+
       - name: Check Cloudflare credentials
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |

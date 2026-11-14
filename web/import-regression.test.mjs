@@ -19,7 +19,7 @@ const require = createRequire(import.meta.url);
 const XLSX = require("./vendor/xlsx.full.min.js");
 
 const ROOT = new URL("../", import.meta.url).pathname;
-const FIXTURES = new URL("./fixtures/import/", import.meta.url).pathname;
+const FIXTURES_ROOT = new URL("./fixtures/", import.meta.url).pathname;
 const PRIVATE = new URL("./private/import-denylist.txt", import.meta.url).pathname;
 
 function xlsxRoundTrip(matrix, sheetName = "Statement") {
@@ -153,16 +153,34 @@ test("the page routes a tradebook XLSX through parseTradebookMatrix", () => {
 
 // --- privacy guard ----------------------------------------------------------
 
-const BINARY = /\.(pdf|xlsx|xls|xlsm|zip|bpk|db|sqlite)$/i;
+const BINARY = /\.(pdf|xlsx|xls|xlsm|zip|bpk|db|sqlite|wasm|png|jpe?g|gif|webp|ico|gz|tgz|7z|rar)$/i;
+const ALLOWED_BINARY = new Set([
+  "hdfc.xlsx",
+  "encrypted/example_password.xlsx",
+  "banks/icici-savings-2026-08.xlsx",
+  "banks/icici-savings-2026-10.xlsx",
+  "banks/sbi-savings-2026-07.xlsx",
+]);
 
-test("the committed fixture corpus stays synthetic and small", () => {
-  const files = readdirSync(FIXTURES);
-  for (const name of files) {
-    const path = join(FIXTURES, name);
-    const stat = statSync(path);
-    assert.equal(stat.isFile(), true, name);
-    assert.ok(!BINARY.test(name), `${name} is a binary statement; do not commit it`);
-    assert.ok(stat.size <= 64 * 1024, `${name} is too large for a synthetic fixture`);
+function fixtureFiles(dir, prefix = "") {
+  const out = [];
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    const rel = prefix ? `${prefix}/${name}` : name;
+    if (statSync(path).isDirectory()) out.push(...fixtureFiles(path, rel));
+    else out.push(rel);
+  }
+  return out;
+}
+
+test("every fixture is synthetic, listed and small", () => {
+  for (const rel of fixtureFiles(FIXTURES_ROOT)) {
+    const stat = statSync(join(FIXTURES_ROOT, rel));
+    assert.equal(stat.isFile(), true, rel);
+    if (BINARY.test(rel)) {
+      assert.ok(ALLOWED_BINARY.has(rel), `${rel} is an unlisted binary fixture`);
+    }
+    assert.ok(stat.size <= 64 * 1024, `${rel} is too large for a synthetic fixture`);
   }
 });
 
