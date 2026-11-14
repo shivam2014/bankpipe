@@ -54,6 +54,12 @@ export function isImportAccount(asset) {
   return !assetMeta(asset).cost_only;
 }
 
+// Only a depository account can receive a CAS snapshot. A bond portfolio is a
+// cost record even when it holds the same ISIN, so a CAS must not attach there.
+export function isDepositoryAccount(asset) {
+  return isImportAccount(asset) && categoryOf(asset) === "demat";
+}
+
 // One class per holding row, shared by the account page and the class pages.
 // A bond is bond first; a fund by its category, its legacy category or an INF
 // ISIN; everything else is a share. The SQL totals in db.js mirror this rule.

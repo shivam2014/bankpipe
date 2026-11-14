@@ -7600,7 +7600,7 @@ function bpImportResolveCas(bundle) {
       !(row.category === "mf" && row.folio));
     const match = accountMatches({
       accountKey: account.boId, accountKind: "bo", rows,
-    }, accounts);
+    }, accounts, { forCas: true });
     const choiceKey = `${bundle.key}:${account.boId}`;
     const choice = state.choices[choiceKey] || "";
     const createChoice = choice === "__create__";
@@ -7633,7 +7633,7 @@ function bpImportResolveCas(bundle) {
     folioGroups.get(key).rows.push(row);
   }
   const folioTargets = [...folioGroups.entries()].map(([key, group]) => {
-    const match = accountMatches({ rows: group.rows }, accounts);
+    const match = accountMatches({ rows: group.rows }, accounts, { forCas: true });
     const choiceKey = `${bundle.key}:mf:${key}`;
     let targetId = state.choices[choiceKey] || "";
     if (targetId && !bpImportAccountRow(targetId)) targetId = "";

@@ -4,7 +4,7 @@
 // here: the page owns the preview, the confirmation and the database.
 
 import { boId } from "./bo-id.js";
-import { isImportAccount } from "./assets.js";
+import { isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
 import { parseBondLabel } from "./bonds.js";
@@ -489,8 +489,13 @@ function identityFor(file) {
  * and a client ID are identity hits; an ISIN is an overlap hit. An account with
  * no overlapping ISIN still appears when it is named by identity, because a
  * report for an empty demat is exactly the case that used to be invisible.
+ *
+ * A broker holding can land on any securities account. A CAS is a depository
+ * statement, so with `forCas` it can only land on a demat or a fund folio: a
+ * bond portfolio that holds the same ISIN is a cost record, not a custody
+ * account, and must not receive a depository snapshot.
  */
-export function accountMatches(file, accounts = []) {
+export function accountMatches(file, accounts = [], { forCas = false } = {}) {
   const identity = identityFor(file);
   const wanted = [...new Set((file?.rows || []).map(rowIsin).filter(Boolean))];
   const wantedSet = new Set(wanted);
@@ -500,6 +505,7 @@ export function accountMatches(file, accounts = []) {
     // a bond portfolio can receive a holdings report. A bank or FD cannot, and
     // a cost-only bond record is bookkeeping rather than a target.
     if (!isImportAccount(raw)) continue;
+    if (forCas && !isDepositoryAccount(raw)) continue;
     const account = normalizeAccount(raw, raw?.holdings || []);
     let identityKind = "";
     if (identity) {
@@ -551,13 +557,29 @@ export function accountFieldState(account, holdings = []) {
   };
 }
 
+// A stored holding row has no maturity column: a bond's date is in its label.
+// Read the explicit field first, then derive it only for a bond so a stray date
+// in a fund or share name cannot mark that row matured.
+function holdingMaturity(row) {
+  const explicit = parseDate(row?.maturity ?? row?.maturity_date ?? "");
+  if (explicit) return explicit;
+  const category = String(row?.category || "").toLowerCase();
+  if (category !== "bond") return "";
+  return parseBondLabel(row?.label)?.maturity || "";
+}
+
 /**
- * One account's status line: the label, the holding count and the newest
- * statement dates. Pure, so the page can render it and a test can read it
- * without a DOM; the caller supplies the date formatter it already uses.
+ * One account's status line: the label, the active holding count and the
+ * newest statement dates. Pure, so the page can render it and a test can read
+ * it without a DOM; the caller supplies the date formatter it already uses.
+ *
+ * A matured bond or a zero-quantity history row is not a current position. It
+ * is counted separately and named in `countText` so a portfolio does not brag
+ * about holdings it no longer has.
  */
 export function importAccountSummary(account, holdings = [],
-  formatDate = (value) => String(value || "")) {
+  formatDate = (value) => String(value || ""),
+  today = new Date().toISOString().slice(0, 10)) {
   const meta = safeMeta(account);
   const rows = holdings || [];
   const state = accountFieldState(account, rows);
@@ -566,16 +588,24 @@ export function importAccountSummary(account, holdings = [],
   const brokerAsOf = state.cost.asOf || String(meta.broker_as_of || "").slice(0, 10)
     || (state.identity.source && state.identity.source !== "cas" ? state.identity.asOf : "");
   const casAsOf = state.identity.source === "cas" ? state.identity.asOf : "";
-  const count = rows.length;
-  // A count is the fact; the label only names the account's state. An account
-  // nobody has marked still holds things, so it must not read "No holdings yet".
-  let label = count > 0 ? "Holdings" : "No holdings yet";
+  const positions = rows.map((row) => {
+    const quantity = asNumber(row?.quantity);
+    const maturity = holdingMaturity(row);
+    const matured = !!(maturity && maturity < today);
+    return { matured, active: !matured && quantity !== null && quantity > 0 };
+  });
+  const count = positions.filter((position) => position.active).length;
+  const matured = positions.filter((position) => position.matured).length;
+  // "No holdings yet" means the account has no rows at all. An account holding
+  // only history has positions, just none of them current.
+  let label = count > 0 ? "Holdings" : rows.length ? "No current holdings" : "No holdings yet";
   let kind = "";
   if (brokerOnly) { label = "Broker-only"; kind = "warn"; }
   else if (casAsOf) { label = "CAS verified"; kind = "good"; }
   if (brokerAsOf && casAsOf && brokerAsOf > casAsOf) { label = "Newer broker data"; kind = "warn"; }
-  return { label, kind, brokerOnly, brokerAsOf, casAsOf, count,
-    countText: count > 0 ? `${count} holding${count === 1 ? "" : "s"}` : "",
+  const countText = [count > 0 ? `${count} holding${count === 1 ? "" : "s"}` : "",
+    matured > 0 ? `${matured} matured` : ""].filter(Boolean).join(" · ");
+  return { label, kind, brokerOnly, brokerAsOf, casAsOf, count, matured, countText,
     dates: [casAsOf ? `CAS ${formatDate(casAsOf)}` : "",
       brokerAsOf ? `Broker ${formatDate(brokerAsOf)}` : ""].filter(Boolean).join(" · ") };
 }
