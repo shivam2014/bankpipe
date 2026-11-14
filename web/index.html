@@ -1371,8 +1371,9 @@ import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
   reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
-import { casClosedRow, casHoldingLabel, casImportHoldings, casReplacePlan,
-  casSafety, linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
+import { casClosedRow, casHoldingLabel, casImportHoldings, casMovementAccountBos,
+  casPreviewAccounts, casReplacePlan, casSafety, casWritableHoldings,
+  linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
 import { casSoldLines, soldHoldingsHtml, splitHoldings } from "./sold-view.js";
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
@@ -7632,9 +7633,10 @@ function bpImportResolveCas(bundle) {
   }));
   const base = bundle.base;
   const casAccounts = base?.accounts?.length ? base.accounts : [];
+  const importDay = new Date().toISOString().slice(0, 10);
   const dematTargets = casAccounts.map((account) => {
-    const rows = (account.rows || []).filter((row) =>
-      !(row.category === "mf" && row.folio));
+    const rows = casWritableHoldings((account.rows || []).filter((row) =>
+      !(row.category === "mf" && row.folio)), importDay);
     const match = accountMatches({
       accountKey: account.boId, accountKind: "bo", rows,
     }, accounts);
@@ -7681,6 +7683,7 @@ function bpImportResolveCas(bundle) {
   const folioGroups = new Map();
   for (const row of bundle.rows || []) {
     if (row.category !== "mf" || !row.folio) continue;
+    if (casClosedRow(row, importDay)) continue;
     const amc = String(row.amc || "Folio").trim();
     const key = amc.toLowerCase();
     if (!folioGroups.has(key)) folioGroups.set(key, { amc, rows: [] });
@@ -7751,15 +7754,27 @@ function bpImportResolveCas(bundle) {
     bundle.plan.warnings = [...new Set([...bundle.plan.warnings, ...safety.reasons])];
   }
   // A movements-only statement with no account on file has nowhere to write its
-  // disposals. Saying "ready" would create nothing and drop the file.
+  // disposals. Saying "ready" would create nothing and drop the file. A movement
+  // can also name a demat that is not on file while another target exists; that
+  // account has to exist before its disposal can be written.
   const movements = base?.parsed?.transactions || [];
+  const movementBos = new Set(movements
+    .map((event) => boId(event.account || "").boId).filter(Boolean));
+  const onFileBos = new Set((state.accountRows || [])
+    .filter((row) => String(row.account?.category || "") === "demat")
+    .map((row) => boId(row.account?.number || row.account?.bo_id || "").boId)
+    .filter(Boolean));
+  const missingBos = [...movementBos].filter((bo) => !onFileBos.has(bo));
   bundle.movementBlocked = movements.length > 0
-    && !bundle.casTargets.some((target) => target.targetId);
+    && (!bundle.casTargets.some((target) => target.targetId) || missingBos.length > 0);
   if (bundle.movementBlocked) {
     bundle.plan.blocking = true;
-    bundle.plan.warnings = [...new Set([...bundle.plan.warnings,
-      "No account on file can take this statement's movements. Add the demat account "
-      + "the statement names, then import again."])];
+    const detail = missingBos.length
+      ? `No demat on file for the movement account …${missingBos[0].slice(-4)}. `
+        + "Add that account, then import again."
+      : "No account on file can take this statement's movements. Add the demat account "
+        + "the statement names, then import again.";
+    bundle.plan.warnings = [...new Set([...bundle.plan.warnings, detail])];
   }
   bundle.needsChoice = bundle.casTargets.some((target) =>
     target.match.tie && !target.targetId && !target.createChoice);
@@ -8161,16 +8176,21 @@ async function bpImportInboxReadOne(entry) {
         // period end, and that is the date its quantity and value belong to.
         parsed.asOf = entry.asOf;
         const accounts = parsed.accounts || [];
+        // The writer drops a closed position and keeps a matured one. The inbox
+        // preview and its counts read the same writable list.
+        const importDay = new Date().toISOString().slice(0, 10);
+        const writable = casWritableHoldings(parsed.holdings, importDay);
         entry.casAccounts = (accounts.length ? accounts : [{ boId: parsed.demat || "",
           dpName: "", holdings: parsed.holdings }]).map((account) => ({
           boId: account.boId || parsed.demat || "",
           dpName: account.dpName || "",
-          rows: (account.holdings || []).map((holding) => bpImportCasRow(holding)),
+          rows: casWritableHoldings(account.holdings, importDay)
+            .map((holding) => bpImportCasRow(holding)),
         }));
         entry.accountKey = (accounts.map((account) => account.boId).filter(Boolean).sort()[0]
           || parsed.demat || "");
         entry.accountKind = "bo";
-        entry.rows = (parsed.holdings || []).map((holding) => bpImportCasRow(holding));
+        entry.rows = writable.map((holding) => bpImportCasRow(holding));
       } else if (detected.kind === "bank") {
         entry.kind = "bank";
         entry.status = "bank";
@@ -9077,7 +9097,13 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const dematRowsOf = (bo) => cas.holdings
       .filter((h) => String(h.account || "") === String(bo || "")
         && !(h.kind === "mf" && h.folio) && !casClosedRow(h, cardImportDay));
-    const units = (route.accounts || []).map((a) => {
+    // A movement can name a demat the holdings table omits. Seed the preview
+    // with that account, empty, so its sale is planned and visible.
+    const previewAccounts = casPreviewAccounts({
+      accounts: assets, routeAccounts: route.accounts, movements: cas.transactions,
+    });
+    const headerHoldings = casWritableHoldings(cas.holdings, cardImportDay).length;
+    const units = previewAccounts.map((a) => {
       const mine = dematRowsOf(a.boId);
       return {
         key: `bo:${a.boId}`,
@@ -9119,7 +9145,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       // A demat target, including one that does not exist yet. The writer
       // creates the account and runs the same plan, so the preview must plan it
       // too instead of hiding a sale the import will store.
-      for (const account of route.accounts || []) {
+      for (const account of previewAccounts) {
         if (cardState.picked && !cardState.picked.has(`bo:${account.boId}`)) continue;
         const existing = account.assetId ? rowsOf(account.assetId) : [];
         const mine = dematRowsOf(account.boId);
@@ -9172,7 +9198,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const saleConflicts = salePlans.flatMap((plan) => plan.conflicts || []);
     const saleWarnings = salePlans.flatMap((plan) => plan.warnings || [])
       .concat(linkedWarnings);
-    cardState.eventAssets = route.accounts.map((account) => account.assetId).filter(Boolean);
+    cardState.eventAssets = previewAccounts.map((account) => account.assetId).filter(Boolean);
     // The statement names its holder. That is the one field the file can default
     // for the person importing, and it can be corrected before anything is written.
     if (cardState.owner === undefined) cardState.owner = cas.holder || "";
@@ -9233,10 +9259,10 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     host.innerHTML = `<div class="card pad" style="background:var(--hair)">
       <div class="muted" style="font-size:11.5px;margin-bottom:2px">${esc(file.name || "CAS")}</div>
       <b>${esc(cas.depository || "Demat")} · ${
-        (route.accounts || []).length} demat account${
-        (route.accounts || []).length === 1 ? "" : "s"}${
+        previewAccounts.length} demat account${
+        previewAccounts.length === 1 ? "" : "s"}${
         folioSeen.size ? ` · ${folioSeen.size} folio${folioSeen.size === 1 ? "" : "s"}` : ""}
-        · ${cas.holdings.length} holdings
+        · ${headerHoldings} holdings
         · ${money(total)}${cas.asOf ? ` · as on ${esc(cas.asOf)}` : ""}</b>
       <div class="muted" style="font-size:12px;margin-top:4px">${esc(kinds)}${
         cas.counts.quarantined ? ` · ${cas.counts.quarantined} unreadable` : ""}</div>
@@ -10745,22 +10771,9 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     // A statement can name several demats. Each target plans only the movements
     // that belong to its own BO ID; the rest would be foreign sold rows. A demat
     // absent from the holdings table is still a target when a movement names its
-    // BO ID, so the movement map covers every account, not just route.accounts.
-    const boIdsOf = new Map();
-    for (const account of route.accounts || []) {
-      if (!account.assetId) continue;
-      if (!boIdsOf.has(account.assetId)) boIdsOf.set(account.assetId, []);
-      boIdsOf.get(account.assetId).push(account.boId);
-    }
-    const movementBos = new Set((cas.transactions || [])
-      .map((event) => boId(event.account || "").boId).filter(Boolean));
-    for (const account of accounts) {
-      if (String(account.category || "") !== "demat") continue;
-      const accountBo = boId(account.number || account.bo_id || "").boId;
-      if (!accountBo || !movementBos.has(accountBo)) continue;
-      if (!boIdsOf.has(account.id)) boIdsOf.set(account.id, []);
-      if (!boIdsOf.get(account.id).includes(accountBo)) boIdsOf.get(account.id).push(accountBo);
-    }
+    // BO ID, so the movement map covers every demat account.
+    const boIdsOf = casMovementAccountBos({ accounts,
+      routeAccounts: route.accounts, movements: cas.transactions });
     const manualTargetId = document.getElementById(`cas-target-${key}`)?.value || "";
     const today = new Date().toISOString().slice(0, 10);
     const asOf = cas.asOf || today;

@@ -134,6 +134,69 @@ export function casMovementEvents(events, { accounts = [], route = false, rows =
   });
 }
 
+/**
+ * The account ids that can take a statement's movements, with the BO IDs to
+ * scope them. `routeAccounts` covers the accounts named by the holdings table;
+ * a movement can name a demat that table does not list, and that account must
+ * still receive its disposal. A bonds cost portfolio is never a movement target.
+ * @param {{accounts?: Array<object>, routeAccounts?: Array<object>,
+ *   movements?: Array<object>}} input
+ * @returns {Map<string, Array<string>>}
+ */
+export function casMovementAccountBos({ accounts = [], routeAccounts = [], movements = [] } = {}) {
+  const out = new Map();
+  const add = (assetId, bo) => {
+    if (!assetId || !bo) return;
+    if (!out.has(assetId)) out.set(assetId, []);
+    if (!out.get(assetId).includes(bo)) out.get(assetId).push(bo);
+  };
+  for (const account of routeAccounts || []) add(account.assetId, account.boId);
+  const movementBos = new Set((movements || [])
+    .map((event) => boId(event?.account || "").boId).filter(Boolean));
+  for (const account of accounts || []) {
+    if (!movementBos.size) break;
+    if (String(account.category || "") !== "demat") continue;
+    add(account.id, boId(account.number || account.bo_id || "").boId);
+  }
+  return out;
+}
+
+/**
+ * The accounts a CAS preview must show. The holdings route names the accounts
+ * the statement holds; a movement can name a demat the holdings table omits, and
+ * that account still needs its disposal in the preview.
+ * @param {{accounts?: Array<object>, routeAccounts?: Array<object>,
+ *   movements?: Array<object>}} input
+ * @returns {Array<object>}
+ */
+export function casPreviewAccounts({ accounts = [], routeAccounts = [], movements = [] } = {}) {
+  const out = (routeAccounts || []).map((account) => ({ ...account }));
+  const seen = new Set(out.map((account) => boId(account.boId).boId).filter(Boolean));
+  const movementBos = new Set((movements || [])
+    .map((event) => boId(event?.account || "").boId).filter(Boolean));
+  for (const bo of movementBos) {
+    if (seen.has(bo)) continue;
+    const asset = (accounts || []).find((account) =>
+      String(account.category || "") === "demat"
+      && boId(account.number || account.bo_id || "").boId === bo);
+    if (!asset) continue;
+    out.push({ boId: bo, dpName: "", assetId: asset.id, synthetic: true });
+    seen.add(bo);
+  }
+  return out;
+}
+
+/**
+ * The parsed holdings a write would keep. A closed position is dropped, except
+ * a matured bond. The inbox count and the writer use the same list.
+ * @param {Array<object>} holdings
+ * @param {string} [importDay]
+ * @returns {Array<object>}
+ */
+export function casWritableHoldings(holdings, importDay = new Date().toISOString().slice(0, 10)) {
+  return (holdings || []).filter((holding) => !casClosedRow(holding, importDay));
+}
+
 const SALE_WORD = /\b(sale|sold|sell|selling|redemption|redeemed|switch\s*out|withdrawal|withdrawn)\b/i;
 const TRANSFER_OUT_WORD = /\b(transfer(?:red|s)?\s*(?:out|to)|transferred\s+out|off.?market|debit\s+transfer|inter.?depository|remateriali[sz](?:ed|ation)?|remat)\b/i;
 const TRANSFER_IN_WORD = /\b(transfer(?:red|s)?\s*(?:in|from)|credit\s+transfer|remateriali[sz]ed\s+in)\b/i;
@@ -422,8 +485,10 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
       if (cls.side === "debit") {
         // A debit larger than one lot is sold across every lot the account
         // holds, largest first, so no lot is left live beside a sold record.
-        const unitsSold = Math.min(quantity, before);
-        let remaining = unitsSold;
+        // A reflected sale is different: the row is the post-sale remainder, so
+        // the record keeps the printed units and prices them off the row's basis.
+        const unitsSold = change ? Math.min(quantity, before) : quantity;
+        let remaining = Math.min(unitsSold, before);
         const consumed = [];
         for (const lot of live) {
           if (remaining <= TOL) break;
@@ -438,12 +503,19 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
           remaining -= take;
         }
         const costKnown = consumed.every(({ takeCost }) => takeCost !== null);
-        disposedCost = costKnown
+        const consumedCost = costKnown
           ? consumed.reduce((sum, { takeCost }) => sum + takeCost, 0) : null;
+        // The post-sale row prices the remaining units, so a reflected sale is
+        // costed at the same per-unit basis for the printed units.
+        const costScale = !change && before > 0 ? unitsSold / before : 1;
+        disposedCost = consumedCost === null ? null
+          : Math.round(consumedCost * costScale);
         // A sold record cannot claim more units than the account held. The
         // transaction still says what was printed; the record floors at the
-        // units actually consumed, and the difference is a named conflict.
-        if (quantity > before + TOL) {
+        // units actually consumed, and the difference is a named conflict. A
+        // reflected sale is already the post-sale row, so the floor does not
+        // apply and no conflict is raised.
+        if (change && quantity > before + TOL) {
           conflicts.push({
             isin,
             txn_key: key,
@@ -954,8 +1026,13 @@ export function planLinkedSales({ dematPlan = {}, dematAssetId = "", asOf = "",
     warnings.push(...plan.warnings);
     for (const sale of plan.applied) {
       if (sale.status !== "applied" || sale.costPaise === null) continue;
-      const key = casEventKey(sale.event || sale, dematAssetId);
-      const dematSold = (dematPlan.sold || []).find((row) => row.txn_key === key);
+      const event = sale.event || sale;
+      // A sold row written before the balance key carries the legacy key. It is
+      // still this sale, so reconcile it rather than leave its cost stale.
+      const keys = [casEventKey(event, dematAssetId),
+        casLegacyEventKey(event, dematAssetId)];
+      const dematSold = (dematPlan.sold || [])
+        .find((row) => keys.includes(row.txn_key));
       if (!dematSold) continue;
       const before = dematSold.disposed_cost_paise;
       dematSold.disposed_cost_paise = sale.costPaise;

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyCasEvents, applyCasEventsToPortfolio, casEventKey, linkedCostPortfolios,
-  planLinkedSales } from "./cas-apply.js";
+import { applyCasEvents, applyCasEventsToPortfolio, casEventKey, casLegacyEventKey,
+  linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
 
 const ISIN = "INE000000031";
 const sale = (over = {}) => ({ isin: ISIN, date: "2026-08-12", type: "SALE",
@@ -236,4 +236,23 @@ test("a balance-bearing sale reconciles to the linked sold row and only once", (
     portfolios: [{ account: portfolio, rows: linked.portfolios[0].plan.rows }] });
   assert.equal(again.portfolios[0].plan.sold.length, 0);
   assert.equal(again.portfolios[0].plan.applied[0].status, "already");
+});
+
+test("a legacy-keyed sold row still reconciles to the linked FIFO cost", () => {
+  const event = sale();
+  const soldRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 60, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", disposed_cost_paise: 72000,
+    txn_key: casLegacyEventKey(event, "demat-a") };
+  const liveRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 40, cost_paise: 48000, value_paise: 400000, as_of: "2026-08-31" };
+  const dematPlan = { events: [{ ...event, txn_key: casEventKey(event, "demat-a") }],
+    sold: [soldRow], rows: [liveRow, soldRow] };
+  const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+  const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
+    asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
+  assert.equal(soldRow.disposed_cost_paise, 66000);
+  assert.equal(liveRow.cost_paise, 54000);
+  assert.equal(linked.reconciliations.length, 1);
 });

@@ -737,6 +737,7 @@ test("a manual target can record a movement the account does not hold", () => {
 test("two demats sharing an ISIN keep their own units", () => {
   const ACCOUNT_A = "1200000000000001";
   const ACCOUNT_B = "1200000000000002";
+  const ACCOUNT_C = "1200000000000003";
   const holding = (account, quantity) => ({ isin: ISIN_A, account, label: "SHARED BOND",
     kind: "bond", quantity, valuePaise: quantity * 100000, couponPct: 9,
     maturity: "2028-12-31" });
@@ -746,7 +747,8 @@ test("two demats sharing an ISIN keep their own units", () => {
     closingPaise: close });
   const parsed = {
     holdings: [holding(ACCOUNT_A, 100), holding(ACCOUNT_B, 40)],
-    transactions: [sale(ACCOUNT_A, 10, 10000, 9000), sale(ACCOUNT_B, 5, 4000, 3500)],
+    transactions: [sale(ACCOUNT_A, 10, 10000, 9000), sale(ACCOUNT_B, 5, 4000, 3500),
+      sale(ACCOUNT_C, 7, 2000, 1300)],
     counts: { rows: 2, quarantined: 0 }, printedTotalPaise: null,
   };
   const row = (quantity) => ({ security_id: ISIN_A, label: "SHARED BOND",
@@ -757,12 +759,19 @@ test("two demats sharing an ISIN keep their own units", () => {
   const planB = casReplacePlan({ parsed, existing: [row(40)],
     holdings: [parsed.holdings[1]], assetId: "demat-b", asOf: "2026-08-31",
     confirmed: true, accounts: [ACCOUNT_B], route: true });
+  // Account C is named only by its movement, not by a holdings row.
+  const planC = casReplacePlan({ parsed, existing: [row(20)], holdings: [],
+    assetId: "demat-c", asOf: "2026-08-31", confirmed: true,
+    accounts: [ACCOUNT_C], route: true });
   assert.equal(planA.sold.length, 1);
   assert.equal(planA.sold[0].disposed_quantity, 10);
   assert.equal(planA.rows.find((entry) => !entry.disposed_at).quantity, 90);
   assert.equal(planB.sold.length, 1);
   assert.equal(planB.sold[0].disposed_quantity, 5);
   assert.equal(planB.rows.find((entry) => !entry.disposed_at).quantity, 35);
+  assert.equal(planC.sold.length, 1);
+  assert.equal(planC.sold[0].disposed_quantity, 7);
+  assert.equal(planC.rows.find((entry) => !entry.disposed_at).quantity, 13);
 });
 
 test("a zero-unit position with a sale keeps the same rows on re-import", () => {
@@ -784,4 +793,44 @@ test("a zero-unit position with a sale keeps the same rows on re-import", () => 
   const first = casReplacePlan(args);
   const second = casReplacePlan({ ...args, existing: first.rows });
   assert.deepEqual(signature(first), signature(second));
+});
+
+// --- the third review round --------------------------------------------------
+
+test("a reflected sale records the printed units, not the post-sale remainder", () => {
+  const rows = [{ security_id: ISIN_A, label: "TEST BOND", category: "bond",
+    quantity: 40, cost_paise: 40000, value_paise: 400000, as_of: "2026-08-31" }];
+  const result = applyCasEvents(rows, [{ isin: ISIN_A, security: "TEST BOND",
+    date: "2026-08-12", type: "SALE", description: "SALE", quantity: 60,
+    openingPaise: 10000, creditPaise: 0, debitPaise: 6000, closingPaise: 4000 }],
+  { asOf: "2026-09-30" });
+  assert.equal(result.sold.length, 1);
+  assert.equal(result.sold[0].disposed_quantity, 60);
+  assert.equal(result.sold[0].disposed_cost_paise, 60000);
+  assert.equal(result.conflicts.length, 0);
+  assert.equal(result.rows.find((row) => !row.disposed_at).quantity, 40);
+  assert.deepEqual(result.applied.map((event) => [event.status, event.from, event.to]),
+    [["reflected", 40, 40]]);
+});
+
+test("a full sale and a re-buy restarts the lot through the sold record", () => {
+  const rows = [{ security_id: ISIN_A, label: "TEST BOND", category: "bond",
+    quantity: 100, cost_paise: 100000, value_paise: 1000000, face_paise: 10000000,
+    as_of: "2026-08-01" }];
+  const events = [
+    { isin: ISIN_A, security: "TEST BOND", date: "2026-08-12", type: "SALE",
+      description: "SALE", quantity: 100, openingPaise: 10000, creditPaise: 0,
+      debitPaise: 10000, closingPaise: 0 },
+    { isin: ISIN_A, security: "TEST BOND", date: "2026-08-20", type: "PURCHASE",
+      description: "PURCHASE", quantity: 50, openingPaise: 0, creditPaise: 5000,
+      debitPaise: 0, closingPaise: 5000 },
+  ];
+  const result = applyCasEvents(rows, events, { asOf: "2026-08-31" });
+  const live = result.rows.find((row) => !row.disposed_at);
+  assert.equal(live.quantity, 50);
+  assert.equal(live.cost_paise, null);
+  assert.equal(live.face_paise, 10000000);
+  assert.equal(live.purchase_date, "2026-08-20");
+  assert.equal(result.sold.length, 1);
+  assert.equal(result.sold[0].disposed_quantity, 100);
 });

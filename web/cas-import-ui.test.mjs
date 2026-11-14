@@ -23,8 +23,15 @@ test("a movement named by its own account receives the disposal without holdings
 });
 
 test("a movement BO absent from the holdings table still passes its account", () => {
-  assert.match(html, /const movementBos = new Set\(\(cas\.transactions/);
-  assert.match(html, /if \(!boIdsOf\.get\(account\.id\)\.includes\(accountBo\)\)/);
+  assert.match(html, /casMovementAccountBos\(\{ accounts,/);
+  assert.match(html, /routeAccounts: route\.accounts/);
+});
+
+test("a movement-only demat is seeded into the preview", () => {
+  assert.match(html, /casPreviewAccounts\(\{/);
+  assert.match(html, /const previewAccounts = casPreviewAccounts/);
+  assert.match(html, /for \(const account of previewAccounts\)/);
+  assert.match(html, /const headerHoldings = casWritableHoldings/);
 });
 
 test("a trade-only statement with no account is not reported ready", () => {
