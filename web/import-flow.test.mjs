@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
   parseTradebookMatrix, groupBundles, accountMatches, planMerge, accountFieldState,
   normalizeAccount } from "./import-flow.js";
+import { casReplacePlan } from "./cas-apply.js";
 
 // Synthetic identifiers only. The real files are never committed.
 const isin = (n) => `INE${String(n).padStart(9, "0")}`;
@@ -767,6 +768,32 @@ test("equal dates ask instead of picking a winner", () => {
   assert.equal(plan.summary.ask, 1);
   assert.equal(plan.decisions[0].action, "ask");
   assert.match(plan.warnings.join(" "), /same date/i);
+});
+
+test("the preview and the CAS writer keep the same cost when a quantity moves without one", () => {
+  const row = holding({ quantity: 10, cost_paise: 100000, as_of: "2026-11-01" });
+  const parsed = { asOf: "2026-11-01", transactions: [], holdings: [{ isin: isin(1),
+    label: "9.00% TEST BOND 31 Dec 2026", kind: "bond", quantity: 12,
+    valuePaise: 120000, costPaise: null }] };
+  const write = casReplacePlan({ parsed, existing: [row], holdings: parsed.holdings,
+    asOf: "2026-11-01" });
+  const preview = planMerge({
+    incoming: { kind: "cas", label: "CAS", asOf: "2026-11-01",
+      identity: { kind: "bo", value: "IN99990001344321" }, categories: ["bond"],
+      rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
+        quantity: 12, valuePaise: 120000, costPaise: null }] },
+    existing: existingAccount({
+      snapshot: { source: "cas", asOf: "2026-11-01" },
+      identity: { source: "cas", asOf: "2026-11-01", value: "IN99990001344321" },
+      holdings: [row],
+    }),
+    today: "2026-11-15",
+  });
+  const decision = preview.decisions.find((item) => item.isin === isin(1));
+  assert.equal(write.rows[0].cost_paise, 100000);
+  assert.equal(decision.next.costPaise, 100000);
+  assert.equal(decision.next.quantity, 12);
+  assert.match(preview.warnings.join(" "), /last known cost is kept/i);
 });
 
 test("an undated report fills an empty cost but cannot overwrite dated quantities", () => {

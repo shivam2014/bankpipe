@@ -726,17 +726,23 @@ export function casSafety(parsed = {}, statedTotalPaise = parsed?.printedTotalPa
 
 /**
  * Build the rows a CAS writes. Existing broker cost and purchase date carry to
- * the new quantity; a row the CAS does not name is preserved by default, so a
- * partial or older statement cannot silently delete a holding. A row with a
- * disposal record is history and always survives, whatever the statement says.
+ * the new quantity. A cost is evidence, not arithmetic: a quantity the statement
+ * moves without a cost keeps the last known cost whole, while a debit the
+ * statement explains allocates the cost of the units that left. A row the CAS
+ * does not name is preserved by default, so a partial or older statement cannot
+ * silently delete a holding. A row with a disposal record is history and always
+ * survives, whatever the statement says.
  * @param {{existing?: Array<object>, holdings?: Array<object>, asOf?: string,
- *   preserveAbsent?: boolean, keepAbsent?: Iterable<string>}} input
+ *   preserveAbsent?: boolean, keepAbsent?: Iterable<string>,
+ *   saleIsins?: Iterable<string>}} input
  * @returns {{rows: Array<object>, absent: Array<object>, dropped: Array<object>,
  *   manualKept: number, keptNewer: number, keptEvents: number, carried: number}}
  */
 export function casApplyRows({ existing = [], holdings = [], asOf = "",
-  preserveAbsent = true, keepAbsent = [] } = {}) {
+  preserveAbsent = true, keepAbsent = [], saleIsins = [] } = {}) {
   const keepForEvent = new Set([...keepAbsent].map((isin) =>
+    String(isin || "").toUpperCase()));
+  const soldIsins = new Set([...saleIsins].map((isin) =>
     String(isin || "").toUpperCase()));
   const oldByIsin = new Map();
   const withCost = new Map();
@@ -759,10 +765,14 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
     const oldRow = oldByIsin.get(isin);
     const qty = Number(h.quantity) || 0;
     const oldQty = old ? Number(old.quantity) || 0 : 0;
-    // A sale changes the units, not the price per unit: carry the broker cost
-    // rather than dropping it on the floor.
+    // A sale changes the units, not the price per unit, so a debit the statement
+    // explains allocates the broker cost across the units that left. A quantity
+    // with no such evidence (a bonus, a split, an unrecorded move) keeps the last
+    // known cost whole: scaling it up would invent money the person never paid.
+    const soldDown = soldIsins.has(isin) && qty > 0 && oldQty > 0 && qty < oldQty;
     const carriedCost = old && qty > 0 && oldQty > 0
-      ? Math.round(Number(old.cost_paise) * (qty / oldQty)) : null;
+      ? (soldDown ? Math.round(Number(old.cost_paise) * (qty / oldQty))
+        : (old.cost_paise ?? null)) : null;
     if (carriedCost) carried += 1;
     const nextLabel = casHoldingLabel(h);
     // The CAS often has the maturity but not the coupon; a broker label has both.
@@ -856,13 +866,18 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
     rows: [...(existing || []), ...(holdings || [])] });
   const eventIsins = new Set(scoped.map((event) =>
     String(event?.isin || "").toUpperCase()).filter(Boolean));
+  // Only a debit that the statement explains moves cost out with the units. A
+  // credit adds units the file did not price, so the total cost cannot grow.
+  const saleIsins = new Set(scoped.filter((event) =>
+    classifyCasEvent(event).side === "debit")
+    .map((event) => String(event?.isin || "").toUpperCase()).filter(Boolean));
   // A statement that printed no holdings table is a movements-only statement,
   // not a complete zero-row snapshot. A confirmed replace must not drop every
   // live row it does not name.
   const printedHoldings = Array.isArray(parsed?.holdings) && parsed.holdings.length > 0;
   const preserveAbsent = merge || !(confirmed && verdict.complete && printedHoldings);
   const applied = casApplyRows({ existing, holdings, asOf, preserveAbsent,
-    keepAbsent: eventIsins });
+    keepAbsent: eventIsins, saleIsins });
   // An event already on file was applied by an earlier import. The holdings
   // table inside the statement can be older than the rows that import wrote, so
   // a rebuilt row must not resurrect units the sale already removed. Keep the

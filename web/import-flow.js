@@ -802,6 +802,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
 
   const decisions = [];
   let added = 0, updated = 0, kept = 0, ask = 0, flagged = 0, skipped = 0, manualOnly = 0;
+  let costCarried = 0;
   for (const row of inRows) {
     const old = oldByIsin.get(row.isin) || (!row.isin ? oldByLabel.get(norm(row.label)) : null);
     if (!old) {
@@ -1040,6 +1041,16 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
         "payoutPaise", "futureInterestPaise", "futurePrincipalPaise"]);
     if (labelChanged) changes.push(fieldChange("label", "label", old.label, row.label,
       incoming?.label || incoming?.kind, incomingState.date));
+    // A quantity that moves while the file carries no cost keeps the stored
+    // cost. Mark the change so the preview says the units moved and the money
+    // did not, instead of leaving the person to infer it from a blank field.
+    if (changes.some((change) => change.group === "snapshot" && change.field === "quantity")
+      && row.costPaise === null && old.costPaise !== null) {
+      for (const change of changes) {
+        if (change.group === "snapshot" && change.field === "quantity") change.costCarried = true;
+      }
+      costCarried += 1;
+    }
     const needsConfirm = changes.some((change) => change.requiresConfirm);
     if (needsConfirm) {
       ask += 1;
@@ -1092,6 +1103,9 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   }
   if (manualOnly) {
     warnings.push(`${manualOnly} holding${manualOnly === 1 ? "" : "s"} entered by hand ${manualOnly === 1 ? "is" : "are"} not in this file and stay on the account.`);
+  }
+  if (costCarried) {
+    warnings.push(`${costCarried} holding${costCarried === 1 ? "" : "s"} changed quantity without a cost in the file. The last known cost is kept.`);
   }
   if (flagged) warnings.push(`${flagged} holding${flagged === 1 ? "" : "s"} not in the newer report ${flagged === 1 ? "was" : "were"} kept and flagged.`);
 

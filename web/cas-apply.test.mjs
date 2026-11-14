@@ -29,12 +29,45 @@ test("a CAS row takes quantity and value while the broker cost and purchase date
   assert.equal(row.quantity, 40);
   assert.equal(row.value_paise, 400000);
   assert.equal(row.value_source, "CAS");
-  assert.equal(row.cost_paise, 80000);
+  assert.equal(row.cost_paise, 200000);
   assert.equal(row.purchase_date, "2024-06-06");
   assert.equal(row.frequency, "Annual");
   assert.equal(row.payout_paise, 40000);
   assert.equal(row.as_of, "2026-10-31");
   assert.equal(plan.carried, 1);
+});
+
+test("a quantity move with no cost in the statement keeps the last known cost", () => {
+  const plan = casApplyRows({
+    existing: [existingBroker()], holdings: [casHolding()],
+    asOf: "2026-10-31", preserveAbsent: false,
+  });
+  assert.equal(plan.rows[0].quantity, 40);
+  assert.equal(plan.rows[0].cost_paise, 200000);
+  assert.equal(plan.rows[0].purchase_date, "2024-06-06");
+  assert.equal(plan.carried, 1);
+});
+
+test("a debit movement still allocates the cost of the units it removes", () => {
+  const parsed = {
+    asOf: "2026-11-05",
+    holdings: [{ isin: ISIN_A, label: "TEST BOND", kind: "bond", quantity: 8,
+      valuePaise: 800000 }],
+    transactions: [{ isin: ISIN_A, security: "TEST BOND", date: "2026-11-03",
+      type: "SALE", description: "SALE", quantity: 2, openingPaise: 10000,
+      creditPaise: 0, debitPaise: 2000, closingPaise: 8000 }],
+    counts: { rows: 1, quarantined: 0 },
+    printedTotalPaise: null,
+  };
+  const plan = casReplacePlan({ parsed, existing: [existingBroker({ quantity: 10,
+    cost_paise: 100000 })], holdings: parsed.holdings, asOf: "2026-11-05",
+  assetId: "demat-a" });
+  const live = plan.rows.find((row) => !row.disposed_at);
+  const sold = plan.rows.find((row) => row.disposed_at);
+  assert.equal(live.quantity, 8);
+  assert.equal(live.cost_paise, 80000);
+  assert.equal(sold.disposed_quantity, 2);
+  assert.equal(sold.disposed_cost_paise, 20000);
 });
 
 test("a CAS label carries the coupon and the maturity", () => {
