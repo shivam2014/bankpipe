@@ -1,0 +1,159 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+
+import { makeStore, useDemoStore, listAccounts, reconFor } from "./db.js";
+import { classPage, holdingClass } from "./assets.js";
+import { reconCardHtml, reconDismissKey, reconEligible, reconHasCard,
+  reconHiddenHtml } from "./recon-card.js";
+
+const require = createRequire(import.meta.url);
+const initSqlJs = require("./vendor/sql-wasm.js");
+const SQL = await initSqlJs({
+  locateFile: (f) => new URL(`./vendor/${f}`, import.meta.url).pathname,
+});
+
+const BOND_A = "INE999900033";
+const BOND_B = "INE999900116";
+const AS_OF = "2026-10-31";
+
+const bond = (isin, quantity) => ({
+  security_id: isin, label: `Bond ${isin}`, category: "bond",
+  quantity, cost_paise: 100000, value_paise: 100000,
+  purchase_date: "2026-01-05",
+});
+
+async function seed(accounts, holdings = {}) {
+  const store = makeStore(SQL, null);
+  await store.open();
+  for (const account of accounts) store.createAccount(account);
+  for (const [id, rows] of Object.entries(holdings)) {
+    store.replaceHoldings(id, rows, AS_OF);
+  }
+  await useDemoStore(store);
+  return store;
+}
+
+const baseAccounts = () => [
+  { id: "d1", label: "Demat one", category: "demat", subtype: "equity",
+    number: "9999000001140907", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+  { id: "d2", label: "Demat two", category: "demat", subtype: "equity",
+    number: "IN99990009183122", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+  { id: "p1", label: "Portfolio one", category: "bonds",
+    meta: JSON.stringify({ linked_asset: "d1" }) },
+  { id: "p2", label: "Portfolio two", category: "bonds",
+    meta: JSON.stringify({ linked_asset: "d2" }) },
+  { id: "f1", label: "Mirae mutual fund", category: "demat", subtype: "mutual fund",
+    number: "99990000001" },
+  { id: "e1", label: "Equity only", category: "demat", subtype: "equity" },
+];
+
+const baseHoldings = () => ({
+  d1: [bond(BOND_A, 30),
+    { security_id: "INF999900345", label: "Fund one", category: "mf",
+      quantity: 10, cost_paise: 200000, value_paise: 250000 }],
+  d2: [bond(BOND_B, 5)],
+  p1: [bond(BOND_A, 30)],
+  p2: [bond(BOND_B, 5)],
+});
+
+test("a fund folio gets no bond reconcile even when a stray bond row exists", async () => {
+  await seed(baseAccounts(), { ...baseHoldings(),
+    f1: [bond(BOND_A, 30)] });
+  const result = await reconFor("f1");
+  assert.equal(result.reason, "not-applicable");
+  assert.equal(reconHasCard(result), false);
+  assert.equal(reconEligible({ id: "f1", category: "demat", subtype: "mutual fund" },
+    [bond(BOND_A, 30)]), false);
+});
+
+test("an MF-only demat has nothing to reconcile", async () => {
+  await seed(baseAccounts(), baseHoldings());
+  const result = await reconFor("e1");
+  assert.equal(result.reason, "no-bond-holdings");
+  assert.equal(reconHasCard(result), false);
+});
+
+test("a demat audits only the cost portfolio linked to it", async () => {
+  await seed(baseAccounts(), baseHoldings());
+  const result = await reconFor("d1", "2026-11-14");
+  assert.equal(result.reason, "ok");
+  assert.equal(result.custodian.id, "d1");
+  assert.equal(result.total, 1);
+  assert.equal(result.lines[0].isin, BOND_A);
+  assert.equal(result.lines.some((line) => line.isin === BOND_B), false);
+});
+
+test("a bond portfolio audits against its linked demat, not every demat", async () => {
+  await seed(baseAccounts(), baseHoldings());
+  const result = await reconFor("p1", "2026-11-14");
+  assert.equal(result.reason, "ok");
+  assert.equal(result.custodian.id, "d1");
+  assert.deepEqual(result.lines.map((line) => line.isin), [BOND_A]);
+});
+
+test("a bond portfolio cannot use a fund folio as its demat", async () => {
+  const accounts = [...baseAccounts().filter((a) => !["p1", "p2"].includes(a.id)),
+    { id: "p3", label: "Unlinked", category: "bonds" }];
+  await seed(accounts, { f1: [bond(BOND_A, 30)], p3: [bond(BOND_A, 30)] });
+  const result = await reconFor("p3", "2026-11-14");
+  assert.equal(result.reason, "no-linked-demat");
+  assert.equal(reconHasCard(result), false);
+});
+
+test("the reconcile card carries a per-account dismiss and a restore", () => {
+  const html = reconCardHtml({ reason: "ok", total: 1, breaks: 0,
+    counts: { matched: 1 }, lines: [] }, { dismissId: "d1" });
+  assert.match(html, /bpReconDismiss\(&quot;d1&quot;\)/);
+  assert.equal(reconDismissKey("d1"), "bp.recon.dismissed.d1");
+  const hidden = reconHiddenHtml();
+  assert.match(hidden, /Show again/);
+  assert.match(hidden, /bpReconShow\(\)/);
+});
+
+test("reconcile eligibility follows the account's bond positions", () => {
+  assert.equal(reconEligible({ category: "bonds" }, []), true);
+  assert.equal(reconEligible({ category: "demat", subtype: "equity" }, [bond(BOND_A, 1)]), true);
+  assert.equal(reconEligible({ category: "demat", subtype: "equity" },
+    [{ category: "mf", security_id: "INF1" }]), false);
+  assert.equal(reconEligible({ category: "bank" }, []), false);
+});
+
+test("the SQL class totals use the same rule as holdingClass", async () => {
+  const rows = [
+    { security_id: "INE000000001", label: "Bond", category: "bond",
+      quantity: 1, cost_paise: 100, value_paise: 200 },
+    { security_id: "INE000000002", label: "Share", category: "equity",
+      quantity: 1, cost_paise: 100, value_paise: 50 },
+    { security_id: "INF000000003", label: "Fund by category", category: "fund",
+      quantity: 1, cost_paise: 100, value_paise: 70 },
+    { security_id: "INF000000004", label: "Fund by ISIN", category: "equity",
+      quantity: 1, cost_paise: 100, value_paise: 25 },
+  ];
+  await seed([{ id: "d1", label: "Demat", category: "demat", subtype: "equity" }],
+    { d1: rows });
+  const [account] = await listAccounts();
+  const sums = { bond: 0, equity: 0, mf: 0 };
+  for (const row of rows) sums[holdingClass(row)] += row.value_paise;
+  assert.equal(account.class_bond_value, sums.bond);
+  assert.equal(account.class_equity_value, sums.equity);
+  assert.equal(account.class_mf_value, sums.mf);
+  assert.equal(account.class_bond_value + account.class_equity_value
+    + account.class_mf_value, account.holdings_value);
+});
+
+test("a manual fund row replaces the folio value instead of adding to it", async () => {
+  const store = await seed([{ id: "f1", label: "Axis mutual fund",
+    category: "demat", subtype: "mutual fund", value_paise: 90000 }]);
+  store.upsertHolding("f1", { label: "Axis Bluechip Fund",
+    security_id: "INF999900345", category: "mf", quantity: 10,
+    cost_paise: 100000, value_paise: 120000 });
+  const [account] = await listAccounts();
+  const rows = store.listHoldings("f1");
+  assert.equal(rows[0].category, "mf");
+  assert.equal(account.class_mf_value, 120000);
+  const page = classPage([account], { f1: rows }, "mf");
+  assert.equal(page.total, 120000);
+  assert.equal(page.holdingsCount, 1);
+  assert.equal(page.accountValues, 0);
+});
