@@ -48,7 +48,10 @@ test("the inbox picks a movement-only demat into its import set", () => {
 });
 
 test("a zero-unit fund is not shown as a folio unit", () => {
-  assert.match(html, /for \(const holding of casFolioHoldings\(writableHoldings\)\)/);
+  // The folio units come from casRoute, whose positive-folio rule keeps a
+  // zero-unit row in the demat and out of the folio ticks.
+  assert.match(html, /filter\(\(group\) => group\.kind === "mf" && group\.folio\)/);
+  assert.equal(/casFolioHoldings/.test(html), false);
 });
 
 test("the writer groups rows through the shared folio rule", () => {
@@ -123,6 +126,45 @@ test("linked warnings do not enable Import as if they were sales", () => {
   assert.match(html, /const hasSales = salePlans\.some/);
   assert.match(html, /\.concat\(linkedLines, movementLines\)/);
   assert.equal(/\.concat\(linkedLines, linkedWarnings\)/.test(html), false);
+});
+
+test("the CAS inbox matches a folio by its number, not by AMC label or ISIN", () => {
+  assert.match(html, /accountKey: group\.folioNo, accountKind: "folio"/);
+  assert.match(html, /amc: group\.amc,/);
+  assert.match(html, /const key = `\$\{amc\.toLowerCase\(\)\}:\$\{normalizeFolio\(folioNo\)\}`/);
+  assert.match(html, /const choiceKey = `\$\{bundle\.key\}:\$\{folioKey\(group\)\}`/);
+  assert.match(html, /boId: folioKey\(group\)/);
+  assert.match(html, /folio: true, amc: group\.amc/);
+});
+
+test("the CAS card groups fund units and sales by folio", () => {
+  assert.match(html, /const folioGroups = \[\.\.\.route\.groups, \.\.\.route\.homeless\]/);
+  assert.match(html, /const key = folioKey\(group\)/);
+  assert.match(html, /folioTail\(group\.folioNo\)/);
+  assert.match(html, /normalizeFolio\(holding\.folio\) === normalizeFolio\(group\.folioNo\)/);
+  const unitKeys = html.match(
+    /const unitKey = \(g\) => \(g\.kind === "mf" && g\.folio\)\s*\n?\s*\? folioKey\(g\)/g) || [];
+  assert.equal(unitKeys.length, 2, "the card and the writer share one folio key");
+});
+
+test("the inbox keeps a new folio row's cost through the plan", () => {
+  assert.match(html,
+    /casCostedImportHoldings\(\{ holdings: scoped\.holdings, targets: importTargets \}\)/);
+});
+
+test("account creation makes one account per folio, not one per AMC label", () => {
+  assert.match(html, /const folioNo = String\(group\.folioNo \|\| ""\)\.trim\(\)/);
+  assert.match(html, /const folio = normalizeFolio\(folioNo\)/);
+  assert.match(html, /done\.has\(folioKey\(group\)\)\) continue;/);
+  assert.match(html, /done\.add\(folioKey\(group\)\);/);
+  assert.match(html, /if \(folioHome\(\{ folio: folioNo, amc \}, all\)\) continue;/);
+  assert.equal(/accountFolios\(a\)\.includes\(folio\)/.test(html), false);
+  assert.match(html, /number: folioNo/);
+  assert.match(html, /folios: \[folioNo\]/);
+  assert.match(html, /folioTail\(folioNo\)/);
+  assert.equal(
+    /String\(a\.label \|\| ""\)\.toLowerCase\(\)\.includes\(amc\.toLowerCase\(\)\)\)\) continue;/
+      .test(html), false);
 });
 
 test("a sold-only holdings card keeps its add actions", () => {

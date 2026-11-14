@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseCas, casTotals, casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName,
   numericColumns } from "./cas.js";
+import { normalizeFolio } from "./folio.js";
 
 test("the bond row's columns are checked by arithmetic, not position alone", () => {
   // TESTD: 2 × 30,000 = 60,000.
@@ -103,6 +104,67 @@ test("a fund's invested is the Total Cost column, not the NAV", () => {
   assert.equal(out.holdings[0].valuePaise, 31357941);
   assert.equal(out.holdings[0].amc, "TestTwo");
   assert.equal(out.holdings[0].amcFull, "TestTwo Mutual Fund");
+});
+
+test("an NSDL Current Value column is read for a zero-unit fund row", () => {
+  const header = line([40, "ISIN"], [110, "Scheme Name"], [300, "Folio No."],
+    [360, "No. of Units"], [430, "Total Cost"], [520, "Current Value"],
+    [620, "Profit/(Loss)"]);
+  const row = line([40, "INF999900303"],
+    [110, "TestTwo ELSS- Tax Saver Fund - Regular Growth"], [300, "99990000001"],
+    [360, "0.000"], [430, "2,40,021.76"], [520, "3,13,579.41"], [620, "73,557.65"]);
+  const out = parseCas({ pages: [page([[header], [row]])] });
+  assert.equal(out.holdings.length, 1);
+  const holding = out.holdings[0];
+  assert.equal(holding.folio, "99990000001");
+  assert.equal(holding.quantity, 0);
+  assert.equal(holding.costPaise, 24002176);
+  assert.equal(holding.valuePaise, 31357941);
+});
+
+test("an NSDL Current / Value in heading reads the value for a zero-unit row", () => {
+  // The real header stacks the two words: "Current" above "Value in".
+  const header = [
+    line([40, "ISIN"], [110, "Scheme Name"], [300, "Folio No."], [360, "No. of Units"],
+      [430, "Total Cost"], [497, "Current"], [543, "Profit/(Loss)"]),
+    line([491, "Value in"]),
+  ];
+  const row = line([40, "INF999900303"],
+    [110, "TestTwo ELSS- Tax Saver Fund - Regular Growth"], [300, "99990000001"],
+    [360, "0.000"], [430, "2,40,021.76"], [520, "3,13,579.41"], [620, "73,557.65"]);
+  const out = parseCas({ pages: [page([header, [row]])] });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].costPaise, 24002176);
+  assert.equal(out.holdings[0].valuePaise, 31357941);
+});
+
+test("two folios holding the same ISIN are two positions, not one", () => {
+  const header = line([40, "ISIN"], [110, "Scheme Name"], [300, "Folio No."],
+    [360, "No. of Units"], [430, "Average Cost Per Unit"], [500, "Total Cost"],
+    [560, "NAV per unit"], [620, "Value in (₹)"]);
+  const fund = (folio, units, avg, total, nav, value) => line(
+    [40, "INF999900303"], [110, "TestTwo ELSS- Tax Saver Fund - Regular Growth"],
+    [300, folio], [360, units], [430, avg], [500, total], [560, nav], [620, value]);
+  const out = parseCas({ pages: [page([
+    [header],
+    [fund("111/1", "1,000.000", "70.0000", "70,000.00", "80.0000", "80,000.00")],
+    [fund("222/2", "2,000.000", "60.0000", "1,20,000.00", "65.0000", "1,30,000.00")],
+  ])] });
+  assert.equal(out.holdings.length, 2);
+  const byFolio = new Map(out.holdings.map((holding) => [holding.folio, holding]));
+  assert.equal(byFolio.get("111/1").costPaise, 7000000);
+  assert.equal(byFolio.get("111/1").valuePaise, 8000000);
+  assert.equal(byFolio.get("222/2").costPaise, 12000000);
+  assert.equal(byFolio.get("222/2").valuePaise, 13000000);
+});
+
+test("a repeated row without a folio still collapses to one position", () => {
+  const out = parseCas({ pages: [page([
+    heading("Corporate Bonds"), bondA,
+  ]), page([
+    heading("Corporate Bonds"), bondA,
+  ])] });
+  assert.equal(out.holdings.length, 1);
 });
 
 test("a fund's invested uses the Cumulative Amount Invested column", () => {
@@ -275,9 +337,9 @@ test("an unreadable account number routes nowhere", () => {
   assert.equal(route.homeless.reduce((t, g) => t + g.count, 0), 4);
 });
 
-// --- folios belong to an AMC, not to a demat ---------------------------------
+// --- a folio is identified by its number, not its AMC -----------------------
 
-test("a folio routes to its AMC account, not into the demat", () => {
+test("a folio routes to its folio account, not into the demat", () => {
   const parsed = {
     depository: "CDSL",
     demat: "1200000012345678",
@@ -296,7 +358,8 @@ test("a folio routes to its AMC account, not into the demat", () => {
   const withFolio = [
     { id: "d1", label: "Demat · Motilal · …5678", category: "demat",
       number: "1200000012345678" },
-    { id: "m1", label: "TestOne mutual fund", category: "demat", subtype: "mutual fund" },
+    { id: "m1", label: "TestOne mutual fund", category: "demat", subtype: "mutual fund",
+      number: "123/4", meta: JSON.stringify({ folios: ["123/4"] }) },
   ];
   const route = casRoute(parsed, withFolio);
   assert.equal(route.groups.find((g) => g.kind === "bond").assetId, "d1");
@@ -307,6 +370,145 @@ test("a folio routes to its AMC account, not into the demat", () => {
   const folio = route2.homeless.find((g) => g.kind === "mf");
   assert.equal(folio.amc, "TestOne");
   assert.equal(folio.folio, true);
+});
+
+test("two folios of one AMC never merge, and a third folio is a new position", () => {
+  const demat = "IN99990001344321";
+  const row = (folio, isin) => ({ isin, kind: "mf", valuePaise: 100, quantity: 10,
+    folio, amc: "TestOne" });
+  const parsed = {
+    depository: "NSDL",
+    demat,
+    accounts: [{ boId: demat, dpName: "NSDL", holdings: [
+      row("123/4", "INF000000001"),
+      row("567/8", "INF999900287"),
+      row("999/0", "INF000000003"),
+    ] }],
+    holdings: [],
+  };
+  const accountsWithFolios = [
+    { id: "d1", label: "Demat · NSDL", category: "demat", number: demat },
+    { id: "m1", label: "TestOne mutual fund", category: "demat", subtype: "mutual fund",
+      number: "123/4", meta: JSON.stringify({ folios: ["123/4"] }) },
+    { id: "m2", label: "TestOne mutual fund", category: "demat", subtype: "mutual fund",
+      number: "567/8", meta: JSON.stringify({ folios: ["567/8"] }) },
+  ];
+  const route = casRoute(parsed, accountsWithFolios);
+  const byFolio = new Map(route.groups.map((group) => [group.folioNo, group]));
+  assert.equal(byFolio.get("123/4").assetId, "m1");
+  assert.equal(byFolio.get("567/8").assetId, "m2");
+  assert.equal(route.groups.length, 2);
+  const third = route.homeless.find((group) => group.folio && group.folioNo === "999/0");
+  assert.ok(third, "a folio that matches no account is homeless");
+  assert.equal(third.assetId, "");
+});
+
+test("an exact folio match survives an AMC rename", () => {
+  const parsed = {
+    demat: "IN99990001344321",
+    accounts: [{ boId: "IN99990001344321", holdings: [
+      { isin: "INF000000001", kind: "mf", valuePaise: 100, quantity: 10,
+        folio: "123/4", amc: "Old House" },
+    ] }],
+    holdings: [],
+  };
+  const renamed = [
+    { id: "m1", label: "Renamed House mutual fund", category: "demat",
+      subtype: "mutual fund", number: "123/4",
+      meta: JSON.stringify({ folios: ["123/4"] }) },
+  ];
+  const route = casRoute(parsed, renamed);
+  assert.equal(route.groups.length, 1);
+  assert.equal(route.groups[0].assetId, "m1");
+  assert.equal(route.groups[0].folioNo, "123/4");
+});
+
+test("a folio printed with soft hyphens or zero-width spaces still matches", () => {
+  assert.equal(normalizeFolio("123\u00AD/4\u200B"), "123/4");
+  const demat = "IN99990001344321";
+  const parsed = {
+    demat,
+    accounts: [{ boId: demat, holdings: [
+      { isin: "INF000000001", kind: "mf", valuePaise: 100, quantity: 10,
+        folio: "123\u00AD/4\u200B", amc: "TestOne" },
+    ] }],
+    holdings: [],
+  };
+  const accounts = [
+    { id: "m1", label: "TestOne mutual fund", category: "demat",
+      subtype: "mutual fund", number: "123/4",
+      meta: JSON.stringify({ folios: ["123/4"] }) },
+  ];
+  const route = casRoute(parsed, accounts);
+  assert.equal(route.groups.length, 1);
+  assert.equal(route.groups[0].assetId, "m1");
+});
+
+test("two AMCs sharing a folio are two homeless positions", () => {
+  const demat = "IN99990001344321";
+  const row = (amc, isin) => ({ isin, kind: "mf", valuePaise: 100, quantity: 10,
+    folio: "123/4", amc });
+  const parsed = {
+    demat,
+    accounts: [{ boId: demat, holdings: [
+      row("AMC One", "INF000000001"),
+      row("AMC Two", "INF999900287"),
+    ] }],
+    holdings: [],
+  };
+  const route = casRoute(parsed, [
+    { id: "d1", label: "Demat · NSDL", category: "demat", number: demat },
+  ]);
+  const folios = route.homeless.filter((group) => group.folio);
+  assert.equal(folios.length, 2);
+  assert.deepEqual(folios.map((group) => group.amc).sort(), ["AMC One", "AMC Two"]);
+});
+
+test("a shared folio routes to the account of its own AMC", () => {
+  const demat = "IN99990001344321";
+  const row = (amc, isin) => ({ isin, kind: "mf", valuePaise: 100, quantity: 10,
+    folio: "123/4", amc });
+  const parsed = {
+    demat,
+    accounts: [{ boId: demat, holdings: [
+      row("AMC One", "INF000000001"),
+      row("AMC Two", "INF999900287"),
+    ] }],
+    holdings: [],
+  };
+  const accounts = [
+    { id: "one", label: "AMC One mutual fund", category: "demat",
+      subtype: "mutual fund", number: "123/4",
+      meta: JSON.stringify({ amc: "AMC One", folios: ["123/4"] }) },
+    { id: "two", label: "AMC Two mutual fund", category: "demat",
+      subtype: "mutual fund", number: "123/4",
+      meta: JSON.stringify({ amc: "AMC Two", folios: ["123/4"] }) },
+  ];
+  const route = casRoute(parsed, accounts);
+  assert.equal(route.groups.find((group) => group.amc === "AMC One").assetId, "one");
+  assert.equal(route.groups.find((group) => group.amc === "AMC Two").assetId, "two");
+});
+
+test("an exact folio under a renamed AMC is still the home", () => {
+  const demat = "IN99990001344321";
+  const parsed = {
+    demat,
+    accounts: [{ boId: demat, holdings: [
+      { isin: "INF000000001", kind: "mf", valuePaise: 100, quantity: 10,
+        folio: "123/4", amc: "AMC Two" },
+    ] }],
+    holdings: [],
+  };
+  const accounts = [
+    { id: "one", label: "AMC One mutual fund", category: "demat",
+      subtype: "mutual fund", number: "123/4",
+      meta: JSON.stringify({ amc: "AMC One", folios: ["123/4"] }) },
+  ];
+  const route = casRoute(parsed, accounts);
+  assert.equal(route.groups.length, 1);
+  assert.equal(route.groups[0].assetId, "one");
+  assert.equal(route.groups[0].folioNo, "123/4");
+  assert.equal(route.homeless.length, 0);
 });
 
 test("a folio without units stays in the demat until it is complete", () => {

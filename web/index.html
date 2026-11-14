@@ -1371,12 +1371,13 @@ import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
   reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
-import { casClosedRow, casDematRows, casFolioHoldings, casGroupByAsset,
+import { casClosedRow, casCostedImportHoldings, casDematRows, casGroupByAsset,
   casHoldingLabel, casImportHoldings, casImportUnits, casMovementAccountBos,
   casPreviewAccounts, casReplacePlan, casSafety, casWritableHoldings,
   linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
 import { casSoldLines, soldHoldingsHtml, splitHoldings } from "./sold-view.js";
 import { boId } from "./bo-id.js";
+import { folioHome, folioKey, folioTail, normalizeFolio } from "./folio.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, accountMatches, planMerge, accountFieldState,
   importAccountSummary, normalizeAccount, parseTradebook, parseTradebookMatrix,
@@ -7665,27 +7666,37 @@ function bpImportResolveCas(bundle) {
       action: targetRow ? "update" : "create" };
   });
   // A CAS can also carry mutual fund folios. They are not under the demat's BO
-  // ID, so they get their own line here and the existing CAS writer routes them
-  // to the AMC's account.
+  // ID, so they get their own line here. The folio number is the identity: a
+  // different folio of the same AMC is a new position, never a match.
   const folioGroups = new Map();
   for (const row of bundle.rows || []) {
     if (row.category !== "mf" || !row.folio) continue;
     if (casClosedRow(row, importDay)) continue;
     const amc = String(row.amc || "Folio").trim();
-    const key = amc.toLowerCase();
-    if (!folioGroups.has(key)) folioGroups.set(key, { amc, rows: [] });
+    const folioNo = String(row.folio || "").trim();
+    const key = `${amc.toLowerCase()}:${normalizeFolio(folioNo)}`;
+    if (!folioGroups.has(key)) {
+      folioGroups.set(key, { amc, folioNo, amcFull: String(row.amcFull || "").trim(),
+        rows: [] });
+    }
     folioGroups.get(key).rows.push(row);
   }
   const folioTargets = [...folioGroups.entries()].map(([key, group]) => {
-    const match = accountMatches({ rows: group.rows }, accounts, { forCas: true });
-    const choiceKey = `${bundle.key}:mf:${key}`;
+    const match = accountMatches({
+      accountKey: group.folioNo, accountKind: "folio", amc: group.amc,
+      rows: group.rows,
+    }, accounts, { forCas: true });
+    const choiceKey = `${bundle.key}:${folioKey(group)}`;
     let targetId = state.choices[choiceKey] || "";
     if (targetId && !bpImportAccountRow(targetId)) targetId = "";
     if (!targetId && !match.tie) targetId = match.identityId || match.bestId || "";
     const targetRow = targetId ? bpImportAccountRow(targetId) : null;
     const plan = bpImportPlanFor(bundle, targetRow, group.rows, null);
-    return { boId: `mf:${key}`, dpName: `${group.amc} mutual fund`, rows: group.rows,
-      match, targetId, plan, action: targetRow ? "update" : "create", folio: true };
+    return { boId: folioKey(group),
+      dpName: `${group.amc} mutual fund · folio …${folioTail(group.folioNo)}`,
+      rows: group.rows, match, targetId, plan,
+      action: targetRow ? "update" : "create", folio: true, amc: group.amc,
+      amcFull: group.amcFull, folioNo: group.folioNo };
   });
   bundle.casTargets = [...dematTargets, ...folioTargets];
   bundle.plans = bundle.casTargets.map((target) => target.plan);
@@ -8368,6 +8379,7 @@ function bpImportCasRow(holding) {
     account: holding.account || "",
     folio: holding.folio || "",
     amc: holding.amc || "",
+    amcFull: holding.amcFull || "",
     sourceRow: 0,
   };
 }
@@ -8804,15 +8816,7 @@ async function bpImportApplyCas(bundle, opts = {}) {
   // and an identity-only account contributes no rows at all. The scoping is per
   // target, not one global ISIN set.
   const scoped = casImportHoldings({ parsed, targets });
-  const holdings = scoped.holdings.map((holding) => {
-    if (holding.costPaise === null || holding.costPaise === undefined) return holding;
-    const target = importTargets.find((item) => item.boId === (holding.account || ""));
-    const decision = target?.plan?.decisions?.find((item) =>
-      String(item.isin || "").toUpperCase() === String(holding.isin || "").toUpperCase());
-    const tookCost = decision?.changes?.some((change) =>
-      change.group === "cost" && change.field === "cost");
-    return tookCost ? holding : { ...holding, costPaise: null };
-  });
+  const holdings = casCostedImportHoldings({ holdings: scoped.holdings, targets: importTargets });
   const cas = {
     ...parsed,
     accounts: scoped.accounts,
@@ -9139,21 +9143,18 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     });
     const folioGroups = [...route.groups, ...route.homeless]
       .filter((group) => group.kind === "mf" && group.folio);
-    const folioGroupOf = (holding) => folioGroups.find((group) =>
-      String(group.amc || "").toLowerCase()
-        === String(holding.amc || "").toLowerCase());
     const folioSeen = new Map();
-    for (const holding of casFolioHoldings(writableHoldings)) {
-      const group = folioGroupOf(holding);
-      const amc = String(holding.amc || "Folio").trim();
-      const key = `mf:${amc.toLowerCase()}`;
+    for (const group of folioGroups) {
+      const key = folioKey(group);
       if (!folioSeen.has(key)) {
-        folioSeen.set(key, { key, label: `${amc} mutual fund`, count: 0,
-          valuePaise: 0, assetId: group?.assetId || "" });
+        folioSeen.set(key, { key,
+          label: `${String(group.amc || "Folio").trim()} mutual fund · folio …${
+            folioTail(group.folioNo)}`,
+          count: 0, valuePaise: 0, assetId: group.assetId || "" });
       }
       const unit = folioSeen.get(key);
-      unit.count += 1;
-      unit.valuePaise += Number(holding.valuePaise) || 0;
+      unit.count += group.count;
+      unit.valuePaise += Number(group.valuePaise) || 0;
     }
     units.push(...folioSeen.values());
     const cardState = window.bpCasCards[hostId];
@@ -9199,16 +9200,17 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         linkedWarnings.push(...result.warnings);
       }
       // A folio is its own account. Its fund sales are not demat movements, so
-      // they are planned against the folio's rows and its own event routing.
+      // they are planned against the folio's own rows and its own event routing.
       for (const group of [...route.groups, ...route.homeless]
         .filter((item) => item.kind === "mf" && item.folio)) {
-        const amc = String(group.amc || "").toLowerCase();
-        if (cardState.picked && !cardState.picked.has(`mf:${amc}`)) continue;
+        const key = folioKey(group);
+        if (cardState.picked && !cardState.picked.has(key)) continue;
         const holdings = writableHoldings.filter((holding) => holding.kind === "mf"
-          && holding.folio && String(holding.amc || "").toLowerCase() === amc);
+          && holding.folio
+          && normalizeFolio(holding.folio) === normalizeFolio(group.folioNo));
         const plan = casReplacePlan({ parsed: cas,
           existing: group.assetId ? rowsOf(group.assetId) : [], holdings,
-          events: cas.transactions, assetId: group.assetId || `mf:${amc}`,
+          events: cas.transactions, assetId: group.assetId || key,
           asOf: cas.asOf || "", confirmed: false, accounts: [], route: true });
         salePlans.push(plan);
       }
@@ -9244,7 +9246,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const missing = route.homeless.reduce((t, g) => t + g.count, 0);
     const picked = cardState.picked;
     const unitKey = (g) => (g.kind === "mf" && g.folio)
-      ? `mf:${String(g.amc || "").toLowerCase()}` : `bo:${String(g.boId || "")}`;
+      ? folioKey(g) : `bo:${String(g.boId || "")}`;
     const newAccounts = [...new Set(route.homeless
       .filter((g) => picked.has(unitKey(g)))
       .map((g) => unitKey(g)))];
@@ -10622,29 +10624,34 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
       .filter((a) => a.assetId).map((a) => a.assetId));
     const done = new Set();
     const unitKey = (g) => (g.kind === "mf" && g.folio)
-      ? `mf:${String(g.amc || "").toLowerCase()}` : `bo:${String(g.boId || "")}`;
+      ? folioKey(g) : `bo:${String(g.boId || "")}`;
     for (const group of homeless) {
       // Only the accounts the person ticked are created.
       if (card.picked && !card.picked.has(unitKey(group))) continue;
-      // A folio gets an account named after its AMC, joined by name, not by BO ID.
+      // A folio gets an account of its own. The number is the identity; the AMC
+      // only names it. Two folios of one AMC are two accounts, and an existing
+      // account that carries a different folio is not this folio's home.
       if (group.kind === "mf") {
         const amc = String(group.amc || "").trim();
         const amcFull = String(group.amcFull || "").trim() || amc;
-        if (!amc || done.has(amc.toLowerCase())) continue;
-        done.add(amc.toLowerCase());
-        if (all.some((a) => /mutual\s*fund|^mf$/i.test(String(a.subtype || ""))
-          && String(a.label || "").toLowerCase().includes(amc.toLowerCase()))) continue;
+        const folioNo = String(group.folioNo || "").trim();
+        const folio = normalizeFolio(folioNo);
+        if (!amc || !folio || done.has(folioKey(group))) continue;
+        done.add(folioKey(group));
+        if (folioHome({ folio: folioNo, amc }, all)) continue;
         const name = amc.replace(/\b\w/g, (c) => c.toUpperCase());
-        const base = `mf-${amc.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+        const base = `mf-${folio.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
         let id = base;
         let n = 2;
         while (all.some((a) => a.id === id)) id = `${base}-${n++}`;
-        await store.createAccount({ id, label: `${name} mutual fund`, bank: amcFull,
+        const label = `${name} mutual fund · folio …${folioTail(folioNo)}`;
+        await store.createAccount({ id, label, bank: amcFull,
           category: "demat", subtype: "mutual fund", type: "mf",
-          number: group.folioNo || "",
-          holder: owner, meta: JSON.stringify({ source: "cas", amc, amc_full: amcFull,
-            folios: group.folioNo ? [group.folioNo] : [] }) });
-        all.push({ id, label: `${name} mutual fund`, subtype: "mutual fund", category: "demat" });
+          number: folioNo, holder: owner,
+          meta: JSON.stringify({ source: "cas", amc, amc_full: amcFull,
+            folios: [folioNo] }) });
+        all.push({ id, label, number: folioNo, category: "demat",
+          subtype: "mutual fund", meta: JSON.stringify({ amc, folios: [folioNo] }) });
         continue;
       }
       if (!group.boId || done.has(group.boId)) continue;

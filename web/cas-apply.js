@@ -7,6 +7,7 @@
 import { casTotals } from "./cas.js";
 import { bondHomeOf, carryBrokerFields, isLiveBondRow, parseBondLabel } from "./bonds.js";
 import { boId } from "./bo-id.js";
+import { folioKey, normalizeFolio } from "./folio.js";
 
 /**
  * The label a CAS row is stored under. The label carries the coupon and the
@@ -198,9 +199,7 @@ export function casImportUnits({ accounts = [], routeAccounts = [], groups = [],
   const units = new Set();
   for (const account of routeAccounts || []) units.add(`bo:${account.boId}`);
   for (const group of groups || []) {
-    if (group.kind === "mf" && group.folio) {
-      units.add(`mf:${String(group.amc || "").toLowerCase()}`);
-    }
+    if (group.kind === "mf" && group.folio) units.add(folioKey(group));
   }
   for (const account of casPreviewAccounts({ accounts, routeAccounts, movements })) {
     units.add(`bo:${account.boId}`);
@@ -233,23 +232,38 @@ export function casGroupByAsset({ holdings = [], groups = [],
   const out = new Map();
   for (const holding of holdings || []) {
     if (casClosedRow(holding, importDay)) continue;
-    // Mirror casRoute exactly. A positive folio row belongs to its AMC folio
-    // account and nowhere else. Every other row, including a zero-unit folio
-    // row the route left in the demat, belongs to a non-folio group matched by
-    // account. Offering the folio group to the fallback made the result depend
-    // on which group the route happened to insert first.
+    // Mirror casRoute exactly. A positive folio row belongs to the folio group
+    // with its own number, never to a group that only shares its AMC. Every
+    // other row, including a zero-unit folio row the route left in the demat,
+    // belongs to a non-folio group matched by account. Offering the folio group
+    // to the fallback made the result depend on which group the route happened
+    // to insert first.
     const isFolioRow = holding.kind === "mf" && holding.folio
       && Number(holding.quantity) > 0;
-    const group = isFolioRow
-      ? (groups || []).find((item) => item.kind === "mf" && item.folio
-        && String(item.amc || "").toLowerCase()
-          === String(holding.amc || "").toLowerCase())
-      : (groups || []).find((item) => !item.folio && item.kind === holding.kind
+    const folio = normalizeFolio(holding.folio);
+    const owners = isFolioRow
+      ? (groups || []).filter((item) => item.kind === "mf" && item.folio
+        && normalizeFolio(item.folioNo) === folio)
+      : [];
+    let group = null;
+    if (isFolioRow) {
+      // Two AMCs can print the same folio string. When both groups are present,
+      // the AMC decides; with one group the folio alone is enough.
+      if (owners.length > 1) {
+        const amc = String(holding.amc || "").trim().toLowerCase();
+        group = owners.find((item) =>
+          String(item.amc || "").trim().toLowerCase() === amc) || null;
+      } else {
+        group = owners[0] || null;
+      }
+    } else {
+      group = (groups || []).find((item) => !item.folio && item.kind === holding.kind
         && (!holding.account || !item.boId
-          || String(item.boId) === String(holding.account)));
+          || String(item.boId) === String(holding.account))) || null;
+    }
     if (!group) continue;
     const key = group.kind === "mf" && group.folio
-      ? `mf:${String(group.amc || "").toLowerCase()}` : `bo:${String(group.boId || "")}`;
+      ? folioKey(group) : `bo:${String(group.boId || "")}`;
     if (picked && !picked.has(key)) continue;
     if (!out.has(group.assetId)) out.set(group.assetId, []);
     out.get(group.assetId).push(holding);
@@ -934,20 +948,76 @@ export function casImportHoldings({ parsed = {}, targets = [] } = {}) {
   for (const target of importTargets) {
     for (const isin of keptOf(target) || []) keepAll.add(isin);
   }
+  // A folio target plans rows that sit inside a demat's holdings table. The
+  // demat's own plan never reads them, so its keep set has to include the folio
+  // rows the folio target kept, or the scoping drops them before routing.
+  const isFolioRow = (holding) => holding.kind === "mf" && holding.folio
+    && Number(holding.quantity) > 0;
+  const keptFolioRows = new Map();
+  for (const target of importTargets) {
+    if (!String(target?.boId || "").startsWith("mf:")) continue;
+    const kept = keptOf(target);
+    for (const row of target.rows || []) {
+      const isin = String(row?.isin || "").toUpperCase();
+      if (!isin || (kept && !kept.has(isin))) continue;
+      const account = String(row?.account || "");
+      if (!keptFolioRows.has(account)) keptFolioRows.set(account, new Set());
+      keptFolioRows.get(account).add(isin);
+    }
+  }
   const accounts = (parsed.accounts || [])
     .filter((account) => !identityBos.has(String(account.boId || "")))
     .map((account) => {
       const target = byBo.get(String(account.boId || ""));
       const only = target ? keptOf(target) : null;
+      const folioKept = keptFolioRows.get(String(account.boId || "")) || new Set();
       return { ...account, holdings: (account.holdings || []).filter((holding) => {
         const isin = String(holding.isin || "").toUpperCase();
-        return keepAll.has(isin) && (!only || only.has(isin));
+        return keepAll.has(isin) && (!only || only.has(isin)
+          || (isFolioRow(holding) && folioKept.has(isin)));
       }) };
     })
     .filter((account) => account.holdings.length);
   const holdings = (parsed.holdings || []).filter((holding) =>
     keepAll.has(String(holding.isin || "").toUpperCase()));
   return { accounts, holdings };
+}
+
+/**
+ * The parsed holdings the inbox writer passes on. A new folio row is written by
+ * its folio plan even when that plan lists no field changes (action "add"), so
+ * its cost must survive. A row a plan keeps or asks about keeps the cost already
+ * on file, and only a plan that names a cost change may replace it.
+ * @param {{holdings?: Array<object>, targets?: Array<object>}} input
+ * @returns {Array<object>}
+ */
+export function casCostedImportHoldings({ holdings = [], targets = [] } = {}) {
+  const targetFor = (holding) => {
+    const folio = normalizeFolio(holding.folio);
+    if (folio) {
+      const owners = (targets || []).filter((target) => target.folio
+        && normalizeFolio(target.folioNo) === folio);
+      if (owners.length === 1) return owners[0];
+      if (owners.length > 1) {
+        const amc = String(holding.amc || "").trim().toLowerCase();
+        const named = owners.find((target) =>
+          String(target.amc || "").trim().toLowerCase() === amc);
+        if (named) return named;
+      }
+    }
+    return (targets || []).find((target) =>
+      target.boId === (holding.account || "")) || null;
+  };
+  return (holdings || []).map((holding) => {
+    if (holding.costPaise === null || holding.costPaise === undefined) return holding;
+    const target = targetFor(holding);
+    const decision = target?.plan?.decisions?.find((item) =>
+      String(item.isin || "").toUpperCase() === String(holding.isin || "").toUpperCase());
+    const wrote = decision?.action === "add";
+    const tookCost = decision?.changes?.some((change) =>
+      change.group === "cost" && change.field === "cost");
+    return wrote || tookCost ? holding : { ...holding, costPaise: null };
+  });
 }
 
 /**
