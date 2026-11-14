@@ -5,21 +5,21 @@ import { parseBondLabel, inferFace, bondAnalytics, bondSummary, accruedInterest,
   carryBrokerFields, soldGain } from "./bonds.js";
 
 test("parses the coupon and maturity from a bond label", () => {
-  const p = parseBondLabel("10.25% NAVI FINSERV PRIVATE LIMITED 31 DEC 2026");
+  const p = parseBondLabel("10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026");
   assert.equal(p.couponPct, 10.25);
   assert.equal(p.maturity, "2026-12-31");
 });
 
 test("a four-letter month still names the same date", () => {
-  assert.equal(parseBondLabel("9.95% INE999900066 26 Sept 2026").maturity, "2026-09-26");
+  assert.equal(parseBondLabel("9.95% INE000000018 26 Sept 2026").maturity, "2026-09-26");
   assert.equal(parseBondLabel("9.95% TEST 26 September 2026").maturity, "2026-09-26");
 });
 
 test("a label with a date but no coupon still gives the maturity", () => {
-  const p = parseBondLabel("B.N. AGRITECH LIMITED 27 Nov 2028");
+  const p = parseBondLabel("B.N. TESTAGRI LIMITED 27 Nov 2028");
   assert.equal(p.couponPct, null);
   assert.equal(p.maturity, "2028-11-27");
-  assert.equal(bondAnalytics({ label: "B.N. AGRITECH LIMITED 27 Nov 2028",
+  assert.equal(bondAnalytics({ label: "B.N. TESTAGRI LIMITED 27 Nov 2028",
     quantity: 30, cost_paise: 22069928, purchase_date: "2025-02-12" }), null);
 });
 
@@ -30,10 +30,10 @@ test("infers the face value from the cost per unit", () => {
   assert.equal(inferFace(19529612, 20), 10000);
 });
 
-test("purchase yield and gain to maturity for the NAVI lot", () => {
+test("purchase yield and gain to maturity for the test issuer lot", () => {
   const a = bondAnalytics({
-    label: "10.25% NAVI FINSERV PRIVATE LIMITED 31 DEC 2026",
-    security_id: "INE999900017", quantity: 1, cost_paise: 9982008,
+    label: "10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026",
+    security_id: "INE000000017", quantity: 1, cost_paise: 9982008,
     value_paise: 9982008, purchase_date: "2024-02-15",
   });
   assert.equal(a.face, 100000);
@@ -47,7 +47,7 @@ test("purchase yield and gain to maturity for the NAVI lot", () => {
 
 test("a market value gives the current price and gain", () => {
   const a = bondAnalytics({
-    label: "10.25% UGRO CAPITAL LIMITED 24 OCT 2026",
+    label: "10.25% TESTU CAPITAL LIMITED 24 OCT 2026",
     quantity: 200, cost_paise: 19817350, value_paise: 19922096,
     purchase_date: "2025-10-01",
   });
@@ -59,7 +59,7 @@ test("a market value gives the current price and gain", () => {
 
 test("a part-redeemed bond is priced on the principal still outstanding", () => {
   const a = bondAnalytics({
-    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    label: "11.9% TESTD 03 Dec 2026", quantity: 2, cost_paise: 19527582,
     value_paise: 6000000, purchase_date: "2024-06-06",
     future_interest_paise: 97808, future_principal_paise: 10000000,
     returned_paise: 10000000, principal_dates: "2026-12-03",
@@ -79,7 +79,7 @@ test("a face fetched after a part return is read as the current face, not the pu
   // with no returned principal and no payout schedule. The cost and units imply
   // a 1,00,000 face, so 1,00,000 came back and the old yield read -17.84%.
   const a = bondAnalytics({
-    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    label: "11.9% TESTD 03 Dec 2026", quantity: 2, cost_paise: 19527582,
     value_paise: 6000000, purchase_date: "2024-06-06", face_paise: 5000000,
     frequency: "Monthly", interest_date: "2026-12-03",
     redemption_dates: "2026-06-03,2026-12-03",
@@ -103,7 +103,7 @@ test("a face fetched after a part return is read as the current face, not the pu
 
 test("coupon progress is measured against the original face", () => {
   const a = bondAnalytics({
-    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    label: "11.9% TESTD 03 Dec 2026", quantity: 2, cost_paise: 19527582,
     value_paise: 6000000, purchase_date: "2024-06-06", face_paise: 5000000,
     frequency: "Monthly", interest_date: "2026-12-03",
     redemption_dates: "2026-06-03,2026-12-03",
@@ -121,7 +121,7 @@ test("coupon progress is measured against the original face", () => {
 
 test("gain if sold includes the coupons already received", () => {
   const a = bondAnalytics({
-    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    label: "11.9% TESTD 03 Dec 2026", quantity: 2, cost_paise: 19527582,
     value_paise: 6000000, purchase_date: "2024-06-06", face_paise: 5000000,
     frequency: "Monthly", interest_date: "2026-12-03",
     redemption_dates: "2026-06-03,2026-12-03",
@@ -187,7 +187,7 @@ test("accrued interest is the part of the next coupon already earned", () => {
 
 test("the stored face value beats the cost heuristic", () => {
   const a = bondAnalytics({
-    label: "9.75% BNAL 27 NOV 2028", quantity: 10, cost_paise: 7356643,
+    label: "9.75% TESTC 27 NOV 2028", quantity: 10, cost_paise: 7356643,
     value_paise: 9385020, purchase_date: "2025-02-12", face_paise: 1000000,
     frequency: "Quarterly", interest_date: "2026-11-27",
     future_principal_paise: 10000000,
@@ -198,7 +198,7 @@ test("the stored face value beats the cost heuristic", () => {
   assert.ok(Math.abs(a.currentYield - 10.39) < 0.05, `current ${a.currentYield}`);
   // Without the stored face, the old heuristic misreads the same lot.
   const legacy = bondAnalytics({
-    label: "9.75% BNAL 27 NOV 2028", quantity: 10, cost_paise: 7356643,
+    label: "9.75% TESTC 27 NOV 2028", quantity: 10, cost_paise: 7356643,
     value_paise: 9385020, purchase_date: "2025-02-12",
     frequency: "Quarterly", interest_date: "2026-11-27",
   });
@@ -215,7 +215,7 @@ test("a lookup stores the face value SMEST prints", () => {
 
 test("lifetime gain includes the coupons already received", () => {
   const a = bondAnalytics({
-    label: "11.9% ACAPL 03 Dec 2026", quantity: 2, cost_paise: 19527582,
+    label: "11.9% TESTD 03 Dec 2026", quantity: 2, cost_paise: 19527582,
     value_paise: 6000000, purchase_date: "2024-06-06",
     future_interest_paise: 97808, future_principal_paise: 10000000,
     returned_paise: 10000000, principal_dates: "2026-12-03",
@@ -230,10 +230,10 @@ test("lifetime gain includes the coupons already received", () => {
 
 test("summarizes a portfolio of bond lots", () => {
   const s = bondSummary([
-    { label: "10.25% NAVI FINSERV PRIVATE LIMITED 31 DEC 2026",
+    { label: "10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026",
       quantity: 1, cost_paise: 9982008, value_paise: 9982008,
       purchase_date: "2024-02-15" },
-    { label: "10.50% NIDO HFL 03 JUL 2029",
+    { label: "10.50% TESTH 03 JUL 2029",
       quantity: 100, cost_paise: 10288816, value_paise: 10288816,
       purchase_date: "2025-12-11" },
   ]);
@@ -299,14 +299,14 @@ test("a lot that already has a rating and frequency keeps them, unless the grade
 });
 
 test("a lookup adds the issuer name, and a correction replaces a short one", () => {
-  const details = { issuer: "Akara Capital Advisors Private Limited" };
+  const details = { issuer: "Test Capital Advisors Private Limited" };
   const blank = bondFillPlan({ quantity: 1, cost_paise: 10000000, issuer: "" },
     { details, market: null });
-  assert.equal(blank.patch.issuer, "Akara Capital Advisors Private Limited");
+  assert.equal(blank.patch.issuer, "Test Capital Advisors Private Limited");
   assert.equal(blank.terms, true);
-  const short = bondFillPlan({ quantity: 1, cost_paise: 10000000, issuer: "ACAPL" },
+  const short = bondFillPlan({ quantity: 1, cost_paise: 10000000, issuer: "TESTD" },
     { details, market: null });
-  assert.equal(short.patch.issuer, "Akara Capital Advisors Private Limited");
+  assert.equal(short.patch.issuer, "Test Capital Advisors Private Limited");
 });
 
 test("a lookup stores the redemption dates SMEST prints", () => {
@@ -342,7 +342,7 @@ test("the grade is read out of whatever the field holds", () => {
 
 test("an imported schedule beats the face-value estimate and knows the parts", () => {
   const a = bondAnalytics({
-    label: "9.75% B N AGRITECH LIMITED 27 NOV 2028", quantity: 20, cost_paise: 19500000,
+    label: "9.75% B N TESTAGRI LIMITED 27 NOV 2028", quantity: 20, cost_paise: 19500000,
     purchase_date: "2025-11-27",
     future_interest_paise: 4500000, future_principal_paise: 20000000,
     principal_dates: "2028-02-27,2028-05-27,2028-08-27,2028-11-27",
@@ -352,7 +352,7 @@ test("an imported schedule beats the face-value estimate and knows the parts", (
   assert.equal(a.schedule.gain, 24500000 - 19500000);
   // Without a schedule the old estimate still stands.
   const b = bondAnalytics({
-    label: "9.75% B N AGRITECH LIMITED 27 NOV 2028", quantity: 20, cost_paise: 19500000,
+    label: "9.75% B N TESTAGRI LIMITED 27 NOV 2028", quantity: 20, cost_paise: 19500000,
     purchase_date: "2025-11-27",
   });
   assert.equal(b.schedule, null);
@@ -360,7 +360,7 @@ test("an imported schedule beats the face-value estimate and knows the parts", (
 
 test("a schedule that promises less than was paid has no gain", () => {
   const a = bondAnalytics({
-    label: "12.00% VCCL 23 MAR 2027", quantity: 1, cost_paise: 9859863,
+    label: "12.00% TESTG 23 MAR 2027", quantity: 1, cost_paise: 9859863,
     purchase_date: "2024-09-26",
     future_interest_paise: 297534, future_principal_paise: 5000000,
     principal_dates: "2027-03-23",
@@ -370,7 +370,7 @@ test("a schedule that promises less than was paid has no gain", () => {
   // The face-value estimate would have said 1,00,000 + interest; the imported
   // sheet says half the principal is missing, so no gain is claimed.
   const b = bondAnalytics({
-    label: "12.00% VCCL 23 MAR 2027", quantity: 1, cost_paise: 9859863,
+    label: "12.00% TESTG 23 MAR 2027", quantity: 1, cost_paise: 9859863,
     future_interest_paise: 297534, future_principal_paise: 10000000,
   });
   assert.equal(b.schedule.short, false);
@@ -378,7 +378,7 @@ test("a schedule that promises less than was paid has no gain", () => {
 
 test("principal already returned counts towards the gain", () => {
   const a = bondAnalytics({
-    label: "12.00% VCCL 23 MAR 2027", quantity: 1, cost_paise: 9859863,
+    label: "12.00% TESTG 23 MAR 2027", quantity: 1, cost_paise: 9859863,
     future_interest_paise: 297534, future_principal_paise: 5000000,
     principal_dates: "2027-03-23", returned_paise: 5000000,
   });

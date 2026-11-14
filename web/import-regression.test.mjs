@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { detectImportFile, parseTradebook, parseTradebookMatrix, groupBundles }
   from "./import-flow.js";
 import { parseZerodhaHoldings, parseZerodhaHoldingsSheets } from "./zerodha.js";
@@ -16,6 +16,7 @@ import { DETECTION_CASES, DIGIFINN_FILES, ZERODHA_HOLDINGS_MATRIX,
 const require = createRequire(import.meta.url);
 const XLSX = require("./vendor/xlsx.full.min.js");
 
+const WEB = new URL("./", import.meta.url).pathname;
 const FIXTURES = new URL("./fixtures/import/", import.meta.url).pathname;
 const PRIVATE = new URL("./private/import-denylist.txt", import.meta.url).pathname;
 
@@ -163,7 +164,7 @@ test("the committed fixture corpus stays synthetic and small", () => {
   }
 });
 
-test("no fixture contains an identifier from the local denylist", () => {
+test("no test or fixture contains an identifier from the local denylist", () => {
   let denylist = [];
   try {
     denylist = readFileSync(PRIVATE, "utf8").split(/\r?\n/)
@@ -172,13 +173,17 @@ test("no fixture contains an identifier from the local denylist", () => {
     if (error?.code !== "ENOENT") throw error;
   }
   if (!denylist.length) return;
-  for (const name of readdirSync(FIXTURES)) {
-    const path = join(FIXTURES, name);
+  const targets = [
+    ...readdirSync(WEB).filter((name) => name.endsWith(".test.mjs"))
+      .map((name) => join(WEB, name)),
+    ...readdirSync(FIXTURES).map((name) => join(FIXTURES, name)),
+  ];
+  for (const path of targets) {
     if (!statSync(path).isFile()) continue;
     const body = readFileSync(path, "utf8");
     for (const secret of denylist) {
       assert.equal(body.includes(secret), false,
-        `${name} leaks a real identifier from ${PRIVATE}`);
+        `${basename(path)} leaks a real identifier from ${PRIVATE}`);
     }
   }
 });

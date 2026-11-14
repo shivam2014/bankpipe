@@ -6,16 +6,16 @@ import {
 } from "./digifinn.js";
 
 const payCsv = `Date,Issuer,ISIN,Amount,Frequency,Units
-2026-10-18,"10.00% PGL 18 AUG 2028",INE999900116,2465.75,Monthly Payout,30
-2026-11-18,"10.00% PGL 18 AUG 2028",INE999900116,2465.75,Monthly Payout,30
-2026-10-19,"13.00% RFL 19 DEC 2028",INE999900082,2136.99,Monthly Payout,20
+2026-10-18,"10.00% TESTA 18 AUG 2028",INE000000012,2465.75,Monthly Payout,30
+2026-11-18,"10.00% TESTA 18 AUG 2028",INE000000012,2465.75,Monthly Payout,30
+2026-10-19,"13.00% TESTB 19 DEC 2028",INE000000016,2136.99,Monthly Payout,20
 `;
 
 // A two-bond wide cashflow sheet in the portal's layout: names row, header
 // row, values row, investment row, then the cashflow table.
 function cashflowCsv() {
   const blank = Array(13).fill("");
-  const names = [...blank]; names[2] = "PGL"; names[6] = "RFL";
+  const names = [...blank]; names[2] = "TESTA"; names[6] = "TESTB";
   const header = [...blank]; header[2] = "Yield"; header[3] = "Frequency";
   header[4] = "Maturity"; header[5] = "*All indicative values";
   header[6] = "Yield"; header[7] = "Frequency"; header[8] = "Maturity";
@@ -49,7 +49,7 @@ test("payouts parser reads ISIN, units and the next date", () => {
   const p = parsePayouts(payCsv);
   assert.equal(p.kind, "payouts");
   assert.equal(p.rows.length, 3);
-  assert.equal(p.rows[0].isin, "INE999900116");
+  assert.equal(p.rows[0].isin, "INE000000012");
   assert.equal(p.rows[0].units, 30);
   assert.equal(p.rows[1].date, "2026-11-18");
 });
@@ -58,7 +58,7 @@ test("cashflow parser finds both bond groups", () => {
   const c = parseCashflow(cashflowCsv());
   assert.equal(c.kind, "cashflow");
   assert.equal(c.groups.length, 2);
-  assert.equal(c.groups[0].name, "PGL");
+  assert.equal(c.groups[0].name, "TESTA");
   assert.equal(c.groups[0].yieldPct, 11.0);
   assert.equal(c.groups[0].maturity, "2028-08-18");
   assert.equal(c.groups[0].investment_paise, 5000000);
@@ -83,31 +83,31 @@ test("file detection distinguishes the two exports", () => {
 });
 
 test("cashflow names expose the ISIN", () => {
-  const c = parseCashflow(cashflowCsv().replace('"PGL"',
-    '"10.00% PGL 18 AUG 2028 - INE999900116"'));
-  assert.equal(c.groups[0].isin, "INE999900116");
+  const c = parseCashflow(cashflowCsv().replace('"TESTA"',
+    '"10.00% TESTA 18 AUG 2028 - INE000000012"'));
+  assert.equal(c.groups[0].isin, "INE000000012");
 });
 
 test("merge keeps two purchase lots for the same ISIN", () => {
   const payouts = [
-    { date: "2026-11-27", issuer: "9.75% BNAL 27 NOV 2028", isin: "INE999900033",
+    { date: "2026-11-27", issuer: "9.75% TESTC 27 NOV 2028", isin: "INE999900272",
       amount_paise: 491507, frequency: "Quarterly Payout", units: 20, source_row: 2 },
-    { date: "2026-11-27", issuer: "9.75% BNAL 27 NOV 2028", isin: "INE999900033",
+    { date: "2026-11-27", issuer: "9.75% TESTC 27 NOV 2028", isin: "INE999900272",
       amount_paise: 245753, frequency: "Quarterly Payout", units: 10, source_row: 3 },
   ];
   const cashflow = [
-    { index: 0, name: "9.75% BNAL 27 NOV 2028 - INE999900033", isin: "INE999900033",
+    { index: 0, name: "9.75% TESTC 27 NOV 2028 - INE999900272", isin: "INE999900272",
       yieldPct: 11.64, frequency: "Quarterly Payout", maturity: "2027-11-27",
       investment_paise: 19529612, investment_date: "2025-12-02" },
-    { index: 1, name: "9.75% BNAL 27 NOV 2028 - INE999900033", isin: "INE999900033",
+    { index: 1, name: "9.75% TESTC 27 NOV 2028 - INE999900272", isin: "INE999900272",
       yieldPct: 11.93, frequency: "Quarterly Payout", maturity: "2027-11-27",
       investment_paise: 9896959, investment_date: "2026-01-30" },
   ];
-  const existing = [{ security_id: "INE999900033", label: "9.75% BNAL 27 NOV 2028",
+  const existing = [{ security_id: "INE999900272", label: "9.75% TESTC 27 NOV 2028",
     quantity: 20, cost_paise: 9896959, value_paise: null, rating: "AA",
     frequency: "Quarterly Payout", yield_bps: 1164 }];
   const out = mergeDigiFinn({ payouts, cashflow, existing });
-  const lots = out.holdings.filter((h) => h.security_id === "INE999900033")
+  const lots = out.holdings.filter((h) => h.security_id === "INE999900272")
     .sort((a, b) => b.quantity - a.quantity);
   assert.equal(lots.length, 2);
   assert.equal(lots[0].quantity, 20);
@@ -126,7 +126,7 @@ test("merge keeps two purchase lots for the same ISIN", () => {
 test("merge upserts by ISIN, adds cost and does not duplicate", () => {
   const payouts = parsePayouts(payCsv).rows;
   const cashflow = parseCashflow(cashflowCsv()).groups;
-  const existing = [{ id: 1, security_id: "INE999900116", label: "Old PGL",
+  const existing = [{ id: 1, security_id: "INE000000012", label: "Old TESTA",
     rating: "AA", frequency: "Annual Payout", yield_bps: 1000,
     quantity: 10, cost_paise: 5000000, value_paise: null, purchase_date: "2025-08-18",
     interest_date: "2026-09-18" }];
@@ -134,14 +134,14 @@ test("merge upserts by ISIN, adds cost and does not duplicate", () => {
   assert.equal(once.added, 1);
   assert.equal(once.updated, 1);
   assert.equal(once.holdings.length, 2);
-  const pgl = once.holdings.find((h) => h.security_id === "INE999900116");
-  assert.equal(pgl.quantity, 30);
-  assert.equal(pgl.interest_date, "2026-10-18");
-  assert.equal(pgl.cost_paise, 5000000);
-  assert.equal(pgl.rating, "AA");
-  assert.equal(pgl.frequency, "Monthly Payout");
-  assert.equal(pgl.yield_bps, 1100);
-  assert.equal(pgl.payout_paise, 246575);
+  const testa = once.holdings.find((h) => h.security_id === "INE000000012");
+  assert.equal(testa.quantity, 30);
+  assert.equal(testa.interest_date, "2026-10-18");
+  assert.equal(testa.cost_paise, 5000000);
+  assert.equal(testa.rating, "AA");
+  assert.equal(testa.frequency, "Monthly Payout");
+  assert.equal(testa.yield_bps, 1100);
+  assert.equal(testa.payout_paise, 246575);
   const again = mergeDigiFinn({ payouts, cashflow, existing: once.holdings });
   assert.equal(again.added, 0);
   assert.equal(again.updated, 0);
@@ -187,8 +187,8 @@ test("portfolio scoring prefers the ISIN overlap", () => {
 });
 
 test("short issuer names still score against full bond labels", () => {
-  assert.ok(nameScore("PGL", "10.00% PGL 18 AUG 2028") > 0.9);
-  assert.ok(nameScore("IIFL SAMASTA", "9.25% IIFL SAMASTA FINANCE LTD 24 DEC 2028") > 0.9);
+  assert.ok(nameScore("TESTA", "10.00% TESTA 18 AUG 2028") > 0.9);
+  assert.ok(nameScore("TESTI", "9.25% TESTI FINANCE LTD 24 DEC 2028") > 0.9);
 });
 
 test("the cashflow schedule gives the future interest and principal", () => {

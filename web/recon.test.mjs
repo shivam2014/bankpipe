@@ -12,8 +12,8 @@ const held = (isin, quantity, extra = {}) =>
 
 test("equal quantities on both sides are matched", () => {
   const [line] = reconPositions({
-    lots: [lot("INE999900033", 30)],
-    positions: [held("INE999900033", 30)],
+    lots: [lot("INE999900272", 30)],
+    positions: [held("INE999900272", 30)],
     today: TODAY, asOf: AS_OF,
   });
   assert.equal(line.state, "matched");
@@ -23,8 +23,8 @@ test("equal quantities on both sides are matched", () => {
 
 test("two purchase lots of one ISIN sum before the comparison", () => {
   const [line] = reconPositions({
-    lots: [lot("INE999900033", 10), lot("INE999900033", 20)],
-    positions: [held("INE999900033", 30)],
+    lots: [lot("INE999900272", 10), lot("INE999900272", 20)],
+    positions: [held("INE999900272", 30)],
     today: TODAY, asOf: AS_OF,
   });
   assert.equal(line.state, "matched");
@@ -34,8 +34,8 @@ test("two purchase lots of one ISIN sum before the comparison", () => {
 
 test("the depository holding less than the purchase is a real break", () => {
   const [line] = reconPositions({
-    lots: [lot("INE999900033", 30)],
-    positions: [held("INE999900033", 10)],
+    lots: [lot("INE999900272", 30)],
+    positions: [held("INE999900272", 10)],
     today: TODAY, asOf: AS_OF,
   });
   assert.equal(line.state, "quantity_differs");
@@ -43,7 +43,7 @@ test("the depository holding less than the purchase is a real break", () => {
 
 test("bought before the statement date and absent from it is not settled", () => {
   const [line] = reconPositions({
-    lots: [lot("INE999900116", 30, { purchase_date: "2026-08-21" })],
+    lots: [lot("INE000000012", 30, { purchase_date: "2026-08-21" })],
     positions: [],
     today: TODAY, asOf: AS_OF,
   });
@@ -52,7 +52,7 @@ test("bought before the statement date and absent from it is not settled", () =>
 
 test("bought after the statement date is still in transit, not a break", () => {
   const [line] = reconPositions({
-    lots: [lot("INE999900116", 30, { purchase_date: "2026-11-01" })],
+    lots: [lot("INE000000012", 30, { purchase_date: "2026-11-01" })],
     positions: [],
     today: TODAY, asOf: AS_OF,
   });
@@ -62,7 +62,7 @@ test("bought after the statement date is still in transit, not a break", () => {
 test("a holding with no purchase record has no cost", () => {
   const [line] = reconPositions({
     lots: [],
-    positions: [held("INE999900074", 1)],
+    positions: [held("INE000000014", 1)],
     today: TODAY, asOf: AS_OF,
   });
   assert.equal(line.state, "cost_missing");
@@ -71,8 +71,8 @@ test("a holding with no purchase record has no cost", () => {
 
 test("maturity closes a position before quantity is compared", () => {
   const [line] = reconPositions({
-    lots: [lot("INE999900074", 1)],
-    positions: [held("INE999900074", 1, { maturity: "2026-08-16" })],
+    lots: [lot("INE000000014", 1)],
+    positions: [held("INE000000014", 1, { maturity: "2026-08-16" })],
     today: TODAY, asOf: AS_OF,
   });
   assert.equal(line.state, "closed");
@@ -80,8 +80,8 @@ test("maturity closes a position before quantity is compared", () => {
 
 test("maturity is read from the bond label when the file omits it", () => {
   const [line] = reconPositions({
-    lots: [{ security_id: "INE999900033", quantity: 30, cost_paise: 100000,
-      label: "9.75% BNAL 27 NOV 2028" }],
+    lots: [{ security_id: "INE999900272", quantity: 30, cost_paise: 100000,
+      label: "9.75% TESTC 27 NOV 2028" }],
     positions: [],
     today: TODAY, asOf: AS_OF,
   });

@@ -4,7 +4,7 @@ import { sniffKind, guessKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-
 
 test("a CAS is recognised by what its first page says", () => {
   const page = "National Securities Depository Limited\nConsolidated Account Statement"
-    + "\nDemat Account No. 9999000001140907";
+    + "\nDemat Account No. 1200 0000 1234 5678";
   assert.equal(sniffKind({ name: "download.pdf", text: page }), "cas");
 });
 
@@ -21,9 +21,9 @@ test("a broker holdings export is read from its header row", () => {
 });
 
 test("a DigiFInn holdings report is broker even though it names a Demat Account No.", () => {
-  const csv = "DIGIFINN - HOLDINGS REPORT\nDemat Account No.,9999000001140907"
+  const csv = "DIGIFINN - HOLDINGS REPORT\nDemat Account No.,1200000012345678"
     + "\nISIN,Bond Name,Purchase date,Qty,Investment Value (₹)"
-    + "\nINE999900058,9.25% OPGPL 07 OCT 2029,23-Oct-26,20,196406.16";
+    + "\nINE000000011,9.25% TESTF 07 OCT 2029,23-Oct-26,20,196406.16";
   assert.equal(sniffKind({ name: "holdings-report-2026-10-26.csv", text: csv }), "broker");
 });
 

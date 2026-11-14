@@ -124,11 +124,11 @@ test("a bond table names its maturity and coupon", () => {
 test("one statement naming two demats becomes two accounts", () => {
   const out = parseCas({ pages: [page([
     text("DP Name : ZERODHA BROKING LIMITED", 20, 700),
-    text("BO ID : 9999000002398054", 420, 700),
+    text("BO ID : 1200000000000001", 420, 700),
     ...HOLD_HEADER.map((h) => ({ ...h, y: 660 })),
     ...holdRow("INE000000003", 5, "58,360.00", 620),
     text("DP Name : MOTILAL OSWAL FINANCIAL SERVICES LIMITED", 20, 560),
-    text("BO ID : 9999000001140907", 420, 560),
+    text("BO ID : 1200000012345678", 420, 560),
     text("ISIN", 50, 520), text("ISIN Name", 127, 520), text("Coupon / Rate", 217, 520),
     text("Maturity", 310, 520), text("Quantity", 363, 520),
     text("Face Value per Bond", 415, 520), text("Value in", 526, 520),
@@ -137,8 +137,8 @@ test("one statement naming two demats becomes two accounts", () => {
     money("1,00,752.60", 578, 480),
   ])] });
   assert.equal(out.accounts.length, 2);
-  const zerodha = out.accounts.find((a) => a.boId === "9999000002398054");
-  const motilal = out.accounts.find((a) => a.boId === "9999000001140907");
+  const zerodha = out.accounts.find((a) => a.boId === "1200000000000001");
+  const motilal = out.accounts.find((a) => a.boId === "1200000012345678");
   assert.equal(zerodha.holdings.length, 1);
   assert.equal(zerodha.holdings[0].kind, "equity");
   assert.equal(motilal.holdings.length, 1);

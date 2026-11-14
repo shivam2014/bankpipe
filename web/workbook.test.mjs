@@ -111,16 +111,16 @@ const holdingsSheet = {
 const holdingsMatrix = [
   ["", "", "ISIN", "Security Name", "Purchase Date", "Interest Payment Date",
     "Rating", "Quantity", "Total Cost Price"],
-  ["", "", "INE999900025", "Reliance", "01/04/2024", "01/10/2024", "AA", "10",
+  ["", "", "INE999900264", "Test Energy", "01/04/2024", "01/10/2024", "AA", "10",
     "1,25,000.00"],
-  ["", "", "INE999900488", "REC Bond", "02/04/2024", "", "AAA", "5", "50,000.00"],
+  ["", "", "INE000000022", "TEST DEBT", "02/04/2024", "", "AAA", "5", "50,000.00"],
   ["", "", "", "", "", "", "", "", ""],
 ];
 
 test("a holdings register keeps identity, quantity and cost", () => {
   const out = parseHoldings(holdingsMatrix, holdingsSheet);
   assert.equal(out.rows.length, 2);
-  assert.equal(out.rows[0].security_id, "INE999900025");
+  assert.equal(out.rows[0].security_id, "INE999900264");
   assert.equal(out.rows[0].quantity, 10);
   assert.equal(out.rows[0].cost_paise, 12500000);
   assert.equal(out.rows[0].purchase_date, "2024-04-01");

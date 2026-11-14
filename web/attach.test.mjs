@@ -9,19 +9,19 @@ const lot = (isin, quantity, cost, date = "2026-01-30") =>
 
 test("a position whose quantity matches its lots takes their total cost", () => {
   const { updates, matched } = attachCost({
-    positions: [pos("INE999900033", 30)],
-    lots: [lot("INE999900033", 10, 9960229), lot("INE999900033", 20, 19529612,
+    positions: [pos("INE999900272", 30)],
+    lots: [lot("INE999900272", 10, 9960229), lot("INE999900272", 20, 19529612,
       "2025-12-02")],
   });
-  assert.deepEqual(matched, ["INE999900033"]);
+  assert.deepEqual(matched, ["INE999900272"]);
   assert.equal(updates[0].cost_paise, 29489841);
   assert.equal(updates[0].purchase_date, "2025-12-02");
 });
 
 test("a quantity that does not match is skipped, never averaged", () => {
   const { updates, skipped } = attachCost({
-    positions: [pos("INE999900090", 14)],
-    lots: [lot("INE999900090", 10, 9823491)],
+    positions: [pos("INE000000019", 14)],
+    lots: [lot("INE000000019", 10, 9823491)],
   });
   assert.equal(updates.length, 0);
   assert.equal(skipped[0].reason, "quantity");
@@ -31,7 +31,7 @@ test("a quantity that does not match is skipped, never averaged", () => {
 
 test("a bond the seller never reported is left without cost", () => {
   const { skipped } = attachCost({
-    positions: [pos("INE999900108", 100)],
+    positions: [pos("INE000000020", 100)],
     lots: [],
   });
   assert.equal(skipped[0].reason, "no-lot");
@@ -39,8 +39,8 @@ test("a bond the seller never reported is left without cost", () => {
 
 test("a position that already has cost is not overwritten", () => {
   const { updates, skipped } = attachCost({
-    positions: [pos("INE999900033", 30, 12345)],
-    lots: [lot("INE999900033", 30, 29489841)],
+    positions: [pos("INE999900272", 30, 12345)],
+    lots: [lot("INE999900272", 30, 29489841)],
   });
   assert.equal(updates.length, 0);
   assert.equal(skipped[0].reason, "has-cost");
@@ -48,26 +48,26 @@ test("a position that already has cost is not overwritten", () => {
 
 test("a lot with no cost blocks the whole position", () => {
   const { updates, skipped } = attachCost({
-    positions: [pos("INE999900033", 30)],
-    lots: [lot("INE999900033", 10, 100), lot("INE999900033", 20, null)],
+    positions: [pos("INE999900272", 30)],
+    lots: [lot("INE999900272", 10, 100), lot("INE999900272", 20, null)],
   });
   assert.equal(updates.length, 0);
   assert.equal(skipped[0].reason, "lot-without-cost");
 });
 
 test("applying the updates keeps every field it does not own", () => {
-  const positions = [{ security_id: "INE999900033", quantity: 30,
-    cost_paise: null, value_paise: 29460000, label: "BNAL", purchase_date: "" }];
-  const [row] = applyCost(positions, [{ security_id: "INE999900033",
+  const positions = [{ security_id: "INE999900272", quantity: 30,
+    cost_paise: null, value_paise: 29460000, label: "TESTC", purchase_date: "" }];
+  const [row] = applyCost(positions, [{ security_id: "INE999900272",
     cost_paise: 29489841, purchase_date: "2025-12-02" }]);
   assert.equal(row.cost_paise, 29489841);
   assert.equal(row.purchase_date, "2025-12-02");
   assert.equal(row.value_paise, 29460000);
-  assert.equal(row.label, "BNAL");
+  assert.equal(row.label, "TESTC");
 });
 
 test("a position with no update is returned untouched", () => {
-  const positions = [pos("INE999900108", 100)];
+  const positions = [pos("INE000000020", 100)];
   const [row] = applyCost(positions, []);
   assert.equal(row.cost_paise, null);
 });

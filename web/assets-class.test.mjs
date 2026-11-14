@@ -45,7 +45,7 @@ test("the slices add up to the value the account already shows", () => {
 });
 
 test("a demat with no class totals falls back to its subtype", () => {
-  const fund = demat({ id: "m1", label: "Axis", subtype: "mutual fund",
+  const fund = demat({ id: "m1", label: "TestTwo", subtype: "mutual fund",
     class_equity_value: null, class_mf_value: null, holdings_value: 50000 });
   const groups = allocationByClass([fund]);
   assert.equal(groups[0].id, "mf");
@@ -73,7 +73,7 @@ test("a class row values only its own part of the account", () => {
 });
 
 test("a demat account holding only funds is listed as mutual funds", () => {
-  const fund = demat({ id: "m1", label: "Axis", subtype: "mutual fund",
+  const fund = demat({ id: "m1", label: "TestTwo", subtype: "mutual fund",
     class_mf_value: 50000, class_equity_value: null, holdings_value: 50000 });
   const sections = assetSections([fund]);
   assert.equal(sections[0].label, "Mutual funds");
@@ -133,10 +133,10 @@ test("a fund category is a fund whether it says mf, fund or only carries an INF 
   assert.equal(holdingClass({ category: "MF" }), "mf");
   assert.equal(holdingClass({ category: "mutual fund" }), "mf");
   assert.equal(holdingClass({ category: "fund" }), "mf");
-  assert.equal(holdingClass({ security_id: "INF999900345" }), "mf");
-  assert.equal(holdingClass({ category: "equity", security_id: "INF999900345" }), "mf");
-  assert.equal(holdingClass({ category: "bond", security_id: "INF999900345" }), "bond");
-  assert.equal(holdingClass({ category: "equity", security_id: "INE999900025" }), "equity");
+  assert.equal(holdingClass({ security_id: "INF000000011" }), "mf");
+  assert.equal(holdingClass({ category: "equity", security_id: "INF000000011" }), "mf");
+  assert.equal(holdingClass({ category: "bond", security_id: "INF000000011" }), "bond");
+  assert.equal(holdingClass({ category: "equity", security_id: "INE999900264" }), "equity");
 });
 
 test("a folio is a fund account, not a bond demat", () => {
@@ -149,7 +149,7 @@ test("a folio is a fund account, not a bond demat", () => {
 test("the funds class page adds a folio value that has no holding row", () => {
   const assets = [
     demat({ id: "d1", class_mf_value: 40000, holdings_value: 40000, holdings_cost: 35000 }),
-    demat({ id: "m1", label: "Mirae mutual fund", subtype: "mutual fund",
+    demat({ id: "m1", label: "TestOne mutual fund", subtype: "mutual fund",
       holdings_count: 0, holdings_cost: null, holdings_value: null, value_paise: 50000 }),
   ];
   const holdings = { d1: [{ id: 1, category: "mf", security_id: "INF1", label: "Fund A",

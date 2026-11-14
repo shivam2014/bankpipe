@@ -7,10 +7,10 @@ const blob = (bond) => `<html><body><script id="__NEXT_DATA__" type="application
   JSON.stringify({ page: "/bond-details/[securityName]/[isin]", props: { pageProps: { bondDetails: bond } } })
 }</script></body></html>`;
 
-const navi = {
-  isin: "INE999900017",
-  securityName: "10.25% Navi Finserv Limited 31 Dec 2026",
-  issuerOfSecurity: { issuerName: "Navi Finserv Limited" },
+const issuerSample = {
+  isin: "INE000000017",
+  securityName: "10.25% Test Issuer Limited 31 Dec 2026",
+  issuerOfSecurity: { issuerName: "Test Issuer Limited" },
   faceValue: "100000 RUPEES",
   pricePerBond: "100000 RUPEES",
   issueDate: "2023-12-11",
@@ -33,21 +33,21 @@ const navi = {
 };
 
 test("reads the terms of a bond from the page's JSON blob", () => {
-  const d = parseSmest(blob(navi));
-  assert.equal(d.isin, "INE999900017");
+  const d = parseSmest(blob(issuerSample));
+  assert.equal(d.isin, "INE000000017");
   assert.equal(d.coupon, 10.25);
   assert.equal(d.face, 100000);
   assert.equal(d.maturity, "2026-12-31");
   assert.equal(d.allotment, "2023-12-11");
   assert.equal(d.frequency, "Monthly");
   assert.equal(d.nextInterest, "2026-11-30");
-  assert.equal(d.issuer, "Navi Finserv Limited");
+  assert.equal(d.issuer, "Test Issuer Limited");
   assert.equal(d.secured, "Senior Secured");
   assert.equal(d.redemptions.length, 1);
 });
 
 test("the newest rating wins, and the others are kept", () => {
-  const d = parseSmest(blob(navi));
+  const d = parseSmest(blob(issuerSample));
   assert.equal(d.rating.agency, "CRISIL");
   assert.equal(d.rating.date, "2024-01-15");
   assert.equal(d.rating.text, "CRISIL A / Stable");
@@ -57,9 +57,9 @@ test("the newest rating wins, and the others are kept", () => {
 
 test("a bond that redeems in parts matures on the last date", () => {
   const d = parseSmest(blob({
-    ...navi,
-    isin: "INE999900033",
-    securityName: "9.75% B N Agritech Limited 27 Nov 2028",
+    ...issuerSample,
+    isin: "INE999900272",
+    securityName: "9.75% B N Testagri Limited 27 Nov 2028",
     maturityDate: "",
     maturities: [
       { date: "27/11/2028" }, { date: "27/08/2028" },
@@ -98,14 +98,14 @@ test("dates arrive in both the ISO and the Indian forms", () => {
 });
 
 test("the coupon and the maturity are cut out of the name", () => {
-  assert.equal(bondNameOnly("10.25% Navi Finserv Limited 31 Dec 2026"), "Navi Finserv Limited");
-  assert.equal(bondNameOnly("Navi Finserv Limited"), "Navi Finserv Limited");
+  assert.equal(bondNameOnly("10.25% Test Issuer Limited 31 Dec 2026"), "Test Issuer Limited");
+  assert.equal(bondNameOnly("Test Issuer Limited"), "Test Issuer Limited");
 });
 
 test("the fetched price values the lot when the units are known", () => {
-  const details = { ...parseSmest(blob(navi)), ltp: 98.5 };
+  const details = { ...parseSmest(blob(issuerSample)), ltp: 98.5 };
   const p = bondPrefill(details, { quantity: 2 });
-  assert.equal(p.name, "Navi Finserv Limited");
+  assert.equal(p.name, "Test Issuer Limited");
   assert.equal(p.coupon, 10.25);
   assert.equal(p.rating, "CRISIL A / Stable");
   // ₹100,000 face × 2 units × ₹98.50 per ₹100 = ₹1,97,000.

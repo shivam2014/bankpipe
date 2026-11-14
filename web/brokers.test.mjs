@@ -58,14 +58,14 @@ test("equity brokers start with Motilal Oswal and Zerodha", () => {
 test("a broker's file is read by that broker's parser", () => {
   const csv = [
     "Name,Test Holder",
-    "Demat Account No,9999000001140907",
+    "Demat Account No,1200000012345678",
     "ISIN,Bond Name,Purchase date,Qty,Investment Value",
-    "INE999900124,KFL 11.40 13062027,19 Jun 2024,2,193540.19",
+    "INE000000024,TESTE 11.40 13062027,19 Jun 2024,2,193540.19",
   ].join("\n");
   const parsed = parseBrokerReport("digifinn", csv, "holdings-report.csv");
   assert.equal(parsed.kind, "portfolio");
   assert.equal(parsed.rows.length, 1);
-  assert.equal(parsed.rows[0].isin, "INE999900124");
+  assert.equal(parsed.rows[0].isin, "INE000000024");
   // An unregistered source must not be read as DigiFInn's format.
   assert.equal(parseBrokerReport("not-a-broker", csv, "x.csv").kind, "unknown");
 });

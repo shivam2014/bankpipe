@@ -4,7 +4,7 @@ import { parseCas, casTotals, casRoute, cleanFundLabel, fundHouseFromLabel, full
   numericColumns } from "./cas.js";
 
 test("the bond row's columns are checked by arithmetic, not position alone", () => {
-  // ACAPL: 2 × 30,000 = 60,000.
+  // TESTD: 2 × 30,000 = 60,000.
   assert.deepEqual(numericColumns(["2", "1,00,000.00", "30,000.00", "60,000.00"]),
     { ok: true, qty: 2, face: 100000, price: 30000, value: 60000 });
   // An equity row has no face column: 80 × 592.50 = 47,400.
@@ -19,26 +19,26 @@ test("the bond row's columns are checked by arithmetic, not position alone", () 
 });
 
 test("a fund name stops before the expense-ratio paragraph", () => {
-  assert.equal(cleanFundLabel("Mirae Asset Cash Management Fund ) - Grand Total Average Total Expense Ratio above represents the average of annualized total expense charged in the respective schemes during the half-year period within"), "Mirae Asset Cash Management Fund");
-  assert.equal(cleanFundLabel("Mirae Asset Large and Midcap Fund Fund) - Regular Plan"),
-    "Mirae Asset Large and Midcap Fund - Regular Plan");
-  assert.equal(cleanFundLabel("Parag Parikh Flexi Cap Fund - Direct Plan - Growth"),
-    "Parag Parikh Flexi Cap Fund - Direct Plan - Growth");
-  assert.equal(cleanFundLabel("Aditya Birla Sun Life Large Cap Fund - Growth-Regular Plan(formerly known as Aditya Birla Sun Life Frontline Equity Fund"),
-    "Aditya Birla Sun Life Large Cap Fund - Growth-Regular Plan");
+  assert.equal(cleanFundLabel("TestOne Asset Cash Management Fund ) - Grand Total Average Total Expense Ratio above represents the average of annualized total expense charged in the respective schemes during the half-year period within"), "TestOne Asset Cash Management Fund");
+  assert.equal(cleanFundLabel("TestOne Asset Large and Midcap Fund Fund) - Regular Plan"),
+    "TestOne Asset Large and Midcap Fund - Regular Plan");
+  assert.equal(cleanFundLabel("Test Four Flexi Cap Fund - Direct Plan - Growth"),
+    "Test Four Flexi Cap Fund - Direct Plan - Growth");
+  assert.equal(cleanFundLabel("Test Three Large Cap Fund - Growth-Regular Plan(formerly known as Test Three Frontline Equity Fund"),
+    "Test Three Large Cap Fund - Growth-Regular Plan");
 });
 
 test("the AMC is the prefix before the first scheme word", () => {
-  assert.equal(fundHouseFromLabel("Mirae Asset Cash Management Fund"), "Mirae Asset Mutual Fund");
-  assert.equal(fundHouseFromLabel("Mirae Asset Large and Midcap Fund - Regular Plan"),
-    "Mirae Asset Mutual Fund");
-  assert.equal(fundHouseFromLabel("Axis ELSS- Tax Saver Fund - Regular Growth"),
-    "Axis Mutual Fund");
-  assert.equal(fundHouseFromLabel("Aditya Birla Sun Life Large Cap Fund - Growth-Regular Plan"),
-    "Aditya Birla Sun Life Mutual Fund");
-  assert.equal(fullAmcName("Aditya Birla Sun Life Mutual"), "Aditya Birla Sun Life Mutual Fund");
-  assert.equal(shortAmcName("Mirae Asset Mutual Fund"), "Mirae Asset");
-  assert.equal(shortAmcName("Axis Mutual Fund"), "Axis");
+  assert.equal(fundHouseFromLabel("TestOne Asset Cash Management Fund"), "TestOne Asset Mutual Fund");
+  assert.equal(fundHouseFromLabel("TestOne Asset Large and Midcap Fund - Regular Plan"),
+    "TestOne Asset Mutual Fund");
+  assert.equal(fundHouseFromLabel("TestTwo ELSS- Tax Saver Fund - Regular Growth"),
+    "TestTwo Mutual Fund");
+  assert.equal(fundHouseFromLabel("Test Three Large Cap Fund - Growth-Regular Plan"),
+    "Test Three Mutual Fund");
+  assert.equal(fullAmcName("Test Three Mutual"), "Test Three Mutual Fund");
+  assert.equal(shortAmcName("TestOne Asset Mutual Fund"), "TestOne Asset");
+  assert.equal(shortAmcName("TestTwo Mutual Fund"), "TestTwo");
 });
 
 // A synthetic page laid out like a depository statement: one heading line, then
@@ -60,14 +60,14 @@ const page = (rows) => {
 };
 
 const bondA = [
-  line([60, "INE999900033"], [430, "27-Nov-2028"], [600, "10.00"], [660, "10,000.00"],
+  line([60, "INE999900272"], [430, "27-Nov-2028"], [600, "10.00"], [660, "10,000.00"],
     [730, "10,075.26"], [800, "1,00,752.60"]),
-  line([200, "B.N. AGRITECH LIMITED"], [380, "9.75"]),
+  line([200, "B.N. TESTAGRI LIMITED"], [380, "9.75"]),
   line([200, "Fixed Interest Bonds"]),
 ];
 const bondB = [
-  line([200, "OPG POWER GENERATION PRIVATE LIMITED"], [380, "9.25"]),
-  line([60, "INE999900058"], [430, "07-Oct-2029"], [600, "20.00"], [660, "10,000.00"],
+  line([200, "TEST POWER GENERATION PRIVATE LIMITED"], [380, "9.25"]),
+  line([60, "INE000000011"], [430, "07-Oct-2029"], [600, "20.00"], [660, "10,000.00"],
     [730, "9,899.00"], [800, "1,97,980.00"]),
   line([200, "Fixed Interest Bonds"]),
 ];
@@ -78,12 +78,12 @@ test("a bond row is read even when its ISIN sits on the third line", () => {
   ])] });
   assert.equal(out.holdings.length, 2);
   const [a, b] = out.holdings;
-  assert.equal(a.isin, "INE999900033");
+  assert.equal(a.isin, "INE999900272");
   assert.equal(a.quantity, 10);
   assert.equal(a.faceValuePaise, 1000000);
   assert.equal(a.valuePaise, 10075260);
   assert.equal(a.maturity, "2028-11-27");
-  assert.equal(b.isin, "INE999900058");
+  assert.equal(b.isin, "INE000000011");
   assert.equal(b.quantity, 20);
   assert.equal(b.kind, "bond");
   assert.equal(a.couponPct, 9.75);
@@ -94,23 +94,23 @@ test("a fund's invested is the Total Cost column, not the NAV", () => {
   const header = line([40, "ISIN"], [110, "Scheme Name"], [300, "Folio No."],
     [360, "No. of Units"], [430, "Average Cost Per Unit"], [500, "Total Cost"],
     [560, "NAV per unit"], [620, "Value in (₹)"]);
-  const row = line([40, "INF999900170"], [110, "Axis ELSS- Tax Saver Fund - Regular Growth"],
-    [300, "91062983856"], [360, "3,384.424"], [430, "70.9195"], [500, "2,40,021.76"],
+  const row = line([40, "INF999900303"], [110, "TestTwo ELSS- Tax Saver Fund - Regular Growth"],
+    [300, "99990000001"], [360, "3,384.424"], [430, "70.9195"], [500, "2,40,021.76"],
     [560, "92.6537"], [620, "3,13,579.41"]);
   const out = parseCas({ pages: [page([[header], [row]])] });
   assert.equal(out.holdings.length, 1);
   assert.equal(out.holdings[0].costPaise, 24002176);
   assert.equal(out.holdings[0].valuePaise, 31357941);
-  assert.equal(out.holdings[0].amc, "Axis");
-  assert.equal(out.holdings[0].amcFull, "Axis Mutual Fund");
+  assert.equal(out.holdings[0].amc, "TestTwo");
+  assert.equal(out.holdings[0].amcFull, "TestTwo Mutual Fund");
 });
 
 test("a fund's invested uses the Cumulative Amount Invested column", () => {
   const header = line([40, "ISIN"], [110, "Scheme Name"], [300, "Folio No."],
     [360, "Closing Bal (Units)"], [430, "NAV"], [500, "Cumulative Amount Invested (INR)"],
     [620, "Valuation"]);
-  const row = line([40, "INF999900162"], [110, "Mirae Asset Cash Management Fund"],
-    [300, "705270289"], [360, "109.932"], [430, "2952.1523"], [500, "3,00,000.00"],
+  const row = line([40, "INF000000013"], [110, "TestOne Asset Cash Management Fund"],
+    [300, "99990000002"], [360, "109.932"], [430, "2952.1523"], [500, "3,00,000.00"],
     [620, "3,24,536.01"]);
   const total = line([500, "3,00,000.00"], [620, "3,24,536.01"]);
   const out = parseCas({ pages: [page([[header], [row], [total]])] });
@@ -129,7 +129,7 @@ test("the Depository is named from the statement, not guessed", () => {
 });
 
 test("an equity row with no maturity date is still read", () => {
-  const equity = [line([60, "INE999900041"], [200, "MARUTI SUZUKI INDIA LTD"],
+  const equity = [line([60, "INE000000015"], [200, "TEST MOTORS INDIA LTD"],
     [600, "5.00"], [660, "5"], [730, "11,672.00"], [800, "58,360.00"])];
   const out = parseCas({ pages: [page([
     heading("Equity Shares"), equity,
@@ -141,7 +141,7 @@ test("an equity row with no maturity date is still read", () => {
 });
 
 test("a row with one number is quarantined, never guessed", () => {
-  const broken = [line([60, "INE999900074"], [200, "ANDHRA PRADESH CAPITAL"],
+  const broken = [line([60, "INE000000014"], [200, "TEST STATE CAPITAL"],
     [800, "50,150.50"])];
   const out = parseCas({ pages: [page([
     heading("Corporate Bonds"), broken,
@@ -154,7 +154,7 @@ test("a heading split across two items still starts a section", () => {
   // "Equity" and "Shares" arrive as separate items on the same line.
   const split = [
     [line([200, "Equity"], [260, "Shares"])],
-    [line([60, "INE999900041"], [200, "MARUTI SUZUKI INDIA LTD"], [600, "5.00"],
+    [line([60, "INE000000015"], [200, "TEST MOTORS INDIA LTD"], [600, "5.00"],
       [660, "5"], [730, "11,672.00"], [800, "58,360.00"])],
   ];
   const out = parseCas({ pages: [page(split)] });
@@ -186,28 +186,28 @@ test("an unstated total is not a failure", () => {
 
 const accounts = [
   { id: "b1", label: "Bonds · portfolio 1", category: "bonds",
-    number: "IN99990009183122" },
+    number: "IN99990001344321" },
   { id: "d1", label: "Demat · ICICI", category: "demat",
-    number: "IN99990009183122" },
-  { id: "m1", label: "Axis mutual fund", category: "demat", subtype: "mutual fund",
-    number: "IN99990009183122" },
+    number: "IN99990001344321" },
+  { id: "m1", label: "TestTwo mutual fund", category: "demat", subtype: "mutual fund",
+    number: "IN99990001344321" },
   { id: "x1", label: "Bonds · someone else", category: "bonds",
-    number: "9999000001140907" },
+    number: "1200000012345678" },
 ];
 
 const parsed = {
-  demat: "IN99990009183122",
+  demat: "IN99990001344321",
   holdings: [
-    { isin: "INE999900033", kind: "bond", valuePaise: 100 },
-    { isin: "INE999900082", kind: "bond", valuePaise: 200 },
-    { isin: "INE999900041", kind: "equity", valuePaise: 50 },
-    { isin: "INF999900345", kind: "mf", valuePaise: 70 },
+    { isin: "INE999900272", kind: "bond", valuePaise: 100 },
+    { isin: "INE000000016", kind: "bond", valuePaise: 200 },
+    { isin: "INE000000015", kind: "equity", valuePaise: 50 },
+    { isin: "INF000000011", kind: "mf", valuePaise: 70 },
   ],
 };
 
 test("every class lands in the one demat account the statement names", () => {
   const route = casRoute(parsed, accounts);
-  assert.equal(route.demat, "IN99990009183122");
+  assert.equal(route.demat, "IN99990001344321");
   assert.equal(route.groups.length, 3);
   for (const group of route.groups) assert.equal(group.assetId, "d1");
   assert.equal(route.homeless.length, 0);
@@ -247,23 +247,23 @@ test("an unreadable account number routes nowhere", () => {
 test("a folio routes to its AMC account, not into the demat", () => {
   const parsed = {
     depository: "CDSL",
-    demat: "9999000001140907",
+    demat: "1200000012345678",
     accounts: [{
-      boId: "9999000001140907", dpName: "MOTILAL OSWAL FINANCIAL SERVICES LIMITED",
+      boId: "1200000012345678", dpName: "MOTILAL OSWAL FINANCIAL SERVICES LIMITED",
       holdings: [
         { isin: "INE000000001", kind: "bond", valuePaise: 100 },
-        { isin: "INF999900287", kind: "mf", valuePaise: 200, quantity: 10, folio: "123/4", amc: "Mirae" },
+        { isin: "INF999900287", kind: "mf", valuePaise: 200, quantity: 10, folio: "123/4", amc: "TestOne" },
       ],
     }],
     holdings: [
       { isin: "INE000000001", kind: "bond", valuePaise: 100 },
-      { isin: "INF999900287", kind: "mf", valuePaise: 200, quantity: 10, folio: "123/4", amc: "Mirae" },
+      { isin: "INF999900287", kind: "mf", valuePaise: 200, quantity: 10, folio: "123/4", amc: "TestOne" },
     ],
   };
   const withFolio = [
-    { id: "d1", label: "Demat · Motilal · …0907", category: "demat",
-      number: "9999000001140907" },
-    { id: "m1", label: "Mirae mutual fund", category: "demat", subtype: "mutual fund" },
+    { id: "d1", label: "Demat · Motilal · …5678", category: "demat",
+      number: "1200000012345678" },
+    { id: "m1", label: "TestOne mutual fund", category: "demat", subtype: "mutual fund" },
   ];
   const route = casRoute(parsed, withFolio);
   assert.equal(route.groups.find((g) => g.kind === "bond").assetId, "d1");
@@ -272,22 +272,22 @@ test("a folio routes to its AMC account, not into the demat", () => {
   // With no AMC account the folio is homeless, and its AMC travels with it.
   const route2 = casRoute(parsed, [withFolio[0]]);
   const folio = route2.homeless.find((g) => g.kind === "mf");
-  assert.equal(folio.amc, "Mirae");
+  assert.equal(folio.amc, "TestOne");
   assert.equal(folio.folio, true);
 });
 
 test("a folio without units stays in the demat until it is complete", () => {
   const parsed = {
     depository: "NSDL",
-    demat: "IN99990009183122",
+    demat: "IN99990001344321",
     accounts: [{
-      boId: "IN99990009183122", dpName: "NSDL",
-      holdings: [{ isin: "INF000000009", kind: "mf", valuePaise: 900, folio: "9/9", amc: "Axis" }],
+      boId: "IN99990001344321", dpName: "NSDL",
+      holdings: [{ isin: "INF000000009", kind: "mf", valuePaise: 900, folio: "9/9", amc: "TestTwo" }],
     }],
     holdings: [],
   };
   const route = casRoute(parsed, [
-    { id: "d1", label: "Demat · NSDL", category: "demat", number: "IN99990009183122" },
+    { id: "d1", label: "Demat · NSDL", category: "demat", number: "IN99990001344321" },
   ]);
   assert.equal(route.groups.find((g) => g.kind === "mf").assetId, "d1");
   assert.equal(route.homeless.length, 0);

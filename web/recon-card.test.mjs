@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { reconHeadline, reconRows, reconCardHtml } from "./recon-card.js";
 
 const line = (state, extra = {}) =>
-  ({ isin: "INE999900033", label: "9.75% BNAL 27 NOV 2028", state, ...extra });
+  ({ isin: "INE999900272", label: "9.75% TESTC 27 NOV 2028", state, ...extra });
 
 test("an asset with no BO ID says so instead of showing an empty report", () => {
   assert.match(reconHeadline({ reason: "empty" }), /No demat number/);

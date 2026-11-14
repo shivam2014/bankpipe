@@ -45,7 +45,7 @@ const payoutCsv = `Date,Issuer,ISIN,Amount,Frequency,Units
 function cashflowCsv() {
   const blank = Array(8).fill("");
   const names = [...blank];
-  names[1] = "10.25% NAVI FINSERV LIMITED 31 DEC 2026 INE999900017";
+  names[1] = "10.25% TEST ISSUER LIMITED 31 DEC 2026 INE000000017";
   const header = [...blank];
   header[1] = "Yield"; header[2] = "Frequency"; header[3] = "Maturity";
   header[4] = "*All indicative values";
@@ -162,10 +162,10 @@ test("portfolio scoring counts current ISINs", () => {
 
 test("the cashflow schedule reaches the holding, pre-tax", () => {
   const portfolio = { kind: "portfolio", rows: [{
-    isin: "INE999900017", label: "10.25% NAVI FINSERV LIMITED 31 DEC 2026",
+    isin: "INE000000017", label: "10.25% TEST ISSUER LIMITED 31 DEC 2026",
     quantity: 2, cost_paise: 19900000, purchase_date: "2024-02-15" }] };
   const payouts = { kind: "payouts", source: "cashflow", groups: [{
-    isin: "INE999900017", amount_paise: 170800, interest_date: "2026-11-30",
+    isin: "INE000000017", amount_paise: 170800, interest_date: "2026-11-30",
     frequency: "Monthly", future_interest_paise: 4100000,
     future_principal_paise: 20000000, principal_dates: ["2028-02-27", "2028-11-27"] }] };
   const out = buildBondSync({ portfolio, payouts, today: "2026-10-29" });
@@ -182,7 +182,7 @@ test("the Cashflow Future sheet is accepted as the payouts slot and reaches the 
   assert.equal(parsed.groups.length, 1);
   assert.equal(parsed.groups[0].future_interest_paise, 512400);
   const portfolio = { kind: "portfolio", demat: "1201000000001234", rows: [{
-    isin: "INE999900017", label: "10.25% NAVI FINSERV LIMITED 31 DEC 2026",
+    isin: "INE000000017", label: "10.25% TEST ISSUER LIMITED 31 DEC 2026",
     quantity: 2, cost_paise: 19900000, purchase_date: "2024-02-15" }] };
   const out = buildBondSync({ portfolio, payouts: parsed, today: "2026-10-29" });
   assert.equal(out.holdings.length, 1);
@@ -201,15 +201,15 @@ test("the old Upcoming Payouts export still parses, so the page can name it", ()
 
 test("two lots of one ISIN get their own cashflow block, not the first one", () => {
   const portfolio = { kind: "portfolio", rows: [
-    { isin: "INE999900033", label: "9.75% B N AGRITECH LIMITED 27 NOV 2028",
+    { isin: "INE999900272", label: "9.75% B N TESTAGRI LIMITED 27 NOV 2028",
       quantity: 10, cost_paise: 9896959, purchase_date: "2025-11-27" },
-    { isin: "INE999900033", label: "9.75% B N AGRITECH LIMITED 27 NOV 2028",
+    { isin: "INE999900272", label: "9.75% B N TESTAGRI LIMITED 27 NOV 2028",
       quantity: 20, cost_paise: 19529612, purchase_date: "2026-02-10" },
   ] };
   const payouts = { kind: "payouts", source: "cashflow", groups: [
-    { isin: "INE999900033", investment_paise: 9896959, units: null,
+    { isin: "INE999900272", investment_paise: 9896959, units: null,
       future_interest_paise: 1220752, future_principal_paise: 10000000, principal_dates: [] },
-    { isin: "INE999900033", investment_paise: 19529612, units: null,
+    { isin: "INE999900272", investment_paise: 19529612, units: null,
       future_interest_paise: 2441507, future_principal_paise: 20000000, principal_dates: [] },
   ] };
   const out = buildBondSync({ portfolio, payouts, today: "2026-10-29" });

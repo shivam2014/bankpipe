@@ -5,8 +5,8 @@ import { readFileSync } from "node:fs";
 import { dematCardHtml, dematCardModel, dematLast4, dematMismatchLine, dematText,
   syncPreviewCardHtml } from "./demat-card.js";
 
-const reportDemat = "9999000001140907";
-const targetDemat = "IN99990009183122";
+const reportDemat = "1200000012345678";
+const targetDemat = "IN99990001344321";
 const mappedAsset = {
   id: "bonds-2",
   label: "Bonds · portfolio 2",
@@ -28,14 +28,14 @@ const base = {
 test("one red line names the snapshot, one names the move and removals", () => {
   const model = dematCardModel(base);
   assert.equal(model.heading,
-    "This snapshot is for Demat 9999000001140907 (TEST HOLDER).");
+    "This snapshot is for Demat 1200000012345678 (TEST HOLDER).");
   assert.equal(model.consequence,
     "Applying here would move that Demat from Bonds · portfolio 2 (TEST HOLDER)"
     + " and remove 5 of the 17 lots.");
   assert.equal(model.sub, "Nothing is written until you choose.");
   assert.equal(model.safe.label,
     "Apply to Bonds · portfolio 2 (TEST HOLDER)");
-  assert.equal(model.create, "Create a portfolio for …0907");
+  assert.equal(model.create, "Create a portfolio for …5678");
   assert.equal(model.override, "Apply here anyway");
   assert.equal(model.cancel, "Cancel");
 });
@@ -90,9 +90,9 @@ test("a quote-only Demat is treated as absent", () => {
 
 test("the mismatch line uses the full Demat and holder", () => {
   assert.equal(dematMismatchLine(reportDemat, "TEST HOLDER"),
-    "These reports belong to Demat 9999000001140907 (TEST HOLDER), not this portfolio.");
+    "These reports belong to Demat 1200000012345678 (TEST HOLDER), not this portfolio.");
   assert.equal(dematMismatchLine(reportDemat, ""),
-    "These reports belong to Demat 9999000001140907, not this portfolio.");
+    "These reports belong to Demat 1200000012345678, not this portfolio.");
   assert.equal(dematMismatchLine("", ""),
     "These reports belong to another Demat, not this portfolio.");
   assert.equal(dematMismatchLine("").includes("…"), false);
@@ -101,7 +101,7 @@ test("the mismatch line uses the full Demat and holder", () => {
 test("the first card states the snapshot and the choice once each", () => {
   const html = dematCardHtml(base);
   const count = (text) => html.split(text).length - 1;
-  assert.equal(count("This snapshot is for Demat 9999000001140907 (TEST HOLDER)."), 1);
+  assert.equal(count("This snapshot is for Demat 1200000012345678 (TEST HOLDER)."), 1);
   assert.equal(count("Nothing is written until you choose."), 1);
   assert.equal(count("Apply here anyway"), 1);
   assert.equal(count("Apply sync"), 0);
@@ -148,7 +148,7 @@ test("the first card is one card with four buttons and no preview", () => {
   assert.equal(html.includes("<details"), false);
   assert.equal(html.includes("Apply sync"), false);
   const safe = html.indexOf("Apply to Bonds · portfolio 2 (TEST HOLDER)");
-  const create = html.indexOf("Create a portfolio for …0907");
+  const create = html.indexOf("Create a portfolio for …5678");
   const override = html.indexOf("Apply here anyway");
   const cancel = html.indexOf("Cancel");
   assert.ok(safe > -1 && safe < create && create < override && override < cancel);
@@ -166,7 +166,7 @@ test("the preview body replaces the button row in the same card", () => {
   const html = dematCardHtml(base, { body });
   assert.equal((html.match(/class="card pad demat-card"/g) || []).length, 1);
   assert.equal(html.includes("Apply here anyway"), false);
-  assert.equal(html.includes("Create a portfolio for …0907"), false);
+  assert.equal(html.includes("Create a portfolio for …5678"), false);
   assert.ok(html.includes(body), "the preview lands where the buttons were");
   assert.equal(html.indexOf("This snapshot is for") < html.indexOf('class="stats"'), true);
 });
@@ -178,12 +178,12 @@ test("an unknown or matching Demat still shows no card", () => {
 });
 
 test("last four digits are digits only", () => {
-  assert.equal(dematLast4("9999000001140907"), "0907");
+  assert.equal(dematLast4("1200 0000 1234 5678"), "5678");
   assert.equal(dematLast4(""), "");
 });
 
 test("a quote-only Demat is empty text, not two quote characters", () => {
   assert.equal(dematText('""'), "");
-  assert.equal(dematText('"9999000001140907"'), "9999000001140907");
+  assert.equal(dematText('"1200000012345678"'), "1200000012345678");
   assert.equal(dematText("  "), "");
 });

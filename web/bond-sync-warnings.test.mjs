@@ -55,7 +55,7 @@ test("creating a portfolio for an already mapped Demat is a danger", () => {
 });
 
 test("a report from another Demat leads the dangers", () => {
-  const line = "These reports belong to Demat …3122, not this portfolio.";
+  const line = "These reports belong to Demat …4321, not this portfolio.";
   const notices = bondSyncNotices({ removed: 0, warnings: [] },
     { target: "bonds-1", mapped: "bonds-1", mismatch: true, mismatchLine: line });
   assert.equal(notices.dangers[0], line);
@@ -75,9 +75,9 @@ test("the dialog body carries the action and the informational notes", () => {
 
 test("creating a portfolio names it in the dialog body", () => {
   const text = bondSyncConfirmText({
-    target: "__new__", name: "Bonds · DigiFInn 3122", current: 7,
+    target: "__new__", name: "Bonds · DigiFInn 4321", current: 7,
   });
-  assert.equal(text, "Create “Bonds · DigiFInn 3122” and import 7 current lots?");
+  assert.equal(text, "Create “Bonds · DigiFInn 4321” and import 7 current lots?");
 });
 
 test("the accept label names each danger combination", () => {

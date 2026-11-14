@@ -14,8 +14,8 @@ test("the same last six digits are not the same account", () => {
 });
 
 test("two clients of one DP are told apart", () => {
-  assert.equal(matchDemat("IN99990009183122", "IN99990010183122"), "mismatch");
-  assert.equal(matchDemat("IN99990009183122", "IN99990009183122"), "match");
+  assert.equal(matchDemat("IN99990001344321", "IN99990004344321"), "mismatch");
+  assert.equal(matchDemat("IN99990001344321", "IN99990001344321"), "match");
 });
 
 test("a number that lost a digit is unknown, never repaired", () => {
@@ -23,7 +23,7 @@ test("a number that lost a digit is unknown, never repaired", () => {
 });
 
 test("a broker client code is never a match", () => {
-  assert.equal(matchDemat("9999000005", "1201000000001234"), "unknown");
+  assert.equal(matchDemat("5550000000", "1201000000001234"), "unknown");
 });
 
 test("a different last six is a mismatch", () => {

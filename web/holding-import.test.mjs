@@ -8,15 +8,15 @@ test("finds a holdings header below a title row", () => {
     ["BondsIndia holdings as on 25 Oct 2026"],
     [],
     ["ISIN", "Security Name", "Quantity", "Buy Value", "Current Value", "Purchase Date"],
-    ["INE123A07012", "Muthoot Finance NCD 2029", 10, "1,00,000", "1,08,500", "12/03/2024"],
-    ["INE456B07019", "Tata Capital NCD", 25, "2,50,000", "2,61,000", "01 Apr 2023"],
+    ["INE000000029", "TEST FINANCE NCD 2029", 10, "1,00,000", "1,08,500", "12/03/2024"],
+    ["INE000000027", "TEST CAPITAL NCD", 25, "2,50,000", "2,61,000", "01 Apr 2023"],
     ["Total", "", "", "3,50,000", "3,69,500", ""],
     ["INE999C07010", "Sold bond", 0, "10,000", "0", ""],
   ];
   const out = parseHoldingsMatrix(matrix);
   assert.equal(out.headerRow, 2);
   assert.equal(out.rows.length, 2);
-  assert.equal(out.rows[0].security_id, "INE123A07012");
+  assert.equal(out.rows[0].security_id, "INE000000029");
   assert.equal(out.rows[0].cost_paise, 10000000);
   assert.equal(out.rows[0].value_paise, 10850000);
   assert.equal(out.rows[0].purchase_date, "2024-03-12");
@@ -27,11 +27,11 @@ test("finds a holdings header below a title row", () => {
 test("reads a demat export with symbol and quantity", () => {
   const out = parseHoldingsMatrix([
     ["Symbol", "Company", "Qty", "Invested", "Market Value"],
-    ["INFY", "Infosys", "40", "60,000", "71,200"],
+    ["TESTSOFT", "Test Software", "40", "60,000", "71,200"],
     ["HDFCBANK", "HDFC Bank", "25", "38,000", "41,000"],
   ]);
   assert.equal(out.rows.length, 2);
-  assert.equal(out.rows[0].security_id, "INFY");
+  assert.equal(out.rows[0].security_id, "TESTSOFT");
   assert.equal(out.rows[0].quantity, 40);
   assert.equal(out.rows[1].value_paise, 4100000);
 });

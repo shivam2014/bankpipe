@@ -40,7 +40,7 @@ test("the report contains no account number, amount, narration or ISIN", () => {
   const rep = buildReport({ ext: "xlsx", bytes: 12345, sha256: "abcdef0123456789ff" },
     [sheetReport("ICICI 5010", rows, parsed, { inserted: 1, duplicates: 0 })]);
   for (const secret of ["99990234567890", "SWIGGY", "1250", "-1,250.00",
-    "9876543210", "INE999900025", "HDFC Bank"]) {
+    "9876543210", "INE999900264", "HDFC Bank"]) {
     assert.equal(rep.includes(secret), false, `leaked: ${secret}`);
   }
 });

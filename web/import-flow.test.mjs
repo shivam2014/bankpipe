@@ -16,7 +16,7 @@ const holding = (over = {}) => ({
 
 const incoming = (over = {}) => ({
   kind: "broker", label: "Motilal Oswal holdings report", asOf: "2026-11-12",
-  identity: { kind: "ucid", value: "6638002" }, categories: ["bond"],
+  identity: { kind: "ucid", value: "9990001" }, categories: ["bond"],
   rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
     quantity: 10, valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }],
   ...over,
@@ -24,13 +24,13 @@ const incoming = (over = {}) => ({
 
 // --- detection --------------------------------------------------------------
 
-const CAS_TEXT = "National Securities Depository Limited Consolidated Account Statement for the month of October 2026. Statement for the period from 01-Oct-2026 to 31-Oct-2026. Your Demat Account ICICI BANK LIMITED DP ID:XX000001 Client ID:73183122";
-const MOTILAL_TEXT = "Motilal Oswal Financial Services Limited Portfolio Holding Summary Since Inception to 12 Nov 2026 CLIENT UCID : 6638002 BONDS ISIN Instrument Qty Investment Amount";
-const DIGIFINN_PORTFOLIO = "DIGIFINN - HOLDINGS REPORT\nDemat Account No.,9999000001140907\nAs Of,26 Oct 2026\nISIN,Bond Name,Purchase date,Qty,Investment Value (₹)\nINE999900058,9.25% OPGPL 07 OCT 2029,23-Oct-2026,10,10000";
-const DIGIFINN_INVESTMENT = "Investment Report\nBond Name,Issuer,Coupon,Maturity Date,Purchase Date,Yield,Invested Amount\n9.25% OPGPL,OPG POWER,9.25%,10/7/29,10/23/26,10.5,10000";
-const DIGIFINN_PAYOUTS = "Date,Issuer,ISIN,Amount,Frequency,Units\n2026-10-18,10.00% PGL,INE999900116,2465.75,Monthly Payout,30";
-const DIGIFINN_CASHFLOW = "Note: Cash flows are indicative estimates\nTotal FutureExpected Interest,Total Expected Principal,Total Cashflow\nISIN,Bond Name,Next Payout Date\nINE999900116,PGL,2026-10-18";
-const TRADEBOOK = "symbol,isin,trade_date,exchange,trade_type,quantity,price\nSUPREMEIND,INE999900181,2025-11-13,NSE,buy,5,3811.50\nSUPREMEIND,INE999900181,2025-11-14,NSE,buy,4,3900\nSUPREMEIND,INE999900181,2025-11-15,NSE,sell,2,4000";
+const CAS_TEXT = "National Securities Depository Limited Consolidated Account Statement for the month of October 2026. Statement for the period from 01-Oct-2026 to 31-Oct-2026. Your Demat Account ICICI BANK LIMITED DP ID:IN300000 Client ID:12344321";
+const MOTILAL_TEXT = "Motilal Oswal Financial Services Limited Portfolio Holding Summary Since Inception to 12 Nov 2026 CLIENT UCID : 9990001 BONDS ISIN Instrument Qty Investment Amount";
+const DIGIFINN_PORTFOLIO = "DIGIFINN - HOLDINGS REPORT\nDemat Account No.,1200000012345678\nAs Of,26 Oct 2026\nISIN,Bond Name,Purchase date,Qty,Investment Value (₹)\nINE000000011,9.25% TESTF 07 OCT 2029,23-Oct-2026,10,10000";
+const DIGIFINN_INVESTMENT = "Investment Report\nBond Name,Issuer,Coupon,Maturity Date,Purchase Date,Yield,Invested Amount\n9.25% TESTF,TEST POWER,9.25%,10/7/29,10/23/26,10.5,10000";
+const DIGIFINN_PAYOUTS = "Date,Issuer,ISIN,Amount,Frequency,Units\n2026-10-18,10.00% TESTA,INE000000012,2465.75,Monthly Payout,30";
+const DIGIFINN_CASHFLOW = "Note: Cash flows are indicative estimates\nTotal FutureExpected Interest,Total Expected Principal,Total Cashflow\nISIN,Bond Name,Next Payout Date\nINE000000012,TESTA,2026-10-18";
+const TRADEBOOK = "symbol,isin,trade_date,exchange,trade_type,quantity,price\nTESTSTOCKIND,INE000000010,2025-11-13,NSE,buy,5,3811.50\nTESTSTOCKIND,INE000000010,2025-11-14,NSE,buy,4,3900\nTESTSTOCKIND,INE000000010,2025-11-15,NSE,sell,2,4000";
 
 test("detects each supported depository and broker file from its contents", () => {
   assert.equal(detectImportFile({ name: "anything.pdf", text: CAS_TEXT }).kind, "cas");
@@ -46,7 +46,7 @@ test("detects each supported depository and broker file from its contents", () =
   assert.equal(detectImportFile({ name: "tradebook.csv", text: TRADEBOOK }).kind,
     "zerodha-tradebook");
   const holdings = [[], ["Symbol", "ISIN", "Sector", "Quantity Available", "Average Price"],
-    ["SUPREMEIND", "INE999900181", "Industrials", 5, 3811.5]];
+    ["TESTSTOCKIND", "INE000000010", "Industrials", 5, 3811.5]];
   assert.equal(detectImportFile({ name: "holdings.xlsx", matrix: holdings }).kind,
     "zerodha-holdings");
 });
@@ -61,7 +61,7 @@ test("a Motilal PDF in the CAS input is recognised as Motilal, not CAS", () => {
 test("a cashflow export that also contains a holdings table is still cashflow", () => {
   const text = `Note: Cash flows are indicative estimates
 ISIN,Bond Name,Qty,Investment Value
-INE999900116,PGL,30,10000
+INE000000012,TESTA,30,10000
 Total FutureExpected Interest,Total Expected Principal`;
   assert.equal(detectImportFile({ name: "portfolio-cashflow-future.csv", text }).kind,
     "digifinn-cashflow");
@@ -105,13 +105,13 @@ test("the tradebook supplies first buy dates and never a holding quantity", () =
   const parsed = parseTradebook(TRADEBOOK);
   assert.equal(parsed.error, null);
   assert.equal(parsed.rows.length, 3);
-  assert.equal(parsed.firstBuyByIsin.INE999900181, "2025-11-13");
+  assert.equal(parsed.firstBuyByIsin.INE000000010, "2025-11-13");
   assert.equal(parsed.rows[2].type, "sell");
   assert.equal(parsed.rows[0].quantity, 5);
 });
 
 test("a tradebook without its header fails closed", () => {
-  const parsed = parseTradebook("symbol,isin,qty\nSUPREMEIND,INE999900181,5");
+  const parsed = parseTradebook("symbol,isin,qty\nTESTSTOCKIND,INE000000010,5");
   assert.match(parsed.error, /No tradebook header/);
   assert.equal(parsed.rows.length, 0);
 });
@@ -142,19 +142,19 @@ test("a tradebook spreadsheet is detected from its matrix, not rejected as a hol
 // --- account matching -------------------------------------------------------
 
 const accountsForMatch = [
-  { id: "nsdl", label: "Demat · ICICI · …3122", category: "demat",
-    number: "IN99990009183122", meta: JSON.stringify({ holdings_source: "cas" }),
+  { id: "nsdl", label: "Demat · ICICI · …4321", category: "demat",
+    number: "IN99990001344321", meta: JSON.stringify({ holdings_source: "cas" }),
     holdings: [1, 2, 3, 4].map((n) => ({ security_id: isin(n) })) },
-  { id: "cdsl", label: "Demat · Motilal Oswal · …0907", category: "demat",
-    number: "9999000001140907", meta: JSON.stringify({ holdings_source: "cas" }),
+  { id: "cdsl", label: "Demat · Motilal Oswal · …5678", category: "demat",
+    number: "1200000012345678", meta: JSON.stringify({ holdings_source: "cas" }),
     holdings: Array.from({ length: 16 }, (_, i) => ({ security_id: other(i + 1) })) },
-  { id: "broker", label: "Demat · Motilal Oswal · 6638002", category: "demat",
-    number: "", meta: JSON.stringify({ broker_only: "1", ucid: "6638002" }),
+  { id: "broker", label: "Demat · Motilal Oswal · 9990001", category: "demat",
+    number: "", meta: JSON.stringify({ broker_only: "1", ucid: "9990001" }),
     holdings: [] },
 ];
 
 test("matches by UCID, BO ID and ISIN overlap, best first", () => {
-  const file = { accountKey: "6638002", accountKind: "ucid",
+  const file = { accountKey: "9990001", accountKind: "ucid",
     rows: Array.from({ length: 17 }, (_, i) => ({ isin: other(i + 1) })) };
   const result = accountMatches(file, accountsForMatch);
   assert.equal(result.matches[0].id, "broker");
@@ -166,7 +166,7 @@ test("matches by UCID, BO ID and ISIN overlap, best first", () => {
 });
 
 test("an account with no overlapping ISIN still appears when the file names it", () => {
-  const file = { accountKey: "9999000001140907", accountKind: "bo", rows: [] };
+  const file = { accountKey: "1200000012345678", accountKind: "bo", rows: [] };
   const result = accountMatches(file, accountsForMatch);
   assert.equal(result.matches.length, 1);
   assert.equal(result.matches[0].id, "cdsl");
@@ -175,9 +175,9 @@ test("an account with no overlapping ISIN still appears when the file names it",
 
 test("equal overlap without an identity match is a tie, not a silent pick", () => {
   const accounts = [
-    { id: "a", label: "A", category: "demat", number: "IN99990009183122",
+    { id: "a", label: "A", category: "demat", number: "IN99990001344321",
       holdings: [{ security_id: isin(1) }] },
-    { id: "b", label: "B", category: "demat", number: "9999000001140907",
+    { id: "b", label: "B", category: "demat", number: "1200000012345678",
       holdings: [{ security_id: isin(1) }] },
   ];
   const result = accountMatches({ rows: [{ isin: isin(1) }] }, accounts);
@@ -187,7 +187,7 @@ test("equal overlap without an identity match is a tie, not a silent pick", () =
 });
 
 test("the two CAS data facts produce the expected account hits", () => {
-  const nsdl = { accountKey: "IN99990009183122", accountKind: "bo",
+  const nsdl = { accountKey: "IN99990001344321", accountKind: "bo",
     rows: [
       ...Array.from({ length: 4 }, (_, i) => ({ isin: isin(i + 1) })),
       ...Array.from({ length: 11 }, (_, i) => ({ isin: other(i + 10) })),
@@ -198,7 +198,7 @@ test("the two CAS data facts produce the expected account hits", () => {
   assert.equal(nsdlMatch.matches[0].identityKind, "BO ID");
   assert.equal(nsdl.rows.length, 18);
 
-  const motilal = { accountKey: "6638002", accountKind: "ucid",
+  const motilal = { accountKey: "9990001", accountKind: "ucid",
     rows: Array.from({ length: 17 }, (_, i) => ({ isin: other(i + 1) })) };
   const motilalMatch = accountMatches(motilal, accountsForMatch);
   const cdsl = motilalMatch.matches.find((match) => match.id === "cdsl");
@@ -208,9 +208,9 @@ test("the two CAS data facts produce the expected account hits", () => {
 
 test("Zerodha's 28 equities match the 13 the CAS account already holds", () => {
   const account = { id: "zerodha", label: "Demat · Zerodha · …8054",
-    category: "demat", number: "9999000002398054",
+    category: "demat", number: "1200000000000001",
     holdings: Array.from({ length: 13 }, (_, i) => ({ security_id: other(i + 1) })) };
-  const file = { accountKey: "XXX002", accountKind: "client",
+  const file = { accountKey: "TEST500", accountKind: "client",
     rows: Array.from({ length: 28 }, (_, i) => ({ isin: other(i + 1) })) };
   const result = accountMatches(file, [account]);
   assert.equal(result.matches.length, 1);
@@ -229,13 +229,13 @@ const bundleFile = (kind, extra = {}) => ({
   termsByIsin: extra.termsByIsin || [], termsByLabel: extra.termsByLabel || [],
 });
 const DIGIFINN_FILES = () => [
-  bundleFile("digifinn-portfolio", { name: "holdings-report.csv", accountKey: "9999000001140907",
+  bundleFile("digifinn-portfolio", { name: "holdings-report.csv", accountKey: "1200000012345678",
     accountKind: "bo", base: true,
-    rows: [{ isin: other(1), label: "9.25% OPGPL 07 OCT 2029", category: "bond",
+    rows: [{ isin: other(1), label: "9.25% TESTF 07 OCT 2029", category: "bond",
       quantity: 10, costPaise: 1000000, purchaseDate: "2026-10-23" }] }),
   bundleFile("digifinn-investment", { name: "investment-report.csv",
-    termsByLabel: [{ label: "9.25% OPGPL 07 OCT 2029", couponPct: 9.25,
-      maturity: "2029-10-07", issuer: "OPG POWER", yieldPct: 10.5 }] }),
+    termsByLabel: [{ label: "9.25% TESTF 07 OCT 2029", couponPct: 9.25,
+      maturity: "2029-10-07", issuer: "TEST POWER", yieldPct: 10.5 }] }),
   bundleFile("digifinn-transactions", { name: "transaction-report.csv",
     firstBuyByIsin: { [other(1)]: "2026-10-23" } }),
   bundleFile("digifinn-payouts", { name: "upcoming-payouts.csv",
@@ -247,7 +247,7 @@ const DIGIFINN_FILES = () => [
 ];
 const ZERODHA_FILES = () => [
   bundleFile("zerodha-holdings", { name: "holdings.xlsx", base: true,
-    rows: [{ isin: other(3), label: "SUPREMEIND", category: "equity",
+    rows: [{ isin: other(3), label: "TESTSTOCKIND", category: "equity",
       quantity: 5, costPaise: 1905750 }] }),
   bundleFile("zerodha-tradebook", { name: "tradebook.csv", asOf: "",
     firstBuyByIsin: { [other(3)]: "2025-11-13" } }),
@@ -274,7 +274,7 @@ test("the optional payout facts reach the merge plan", () => {
   const bundle = groupBundles(DIGIFINN_FILES())[0];
   const plan = planMerge({
     incoming: {
-      kind: "digifinn", asOf: bundle.asOf, identity: { kind: "bo", value: "9999000001140907" },
+      kind: "digifinn", asOf: bundle.asOf, identity: { kind: "bo", value: "1200000012345678" },
       categories: ["bond"], rows: bundle.rows,
     },
     existing: {
@@ -357,7 +357,7 @@ test("a newer CAS takes quantity and value but never overwrites the broker's cos
   const plan = planMerge({
     incoming: {
       kind: "cas", label: "CAS", asOf: "2026-11-13",
-      identity: { kind: "bo", value: "IN99990009183122" }, categories: ["bond"],
+      identity: { kind: "bo", value: "IN99990001344321" }, categories: ["bond"],
       rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
         quantity: 12, valuePaise: 150000, costPaise: null, purchaseDate: "" }],
     },
@@ -382,7 +382,7 @@ test("an older CAS after newer broker data attaches identity only", () => {
   const plan = planMerge({
     incoming: {
       kind: "cas", label: "CAS", asOf: "2026-09-30",
-      identity: { kind: "bo", value: "9999000001140907" }, categories: ["bond"],
+      identity: { kind: "bo", value: "1200000012345678" }, categories: ["bond"],
       rows: [{ isin: isin(1), label: "Different CAS label", category: "bond",
         quantity: 7, valuePaise: 90000, costPaise: null, purchaseDate: "" }],
     },
@@ -411,7 +411,7 @@ test("an older CAS adds a matured row as history so file order does not lose it"
   const plan = planMerge({
     incoming: {
       kind: "cas", label: "CAS", asOf: "2026-09-30",
-      identity: { kind: "bo", value: "9999000001140907" }, categories: ["bond"],
+      identity: { kind: "bo", value: "1200000012345678" }, categories: ["bond"],
       rows: [
         { isin: isin(1), category: "bond", quantity: 10, valuePaise: 100000,
           costPaise: null },
@@ -447,7 +447,7 @@ test("an older CAS fills a broker row's empty value but not its quantity or cost
   const plan = planMerge({
     incoming: {
       kind: "cas", label: "CAS", asOf: "2026-09-30",
-      identity: { kind: "bo", value: "9999000001140907" }, categories: ["bond"],
+      identity: { kind: "bo", value: "1200000012345678" }, categories: ["bond"],
       rows: [{ isin: isin(1), label: "Different CAS label", category: "bond",
         quantity: 7, valuePaise: 90000, costPaise: null, purchaseDate: "" }],
     },
@@ -509,7 +509,7 @@ test("a newer manual cost wins, an older manual change asks", () => {
 test("a CAS never replaces a manual cost without confirmation", () => {
   const newerCas = planMerge({
     incoming: {
-      kind: "cas", asOf: "2026-11-13", identity: { kind: "bo", value: "IN99990009183122" },
+      kind: "cas", asOf: "2026-11-13", identity: { kind: "bo", value: "IN99990001344321" },
       categories: ["bond"],
       rows: [{ isin: isin(1), category: "bond", quantity: 10, valuePaise: 120000,
         costPaise: 300000 }],
@@ -527,7 +527,7 @@ test("a CAS never replaces a manual cost without confirmation", () => {
 
   const olderCas = planMerge({
     incoming: {
-      kind: "cas", asOf: "2026-08-01", identity: { kind: "bo", value: "IN99990009183122" },
+      kind: "cas", asOf: "2026-08-01", identity: { kind: "bo", value: "IN99990001344321" },
       categories: ["bond"],
       rows: [{ isin: isin(1), category: "bond", quantity: 10, valuePaise: 120000,
         costPaise: null }],
@@ -630,7 +630,7 @@ test("a manual-only row stays and is never treated as missing", () => {
 
 test("a broker-only account is created from a file with no CAS identity", () => {
   const plan = planMerge({
-    incoming: incoming({ identity: { kind: "ucid", value: "6638002" } }),
+    incoming: incoming({ identity: { kind: "ucid", value: "9990001" } }),
     existing: { identity: { source: "", asOf: "" }, snapshot: { source: "", asOf: "" },
       cost: { source: "", asOf: "" }, holdings: [] },
     today: "2026-11-14",
@@ -669,11 +669,11 @@ test("the 17-row Motilal report adds one new bond, matches 16 and keeps 4 mature
 test("importing the same two dated files in either order converges on one row", () => {
   const cas = {
     kind: "cas", label: "CAS", asOf: "2026-09-30",
-    identity: { kind: "bo", value: "IN99990009183122" }, categories: ["bond"],
+    identity: { kind: "bo", value: "IN99990001344321" }, categories: ["bond"],
     rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
       quantity: 10, valuePaise: 100000, costPaise: null, purchaseDate: "" }],
   };
-  const broker = incoming({ asOf: "2026-11-12", identity: { kind: "ucid", value: "6638002" } });
+  const broker = incoming({ asOf: "2026-11-12", identity: { kind: "ucid", value: "9990001" } });
   const empty = { identity: { source: "", asOf: "" }, snapshot: { source: "", asOf: "" },
     cost: { source: "", asOf: "" }, holdings: [] };
 
@@ -709,7 +709,7 @@ test("importing the same two dated files in either order converges on one row", 
 });
 
 test("the account field state names the source and date of each group", () => {
-  const account = { number: "IN99990009183122", meta: JSON.stringify({
+  const account = { number: "IN99990001344321", meta: JSON.stringify({
     holdings_source: "cas", holdings_as_of: "2026-10-31",
     broker_source: "motilal", cost_source: "Motilal Oswal Portfolio Holding Summary",
     cost_as_of: "2026-11-12", identity_source: "cas", identity_as_of: "2026-10-31",
@@ -722,10 +722,10 @@ test("the account field state names the source and date of each group", () => {
 });
 
 test("a broker-only account has no CAS to reconcile against", () => {
-  const account = normalizeAccount({ id: "broker", label: "Demat · Motilal Oswal · 6638002",
+  const account = normalizeAccount({ id: "broker", label: "Demat · Motilal Oswal · 9990001",
     category: "demat", number: "", meta: JSON.stringify({ broker_only: "1",
-      ucid: "6638002" }) });
+      ucid: "9990001" }) });
   assert.equal(account.brokerOnly, true);
-  assert.equal(account.ucid, "6638002");
+  assert.equal(account.ucid, "9990001");
   assert.equal(account.boId, "");
 });

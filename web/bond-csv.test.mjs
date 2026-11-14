@@ -5,8 +5,8 @@ import { parseCsv } from "./digifinn.js";
 import { parseHoldingsMatrix } from "./holding-import.js";
 
 const row = {
-  security_id: "INE999900116",
-  label: "10.00% PGL 18 AUG 2028",
+  security_id: "INE000000012",
+  label: "10.00% TESTA 18 AUG 2028",
   rating: "AA",
   frequency: "Monthly Payout",
   yield_bps: 1074,
@@ -22,7 +22,7 @@ test("bond CSV exports the standard columns", () => {
   const csv = bondHoldingsCsv([row]);
   const lines = csv.trim().split("\n");
   assert.equal(lines[0], BOND_CSV_HEADERS.join(","));
-  assert.match(lines[1], /INE999900116/);
+  assert.match(lines[1], /INE000000012/);
   assert.match(lines[1], /,AA,/);
   assert.match(lines[1], /,10\.74,/);
   assert.match(lines[1], /,Monthly Payout,/);
@@ -34,8 +34,8 @@ test("bond CSV round-trips through the holdings importer", () => {
   const parsed = parseHoldingsMatrix(parseCsv(csv));
   assert.equal(parsed.rows.length, 1);
   const h = parsed.rows[0];
-  assert.equal(h.security_id, "INE999900116");
-  assert.equal(h.label, "10.00% PGL 18 AUG 2028");
+  assert.equal(h.security_id, "INE000000012");
+  assert.equal(h.label, "10.00% TESTA 18 AUG 2028");
   assert.equal(h.rating, "AA");
   assert.equal(h.frequency, "Monthly Payout");
   assert.equal(h.yield_bps, 1074);
@@ -48,12 +48,12 @@ test("bond CSV round-trips through the holdings importer", () => {
 });
 
 test("bond CSV quotes labels with commas and keeps a real market value", () => {
-  const priced = { ...row, label: "13.00% RFL, SERIES II 19 DEC 2028",
+  const priced = { ...row, label: "13.00% TESTB, SERIES II 19 DEC 2028",
     value_paise: 31000000 };
   const csv = bondHoldingsCsv([priced]);
-  assert.match(csv, /"13\.00% RFL, SERIES II 19 DEC 2028"/);
+  assert.match(csv, /"13\.00% TESTB, SERIES II 19 DEC 2028"/);
   const parsed = parseHoldingsMatrix(parseCsv(csv));
-  assert.equal(parsed.rows[0].label, "13.00% RFL, SERIES II 19 DEC 2028");
+  assert.equal(parsed.rows[0].label, "13.00% TESTB, SERIES II 19 DEC 2028");
   assert.equal(parsed.rows[0].value_paise, 31000000);
 });
 

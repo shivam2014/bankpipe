@@ -322,9 +322,9 @@ test("holdings replace as a snapshot, not append", async () => {
   await store.open();
   store.createAccount({ id: "zerodha", label: "Zerodha", category: "demat" });
   const lots = [
-    { security_id: "INE999900025", label: "Reliance", quantity: 10,
+    { security_id: "INE999900264", label: "Test Energy", quantity: 10,
       cost_paise: 12500000, value_paise: 15000000, source_row: 2 },
-    { security_id: "INE999900488", label: "REC Bond", quantity: 5,
+    { security_id: "INE000000022", label: "TEST DEBT", quantity: 5,
       cost_paise: 5000000, value_paise: 5250000, source_row: 3 },
   ];
   store.replaceHoldings("zerodha", lots, "2026-03-31");
@@ -473,8 +473,8 @@ test("a holding keeps the issuer name from the lookup", async () => {
   const store = makeStore(SQL, null);
   await store.open();
   store.createAccount({ id: "bonds-is", label: "Bonds", category: "bonds" });
-  const issuer = "Akara Capital Advisors Private Limited";
-  store.upsertHolding("bonds-is", { label: "11.9% ACAPL", security_id: "INE999900132",
+  const issuer = "Test Capital Advisors Private Limited";
+  store.upsertHolding("bonds-is", { label: "11.9% TESTD", security_id: "INE000000023",
     issuer, redemption_dates: "2026-06-03,2026-12-03", value_source: "CAS",
     face_paise: 1000000, quantity: 2, cost_paise: 19527582 });
   let row = store.listHoldings("bonds-is")[0];
@@ -483,8 +483,8 @@ test("a holding keeps the issuer name from the lookup", async () => {
   assert.equal(row.value_source, "CAS");
   assert.equal(row.face_paise, 1000000);
   // A report replace carries it too.
-  store.replaceHoldings("bonds-is", [{ label: "11.9% ACAPL 03 Dec 2026",
-    security_id: "INE999900132", issuer, redemption_dates: "2026-06-03,2026-12-03",
+  store.replaceHoldings("bonds-is", [{ label: "11.9% TESTD 03 Dec 2026",
+    security_id: "INE000000023", issuer, redemption_dates: "2026-06-03,2026-12-03",
     quantity: 2, cost_paise: 19527582 }], "2026-09-30");
   row = store.listHoldings("bonds-is")[0];
   assert.equal(row.issuer, issuer);
@@ -1288,12 +1288,12 @@ test("latestReceipt fills an older receipt with its account identity", async () 
   const store = makeStore(SQL, null);
   await store.open();
   store.createAccount({ id: "icici-demat", label: "ICICI demat account",
-    category: "bank", type: "savings", number: "9999000001140907" });
+    category: "bank", type: "savings", number: "1200000012345678" });
   const batch = "2026-11-02T09:00:00.000Z";
   store.importRows("icici-demat", rows, { batch,
     receipt: { sheet: 5, read: 3, parsed: 3, rejected: 0, noDate: 0 } });
   const latest = store.latestReceipt();
-  assert.deepEqual(latest.rows[0].accounts, ["ICICI demat account …0907"]);
+  assert.deepEqual(latest.rows[0].accounts, ["ICICI demat account …5678"]);
 });
 
 test("latestReceipt marks a receipt with no account row", async () => {

@@ -7,23 +7,23 @@ const bond = {
   id: "bonds-1",
   label: "Bonds · portfolio 1",
   bank: "DigiFInn",
-  number: "IN99990009183122",
+  number: "IN99990001344321",
   holder: "TEST HOLDER",
 };
 
 test("a bond identity carries broker, Demat and holder", () => {
   const id = assetIdentity(bond, { numberLabel: "Demat" });
-  assert.equal(id.row, "DigiFInn · IN99990009183122 · TEST HOLDER");
+  assert.equal(id.row, "DigiFInn · IN99990001344321 · TEST HOLDER");
   assert.equal(id.name, "Bonds · portfolio 1 (TEST HOLDER)");
-  assert.equal(id.full, "Bonds · portfolio 1 · IN99990009183122 (TEST HOLDER)");
-  assert.equal(id.numberLine, "Demat IN99990009183122 (TEST HOLDER)");
+  assert.equal(id.full, "Bonds · portfolio 1 · IN99990001344321 (TEST HOLDER)");
+  assert.equal(id.numberLine, "Demat IN99990001344321 (TEST HOLDER)");
 });
 
 test("a missing holder drops the parentheses", () => {
   const id = assetIdentity({ ...bond, holder: "" }, { numberLabel: "Demat" });
   assert.equal(id.name, "Bonds · portfolio 1");
-  assert.equal(id.full, "Bonds · portfolio 1 · IN99990009183122");
-  assert.equal(id.numberLine, "Demat IN99990009183122");
+  assert.equal(id.full, "Bonds · portfolio 1 · IN99990001344321");
+  assert.equal(id.numberLine, "Demat IN99990001344321");
 });
 
 test("a missing number drops the middle clause", () => {
@@ -39,7 +39,7 @@ test("a missing label falls back to the broker without an empty separator", () =
   const id = assetIdentity({ ...bond, label: "" });
   assert.equal(id.label, "DigiFInn");
   assert.equal(id.name, "DigiFInn (TEST HOLDER)");
-  assert.equal(id.row, "DigiFInn · IN99990009183122 · TEST HOLDER");
+  assert.equal(id.row, "DigiFInn · IN99990001344321 · TEST HOLDER");
 });
 
 test("an empty or quote-only identity becomes empty, not quotes", () => {
@@ -56,9 +56,9 @@ test("an empty or quote-only identity becomes empty, not quotes", () => {
 
 test("a short identity keeps the label and only the last four digits", () => {
   const id = assetShortIdentity({ label: "ICICI demat account",
-    number: "9999000001140907" });
-  assert.equal(id, "ICICI demat account …0907");
-  assert.equal(id.includes("9999000001140907"), false);
+    number: "1200000012345678" });
+  assert.equal(id, "ICICI demat account …5678");
+  assert.equal(id.includes("1200000012345678"), false);
   assert.equal(assetShortIdentity({ label: "ICICI demat account", number: "4051" }),
     "ICICI demat account …4051");
   assert.equal(assetShortIdentity({ label: "SCB savings", number: "" }), "SCB savings");

@@ -13,8 +13,8 @@ const SQL = await initSqlJs({
   locateFile: (f) => new URL(`./vendor/${f}`, import.meta.url).pathname,
 });
 
-const BOND_A = "INE999900033";
-const BOND_B = "INE999900116";
+const BOND_A = "INE999900272";
+const BOND_B = "INE000000012";
 const AS_OF = "2026-10-31";
 
 const bond = (isin, quantity) => ({
@@ -36,21 +36,21 @@ async function seed(accounts, holdings = {}) {
 
 const baseAccounts = () => [
   { id: "d1", label: "Demat one", category: "demat", subtype: "equity",
-    number: "9999000001140907", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+    number: "1200000012345678", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
   { id: "d2", label: "Demat two", category: "demat", subtype: "equity",
-    number: "IN99990009183122", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+    number: "IN99990001344321", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
   { id: "p1", label: "Portfolio one", category: "bonds",
     meta: JSON.stringify({ linked_asset: "d1" }) },
   { id: "p2", label: "Portfolio two", category: "bonds",
     meta: JSON.stringify({ linked_asset: "d2" }) },
-  { id: "f1", label: "Mirae mutual fund", category: "demat", subtype: "mutual fund",
-    number: "99990000001" },
+  { id: "f1", label: "TestOne mutual fund", category: "demat", subtype: "mutual fund",
+    number: "99990000003" },
   { id: "e1", label: "Equity only", category: "demat", subtype: "equity" },
 ];
 
 const baseHoldings = () => ({
   d1: [bond(BOND_A, 30),
-    { security_id: "INF999900345", label: "Fund one", category: "mf",
+    { security_id: "INF000000011", label: "Fund one", category: "mf",
       quantity: 10, cost_paise: 200000, value_paise: 250000 }],
   d2: [bond(BOND_B, 5)],
   p1: [bond(BOND_A, 30)],
@@ -143,10 +143,10 @@ test("the SQL class totals use the same rule as holdingClass", async () => {
 });
 
 test("a manual fund row replaces the folio value instead of adding to it", async () => {
-  const store = await seed([{ id: "f1", label: "Axis mutual fund",
+  const store = await seed([{ id: "f1", label: "TestTwo mutual fund",
     category: "demat", subtype: "mutual fund", value_paise: 90000 }]);
-  store.upsertHolding("f1", { label: "Axis Bluechip Fund",
-    security_id: "INF999900345", category: "mf", quantity: 10,
+  store.upsertHolding("f1", { label: "TestTwo Bluechip Fund",
+    security_id: "INF000000011", category: "mf", quantity: 10,
     cost_paise: 100000, value_paise: 120000 });
   const [account] = await listAccounts();
   const rows = store.listHoldings("f1");
