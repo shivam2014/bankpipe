@@ -62,9 +62,9 @@ export const isBaseImportKind = baseKind;
 function dateInText(value) {
   const body = String(value || "");
   const patterns = [
-    /as\s+(?:on|of)\s*[,:]?\s*(\d{1,2}[\s/-]+[A-Za-z]{3,9}[\s/-]+\d{2,4})/i,
-    /statement\s+for\s+the\s+period[\s\S]{0,120}?\bto\s+(\d{1,2}[\s/-]+[A-Za-z]{3,9}[\s/-]+\d{2,4})/i,
-    /since\s+inception\s+to\s+(\d{1,2}[\s/-]+[A-Za-z]{3,9}[\s/-]+\d{2,4})/i,
+    /as\s+(?:on|of)\s*[,:]?\s*(\d{1,2}[\s/-]+(?:\d{1,2}|[A-Za-z]{3,9})[\s/-]+\d{2,4})/i,
+    /statement\s+for\s+the\s+period[\s\S]{0,120}?\bto\s+(\d{1,2}[\s/-]+(?:\d{1,2}|[A-Za-z]{3,9})[\s/-]+\d{2,4})/i,
+    /since\s+inception\s+to\s+(\d{1,2}[\s/-]+(?:\d{1,2}|[A-Za-z]{3,9})[\s/-]+\d{2,4})/i,
   ];
   for (const pattern of patterns) {
     const match = body.match(pattern);
@@ -83,6 +83,21 @@ function matrixLooksLikeHoldings(matrix) {
     if (cells.includes("symbol") && cells.includes("isin")
       && (cells.includes("average price") || cells.includes("average cost")
         || cells.includes("buy avg"))) return true;
+  }
+  return false;
+}
+
+// A tradebook workbook uses the same first columns as a holdings export. Its
+// header lives in the matrix because there is no text body to scan, and the four
+// columns below are the ones parseTradebookRows needs.
+function matrixLooksLikeTradebook(matrix) {
+  const rows = Array.isArray(matrix) ? matrix : [];
+  for (let i = 0; i < Math.min(rows.length, 40); i++) {
+    const cells = (rows[i] || []).map(norm);
+    if (cells.includes("trade date")
+      && (cells.includes("trade type") || cells.includes("type"))
+      && (cells.includes("quantity") || cells.includes("qty"))
+      && (cells.includes("price") || cells.includes("trade price"))) return true;
   }
   return false;
 }
@@ -109,6 +124,7 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
     label: IMPORT_KINDS[kind]?.label || "", confidence, asOf,
   });
   if (matrixLooksLikeHoldings(matrix)) return info("zerodha-holdings", "content", "");
+  if (matrixLooksLikeTradebook(matrix)) return info("zerodha-tradebook", "content");
 
   const bodyText = String(body || "");
   const headers = (...required) => headerRow(bodyText, required);
@@ -206,7 +222,18 @@ export function compareAsOf(left, right, { today = isoToday() } = {}) {
  * file has none.
  */
 export function parseTradebook(body) {
-  const rows = parseCsv(String(body || ""));
+  return parseTradebookRows(parseCsv(String(body || "")));
+}
+
+/**
+ * The same tradebook, already a spreadsheet matrix. An XLSX has no text body,
+ * so the inbox hands the sheet rows in directly.
+ */
+export function parseTradebookMatrix(matrix) {
+  return parseTradebookRows(Array.isArray(matrix) ? matrix : []);
+}
+
+function parseTradebookRows(rows) {
   let header = -1;
   let cols = null;
   for (let i = 0; i < rows.length; i++) {

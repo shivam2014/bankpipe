@@ -1361,7 +1361,8 @@ import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, accountMatches, planMerge, accountFieldState,
-  normalizeAccount, parseTradebook, IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
+  normalizeAccount, parseTradebook, parseTradebookMatrix,
+  IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
@@ -8156,24 +8157,35 @@ async function bpImportInboxReadOne(entry) {
         const found = detectImportFile({ matrix: sheet });
         if (found.kind !== "unknown") { detected = found; break; }
       }
-      if (detected.kind !== "zerodha-holdings") {
-        throw new Error("This spreadsheet is not a Zerodha holdings export. Nothing was read.");
+      if (detected.kind === "zerodha-tradebook") {
+        const parsed = sheets.map((sheet) => parseTradebookMatrix(sheet))
+          .find((result) => !result.error);
+        if (!parsed) throw new Error("The tradebook has no readable trades.");
+        entry.parsed = parsed;
+        entry.kind = detected.kind;
+        entry.broker = "zerodha";
+        entry.firstBuyByIsin = parsed.firstBuyByIsin;
+        entry.firstBuyBySymbol = parsed.firstBuyBySymbol;
+      } else {
+        if (detected.kind !== "zerodha-holdings") {
+          throw new Error("This spreadsheet is not a Zerodha holdings export. Nothing was read.");
+        }
+        const parsed = parseZerodhaHoldingsSheets(sheets);
+        if (parsed.error) throw new Error(parsed.error);
+        entry.parsed = parsed;
+        entry.kind = "zerodha-holdings";
+        entry.broker = "zerodha";
+        entry.asOf = parsed.asOf;
+        entry.accountKey = parsed.clientId || "";
+        entry.accountKind = parsed.clientId ? "client" : "";
+        entry.rows = parsed.rows.map((row) => ({
+          isin: row.isin, label: row.symbol || row.isin, category: "equity",
+          quantity: row.quantity,
+          valuePaise: null,
+          costPaise: Math.round(row.averagePrice * row.quantity * 100),
+          purchaseDate: "", sourceRow: 0,
+        }));
       }
-      const parsed = parseZerodhaHoldingsSheets(sheets);
-      if (parsed.error) throw new Error(parsed.error);
-      entry.parsed = parsed;
-      entry.kind = "zerodha-holdings";
-      entry.broker = "zerodha";
-      entry.asOf = parsed.asOf;
-      entry.accountKey = parsed.clientId || "";
-      entry.accountKind = parsed.clientId ? "client" : "";
-      entry.rows = parsed.rows.map((row) => ({
-        isin: row.isin, label: row.symbol || row.isin, category: "equity",
-        quantity: row.quantity,
-        valuePaise: null,
-        costPaise: Math.round(row.averagePrice * row.quantity * 100),
-        purchaseDate: "", sourceRow: 0,
-      }));
     } else {
       throw new Error("This file type is not supported. Choose a PDF, CSV or XLSX.");
     }

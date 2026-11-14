@@ -1,0 +1,46 @@
+# Import fixtures
+
+Every file in this directory is synthetic. Names, account numbers, ISINs and
+amounts are invented, and each fixture stays small enough to review in a diff.
+
+Real statements never enter the repository. They carry account numbers, names,
+holdings and amounts, and git history makes a leaked file expensive to remove.
+The private harness reads them from a directory outside the repo and never
+copies them in.
+
+## Public suite
+
+Run the synthetic tests from the repository root:
+
+    node --test web/import-regression.test.mjs
+    node --test web/import-flow.test.mjs
+    cd web && node --test
+
+`samples.mjs` holds the corpus. `import-regression.test.mjs` walks it through
+detection, parsing, bundle grouping and the XLSX round-trip the page performs.
+
+## Private harness
+
+Point the harness at a directory of real statements:
+
+    BANKPIPE_PRIVATE_IMPORT_DIR="$HOME/statements" node --test web/import-private.test.mjs
+
+The directory is read-only and symlinked files are fine. Without the variable
+the test is skipped. A PDF is listed but not parsed here, because the page owns
+PDF text extraction. The DigiFInn paid-cashflow export is not recognised; the
+future-cashflow export is.
+
+## Manifest
+
+`import-manifest.json` is optional. It pins the expected kind and a lower bound
+on parsed rows, or payout groups for a cashflow report:
+
+    {
+      "files": [
+        { "name": "tradebook.xlsx", "kind": "zerodha-tradebook", "minRows": 1 },
+        { "name": "holdings.csv", "kind": "digifinn-portfolio", "minRows": 1 }
+      ]
+    }
+
+Without a manifest every supported file is detected and parsed, and the summary
+is printed. Unknown files are listed, not failed.

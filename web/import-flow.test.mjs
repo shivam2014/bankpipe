@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
-  groupBundles, accountMatches, planMerge, accountFieldState,
+  parseTradebookMatrix, groupBundles, accountMatches, planMerge, accountFieldState,
   normalizeAccount } from "./import-flow.js";
 
 // Synthetic identifiers only. The real files are never committed.
@@ -114,6 +114,29 @@ test("a tradebook without its header fails closed", () => {
   const parsed = parseTradebook("symbol,isin,qty\nSUPREMEIND,INE999900181,5");
   assert.match(parsed.error, /No tradebook header/);
   assert.equal(parsed.rows.length, 0);
+});
+
+test("a tradebook spreadsheet is detected from its matrix, not rejected as a holdings export", () => {
+  const matrix = [
+    ["Client ID", "TEST500"],
+    ["Tradebook for Equity from 2025-11-13 to 2026-11-12"],
+    ["Symbol", "ISIN", "Trade Date", "Exchange", "Segment", "Series",
+      "Trade Type", "Auction", "Quantity", "Price", "Trade ID", "Order ID",
+      "Order Execution Time"],
+    ["TESTSTOCK", "INE000000001", "2025-11-13", "NSE", "EQ", "EQ",
+      "buy", false, 5, 100.5, "T1", "O1", "2025-11-13T09:51:25"],
+    ["TESTSTOCK", "INE000000001", "2025-11-14", "NSE", "EQ", "EQ",
+      "sell", false, 2, 110, "T2", "O2", "2025-11-14T09:51:25"],
+  ];
+  const detected = detectImportFile({ matrix });
+  assert.equal(detected.kind, "zerodha-tradebook");
+  assert.equal(detected.confidence, "content");
+  const parsed = parseTradebookMatrix(matrix);
+  assert.equal(parsed.error, null);
+  assert.equal(parsed.rows.length, 2);
+  assert.equal(parsed.firstBuyByIsin.INE000000001, "2025-11-13");
+  assert.equal(parsed.firstBuyBySymbol.TESTSTOCK, "2025-11-13");
+  assert.equal(parsed.rows[1].type, "sell");
 });
 
 // --- account matching -------------------------------------------------------
