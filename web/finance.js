@@ -46,6 +46,19 @@ export function addMonths(iso, months) {
 const pct = (gain, invested) =>
   invested ? Math.round((gain * 10000) / invested) / 100 : null;
 
+const isoDay = (value) => value instanceof Date
+  ? value.toISOString().slice(0, 10)
+  : String(value || "").slice(0, 10);
+
+// A deposit is matured once its maturity date is behind us. Maturity is not
+// payment, so this only labels the section; the value stays in net worth until
+// a bank credit is matched.
+export function fdMatured(fd, today) {
+  const maturity = isoDay(fd?.maturity_date);
+  return !!(maturity && maturity < (isoDay(today)
+    || new Date().toISOString().slice(0, 10)));
+}
+
 export function fdMaturityValue(principal, rateBps, start, maturity) {
   if (!principal || !rateBps || !start || !maturity) return null;
   const months = monthsBetween(start, maturity);

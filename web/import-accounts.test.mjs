@@ -254,6 +254,27 @@ test("a matured row is not counted and is named in the count", () => {
   assert.equal(history.countText, "1 matured");
 });
 
+test("a disposed row with a past maturity is sold, not matured", () => {
+  const sold = { security_id: isin(2), label: "7.15% TEST BOND 15 May 2020",
+    category: "bond", quantity: 0, disposed_at: "2026-06-01" };
+  const status = importAccountSummary(account(), [sold], (value) => value,
+    "2026-11-14");
+  assert.equal(status.count, 0);
+  assert.equal(status.matured, 0);
+  assert.equal(status.countText, "");
+  assert.equal(status.label, "No current holdings");
+});
+
+test("a stored maturity outranks a series date in the bond name", () => {
+  const row = { security_id: isin(2), label: "7.15% TEST SERIES 15 May 2020",
+    category: "bond", quantity: 10, maturity: "2032-05-15" };
+  const status = importAccountSummary(account(), [row], (value) => value,
+    "2026-11-14");
+  assert.equal(status.count, 1);
+  assert.equal(status.matured, 0);
+  assert.equal(status.countText, "1 holding");
+});
+
 test("a zero-quantity row is history, not an active holding", () => {
   const closed = { security_id: isin(1), label: "TEST EQUITY", category: "equity",
     quantity: 0 };

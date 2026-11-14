@@ -5,7 +5,7 @@
 //
 // Pure: the caller passes the two sets of rows and applies the result itself.
 
-import { parseBondLabel } from "./bonds.js";
+import { bondMaturity } from "./bonds.js";
 
 const clean = (v) => String(v ?? "").trim().toUpperCase();
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -106,9 +106,8 @@ export function absorbableSources({ sources = [], demats = [], today = "" } = {}
     }
   }
   const closed = (lot) => {
-    if (lot?.maturity) return !!today && String(lot.maturity) < today;
-    const parsed = parseBondLabel(lot?.label);
-    return !!parsed?.maturity && !!today && parsed.maturity < today;
+    const maturity = bondMaturity(lot).maturity;
+    return !!maturity && !!today && maturity < today;
   };
   return (sources || []).filter((source) => {
     const lots = source.lots || [];

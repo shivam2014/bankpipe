@@ -398,6 +398,9 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .info-pop b{font-weight:650}
 .bond-cards{display:none;flex-direction:column;gap:8px;margin-top:10px}
 .matured-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.matured-note{font-size:12px;margin:6px 0}
+.fd-maturity-tag{font-size:11px}
+.fd-note{font-size:12px}
 .cas-sales{margin-top:10px;border-top:1px solid var(--hair);padding-top:8px}
 .cas-sales b{font-size:13.5px}
 .cas-sales ul{margin:6px 0 0;padding-left:18px}
@@ -1311,12 +1314,13 @@ import { balanceRunsFromSheet } from "./balance-formula.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
 import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, assetClassParts, classPage, holdingClass, isFundAccount, isImportAccount, importFillPlan } from "./assets.js";
-import { buildFdGroups, fdHistoryValue, fdMatured, orderAccountsByFdTotal } from "./fd-view.js";
+import { buildFdGroups, fdMatured, fdGroupsTotal,
+  orderAccountsByFdTotal } from "./fd-view.js";
 import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
-import { bondAnalytics, bondSummary, parseBondLabel, inferFace,
-  BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange,
+import { bondAnalytics, bondSummary, bondMaturity, splitMatured, parseBondLabel,
+  inferFace, BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange,
   soldGain } from "./bonds.js";
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
@@ -3834,15 +3838,10 @@ window.bpWorkbookGap = async () => {
       || (categoryOf(a) === "demat" && /mutual fund/i.test(a.subtype || "")));
     const appIns = sum((a) => categoryOf(a) === "insurance");
     const today = new Date().toISOString().slice(0, 10);
-    const maturedFd = assets.filter((a) => categoryOf(a) === "fd"
-      && a.maturity_date && a.maturity_date < today)
-      .reduce((t, a) => t + (assetMetrics(a, "fd").value || 0), 0);
-    const appFdMfAll = appFdMf + maturedFd;
     const items = [
       ["Gold is in BankPipe but not in TOTAL", appGold, 0],
       ["BOB savings uses the latest statement", appBob, wb.bob],
-      ["FD + mutual funds, including matured", appFdMfAll, wb.fdMf],
-      ["Matured FDs are history, not assets", 0, maturedFd],
+      ["FD + mutual funds, including matured", appFdMf, wb.fdMf],
       ["ICICI demat holding is not imported", 0, wb.iciciDemat],
       ["Insurance includes the two LIC premiums", appIns, wb.insurance],
     ].filter(([, app, book]) => (app || 0) !== 0 || (book || 0) !== 0)
@@ -3870,13 +3869,13 @@ window.bpWorkbookGap = async () => {
         <table><tr><th>Item</th><th class="n">BankPipe</th>
           <th class="n">Workbook</th><th class="n">Difference</th></tr>${rows}${residualRow}</table>
         <div class="muted" style="font-size:11.5px;margin-top:10px;line-height:1.5">
-          The workbook FD32 still contains the four matured FDs, so they appear as their own
-          subtraction above. The ₹2,61,339.71 FD/MF line is: BOB FD 0098 at ₹4,00,000 principal
-          vs ₹2,00,000 inside FD32 (+₹2,00,000), BOB FD 1024 at ₹20,000 vs ₹28,449 (−₹8,449),
-          accrued interest on the two SCB FDs (+₹59,788.71), and the ₹10,000 PNB PPF outside
-          FD32 (+₹10,000). Without the matured-FD treatment the gap was ₹11,17,059.91; with it
-          the remaining ₹5,056.25 is the net of the rows above and ₹1 of workbook rounding.
-          Bonsai reviewed the bridge and found no missing TOTAL line.</div>
+          The workbook FD32 still contains the four matured FDs, and BankPipe now keeps them
+          too: a matured deposit stays in net worth as awaiting payment until a bank credit is
+          matched. They are therefore not a difference. The ₹2,61,339.71 FD/MF line is: BOB
+          FD 0098 at ₹4,00,000 principal vs ₹2,00,000 inside FD32 (+₹2,00,000), BOB FD 1024 at
+          ₹20,000 vs ₹28,449 (−₹8,449), accrued interest on the two SCB FDs (+₹59,788.71), and
+          the ₹10,000 PNB PPF outside FD32 (+₹10,000). The remaining difference is the net of
+          the rows above and ₹1 of workbook rounding.</div>
         <div style="margin-top:12px"><button class="btn" onclick="go('home')">Back to home</button></div></div>`;
   } catch (e) {
     host.innerHTML = `<h1>Workbook reconciliation</h1><div class="card pad">${esc(String(e.message || e))}</div>`;
@@ -4454,9 +4453,10 @@ function accountSectionsHtml({
     </div>`;
   };
   const activeTotal = activeFds.reduce((sum, fd) => sum + (assetValue(fd).paise || 0), 0);
+  const maturedTotal = maturedFds.reduce((sum, fd) => sum + (assetValue(fd).paise || 0), 0);
   const contentsCount = lockers.reduce((n, l) => n + lockerContents(l).length, 0);
   const fdHistory = maturedFds.length ? `<details class="fd-matured">
-    <summary>Matured (${maturedFds.length})</summary>
+    <summary>Matured (${maturedFds.length}) · awaiting payment</summary>
     ${maturedFds.map((fd) => fdRow(fd, true)).join("")}
   </details>` : "";
   const fdBody = activeFds.length || maturedFds.length
@@ -4469,10 +4469,11 @@ function accountSectionsHtml({
       amount: savings === null ? "—" : money(savings, currency),
     }),
     section({
-      kind: "fds", label: `Fixed deposits (${activeFds.length})`,
-      amount: activeFds.length ? money(activeTotal, currency) : "—",
+      kind: "fds", label: `Fixed deposits (${activeFds.length + maturedFds.length})`,
+      amount: activeFds.length || maturedFds.length
+        ? money(activeTotal + maturedTotal, currency) : "—",
       toggle: true, href: openFds, body: fdBody,
-      expanded: activeFds.length > 0,
+      expanded: activeFds.length > 0 || maturedFds.length > 0,
     }),
     section({
       kind: "lockers", label: `Lockers (${lockers.length})`,
@@ -4492,7 +4493,7 @@ function bankRow(g, total, fdLinks, lockerMap = new Map()) {
   const fdPct = g.total ? (g.fdTotal * 100) / g.total : 0;
   const share = total ? (g.total * 100) / total : 0;
   const today = new Date().toISOString().slice(0, 10);
-  const activeFds = g.fds.filter((a) => !a.maturity_date || a.maturity_date >= today);
+  const activeFds = g.fds.filter((a) => !fdMatured(a, today));
   const openBank = `bpBankView(${esc(JSON.stringify(g.bank))})`;
   const byAccount = new Map(g.accounts.map((a) => [a.id, []]));
   const unlinked = [];
@@ -4502,11 +4503,11 @@ function bankRow(g, total, fdLinks, lockerMap = new Map()) {
     else unlinked.push(fd);
   }
   const fdRow = (fd, history) => {
-    const matured = !!(fd.maturity_date && fd.maturity_date < today);
-    const value = history ? fdHistoryValue(fd) : assetValue(fd).paise;
+    const matured = fdMatured(fd, today);
+    const value = assetValue(fd).paise;
     return `<a class="subrow" href="#" onclick="bpAssetView(${jsArg(fd.id)});return false">
       <span class="nm">${esc(fd.label || fd.number || "Fixed deposit")}${matured
-        ? ` <span class="muted" style="font-size:10.5px">(matured)</span>` : ""}</span>
+        ? ` <span class="muted fd-maturity-tag">(awaiting payment)</span>` : ""}</span>
       <span class="amt">${value === null ? "—" : money(value)}</span>
       <span class="pc">›</span></a>`;
   };
@@ -4515,7 +4516,7 @@ function bankRow(g, total, fdLinks, lockerMap = new Map()) {
     const open = categoryOf(acc) === "bank" && acc.facts > 0
       ? `bpAccount(${jsArg(acc.id)})` : `bpAsset(${jsArg(acc.id)})`;
     const accFds = byAccount.get(acc.id) || [];
-    const active = accFds.filter((fd) => !fd.maturity_date || fd.maturity_date >= today);
+    const active = accFds.filter((fd) => !fdMatured(fd, today));
     const number = String(acc.number || "").replace(/^[,\s]+/, "");
     return `<div class="acct-sub">
       <a class="subrow acct-bank-row" href="#" onclick="${open};return false">
@@ -4529,28 +4530,20 @@ function bankRow(g, total, fdLinks, lockerMap = new Map()) {
         openFds: `bpAccount(${jsArg(acc.id)},'fds')`,
         openLockers: `bpAccount(${jsArg(acc.id)},'lockers')`,
         savings: value, activeFds: active,
-        maturedFds: accFds.filter((fd) => fd.maturity_date && fd.maturity_date < today),
+        maturedFds: accFds.filter((fd) => fdMatured(fd, today)),
         lockers: lockerMap.get(acc.id) || [], fdRow, currency: acc.currency,
         variant: "bank",
       })}
     </div>`;
   }).join("");
-  const unlinkedValue = unlinked.reduce((t, fd) => {
-    const matured = !!(fd.maturity_date && fd.maturity_date < today);
-    if (matured) {
-      const m = assetMetrics(fd, "fd");
-      return t + (m.expectedAtMaturity ?? m.value ?? m.invested ?? 0);
-    }
-    return t + (assetValue(fd).paise || 0);
-  }, 0);
+  const unlinkedValue = unlinked.reduce((t, fd) =>
+    t + (assetValue(fd).paise || 0), 0);
   const unlinkedRow = (fd) => {
-    const matured = !!(fd.maturity_date && fd.maturity_date < today);
-    const m = matured ? assetMetrics(fd, "fd") : null;
-    const value = matured
-      ? (m.expectedAtMaturity ?? m.value ?? m.invested) : assetValue(fd).paise;
+    const matured = fdMatured(fd, today);
+    const value = assetValue(fd).paise;
     return `<a class="subrow" href="#" onclick="bpAssetView(${jsArg(fd.id)});return false">
       <span class="nm">${esc(fd.label || fd.number || "Fixed deposit")}${matured
-        ? ` <span class="muted" style="font-size:10.5px">(matured · history)</span>` : ""}</span>
+        ? ` <span class="muted fd-maturity-tag">(matured · awaiting payment)</span>` : ""}</span>
       <span class="amt">${value === null ? "—" : money(value)}</span>
       <span class="pc">›</span></a>`;
   };
@@ -4569,7 +4562,7 @@ function bankRow(g, total, fdLinks, lockerMap = new Map()) {
       ${logo ? `<img class="bank-logo" src="${logo}" alt="${esc(g.bank)} logo">`
         : `<div class="chip">BA</div>`}
       <div><div class="nm">${esc(g.bank)}</div>
-        <div class="sub">${g.accounts.length} account${g.accounts.length === 1 ? "" : "s"} · ${activeFds.length} FD${activeFds.length === 1 ? "" : "s"}</div>
+        <div class="sub">${g.accounts.length} account${g.accounts.length === 1 ? "" : "s"} · ${g.fds.length} FD${g.fds.length === 1 ? "" : "s"}</div>
         <div class="bar-track" style="margin-top:6px;max-width:220px">
           <div class="bar-seg" style="width:${savingsPct}%;background:var(--green)"></div>
           <div class="bar-seg" style="width:${fdPct}%;background:var(--amber)"></div>
@@ -4644,8 +4637,10 @@ function renderBankGroup() {
 function bankGroupsActive(assets) {
   const today = new Date().toISOString().slice(0, 10);
   return bankGroups(assets).map((g) => {
-    const fdsActive = g.fds.filter((fd) => !(fd.maturity_date && fd.maturity_date < today));
-    const fdTotalActive = fdsActive.reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
+    const fdsActive = g.fds.filter((fd) => !fdMatured(fd, today));
+    // A matured FD is still owed, so it stays in the bank total; fdsActive only
+    // feeds the "active" count and the separate Matured section.
+    const fdTotalActive = g.fds.reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
     return { ...g, fdsActive, fdTotalActive, totalActive: g.savings + fdTotalActive };
   });
 }
@@ -4751,7 +4746,7 @@ async function renderBankViewAsync(host, bank) {
     lockerMap.set(acc.id, await store.listLockers(acc.id));
   }
   const primary = primaryBankAccount(g);
-  const isMatured = (fd) => !!(fd.maturity_date && fd.maturity_date < today);
+  const isMatured = (fd) => fdMatured(fd, today);
   const byAccount = new Map(g.accounts.map((a) => [a.id, []]));
   const unlinked = [];
   for (const fd of g.fds) {
@@ -4763,18 +4758,14 @@ async function renderBankViewAsync(host, bank) {
     else unlinked.push(fd);
   }
   const maturedAtBank = g.fds.filter(isMatured).length;
-  const maturedValueAtBank = g.fds.filter(isMatured).reduce((t, fd) => {
-    const m = assetMetrics(fd, "fd");
-    return t + (m.expectedAtMaturity ?? m.value ?? m.invested ?? 0);
-  }, 0);
+  const maturedValueAtBank = g.fds.filter(isMatured)
+    .reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
   const fdSub = (fd) => {
     const matured = isMatured(fd);
-    const m = matured ? assetMetrics(fd, "fd") : null;
-    const value = matured ? (m.expectedAtMaturity ?? m.value ?? m.invested)
-      : assetValue(fd).paise;
+    const value = assetValue(fd).paise;
     return `<a class="subrow" href="#" onclick="bpAssetView(${jsArg(fd.id)});return false">
       <span class="nm">${esc(fd.label || fd.number || "Fixed deposit")}${matured
-        ? ` <span class="muted" style="font-size:10.5px">(matured · history)</span>` : ""}</span>
+        ? ` <span class="muted fd-maturity-tag">(matured · awaiting payment)</span>` : ""}</span>
       <span class="amt">${value === null ? "—" : money(value)}</span>
       <span class="pc">›</span></a>`;
   };
@@ -4813,10 +4804,10 @@ async function renderBankViewAsync(host, bank) {
   const allGroups = bankGroupsActive(assets);
   const allTotal = allGroups.reduce((t, x) => t + x.totalActive, 0);
   const share = allTotal ? (g.totalActive * 100) / allTotal : 0;
-  const activeFdCount = g.fdsActive.length;
+  const fdCount = g.fds.length;
   const bankParts = [
     { label: "Savings", value: g.savings, kind: "savings", id: "", tx: false },
-    { label: `Fixed deposits (${activeFdCount})`, value: g.fdTotalActive, kind: "fd", id: "", tx: false },
+    { label: `Fixed deposits (${fdCount})`, value: g.fdTotalActive, kind: "fd", id: "", tx: false },
   ].filter((x) => x.value > 0);
   const slices = [];
   allGroups.forEach((x, i) => {
@@ -4879,7 +4870,8 @@ async function renderBankViewAsync(host, bank) {
             <b>${g.totalActive ? Math.round((g.fdTotalActive * 100) / g.totalActive) : 0}%</b></span>
         </div>
         ${maturedValueAtBank ? `<div class="muted" style="font-size:11.5px;margin-top:6px;
-          color:rgba(255,255,255,.7)">${money(maturedValueAtBank)} matured, not counted</div>` : ""}
+          color:rgba(255,255,255,.7)">${money(maturedValueAtBank)} matured · awaiting payment,
+          included above</div>` : ""}
       </div></div>
     <div class="card pad" style="margin-top:14px;display:flex;gap:22px;align-items:center;flex-wrap:wrap">
       <div class="donut" id="bank-pie" style="background:conic-gradient(${stops});cursor:pointer"
@@ -4905,7 +4897,8 @@ async function renderBankViewAsync(host, bank) {
         number was found in the accounts at this bank.</div></div>` : ""}
     </div>
     ${maturedAtBank ? `<div class="muted" style="font-size:11.5px;margin-top:10px">
-      Matured FDs are shown under their account for history; they are not in the bank total.</div>`
+      Matured FDs are shown under their account as awaiting payment; their value is in the
+      bank total until a credit is matched.</div>`
       : `<div class="muted" style="font-size:11.5px;margin-top:10px">No matured FDs at this
         bank.</div>`}
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
@@ -5010,7 +5003,7 @@ async function renderAssetViewAsync(host, id) {
   const start = a.start_date || "";
   const maturity = a.maturity_date || "";
   const today = new Date().toISOString().slice(0, 10);
-  const matured = !!(maturity && maturity < today);
+  const matured = fdMatured(a, today);
   const termDays = start && maturity
     ? Math.ceil((Date.parse(maturity) - Date.parse(start)) / 86400000) : null;
   const elapsedDays = start
@@ -5120,8 +5113,8 @@ async function renderAssetViewAsync(host, id) {
         <button class="btn" style="padding:2px 8px;font-size:11px;margin-left:4px"
           onclick="bpAsset(${jsArg(a.id)})">Add the date</button></div>` : ""}
       ${matured ? `<div class="muted" style="font-size:12px;margin-top:8px">This FD matured on
-        ${dateLabel(maturity)}. The value above is historical; check the bank balance before
-        counting the proceeds again.</div>` : ""}
+        ${dateLabel(maturity)}. It stays in net worth as awaiting payment until a bank credit
+        is matched.</div>` : ""}
     </div>
     <div class="card pad" style="margin-top:14px">
       <h2 style="margin:0 0 8px">Where it sits</h2>
@@ -5148,8 +5141,9 @@ async function renderAssetViewAsync(host, id) {
         ? ` <button class="btn" style="padding:2px 8px;font-size:11px;margin-left:4px"
           onclick="bpFdAuto(${jsArg(a.id)})">Re-detect automatically</button>` : ""}</div>
       ${matured ? `<div class="muted" style="font-size:11.5px;margin-top:12px;background:var(--hair);
-        border-radius:8px;padding:8px 10px">History only. This FD is not part of the current
-        fixed-deposit totals or the bank's current assets.</div>` : `<div style="margin-top:14px">
+        border-radius:8px;padding:8px 10px">Awaiting payment. This FD is included in the
+        current fixed-deposit totals and the bank's current assets; the credit has not been
+        matched.</div>` : `<div style="margin-top:14px">
         <div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em">Of all fixed deposits</div>
         <div class="bar-track" style="margin-top:5px"><div class="bar-seg"
           style="width:${allShare}%;background:var(--amber)"></div></div>
@@ -5306,23 +5300,21 @@ function renderAccount() {
       // deposits that the assets page called "without a linked account".
       const belongs = (a) => fdLinks.get(a.id) === account.id;
       fdCurrent = assets.filter((a) => categoryOf(a) === "fd" && belongs(a)
-        && !(a.maturity_date && a.maturity_date < todayIso))
+        && !fdMatured(a, todayIso))
         .sort((a, b) => String(a.maturity_date || "9999")
           .localeCompare(String(b.maturity_date || "9999")));
       fdHistory = assets.filter((a) => categoryOf(a) === "fd" && belongs(a)
-        && a.maturity_date && a.maturity_date < todayIso)
+        && fdMatured(a, todayIso))
         .sort((a, b) => String(b.maturity_date).localeCompare(String(a.maturity_date)));
     }
     const fdRow = (fd, matured) => {
-      const m = assetMetrics(fd, "fd");
-      const value = matured ? (m.expectedAtMaturity ?? m.value ?? m.invested)
-        : assetValue(fd).paise;
+      const value = assetValue(fd).paise;
       const number = String(fd.number || "").replace(/^[,\s]+/, "");
       const noDate = !fd.maturity_date;
       const bits = [
         number,
         fd.rate_bps ? `${(fd.rate_bps / 100).toFixed(2)}%` : "",
-        fd.maturity_date ? `${matured ? "matured" : "matures"} ${dateLabel(fd.maturity_date)}` : "",
+        fd.maturity_date ? `${matured ? "matured — awaiting payment" : "matures"} ${dateLabel(fd.maturity_date)}` : "",
         fdLinks.get(fd.id) === account.id ? "" : "no matched debit",
       ].filter(Boolean).join(" · ");
       return `<a class="srow" href="#" onclick="bpAssetView(${jsArg(fd.id)});return false"
@@ -5332,16 +5324,17 @@ function renderAccount() {
           ? ` <span class="fd-flag" title="No maturity date, so it is counted as current">no date</span>` : ""}</div>
           <div class="sub">${esc(bits || "no details yet")}</div></div>
         <div class="vl">${value === null ? "—" : money(value)}
-          <div class="sub">${matured ? "at maturity · history"
+          <div class="sub">${matured ? "matured · awaiting payment"
             : noDate ? "assumed current" : "current value"}</div></div>
         <div class="pc">›</div></a>`;
     };
     const savingsValue = latest === null || latest === undefined ? 0 : latest;
-    const fdValue = fdCurrent.reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
+    const fdValue = fdCurrent.concat(fdHistory)
+      .reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
     const accountTotal = savingsValue + fdValue;
     const savingsPct = accountTotal ? (savingsValue * 100) / accountTotal : 0;
     const fdPct = accountTotal ? (fdValue * 100) / accountTotal : 0;
-    const accountChart = fdCurrent.length ? `<div class="card pad"
+    const accountChart = fdCurrent.length || fdHistory.length ? `<div class="card pad"
         style="margin-bottom:14px;display:flex;gap:22px;align-items:center;flex-wrap:wrap">
       <div class="donut" style="background:conic-gradient(var(--green) 0 ${savingsPct}%,
         var(--amber) ${savingsPct}% 100%)" title="Savings vs fixed deposits in this account">
@@ -5359,22 +5352,23 @@ function renderAccount() {
           <a class="legend-row" href="#account-fds"
             onclick="document.getElementById('account-fds')?.scrollIntoView({behavior:'smooth',block:'start'});return false">
             <span class="dot" style="background:var(--amber)"></span>
-            <span class="nm">Fixed deposits (${fdCurrent.length})</span>
+            <span class="nm">Fixed deposits (${fdCurrent.length + fdHistory.length})</span>
             <span class="amt">${money(fdValue)}</span>
             <span class="pct">${Math.round(fdPct)}%</span></a>
         </div>
         <div class="muted" style="font-size:11.5px;margin-top:10px">Savings is the latest
-          statement balance; FDs are their current value. Matured FDs are history and are
-          excluded.</div>
+          statement balance; FDs are their current value. A matured FD stays in the total as
+          awaiting payment until a bank credit is matched.</div>
       </div></div>` : "";
     const fdSection = isBank ? `<div class="card pad"
         id="account-fds" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
         <h2 style="margin:0">Savings and fixed deposits</h2>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <span class="muted" style="font-size:12px">${fdCurrent.length} FD${fdCurrent.length === 1 ? "" : "s"}${fdCurrent.some((f) => !f.maturity_date)
+          <span class="muted fd-note">${fdCurrent.length + fdHistory.length}
+            FD${fdCurrent.length + fdHistory.length === 1 ? "" : "s"}${fdCurrent.some((f) => !f.maturity_date)
             ? ` · ${fdCurrent.filter((f) => !f.maturity_date).length} without a date` : ""}${fdHistory.length
-            ? ` · ${fdHistory.length} matured` : ""}</span>
+            ? ` · ${fdHistory.length} matured · awaiting payment` : ""}</span>
           <button class="mini-btn" onclick="bpAccountNewFd()">Add FD</button>
         </div></div>
       <div class="muted" style="font-size:11.5px;margin:4px 0 6px">Savings is the latest
@@ -5393,7 +5387,7 @@ function renderAccount() {
         : `<div class="muted" style="font-size:12px;padding:6px 0">No current FDs in this
           account.</div>`}
       ${fdHistory.length ? `<details class="fd-history">
-        <summary>Matured fixed deposits (${fdHistory.length})</summary>
+        <summary>Matured fixed deposits (${fdHistory.length}) · awaiting payment</summary>
         ${fdHistory.map((fd) => fdRow(fd, true)).join("")}</details>`
         : `<div class="muted" style="font-size:11.5px;margin-top:6px">No matured FDs for
           this account.</div>`}
@@ -10012,8 +10006,7 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     // two pages. It is dropped, unless its label carries a maturity in the past:
     // that row is history, and belongs in the page's "Matured bonds" group.
     const maturedRow = (p) => {
-      const parsed = parseBondLabel(p.label);
-      const maturity = String(p.maturity || parsed?.maturity || "");
+      const maturity = bondMaturity(p).maturity;
       return !!maturity && maturity < today;
     };
     const closedPosition = (p) => !p.disposed_at
@@ -10040,8 +10033,7 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
       const have = new Set(demat.positions
         .map((p) => String(p.security_id || "").toUpperCase()));
       for (const lot of source.lots || []) {
-        const parsed = parseBondLabel(lot.label);
-        const maturity = String(lot.maturity || parsed?.maturity || "");
+        const maturity = bondMaturity(lot).maturity;
         if (!maturity || maturity >= today) continue;
         const isin = String(lot.security_id || "").toUpperCase();
         if (!isin || have.has(isin)) continue;
@@ -10792,11 +10784,8 @@ function assetRow(a, onclick, overrideShown) {
   const cat = categoryOf(a);
   const v = assetValue(a);
   const place = [a.city, a.state].filter(Boolean).join(", ");
-  const maturedFd = cat === "fd" && a.maturity_date
-    && a.maturity_date < new Date().toISOString().slice(0, 10);
-  const history = maturedFd ? assetMetrics(a, cat) : null;
-  const shown = overrideShown || (history ? { paise: history.expectedAtMaturity ?? history.value ?? history.invested,
-    source: "at maturity · history" } : v);
+  const maturedFd = cat === "fd" && fdMatured(a);
+  const shown = overrideShown || v;
   const gold = cat === "gold" ? assetMetrics(a, cat) : null;
   const goldBits = gold ? [
     gold.grams !== null ? `${gramsLabel(gold.grams)} g${gold.gramsDerived ? " est." : ""}` : "",
@@ -10822,7 +10811,7 @@ function assetRow(a, onclick, overrideShown) {
   const sub = (cat === "demat"
     ? [where, isMf ? "" : tail, a.holder, place].filter(Boolean).join(" · ")
     : [cat === "bonds" ? where : identity.row, place, ...goldBits, ...mix,
-      maturedFd ? "matured" : ""].filter(Boolean).join(" · "))
+      maturedFd ? "matured · awaiting payment" : ""].filter(Boolean).join(" · "))
     || "no details yet";
   // A long "principal only · rate and start date missing" note does not fit the
   // amount column; the FD detail carries the full explanation.
@@ -11077,22 +11066,26 @@ async function renderRealAssets(host) {
         [acc.id, await store.listLockers(acc.id)])));
     const todayIso = new Date().toISOString().slice(0, 10);
     const fdByAccount = new Map((bankGroup?.rows || []).map((a) => [a.id, []]));
+    const maturedByAccount = new Map((bankGroup?.rows || []).map((a) => [a.id, []]));
     const unlinkedFds = [];
+    const maturedUnlinked = [];
+    const fdSum = (list) => list.reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
     for (const fd of (fdGroup?.rows || [])) {
-      if (fdMatured(fd, todayIso)) continue;
       const linked = fdLinks.get(fd.id);
-      if (linked && fdByAccount.has(linked)) fdByAccount.get(linked).push(fd);
-      else unlinkedFds.push(fd);
+      const matured = fdMatured(fd, todayIso);
+      const bucket = matured ? maturedByAccount : fdByAccount;
+      if (linked && bucket.has(linked)) bucket.get(linked).push(fd);
+      else (matured ? maturedUnlinked : unlinkedFds).push(fd);
     }
-    const unlinkedTotal = unlinkedFds.reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
+    const unlinkedTotal = fdSum(unlinkedFds) + fdSum(maturedUnlinked);
     const savedSort = window.bpAssetSort || {};
     // "Linked FD value" is gone. A stale in-memory key must not leave the bar
     // with no active button, so it reads as Balance.
     const sort = !["name", "balance"].includes(savedSort.key)
       ? { key: "balance", dir: -1 }
       : { key: savedSort.key, dir: savedSort.dir === 1 ? 1 : -1 };
-    const fdValueOf = (acc) => (fdByAccount.get(acc.id) || [])
-      .reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
+    const fdValueOf = (acc) => fdSum(fdByAccount.get(acc.id) || [])
+      + fdSum(maturedByAccount.get(acc.id) || []);
     const sortKey = (acc) => sort.key === "name"
       ? String(acc.label || acc.number || acc.id).toLowerCase()
       : (assetValue(acc).paise || 0) + fdValueOf(acc);
@@ -11116,15 +11109,9 @@ async function renderRealAssets(host) {
     const maturedGroup = fdGroups.find((g) => g.kind === "matured") || null;
     const activeFdGroups = fdGroups.filter((g) => g.kind !== "matured");
     const maturedFds = maturedGroup ? maturedGroup.rows.map((r) => r.fd) : [];
-    const maturedByAccount = new Map((bankGroup?.rows || []).map((a) => [a.id, []]));
-    const maturedUnlinked = [];
-    for (const fd of maturedFds) {
-      const linked = fdLinks.get(fd.id);
-      if (linked && maturedByAccount.has(linked)) maturedByAccount.get(linked).push(fd);
-      else maturedUnlinked.push(fd);
-    }
-    const activeFdTotal = activeFdGroups.reduce((t, g) => t + g.totalPaise, 0);
     const activeFdCount = activeFdGroups.reduce((n, g) => n + g.rows.length, 0);
+    const maturedFdTotal = maturedGroup ? maturedGroup.totalPaise : 0;
+    const allFdTotal = fdGroupsTotal(fdGroups);
     const pressed = (on) => (on ? "true" : "false");
     const sortBtn = (key, label, hint) => `<button class="sortbtn ${sort.key === key ? "on" : ""}"
       onclick="bpSortAcct('${key}')" aria-pressed="${pressed(sort.key === key)}"
@@ -11144,21 +11131,21 @@ async function renderRealAssets(host) {
       ${filterBtn("", "Everything", "Show every asset, with FDs under their bank account")}
       ${filterBtn("fds", "Only FDs", "Show only fixed deposits, grouped under their bank account")}</div>`;
     const fdSubRow = (fd, history) => {
-      const value = history ? fdHistoryValue(fd) : assetValue(fd).paise;
+      const value = assetValue(fd).paise;
       const matured = fdMatured(fd, todayIso);
       return `<a class="subrow" href="#" onclick="bpAssetView(${jsArg(fd.id)});return false">
         <span class="nm">${esc(fd.label || fd.number || "Fixed deposit")}${matured
-          ? ` <span class="muted" style="font-size:10.5px">(matured)</span>` : ""}</span>
+          ? ` <span class="muted fd-maturity-tag">(awaiting payment)</span>` : ""}</span>
         <span class="amt">${value === null ? "—" : money(value)}</span>
         <span class="pc">›</span></a>`;
     };
-    const bankTotal = (bankGroup?.total || 0) + activeFdTotal;
+    const bankTotal = (bankGroup?.total || 0) + allFdTotal;
     // The FD-only view keeps each deposit under the bank account that holds
     // it, so the account and its FDs still read as one thing.
     const fdOnlyRow = (r) => {
       const fd = r.fd;
       const when = fd.maturity_date
-        ? `${r.matured ? "matured" : "matures"} ${dateLabel(fd.maturity_date)}`
+        ? `${r.matured ? "matured — awaiting payment" : "matures"} ${dateLabel(fd.maturity_date)}`
         : "no maturity date";
       const label = fd.label || fd.number || "Fixed deposit";
       return `<a class="subrow fdrow${r.matured ? " muted" : ""}" href="#"
@@ -11192,8 +11179,8 @@ async function renderRealAssets(host) {
         <summary class="srow">
           <div class="chip" style="background:var(--hair);color:var(--muted)">FD</div>
           <div><div class="nm">Matured FDs (${g.rows.length})</div>
-            <div class="sub">History · not in current assets</div></div>
-          <div class="vl"></div>
+            <div class="sub">Awaiting payment · included in the FD total</div></div>
+          <div class="vl">${total}</div>
           <div class="pc">▾</div></summary>
         <div class="bank-subs">${rows}</div></details>`;
     };
@@ -11205,13 +11192,15 @@ async function renderRealAssets(host) {
           <span class="caret" aria-hidden="true"></span>
           <h2 id="bank-fds">Bank accounts &amp; FDs</h2>
           <span class="grp-right"><span class="muted" style="font-size:13px">${money(
-            showFdsOnly ? activeFdTotal : bankTotal)}</span></span>
+            showFdsOnly ? allFdTotal : bankTotal)}</span></span>
         </summary>
       <div class="stat-chips">
         ${showFdsOnly ? "" : `<span class="stat-chip">Savings
           <b>₹${compact(bankGroup?.total || 0)}</b></span>`}
-        <span class="stat-chip">FDs <b>₹${compact(activeFdTotal)}</b></span>
+        <span class="stat-chip">FDs <b>₹${compact(allFdTotal)}</b></span>
       </div>
+      ${maturedFdTotal ? `<div class="muted matured-note">
+        ${money(maturedFdTotal)} matured · awaiting payment, included in the totals above.</div>` : ""}
       ${showFdsOnly ? "" : sortBar}${filterBar}
       ${showFdsOnly
         ? `<div class="card" style="margin-top:8px">${activeFdGroups.length
@@ -11220,17 +11209,19 @@ async function renderRealAssets(host) {
               recorded yet.</div>`}${maturedGroup ? fdGroupCard(maturedGroup) : ""}</div>`
         : `<div class="card" style="margin-top:8px">${accountRows.map((acc) => {
         const fds = fdByAccount.get(acc.id) || [];
+        const matured = maturedByAccount.get(acc.id) || [];
         const open = acc.facts > 0 ? `bpAccount(${jsArg(acc.id)})` : `bpAsset(${jsArg(acc.id)})`;
         const savings = assetValue(acc).paise;
-        const fdValue = fds.reduce((t, fd) => t + (assetValue(fd).paise || 0), 0);
+        const fdValue = fdSum(fds) + fdSum(matured);
         const total = savings === null ? (fdValue || null) : savings + fdValue;
-        const shown = fds.length && total !== null ? { paise: total, source: "account total" } : null;
+        const shown = (fds.length || matured.length) && total !== null
+          ? { paise: total, source: "account total" } : null;
         return `<div class="bank-group">${assetRow(acc, open, shown)}
           ${accountSectionsHtml({
             acc, open,
             openFds: `bpAccount(${jsArg(acc.id)},'fds')`,
             openLockers: `bpAccount(${jsArg(acc.id)},'lockers')`,
-            savings, activeFds: fds, maturedFds: maturedByAccount.get(acc.id) || [],
+            savings, activeFds: fds, maturedFds: matured,
             lockers: lockerMap.get(acc.id) || [], fdRow: fdSubRow, currency: acc.currency,
           })}</div>`;
       }).join("")}
@@ -11239,14 +11230,15 @@ async function renderRealAssets(host) {
           <div class="chip">FD</div>
           <div><div class="nm">FDs without a linked account</div>
             <div class="sub">No matching debit in the accounts above</div></div>
-          <div class="vl">${unlinkedFds.length ? money(unlinkedTotal) : "—"}
+          <div class="vl">${unlinkedFds.length || maturedUnlinked.length
+            ? money(unlinkedTotal) : "—"}
             <div class="sub" style="text-align:right">${unlinkedFds.length} current${
               maturedUnlinked.length ? ` · ${maturedUnlinked.length} matured` : ""}</div></div>
           <div class="pc"></div>
         </div>
         <div class="bank-subs">${unlinkedFds.map((fd) => fdSubRow(fd)).join("")}${
           maturedUnlinked.length ? `<details class="fd-matured">
-            <summary>Matured (${maturedUnlinked.length})</summary>
+            <summary>Matured (${maturedUnlinked.length}) · awaiting payment</summary>
             ${maturedUnlinked.map((fd) => fdSubRow(fd, true)).join("")}
           </details>` : ""}</div>
       </div>` : ""}
@@ -11267,10 +11259,10 @@ async function renderRealAssets(host) {
     host.innerHTML = `<h1>Assets${samplePill()}</h1>${actions}
       ${stale ? staleImportCard() : ""}
       ${showFdsOnly ? `<div class="hero"><div class="lbl">Fixed deposits</div>
-        <div class="num">${activeFdTotal ? money(activeFdTotal) : "—"}</div>
+        <div class="num">${allFdTotal ? money(allFdTotal) : "—"}</div>
         <div class="chips"><span>${activeFdCount} active
         deposit${activeFdCount === 1 ? "" : "s"}</span>
-        <span>${maturedFds.length} matured</span></div></div>`
+        <span>${maturedFds.length} matured · awaiting payment</span></div></div>`
       : `<div class="hero"><div class="lbl">Across ${assets.length} asset${assets.length === 1 ? "" : "s"}</div>
         <div class="num">${valued ? money(total) : "—"}</div>
         <div class="chips"><span>${valued} of ${assets.length} valued</span>
@@ -11334,7 +11326,8 @@ function positionCard(a, holdings) {
       cost of the gold. Unrealised gain is the market value minus cost; it is shown here and
       not added to net worth. Realised gain is money already received.</div></div>`;
   }
-  const bondBook = cat === "bonds" ? bondSummary(splitMatured(holdings || []).current) : null;
+  const bondSplit = cat === "bonds" ? splitMatured(holdings || []) : null;
+  const bondBook = bondSplit ? bondSummary(bondSplit.current) : null;
   if (bondBook) {
     const cost = bondBook.cost;
     const expected = bondBook.expected || null;
@@ -11375,16 +11368,22 @@ function positionCard(a, holdings) {
     ${bondBook.shortSchedule ? `<div class="muted" style="font-size:11px;margin-top:4px">
       ${bondBook.shortSchedule} lot${bondBook.shortSchedule === 1 ? "" : "s"} left out of the
       gain: the imported schedule promises less than was paid, so part of the principal may
-      already have come back.</div>` : ""}</div>`;
+      already have come back.</div>` : ""}
+    ${bondSplit.matured.length ? `<div class="muted matured-note">
+      ${bondSplit.maturedValue ? `${money(bondSplit.maturedValue)} matured · ` : ""}awaiting
+      payment, included in the account value.${bondSplit.maturedGuessed ? ` The maturity date
+      was read from the bond name for ${bondSplit.maturedGuessed} lot${
+        bondSplit.maturedGuessed === 1 ? "" : "s"}.` : ""}</div>` : ""}</div>`;
   }
   if (cat === "bonds") {
     // No current lots: do not fall back to the all-lot totals, which still
     // include the matured ones.
-    const { matured } = splitMatured(holdings || []);
+    const { matured, maturedValue } = splitMatured(holdings || []);
     return `<div class="card pad" style="margin-bottom:14px"><div class="muted"
       style="font-size:13px">${matured.length
         ? `No current holdings. ${matured.length} matured lot${matured.length === 1 ? "" : "s"}
-           ${matured.length === 1 ? "is" : "are"} listed below.`
+           ${matured.length === 1 ? "is" : "are"} listed below${maturedValue
+             ? `, ${money(maturedValue)} awaiting payment and included in the account value` : ""}.`
         : "No holdings yet. Add one, or import a broker report."}</div></div>`;
   }
   const rows = [
@@ -11507,6 +11506,12 @@ function bondFrequency(freq) {
 }
 function bondRowView(h) {
   const ba = bondAnalytics(h);
+  // splitMatured() attaches the date it resolved. Keep its source and guess
+  // flag; re-reading the row would mistake the attached date for a stored one.
+  const terms = h.maturitySource
+    ? { maturity: h.maturity || "", source: h.maturitySource,
+      guessed: !!h.maturityGuessed }
+    : bondMaturity(h);
   const parsed = parseBondLabel(h.label);
   const hasPrice = ba ? ba.hasMarket : (h.value_paise !== null && h.cost_paise !== null
     && Math.abs(h.value_paise - h.cost_paise) >= 1);
@@ -11523,7 +11528,9 @@ function bondRowView(h) {
     rating: bondRatingOf(h),
     change: bondRatingChange(h.rating_at_purchase, h.rating),
     coupon: ba ? ba.couponPct : (parsed ? parsed.couponPct : (h.couponPct ?? null)),
-    maturity: ba ? ba.maturity : (parsed ? parsed.maturity : (h.maturity || "")),
+    maturity: terms.maturity || (ba ? ba.maturity : ""),
+    maturitySource: terms.source,
+    maturityGuessed: terms.guessed,
     yieldPct: h.yield_bps !== null && h.yield_bps !== undefined
       ? h.yield_bps / 100 : (ba ? ba.ytm : null),
     frequency: bondFrequency(h.frequency),
@@ -11586,17 +11593,6 @@ async function bondRatingDrift(store, assets) {
   }
   return out;
 }
-function splitMatured(rows = []) {
-  const today = new Date().toISOString().slice(0, 10);
-  const current = [], matured = [], disposed = [];
-  for (const h of rows) {
-    if (h.disposed_at) { disposed.push(h); continue; }
-    const maturity = (parseBondLabel(h.label) || {}).maturity || "";
-    if (maturity && maturity < today) matured.push({ ...h, maturity });
-    else current.push(h);
-  }
-  return { current, matured, disposed };
-}
 function bondCardHtml(v, assetId, { matured = false } = {}) {
   const moneyOrDash = (x) => x === null || x === undefined ? "—" : money(x);
   const cell = (k, val, cls = "") => `<div><span class="k">${k}</span>
@@ -11643,7 +11639,7 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
         ? " · added by hand" : ""}${!String(v.h.issuer || "").trim()
         ? ` · <span class="need">issuer name missing</span>` : ""}</div></div>
       <div class="bond-card-actions">
-        ${matured ? `<span class="bond-rating">Matured</span>` : ""}
+        ${matured ? `<span class="bond-rating">Awaiting payment</span>` : ""}
         ${matured && v.rating ? `<span class="bond-rating" title="Current credit rating">${esc(v.rating)}</span>` : ""}
         ${assetId && v.h.id && !matured ? `<a class="mini-btn"
           href="https://smest.in/bond-details/x/${encodeURIComponent(v.h.security_id || "")}"
@@ -11657,18 +11653,21 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     ${matured ? `<div class="bond-grid">
       ${cell("Interest rate", v.coupon === null ? "—" : `${v.coupon}%`)}
       ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
-      ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
+      ${cell("Maturity date", v.maturity ? `${dateLabel(v.maturity)}${
+        v.maturityGuessed ? `<div class="sub">read from the bond name — check it</div>` : ""}` : "—")}
       ${cell("Units", qty || "—")}
       ${cell("Face value", v.faceAtIssue ? money(v.faceAtIssue) : "—")}
       ${cell("Invested", moneyOrDash(v.h.cost_paise))}
-      ${cell("Market value", moneyOrDash(v.value))}
+      ${cell("Value in net worth", moneyOrDash(v.value ?? v.h.cost_paise))}
     </div>
-    <div class="bond-sources">Matured · terms from the CAS${v.rating ? " · rating from SMEST" : ""}</div>`
+    <div class="bond-sources">Matured · awaiting payment · terms from the CAS${
+      v.rating ? " · rating from SMEST" : ""}</div>`
     : `<div class="bond-section">
       <h3 class="bond-section-title">Purchase</h3>
       <div class="bond-grid">
         ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
-        ${cell("Maturity date", v.maturity ? dateLabel(v.maturity) : "—")}
+        ${cell("Maturity date", v.maturity ? `${dateLabel(v.maturity)}${
+          v.maturityGuessed ? `<div class="sub">read from the bond name — check it</div>` : ""}` : "—")}
         ${cell("Invested", moneyOrDash(v.h.cost_paise))}
         ${cell("Units", qty || "—")}
         ${cell("Face at issue", v.faceAtIssue ? `${money(v.faceAtIssue)}${
@@ -11765,7 +11764,7 @@ window.bpBondFetchDismiss = () => {
   }
 };
 function holdingsCard(allRows, assetId) {
-  const { current: rows, matured } = splitMatured(allRows);
+  const { current: rows, matured, maturedValue, maturedGuessed } = splitMatured(allRows);
   const state = window.bpBondSortState || { key: "maturity", dir: 1 };
   const s = summarizeHoldings(rows);
   const moneyOrDash = (v) => v === null || v === undefined ? "—" : money(v);
@@ -11811,7 +11810,8 @@ function holdingsCard(allRows, assetId) {
           : v.periods ? `<div class="sub">${esc(v.frequency.toLowerCase())}</div>`
             : v.totalCoupon !== null ? `<div class="sub">payment frequency unknown</div>` : ""}</td>
       <td>${v.bought ? dateLabel(v.bought) : "—"}</td>
-      <td>${v.maturity ? dateLabel(v.maturity) : "—"}</td>
+      <td>${v.maturity ? `${dateLabel(v.maturity)}${
+        v.maturityGuessed ? `<div class="sub">from the name</div>` : ""}` : "—"}</td>
       <td class="num">${v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity}</td>
       <td class="num">${moneyOrDash(v.h.cost_paise)}</td>
       <td class="num">${moneyOrDash(v.value)}</td>
@@ -11915,9 +11915,12 @@ function holdingsCard(allRows, assetId) {
       ${tableRows}</table></div>
     <div class="bond-cards">${cards}</div>
     ${matured.length ? `<details class="matured-bonds"><summary>Matured bonds (${matured.length})
-      · not counted</summary>
-      <div class="muted" style="font-size:11.5px;margin:6px 0">Past their maturity date, so they
-      are not in the totals above. Delete a lot if you no longer hold it.</div>
+      · ${maturedValue ? `${money(maturedValue)} ` : ""}awaiting payment</summary>
+      <div class="muted matured-note">Past their maturity date and not confirmed paid. They stay
+      in the account value and the bonds total${maturedValue ? ` at ${money(maturedValue)}` : ""}
+      until a bank credit is matched.${maturedGuessed ? ` For ${maturedGuessed} lot${
+        maturedGuessed === 1 ? "" : "s"}, the date was read from the bond name; check it against
+        the statement.` : ""} Delete a lot only if you know it was paid.</div>
       <div class="matured-cards">${matured.map((h) => bondRowView(h))
         .sort((a, b) => String(b.maturity || "").localeCompare(String(a.maturity || "")))
         .map((v) => bondCardHtml(v, assetId, { matured: true })).join("")}</div>

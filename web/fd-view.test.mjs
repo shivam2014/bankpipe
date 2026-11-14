@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildFdGroups, fdMatured, fdHistoryValue, orderAccountsByFdTotal } from "./fd-view.js";
+import { buildFdGroups, fdMatured, fdHistoryValue, fdGroupsTotal,
+  orderAccountsByFdTotal } from "./fd-view.js";
 
 const TODAY = "2026-10-30";
 const account = (id, label, extra = {}) =>
@@ -78,7 +79,7 @@ test("a link to a missing account is unlinked, not dropped", () => {
   assert.equal(groups[0].rows[0].fd.id, "f1");
 });
 
-test("matured FDs leave the active total but stay in their own group", () => {
+test("a matured FD keeps its own group and still belongs to the total", () => {
   const accounts = [account("a1", "HDFC savings")];
   const groups = buildFdGroups({
     accounts,
@@ -95,7 +96,9 @@ test("matured FDs leave the active total but stay in their own group", () => {
   assert.equal(groups[1].rows[0].fd.id, "done");
   assert.equal(groups[1].rows[0].matured, true);
   assert.equal(groups[1].totalPaise, 40000);
-  assert.equal(groups.reduce((t, g) => t + (g.kind === "matured" ? 0 : g.totalPaise), 0), 100000);
+  // Maturity is not payment. The matured value stays in the FD total until a
+  // bank credit is matched; the separate group is where the reader sees it.
+  assert.equal(fdGroupsTotal(groups), 140000);
 });
 
 test("no FDs means no groups", () => {
@@ -162,13 +165,13 @@ test("the FD-only order puts the largest active subtotal first, ties by label", 
   assert.deepEqual(accounts.map((a) => a.id), ["small", "big", "tie"]);
 });
 
-test("matured FDs do not count towards the FD-only order", () => {
+test("matured FDs still count towards the FD-only order", () => {
   const accounts = [account("old", "Old"), account("live", "Live")];
   const fds = [fd("done", 900000, { maturity_date: "2025-01-01" }),
     fd("now", 100000, { maturity_date: "2027-01-01" })];
   const ordered = orderAccountsByFdTotal(accounts, fds,
     new Map([["done", "old"], ["now", "live"]]), TODAY);
-  assert.deepEqual(ordered.map((a) => a.id), ["live", "old"]);
+  assert.deepEqual(ordered.map((a) => a.id), ["old", "live"]);
 });
 
 test("an account with no FDs sorts after the accounts that have them", () => {

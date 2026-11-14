@@ -8,7 +8,7 @@ import { accountFolios, normalizeFolio } from "./folio.js";
 import { isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
-import { parseBondLabel } from "./bonds.js";
+import { bondMaturity, isDisposed } from "./bonds.js";
 
 const norm = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const text = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -597,11 +597,7 @@ export function accountFieldState(account, holdings = []) {
 // Read the explicit field first, then derive it only for a bond so a stray date
 // in a fund or share name cannot mark that row matured.
 function holdingMaturity(row) {
-  const explicit = parseDate(row?.maturity ?? row?.maturity_date ?? "");
-  if (explicit) return explicit;
-  const category = String(row?.category || "").toLowerCase();
-  if (category !== "bond") return "";
-  return parseBondLabel(row?.label)?.maturity || "";
+  return bondMaturity(row).maturity;
 }
 
 /**
@@ -626,9 +622,11 @@ export function importAccountSummary(account, holdings = [],
   const casAsOf = state.identity.source === "cas" ? state.identity.asOf : "";
   const positions = rows.map((row) => {
     const quantity = asNumber(row?.quantity);
+    const disposed = isDisposed(row);
     const maturity = holdingMaturity(row);
-    const matured = !!(maturity && maturity < today);
-    return { matured, active: !matured && quantity !== null && quantity > 0 };
+    const matured = !disposed && !!(maturity && maturity < today);
+    return { matured, disposed,
+      active: !disposed && !matured && quantity !== null && quantity > 0 };
   });
   const count = positions.filter((position) => position.active).length;
   const matured = positions.filter((position) => position.matured).length;
@@ -677,7 +675,7 @@ function normalizeHolding(row) {
 function normalizeIncoming(row) {
   const out = normalizeHolding(row);
   out.isin = rowIsin(row);
-  out.maturity = out.maturity || parseBondLabel(out.label)?.maturity || "";
+  out.maturity = bondMaturity(out).maturity;
   return out;
 }
 
@@ -882,7 +880,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
         });
         continue;
       }
-      const maturity = row.maturity || parseBondLabel(row.label)?.maturity || "";
+      const maturity = bondMaturity(row).maturity;
       // A matured bond is history, not a live holding. An older CAS still brings
       // it across, so the final set does not depend on which file arrived first.
       if (!canAdd && (identityOnly || casQuantityTake) && maturity && maturity < now) {
@@ -1116,7 +1114,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
         reason: "entered by hand, not in any file", next: old });
       continue;
     }
-    const maturity = old.maturity || parseBondLabel(old.label)?.maturity || "";
+    const maturity = bondMaturity(old).maturity;
     if (maturity && maturity < now) {
       const next = { ...old, quantity: 0, valuePaise: 0 };
       decisions.push({ isin: old.isin, label: old.label, action: "history", existing: old, next,

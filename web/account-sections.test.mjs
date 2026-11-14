@@ -7,7 +7,8 @@ const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 test("every account card renders Savings, fixed deposits and lockers", () => {
   assert.match(html, /function accountSectionsHtml/);
   assert.match(html, /kind: "savings", label: "Savings"/);
-  assert.match(html, /kind: "fds", label: `Fixed deposits \(\$\{activeFds\.length\}\)`/);
+  assert.match(html,
+    /kind: "fds", label: `Fixed deposits \(\$\{activeFds\.length \+ maturedFds\.length\}\)`/);
   assert.match(html, /kind: "lockers", label: `Lockers \(\$\{lockers\.length\}\)`/);
   const calls = html.match(/accountSectionsHtml\(\{/g) || [];
   assert.ok(calls.length >= 4,
@@ -34,7 +35,7 @@ test("expand and collapse are a separate control from the header link", () => {
 // A section with nothing in it should not open into an empty message. The count
 // in the label decides: (0) starts collapsed, (1) or more starts open.
 test("an empty fixed-deposit or locker section starts collapsed", () => {
-  assert.match(html, /expanded: activeFds\.length > 0/);
+  assert.match(html, /expanded: activeFds\.length > 0 \|\| maturedFds\.length > 0/);
   assert.match(html, /expanded: lockers\.length > 0/);
   assert.match(html, /\$\{expanded \? "" : " hidden"\}/);
   assert.match(html, /const arrow = button\.querySelector\("span"\)/);
@@ -89,11 +90,12 @@ test("lockers are custody, not an asset value", () => {
   assert.doesNotMatch(html, /· custody/);
 });
 
-test("matured FDs are collapsed history inside fixed deposits", () => {
+test("matured FDs are a separate awaiting-payment section inside fixed deposits", () => {
   assert.match(html, /maturedFds = \[\]/);
   assert.match(html, /<details class="fd-matured">/);
-  assert.match(html, /Matured \(\$\{maturedFds\.length\}\)/);
-  assert.match(html, /label: `Fixed deposits \(\$\{activeFds\.length\}\)`/);
-  assert.doesNotMatch(html, /History · not in the total above/);
-  assert.match(html, /History · not in current assets/);
+  assert.match(html, /Matured \(\$\{maturedFds\.length\}\) · awaiting payment/);
+  assert.match(html,
+    /label: `Fixed deposits \(\$\{activeFds\.length \+ maturedFds\.length\}\)`/);
+  assert.doesNotMatch(html, /History · not in current assets/);
+  assert.match(html, /Awaiting payment · included in the FD total/);
 });
