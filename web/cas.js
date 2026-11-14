@@ -29,7 +29,7 @@
 // DOM, no storage, no network.
 
 import { boId } from "./bo-id.js";
-import { folioHome, normalizeFolio } from "./folio.js";
+import { folioAdoptedHome, folioHome, normalizeFolio } from "./folio.js";
 
 const ISIN = /^IN[A-Z0-9]{10}$/;
 const DATE = /^\d{1,2}-[A-Za-z]{3}-\d{4}$/;
@@ -1159,12 +1159,15 @@ export function parseCas(pdf) {
  * Where each holding belongs. A CAS covers one demat but several classes, and
  * this app keeps bonds and equities in separate accounts, so one target would
  * either overwrite a class or force the person to import the same file twice.
+ * `adopt` carries only the folio targets the person explicitly chose. A folio
+ * with no exact home stays homeless otherwise; the AMC label never merges it.
  * @param {{holdings: Array<object>, demat?: string}} parsed
  * @param {Array<{id: string, label?: string, category?: string, number?: string}>} assets
+ * @param {{adopt?: object|Map}} [options] folio key to account id, user chosen
  * @returns {{demat: string, accounts: Array<object>, groups: Array<object>,
  *   homeless: Array<object>}}
  */
-export function casRoute(parsed, assets = []) {
+export function casRoute(parsed, assets = [], { adopt = {} } = {}) {
   const list = parsed?.accounts?.length
     ? parsed.accounts
     : [{ boId: parsed?.demat || "", dpName: "", holdings: parsed?.holdings || [] }];
@@ -1190,7 +1193,9 @@ export function casRoute(parsed, assets = []) {
       // being written into a folio account with a value picked from the wrong cell.
       const isFolio = holding.kind === "mf" && !!holding.folio
         && Number(holding.quantity) > 0;
-      const target = isFolio ? folioHome(holding, assets) : asset;
+      const target = isFolio
+        ? (folioHome(holding, assets) || folioAdoptedHome(holding, assets, adopt))
+        : asset;
       const bucket = target ? groups : homeless;
       // One group per folio, even when one account carries two of them: the card
       // ticks and the writer group by position, not by fund house.
