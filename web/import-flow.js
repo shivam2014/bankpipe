@@ -704,7 +704,10 @@ function normalizeHolding(row) {
     valueSource: String(row.valueSource ?? row.value_source ?? ""),
     couponPct: asNumber(row.couponPct),
     frequency: text(row.frequency),
-    maturity: parseDate(row.maturity ?? ""),
+    // A stored holding has no maturity column: the label carries it. Derive it
+    // for the old row too, or every re-import sees a maturity it cannot store
+    // as a new field and rewrites the same rows.
+    maturity: parseDate(row.maturity ?? row.maturity_date ?? "") || bondMaturity(row).maturity,
     interestDate: parseDate(row.interestDate ?? row.interest_date ?? ""),
     payoutPaise: asMoney(row.payoutPaise ?? row.payout_paise),
     futureInterestPaise: asMoney(row.futureInterestPaise ?? row.future_interest_paise),

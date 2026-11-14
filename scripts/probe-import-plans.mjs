@@ -30,11 +30,11 @@ const baseAccount = {
 };
 
 const casRows = [1, 2, 3, 4].map((n) => ({
-  isin: isin(n), label: `TESTSTOCK${n}`, category: "equity", kind: "equity",
+  isin: isin(n), label: `9.00% TEST BOND ${n} 31 Dec 2028`, category: "bond", kind: "bond",
   quantity: 10 * n, valuePaise: 100000 * n, costPaise: null, purchaseDate: "",
 }));
 const motilalRows = [1, 2, 3, 4].map((n) => ({
-  isin: isin(n), label: `TESTSTOCK${n}`, category: "equity",
+  isin: isin(n), label: `9.00% TEST BOND ${n} 31 Dec 2028`, category: "bond",
   quantity: 10 * n, valuePaise: null, costPaise: 200000 * n, purchaseDate: "2024-06-06",
 }));
 const zerodhaRows = [5, 6, 7, 8].map((n) => ({

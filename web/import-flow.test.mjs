@@ -1007,8 +1007,28 @@ test("an identical re-import of the broker's own key changes nothing", () => {
   }
 });
 
-test("a genuine alias still reports the stored key and the incoming key", () => {
-  const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
+test("a bond re-import does not count a maturity field the holding table cannot store", () => {
+  const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2028",
+    category: "bond", quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
+    value_paise: 100000, as_of: "2026-11-05", source: "motilal" };
+  const account = { id: "demat-1", label: "Demat", category: "demat", subtype: "equity",
+    number: "IN99990001344321", meta: JSON.stringify({ broker_only: "1",
+      identity_source: "motilal", identity_as_of: "2026-11-05",
+      holdings_source: "motilal", holdings_as_of: "2026-11-05",
+      cost_source: "motilal", cost_as_of: "2026-11-05", ucid: "TEST0001" }) };
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-05", rows: [{ isin: isin(1),
+      label: "9.00% TEST BOND 31 Dec 2028", category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] }),
+    existing: { ...accountFieldState(account, [row]), holdings: [row] },
+    today: "2026-11-15",
+  });
+  assert.equal(plan.summary.added + plan.summary.updated + plan.summary.history, 0);
+  assert.equal(plan.summary.kept, 1);
+  assert.equal(plan.summary.ask, 0);
+});
+
+test("a genuine alias still reports the stored key and the incoming key", () => {  const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
     category: "bond", quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
     value_paise: 100000, as_of: "2026-11-12", source: "motilal" };
   const account = { id: "motilal-account", label: "Demat", category: "demat",
