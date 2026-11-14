@@ -171,3 +171,45 @@ test("a sold-only holdings card keeps its add actions", () => {
   assert.match(html, /No live holdings/);
   assert.match(html, /\$\{isDemat \|\| cat === "bonds" \|\| isFolio/);
 });
+
+test("a value-only folio offer is shown, with the difference and both choices", () => {
+  assert.match(html, /const folioPlan = folioAdoptionPlan\(\{/);
+  assert.match(html, /bundle\.folioPlan = folioPlan/);
+  assert.match(html, /const offerHtml = target\.offer/);
+  assert.match(html, /casFolioOfferHtml\(target\.offer,/);
+  assert.match(html, /looks like your existing/);
+  assert.match(html, /They differ by/);
+  assert.match(html, /Adopt into \$\{esc\(candidate\.label\)\}/);
+  assert.match(html, /Keep both/);
+  assert.match(html, /market movement/);
+  assert.match(html, /keeping both\s+leaves both totals counting/);
+});
+
+test("the writer routes only the folio targets the person chose", () => {
+  assert.match(html, /const adopt = folioPlan\.targets/);
+  assert.match(html, /casRoute\(cas, await store\.listAccounts\(\), \{ adopt \}\)/);
+  assert.match(html, /const folioChoices = \{\}/);
+  assert.match(html, /casRoute\(cas, accounts, \{ adopt: folioChoices \}\)/);
+  assert.match(html, /folioChoices\[target\.offer\.key\] = target\.targetId/);
+  assert.match(html, /card\.folioChoices/);
+});
+
+test("the receipt says when a folio was adopted, kept or left ambiguous", () => {
+  assert.match(html, /was not linked: \$\{offer\.reason\}/);
+  assert.match(html, /was not linked because you chose Keep both/);
+  assert.match(html, /was not linked; it is a new account and both/);
+  assert.match(html, /adopted into \$\{adopted\.label\}/);
+});
+
+test("the old CAS card offers adoption and keeps the choice", () => {
+  assert.match(html, /window\.bpCasAdoptChoice = \(key, folio, accountId\)/);
+  assert.match(html, /card\.folioChoices = \{ \.\.\.\(card\.folioChoices \|\| \{\}\),/);
+  assert.match(html, /const folioPlan = bpCasFolioPlan\(cas\.holdings,/);
+  assert.match(html, /const adopt = folioPlan\.targets/);
+});
+
+test("adoption replaces the manual total and writes the folio on the account", () => {
+  assert.match(html, /if \(isFolioAccount\(asset\)\) \{\s*\n\s*delete meta\.current_value_paise;/);
+  assert.match(html, /nextMeta\.folios = \[\.\.\.new Set\(\[\.\.\.known, \.\.\.folios\]\)\]/);
+  assert.match(html, /if \(nextNumber\) patch\.number = nextNumber;/);
+});
