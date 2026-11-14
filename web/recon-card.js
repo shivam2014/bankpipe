@@ -5,9 +5,43 @@
 // The one rule: a card that has nothing to say says why. An empty list is not a
 // clean report, it is a missing statement.
 
+import { jsArg } from "./escape.js";
+
 const escape = (value) => String(value ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;");
+
+const FUND_ACCOUNT = /mutual\s*fund|^mf$/i;
+
+/** The one localStorage key a dismissed card uses. Per account, restorable. */
+export function reconDismissKey(assetId) {
+  return `bp.recon.dismissed.${String(assetId || "")}`;
+}
+
+/** Does this account have a bond reconcile at all? */
+export function reconEligible(asset, holdings = []) {
+  const cat = String(asset?.category || "").toLowerCase();
+  if (cat === "bonds") return true;
+  if (cat !== "demat") return false;
+  if (FUND_ACCOUNT.test(String(asset?.subtype || ""))) return false;
+  return (holdings || []).some((h) =>
+    String(h?.category || "").toLowerCase() === "bond");
+}
+
+const HIDDEN_REASONS = new Set([
+  "no-cost-source", "no-bond-holdings", "no-linked-demat", "not-applicable",
+]);
+
+/** A result that has a card to show. The hidden reasons stay off the page. */
+export function reconHasCard(result) {
+  return !!result && !HIDDEN_REASONS.has(result.reason);
+}
+
+export function reconHiddenHtml() {
+  return `<div class="card pad recon-hidden">
+    <span class="muted">Reconcile hidden for this account.</span>
+    <button class="actlink" onclick="bpReconShow()">Show again</button></div>`;
+}
 
 const units = (n) => {
   const v = Number(n) || 0;
@@ -47,6 +81,15 @@ export function reconHeadline(result) {
   if (result.reason === "ambiguous-pair") {
     return "Two assets share this demat. Make one of them the depository view before auditing.";
   }
+  if (result.reason === "no-bond-holdings") {
+    return "This account holds no bond positions, so there is nothing to reconcile.";
+  }
+  if (result.reason === "no-linked-demat") {
+    return "No demat account is linked to this bond portfolio yet.";
+  }
+  if (result.reason === "not-applicable") {
+    return "Reconciliation compares bond lots with a demat. This account is neither.";
+  }
   const total = Number(result.total) || 0;
   const breaks = Number(result.breaks) || 0;
   const matched = Number(result.counts?.matched) || 0;
@@ -69,7 +112,8 @@ export function reconRows(result) {
 }
 
 /** The whole card. `money` formats paise so this module stays free of the UI. */
-export function reconCardHtml(result, { money = (p) => String(p), shapeText = "" } = {}) {
+export function reconCardHtml(result, { money = (p) => String(p), shapeText = "",
+  dismissId = "" } = {}) {
   if (!result) return "";
   const rows = reconRows(result);
   const cost = Number(result.costPaise) || 0;
@@ -78,25 +122,29 @@ export function reconCardHtml(result, { money = (p) => String(p), shapeText = ""
     ? rows.map((r) => `<div class="kv-row">
         <div class="k">${r.stateLabel}</div>
         <div class="v">${escape(r.label)}<br>
-          <span class="muted" style="font-size:11.5px">${escape(r.detail)}</span></div>
+          <span class="muted" style="font-size:11px">${escape(r.detail)}</span></div>
       </div>`).join("")
     : "";
   // The shape report is safe to paste: counts and formats, never a value. It is
   // the only way a report can be debugged without the statements themselves.
   const shapeBlock = shapeText
     ? `<details style="margin-top:10px">
-        <summary class="muted" style="font-size:11.5px;cursor:pointer">
+        <summary class="muted" style="font-size:11px;cursor:pointer">
           Shape report — safe to share</summary>
         <pre style="font-size:11px;white-space:pre-wrap;margin:8px 0 0">${escape(shapeText)}</pre>
       </details>`
     : "";
-  return `<div class="card pad" style="margin-bottom:14px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-      <h2 style="margin:0">Reconcile</h2>
-      ${cost ? `<span class="muted" style="font-size:11.5px">cost ${escape(money(cost))}</span>` : ""}
+  return `<div class="card pad recon-card">
+    <div class="recon-head">
+      <h2>Reconcile</h2>
+      <div class="recon-actions">
+        ${cost ? `<span class="muted recon-cost">cost ${escape(money(cost))}</span>` : ""}
+        ${dismissId ? `<button class="mini-btn"
+          onclick="bpReconDismiss(${jsArg(dismissId)})">Dismiss</button>` : ""}
+      </div>
     </div>
-    <div class="muted" style="font-size:12.5px;margin-top:5px">${escape(head)}</div>
-    ${body ? `<div class="kv" style="margin-top:8px">${body}</div>` : ""}
+    <div class="muted recon-headline">${escape(head)}</div>
+    ${body ? `<div class="kv recon-rows">${body}</div>` : ""}
     ${shapeBlock}
   </div>`;
 }

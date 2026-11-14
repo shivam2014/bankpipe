@@ -439,7 +439,28 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .class-ring-title{margin:0 0 8px}
 .class-actions{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
 .bond-card{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card)}
-.bond-card-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.bond-card-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:nowrap}
+.bond-card-title{min-width:0;flex:1 1 auto}
+.bond-card-actions{display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:auto;flex-wrap:wrap}
+.holding-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.holding-title{margin:0;font-size:15px}
+.holding-head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.holding-bits{font-size:12px}
+.holding-card{margin-bottom:12px}
+.holdings-empty-note{margin-top:4px;font-size:13.5px;line-height:1.5}
+.class-ring-value{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:4px}
+.recon-card{margin-bottom:14px}
+.recon-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.recon-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.recon-cost{font-size:12px}
+.recon-headline{margin-top:5px;font-size:12px;line-height:1.5}
+.recon-rows{margin-top:8px}
+.recon-hidden{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.manual-holding-note{margin:-6px 0 14px;font-size:13.5px}
+.manual-holding-actions{margin-top:14px}
+.form-error{color:var(--red);font-size:12px;margin-top:10px}
+.uppercase-input{text-transform:uppercase}
+.btn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 35%,transparent)}
 .bond-progress{margin-top:10px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;
  background:var(--hair)}
 .bond-progress .bp-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
@@ -465,6 +486,8 @@ details[open]>.df-summary::after{transform:rotate(-90deg)}
 .bond-grid .v.neg{color:var(--red)}
 .bond-grid .v.pos{color:var(--green)}
 @media (max-width:1000px){.bond-table-wrap{display:none}.bond-cards{display:flex}}
+@media (max-width:520px){.bond-card-head{flex-wrap:wrap}.bond-card-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
+@media (pointer:coarse){.bond-card-actions .mini-btn,.holding-head-actions .btn{min-height:44px}}
 @media (max-width:620px){.donut{width:160px;height:160px}.donut-hole{width:104px;height:104px}.legend-row .amt{font-size:11.5px}}
 .locker-grid{display:grid;gap:10px}
 @media (min-width:720px){.locker-grid{grid-template-columns:1fr 1fr}}
@@ -973,7 +996,8 @@ const views = { home: renderHome, assets: renderAssets, accounts: renderAssets,
                 asset: renderAsset, addAccount: renderAsset,
                 logins: renderLogins, verify: renderVerify, issues: renderIssues,
                 category: renderCategory, gaps: renderGaps, holdingEdit: renderHoldingEdit,
-                bondHolding: renderBondHoldingForm, duplicates: renderDuplicates,
+                bondHolding: renderBondHoldingForm, manualHolding: renderManualHoldingForm,
+                duplicates: renderDuplicates,
                 bankgroup: renderBankGroup, bankview: renderBankView, assetview: renderAssetView };
 let bpNavStack = [];
 let bpCurrentEntry = null;
@@ -1191,7 +1215,7 @@ import { reorderLine } from "./reorder-line.js";
 import { balanceRunsFromSheet } from "./balance-formula.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
-import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, importFillPlan } from "./assets.js";
+import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, assetClassParts, classPage, holdingClass, isFundAccount, importFillPlan } from "./assets.js";
 import { buildFdGroups, fdHistoryValue, fdMatured, orderAccountsByFdTotal } from "./fd-view.js";
 import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
@@ -1210,7 +1234,8 @@ import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } 
 import { matchDemat } from "./portfolio-match.js";
 import { dematCardHtml, dematLast4, dematMismatchLine, dematText,
   syncPreviewCardHtml } from "./demat-card.js";
-import { reconCardHtml } from "./recon-card.js";
+import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
+  reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
 import { boId } from "./bo-id.js";
@@ -8376,7 +8401,7 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     const { planConsolidation, applyCost, planFreshLots, absorbableSources } =
       await import("./attach.js");
     const assets = await store.listAccounts();
-    const demats = assets.filter((a) => categoryOf(a) === "demat");
+    const demats = assets.filter((a) => categoryOf(a) === "demat" && !isFundAccount(a));
     const sources = assets.filter((a) => categoryOf(a) === "bonds");
     const retired = sources.filter((a) => String(a.meta || "").includes("cost_only"));
     const dematRows = [];
@@ -8977,15 +9002,19 @@ async function renderCategory() {
     // about the securities, not the accounts that hold them.
     const classKind = id === "equity" || id === "mf" ? id : "";
     if (classKind) {
-      const demats = assets.filter((a) => categoryOf(a) === "demat");
-      const groups = [];
-      for (const demat of demats) {
-        const rows = (await store.listHoldings(demat.id))
-          .filter((h) => holdingClass(h) === classKind);
-        if (rows.length) groups.push({ asset: demat, rows });
+      // The ring and this page read the same split: classPage() uses the same
+      // assetClassParts() the Home donut uses, and an account-level value with no
+      // holding rows becomes one row instead of disappearing.
+      const holdingsByAccount = {};
+      for (const asset of assets) {
+        if (["demat", "bonds"].includes(categoryOf(asset))) {
+          holdingsByAccount[asset.id] = await store.listHoldings(asset.id);
+        }
       }
-      const all = groups.flatMap((g) => g.rows.map((h) => ({ ...h, _asset: g.asset })));
-      const total = all.reduce((t, h) => t + (Number(h.value_paise) || 0), 0);
+      const page = classPage(assets, holdingsByAccount, classKind);
+      const groups = page.groups;
+      const all = page.rows;
+      const total = page.total;
       const invested = all.reduce((t, h) => t + (Number(h.cost_paise) || 0), 0);
       const title = classKind === "equity" ? "Equities" : "Mutual funds";
       const colorBase = classKind === "equity" ? "var(--s4)" : "var(--s6)";
@@ -8996,7 +9025,7 @@ async function renderCategory() {
       const slices = valued.map((h, i) => ({
         value: Number(h.value_paise), color: tint(i, valued.length),
         label: classKind === "mf" ? cleanFundLabel(h.label) : (h.label || ""),
-        assetId: h._asset.id,
+        assetId: h._asset?.id || "",
       }));
       const legend = slices.map((s) => `<a class="legend-row" href="#"
         onclick="bpAsset(${jsArg(s.assetId)},${jsArg(classKind)});return false">
@@ -9014,17 +9043,23 @@ async function renderCategory() {
             <span class="muted class-group-total">${money(groupTotal)}</span></div>
           ${holdingCards(g.rows, classKind, { header: false, assetId: g.asset.id })}</div>`;
       }).join("");
+      const countBits = [`${page.holdingsCount} holding${page.holdingsCount === 1 ? "" : "s"}`];
+      if (page.accountValues) {
+        countBits.push(`${page.accountValues} account value${page.accountValues === 1 ? "" : "s"}`);
+      }
       host.innerHTML = `<h1>${title}</h1>
         ${staleImport(assets) ? staleImportCard() : ""}
-        <div class="hero"><div class="lbl">${all.length} holding${all.length === 1 ? "" : "s"}</div>
+        <div class="hero"><div class="lbl">${countBits.join(" · ")}</div>
           <div class="num">${total ? money(total) : "—"}</div>
           <div class="chips"><span>invested ${invested ? money(invested) : "—"}</span>
             <span>${valued.length} valued</span></div></div>
         ${valued.length ? `<div class="card pad class-ring-card">
           <div class="donut" style="background:conic-gradient(${sunArc(slices, 0, 100, 0.7).join(",")})">
             <div class="donut-hole"><div class="k">${title}</div>
-              <div class="v">${money(total)}</div>
-              <div class="k">${all.length} holding${all.length === 1 ? "" : "s"}</div></div></div>
+              <div class="v" title="${money(total)}">${DATA ? DATA.currency : "₹"} ${compact(total, 2)}</div>
+              <div class="k">${page.holdingsCount} holding${page.holdingsCount === 1 ? "" : "s"}${
+                page.accountValues ? ` · ${page.accountValues} account${
+                  page.accountValues === 1 ? "" : "s"}` : ""}</div></div></div>
           <div class="class-ring-body">
             <h2 class="class-ring-title">Where it sits</h2>
             <div class="donut-legend">${legend}</div>
@@ -9749,15 +9784,20 @@ function positionCard(a, holdings) {
 // nothing a number has not already said.
 function dematHero(a, holdings) {
   const rows = holdings || [];
-  const value = rows.reduce((t, h) => t + (Number(h.value_paise) || 0), 0);
+  const valued = rows.filter((h) => h.value_paise !== null && h.value_paise !== undefined);
+  const held = valued.reduce((t, h) => t + (Number(h.value_paise) || 0), 0);
+  const fallback = assetValue(a).paise;
+  const value = valued.length ? held : (fallback === null ? null : fallback);
+  const accountOnly = !valued.length && value !== null;
   const cost = rows.reduce((t, h) => t + (Number(h.cost_paise) || 0), 0);
   const asOf = metaOf(a).holdings_as_of || "";
   return `<div class="hero" style="margin-bottom:14px">
     <div class="lbl">Value now${a.number ? ` · ${esc(a.number)}` : ""}</div>
-    <div class="num">${value ? money(value) : "—"}</div>
+    <div class="num">${value !== null ? money(value) : "—"}</div>
     <div class="chips">
       <span>Invested ${cost ? money(cost) : "—"}</span>
       <span>${rows.length} holding${rows.length === 1 ? "" : "s"}</span>
+      ${accountOnly ? `<span>value on the account</span>` : ""}
       ${asOf ? `<span>as on ${dateLabel(asOf)}</span>` : ""}
     </div></div>`;
 }
@@ -9973,21 +10013,22 @@ function bondCardHtml(v, assetId, { matured = false } = {}) {
     : [v.valueAsOf ? `as of ${dateLabel(v.valueAsOf)}` : "",
         valueSourceLong].filter(Boolean).join(" · ");
   return `<div class="bond-card">
-    <div class="bond-card-head"><div><div class="bond-name">${esc(v.h.label || "—")}</div>
+    <div class="bond-card-head"><div class="bond-card-title">
+      <div class="bond-name">${esc(v.h.label || "—")}</div>
       <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
         ? " · added by hand" : ""}${!String(v.h.issuer || "").trim()
         ? ` · <span class="need">issuer name missing</span>` : ""}</div></div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <div class="bond-card-actions">
         ${matured ? `<span class="bond-rating">Matured</span>` : ""}
         ${matured && v.rating ? `<span class="bond-rating" title="Current credit rating">${esc(v.rating)}</span>` : ""}
         ${assetId && v.h.id && !matured ? `<a class="mini-btn"
           href="https://smest.in/bond-details/x/${encodeURIComponent(v.h.security_id || "")}"
           target="_blank" rel="noopener"
           title="Open this bond on SMEST, the source of the rating and terms">SMEST ↗</a>` : ""}
-        ${assetId && v.h.id && !matured ? `<button class="btn" style="padding:3px 8px;font-size:12px"
+        ${assetId && v.h.id && !matured ? `<button class="mini-btn"
           title="Ask SMEST for this bond's terms and BSE for its last traded price"
           onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Refresh</button>` : ""}
-        ${assetId && v.h.id ? `<button class="btn" style="padding:3px 8px;font-size:12px"
+        ${assetId && v.h.id ? `<button class="mini-btn"
           onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)})">Edit</button>` : ""}</div></div>
     ${matured ? `<div class="bond-grid">
       ${cell("Interest rate", v.coupon === null ? "—" : `${v.coupon}%`)}
@@ -10260,14 +10301,8 @@ function holdingsCard(allRows, assetId) {
 }
 // A demat account's holdings arrive as one list, but the statement groups them:
 // bonds, shares, fund units. Grouping here keeps the page and the paper telling
-// the same story, and each group carries its own subtotal.
-function holdingClass(row) {
-  const cat = String(row?.category || "").toLowerCase();
-  if (cat === "bond") return "bond";
-  if (cat === "mf" || cat === "mutual fund") return "mf";
-  if (/^INF/.test(String(row?.security_id || ""))) return "mf";
-  return "equity";
-}
+// the same story, and each group carries its own subtotal. holdingClass() is the
+// same rule the class pages and the SQL totals use, imported from assets.js.
 function holdingCardHtml(row, kind = "", assetId = "") {
   const mf = kind === "mf";
   const qty = row.quantity === null || row.quantity === undefined ? null : Number(row.quantity);
@@ -10276,17 +10311,42 @@ function holdingCardHtml(row, kind = "", assetId = "") {
   const gain = value !== null && cost !== null ? value - cost : null;
   const unit = qty !== null && qty > 0 && value !== null ? value / qty : null;
   const name = mf ? cleanFundLabel(row.label) : (row.label || "");
+  const accountValue = !!row.accountValue;
   const moneyOrDash = (x) => x === null ? "—" : money(x);
   const cell = (k, val, cls = "") => `<div><span class="k">${k}</span>
     <span class="v ${cls}">${val}</span></div>`;
   const gainText = gain === null ? "—" : gain === 0 ? money(0)
     : `${gain < 0 ? "−" : "+"}${money(Math.abs(gain))}`;
+  const title = accountValue ? (row.label || "Account value") : (name || row.security_id || "—");
+  const isin = String(row.security_id || "");
+  const sub = accountValue
+    ? "value held on the account, not itemised in a holding row"
+    : (/^MANUAL-/i.test(isin) ? "added by hand · no ISIN" : esc(isin || "no ISIN"));
+  const editAction = !accountValue && assetId && row.id
+    ? `<button class="mini-btn" title="Edit this holding"
+        onclick="bpManualHoldingEdit(${jsArg(assetId)},${jsArg(row.id)})">Edit</button>
+      <button class="mini-btn" title="Remove this holding"
+        onclick="bpManualHoldingDelete(${jsArg(assetId)},${jsArg(row.id)})">Remove</button>`
+    : "";
+  const addAction = accountValue && assetId
+    ? `<button class="mini-btn" onclick="bpManualHoldingNew(${jsArg(assetId)},${jsArg(kind)})">Add ${
+      kind === "mf" ? "mutual fund" : "equity"}</button>`
+    : "";
   return `<div class="bond-card">
-    <div class="bond-card-head"><div><div class="bond-name">${esc(name || row.security_id || "—")}</div>
-      <div class="sub">${esc(row.security_id || "no ISIN")}</div></div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <span class="bond-rating">${mf ? "Fund" : "Equity"}</span></div></div>
-    <div class="bond-grid">
+    <div class="bond-card-head"><div class="bond-card-title">
+      <div class="bond-name">${esc(title)}</div>
+      <div class="sub">${sub}</div></div>
+      <div class="bond-card-actions">
+        <span class="bond-rating">${accountValue ? "Account value" : mf ? "Fund" : "Equity"}</span>
+        ${addAction}${editAction}</div></div>
+    ${accountValue ? `<div class="bond-grid">
+      ${cell("Current value", moneyOrDash(value))}
+      ${cell("Value as of", row.as_of ? dateLabel(row.as_of) : "—")}
+      ${cell("Source", "account value")}
+      ${cell("Holdings", "none recorded")}
+    </div>
+    <div class="bond-market">This value sits on the account itself. Add the underlying fund
+      rows to itemise it.</div>` : `<div class="bond-grid">
       ${cell(mf ? "NAV" : "Price per unit", unit === null ? "—" : money(unit))}
       ${cell("Units", qty === null ? "—" : qty)}
       ${cell("Purchase date", row.purchase_date ? dateLabel(row.purchase_date)
@@ -10302,7 +10362,7 @@ function holdingCardHtml(row, kind = "", assetId = "") {
     <div class="bond-market">${value === null
       ? "Value not recorded. Import a statement to price this holding."
       : `Value ${money(value)}<span class="sep">·</span>${gain === null
-        ? "gain not known" : `gain ${gain < 0 ? "−" : gain > 0 ? "+" : ""}${money(Math.abs(gain || 0))}`}`}</div>
+        ? "gain not known" : `gain ${gain < 0 ? "−" : gain > 0 ? "+" : ""}${money(Math.abs(gain || 0))}`}`}</div>`}
   </div>`;
 }
 function holdingCards(rows, kind = "", { header = true, assetId = "" } = {}) {
@@ -10313,17 +10373,48 @@ function holdingCards(rows, kind = "", { header = true, assetId = "" } = {}) {
   const bits = [`${rows.length} holding${rows.length === 1 ? "" : "s"}`,
     invested ? `invested ${money(invested)}` : "",
     value ? `market value ${money(value)}` : ""].filter(Boolean).join(" · ");
-  return `<div class="card pad" style="margin-bottom:12px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
-      <h2 style="margin:0;font-size:15px">Holdings</h2>
-      <span class="muted" style="font-size:12px">${bits}</span></div>
+  const addLabel = kind === "mf" ? "Add mutual fund" : kind === "equity" ? "Add equity" : "";
+  const addButton = addLabel && assetId
+    ? `<button class="btn" onclick="bpManualHoldingNew(${jsArg(assetId)},${jsArg(kind)})">${
+      addLabel}</button>` : "";
+  return `<div class="card pad holding-card">
+    <div class="holding-head">
+      <h2 class="holding-title">Holdings</h2>
+      <div class="holding-head-actions">
+        <span class="muted holding-bits">${bits}</span>${addButton}</div></div>
     <div class="holding-cards">${cards}</div></div>`;
 }
 function holdingsBlock(rows, assetId) {
-  if (!rows || !rows.length) return "";
+  const list = rows || [];
+  const asset = (window.bpAssetsForFocus || []).find((a) => a.id === assetId);
+  const cat = categoryOf(asset);
+  const isDemat = cat === "demat";
+  const isFolio = isFundAccount(asset);
+  if (!list.length) {
+    if (!isDemat && cat !== "bonds") return "";
+    const add = isFolio
+      ? `<button class="btn primary" onclick="bpManualHoldingNew(${jsArg(assetId)},${jsArg("mf")})">
+          Add mutual fund</button>`
+      : isDemat
+        ? `<button class="btn primary" onclick="bpManualHoldingNew(${jsArg(assetId)},${jsArg("mf")})">
+            Add holding</button>
+          <button class="btn" onclick="bpBondHoldingNew(${jsArg(assetId)})">Add bond</button>`
+        : `<button class="btn primary" onclick="bpBondHoldingNew(${jsArg(assetId)})">
+            Add bond</button>`;
+    const what = isFolio ? "fund holdings"
+      : isDemat ? "holdings" : "bond lots";
+    return `<div class="card pad holdings-empty">
+      <h2 class="holding-title">No ${what} yet</h2>
+      <div class="muted holdings-empty-note">${isFolio
+        ? "Add the fund, units and value by hand, or import a CAS."
+        : isDemat
+          ? "Add a fund or share by hand, add a bond, or import a statement."
+          : "Add a lot by hand, or import a broker report."}</div>
+      <div class="holding-head-actions">${add}</div></div>`;
+  }
   const groups = { bond: [], equity: [], mf: [] };
-  for (const row of rows) groups[holdingClass(row)].push(row);
-  const filled = Object.entries(groups).filter(([, list]) => list.length);
+  for (const row of list) groups[holdingClass(row)].push(row);
+  const filled = Object.entries(groups).filter(([, groupRows]) => groupRows.length);
   const labels = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
   const focus = ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
     ? window.bpState.assetClass : "all";
@@ -10331,10 +10422,8 @@ function holdingsBlock(rows, assetId) {
   if (!visible.length) visible = filled;
   // A demat holds several classes. Opening the account from the Bonds section
   // should land on Bonds. Show the classes this demat could hold, including zero,
-  // so a bond-only account says so instead of silently losing the tabs.
-  const asset = (window.bpAssetsForFocus || []).find((a) => a.id === assetId);
-  const isDemat = categoryOf(asset) === "demat";
-  const isFolio = isDemat && /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
+  // so a bond-only account says so instead of silently losing the tabs. A fund
+  // folio is one class only.
   const tabKinds = isDemat && !isFolio ? ["bond", "equity", "mf"]
     : filled.map(([kind]) => kind);
   const showTabs = (isDemat && !isFolio) || filled.length > 1;
@@ -10821,10 +10910,28 @@ function classFocusCard(a, holdings, kind) {
   const rows = (holdings || []).filter((h) => holdingClass(h) === kind
     && Number(h.value_paise) > 0)
     .sort((x, y) => Number(y.value_paise) - Number(x.value_paise));
+  const addLabel = kind === "mf" ? "Add mutual fund" : kind === "equity" ? "Add equity" : "";
+  const add = a?.id && addLabel
+    ? `<button class="btn" onclick="bpManualHoldingNew(${jsArg(a.id)},${jsArg(kind)})">${
+      addLabel}</button>` : "";
   if (!rows.length) {
+    // A folio created by an import can carry a value on the account before any
+    // fund row exists. Show that value instead of "no funds" and offer the row.
+    const accountPart = Math.round(assetClassParts(a)[kind] || 0);
+    if (accountPart > 0) {
+      return `<div class="card pad class-ring-card">
+        <div class="class-ring-body">
+          <h2 class="class-ring-title">${title} in this demat</h2>
+          <div class="class-ring-value">${money(accountPart)}</div>
+          <div class="muted class-ring-note">This value is held on the account, not in a
+            holding row. Add the fund rows to itemise it.</div>
+          <div class="holding-head-actions">${add}</div>
+        </div></div>`;
+    }
     return `<div class="card pad class-ring-card"><div class="class-ring-body">
       <h2 class="class-ring-title">${title} in this demat</h2>
       <div class="muted class-ring-note">No ${title.toLowerCase()} in this account.</div>
+      <div class="holding-head-actions">${add}</div>
     </div></div>`;
   }
   const total = rows.reduce((t, h) => t + Number(h.value_paise), 0);
@@ -10847,6 +10954,7 @@ function classFocusCard(a, holdings, kind) {
     <div class="class-ring-body"><h2 class="class-ring-title">${title} in this demat</h2>
       <div class="donut-legend">${legend}</div>
       <div class="muted class-ring-note">Percentages are of this account's ${title.toLowerCase()}.</div>
+      <div class="holding-head-actions">${add}</div>
     </div></div>`;
 }
 function assetForm(a, factCount, defaultCat, holdings) {
@@ -10898,7 +11006,9 @@ function assetForm(a, factCount, defaultCat, holdings) {
   ${focusClass ? classFocusCard(a, holdings, focusClass) : ""}
   ${a && cat !== "demat" ? positionCard(a, holdings) : ""}
   ${a && cat !== "demat" ? assetDetailCard(a) : ""}
-  ${a && (cat === "bonds" || cat === "demat") ? `<div id="recon-card"></div>` : ""}
+  ${a && reconEligible({ ...a, category: cat }, holdings)
+    ? (reconDismissed(a.id) ? reconHiddenHtml() : `<div id="recon-card"></div>`)
+    : ""}
   ${a ? valuationCard(a) : ""}
   ${a ? holdingsBlock(holdings, id) : ""}
   ${a && !lean ? `<details class="all-fields"><summary>All fields and category</summary>` : ""}
@@ -11366,6 +11476,147 @@ window.bpBondHoldingDelete = async (assetId, holdingId) => {
   await store.deleteHolding(Number(holdingId));
   window.bpAsset(assetId);
 };
+// A fund or share lot is not a bond: no coupon, maturity, face value, frequency
+// or rating. One compact form covers both, because the fields that matter are
+// the same. A fund folio fixes the class to mutual fund.
+window.bpManualHoldingNew = (assetId, kind = "mf") => {
+  window.bpState = { ...(window.bpState || {}), manualHoldingAsset: assetId,
+    manualHoldingId: "", manualHoldingClass: kind === "equity" ? "equity" : "mf" };
+  go("manualHolding");
+};
+window.bpManualHoldingEdit = (assetId, holdingId) => {
+  window.bpState = { ...(window.bpState || {}), manualHoldingAsset: assetId,
+    manualHoldingId: String(holdingId), manualHoldingClass: "" };
+  go("manualHolding");
+};
+window.bpManualHoldingDelete = async (assetId, holdingId) => {
+  if (!confirm("Remove this holding? This cannot be undone.")) return;
+  const store = await import("./db.js");
+  await store.deleteHolding(Number(holdingId));
+  window.bpAsset(assetId);
+};
+function renderManualHoldingForm() {
+  const host = document.getElementById("view");
+  const assetId = window.bpState?.manualHoldingAsset || "";
+  const holdingId = window.bpState?.manualHoldingId || "";
+  host.innerHTML = `<h1>${holdingId ? "Edit" : "Add"} holding</h1>
+    <div class="card pad">loading…</div>`;
+  (async () => {
+    const store = await import("./db.js");
+    const rows = await store.listHoldings(assetId);
+    const h = holdingId ? rows.find((r) => String(r.id) === String(holdingId)) : null;
+    if (holdingId && !h) {
+      host.innerHTML = `<h1>Edit holding</h1><div class="card pad">That holding is gone.</div>`;
+      return;
+    }
+    if (h && holdingClass(h) === "bond") {
+      window.bpBondHoldingEdit(assetId, holdingId);
+      return;
+    }
+    const asset = (window.bpAssetsForFocus || []).find((a) => a.id === assetId);
+    const folio = isFundAccount(asset);
+    const kind = h ? holdingClass(h) : (folio ? "mf" : (window.bpState?.manualHoldingClass || "mf"));
+    const fixed = folio || !!h;
+    const what = kind === "mf" ? "mutual fund" : "equity";
+    const val = (field) => (h && h[field] !== null && h[field] !== undefined ? h[field] : "");
+    const moneyIn = (p) => (p === null || p === undefined || p === "") ? "" : inr(p);
+    const priorIsin = String(h?.security_id || "");
+    const isinValue = /^IN[A-Z0-9]{10}$/.test(priorIsin) ? priorIsin : "";
+    host.innerHTML = `<h1>${holdingId ? "Edit" : "Add"} ${what}</h1>
+      <p class="muted manual-holding-note">${h
+        ? (h.source === "manual"
+          ? "A manual holding is never deleted by an import. Saving replaces the fields below."
+          : "This row came from a statement. Saving changes it until the next import replaces it.")
+        : `Saved as a manual ${what}, so an import never deletes it.`}</p>
+      <div class="card pad"><div class="form">
+        <label class="field wide">${kind === "mf" ? "Fund name" : "Share name"}
+          <input id="mh-name" value="${esc(val("label"))}" autocomplete="off"
+            placeholder="${kind === "mf" ? "Axis Bluechip Fund" : "Reliance Industries"}"></label>
+        <label class="field">ISIN <span class="muted">optional</span>
+          <input id="mh-isin" value="${esc(isinValue)}" autocomplete="off"
+            placeholder="${kind === "mf" ? "INF999900345" : "INE999900025"}"
+            class="uppercase-input"></label>
+        ${fixed ? "" : `<label class="field">Class
+          <select id="mh-class">
+            <option value="mf" ${kind === "mf" ? "selected" : ""}>Mutual fund</option>
+            <option value="equity" ${kind === "equity" ? "selected" : ""}>Equity</option>
+          </select></label>`}
+        <label class="field">Units
+          <input id="mh-units" value="${esc(val("quantity"))}" inputmode="decimal"></label>
+        <label class="field">Invested (${currency()}) <span class="muted">optional</span>
+          <input id="mh-cost" value="${moneyIn(h?.cost_paise)}" inputmode="decimal"></label>
+        <label class="field">Purchase date
+          <input id="mh-bought" type="date" value="${esc(String(val("purchase_date")).slice(0, 10))}"></label>
+        <label class="field">Current value (${currency()}) <span class="muted">optional</span>
+          <input id="mh-value" value="${moneyIn(h?.value_paise)}" inputmode="decimal"></label>
+        <label class="field">Value as of
+          <input id="mh-value-date" type="date"
+            value="${esc(String(val("as_of")).slice(0, 10))}"></label>
+      </div>
+      <div id="mherr" class="form-error"></div>
+      <div class="holding-head-actions manual-holding-actions">
+        <button class="btn primary"
+          onclick="bpManualHoldingSave(${jsArg(assetId)}, ${jsArg(holdingId)})">Save ${what}</button>
+        <button class="btn" onclick="bpAsset(${jsArg(assetId)}, ${jsArg(kind)})">Cancel</button>
+        ${holdingId ? `<button class="btn danger"
+          onclick="bpManualHoldingDelete(${jsArg(assetId)}, ${jsArg(holdingId)})">Remove</button>` : ""}
+      </div></div>`;
+  })();
+  return `<h1>Add holding</h1><div class="card pad">loading…</div>`;
+}
+window.bpManualHoldingSave = async (assetId, holdingId) => {
+  const val = (id) => (document.getElementById(id)?.value || "").trim();
+  const err = document.getElementById("mherr");
+  const fail = (message) => { if (err) err.textContent = message; };
+  if (err) err.textContent = "";
+  const name = val("mh-name");
+  const isin = val("mh-isin").toUpperCase();
+  const kind = document.getElementById("mh-class")?.value
+    || window.bpState?.manualHoldingClass || "mf";
+  const units = Number(val("mh-units").replace(/,/g, ""));
+  const costRaw = val("mh-cost");
+  const valueRaw = val("mh-value");
+  const cost = costRaw ? parseMoney(costRaw) : null;
+  const value = valueRaw ? parseMoney(valueRaw) : null;
+  if (!name) return fail(`Give the ${kind === "mf" ? "fund" : "share"} a name.`);
+  if (isin && !/^IN[A-Z0-9]{10}$/.test(isin)) {
+    return fail("An ISIN has 12 characters, like INF999900345.");
+  }
+  if (!Number.isFinite(units) || units <= 0) return fail("Enter the units.");
+  if (costRaw && cost === null) return fail("That invested amount does not look right.");
+  if (valueRaw && value === null) return fail("That current value does not look right.");
+  const store = await import("./db.js");
+  const prior = holdingId
+    ? (await store.listHoldings(assetId)).find((r) => String(r.id) === String(holdingId))
+    : null;
+  const key = isin || prior?.security_id
+    || `MANUAL-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  try {
+    await store.upsertHolding(assetId, {
+      id: holdingId ? Number(holdingId) : null,
+      label: name,
+      security_id: key,
+      category: kind,
+      quantity: units,
+      cost_paise: cost,
+      value_paise: value,
+      value_source: value !== null ? "Manual" : "",
+      as_of: value !== null ? val("mh-value-date") : "",
+      purchase_date: val("mh-bought"),
+      issuer: prior?.issuer || "",
+      rating: prior?.rating || "",
+      frequency: prior?.frequency || "",
+      yield_bps: prior?.yield_bps ?? null,
+      payout_paise: prior?.payout_paise ?? null,
+      interest_date: prior?.interest_date || "",
+      face_paise: prior?.face_paise ?? null,
+      redemption_dates: prior?.redemption_dates || "",
+    });
+    window.bpAsset(assetId, kind);
+  } catch (e) {
+    fail("Could not save the holding: " + (e.message || e));
+  }
+};
 window.bpHoldingsEdit = (id) => {
   window.bpState = { ...(window.bpState || {}), holdingAsset: id };
   go("holdingEdit");
@@ -11486,6 +11737,11 @@ function renderAsset() {
     let holdings = [];
     if (["demat", "bonds"].includes(categoryOf(account))) {
       holdings = await store.listHoldings(id);
+      // A fund folio is not a bond custodian. A stray bond row must not turn the
+      // folio page into a bond page.
+      if (isFundAccount(account)) {
+        holdings = holdings.filter((h) => holdingClass(h) !== "bond");
+      }
     }
     // Which demat account this portfolio came from, if an import fed it. The
     // Details card offers to fill its empty fields from that import.
@@ -11933,19 +12189,37 @@ window.bpAssetClass = (kind) => {
   window.bpState = { ...(window.bpState || {}), assetClass: kind || "all" };
   go("asset", { keepScroll: true });
 };
-// The audit card is filled after the page is on screen: it reads two assets and
-// their holdings, and a slow read must not hold up the editor. A card that has
-// nothing to say still says why, which is why the empty reasons are rendered.
+// The audit card is filled after the page is on screen: it reads the account and
+// its counterpart, and a slow read must not hold up the editor. A card that has
+// nothing to say stays off the page, and a dismissed card stays hidden until the
+// person asks for it again.
+function reconDismissed(id) {
+  try { return localStorage.getItem(reconDismissKey(id)) === "1"; } catch (e) { return false; }
+}
+window.bpReconDismiss = (id) => {
+  if (!id) return;
+  try { localStorage.setItem(reconDismissKey(id), "1"); } catch (e) {}
+  if (window.bpAssetRefresh) window.bpAssetRefresh(id);
+  else window.bpAsset(id);
+};
+window.bpReconShow = () => {
+  const id = window.bpState?.asset || "";
+  if (!id) return;
+  try { localStorage.removeItem(reconDismissKey(id)); } catch (e) {}
+  if (window.bpAssetRefresh) window.bpAssetRefresh(id);
+  else window.bpAsset(id);
+};
 window.bpReconFill = async () => {
   const host = document.getElementById("recon-card");
   const id = window.bpState?.asset || "";
-  if (!host || !id) return;
+  if (!host || !id || reconDismissed(id)) return;
   try {
     const store = await import("./db.js");
     const result = await store.reconFor(id);
-    if (result?.reason === "no-cost-source") { host.innerHTML = ""; return; }
+    if (!reconHasCard(result)) { host.innerHTML = ""; return; }
     host.innerHTML = reconCardHtml(result, {
       money,
+      dismissId: id,
       shapeText: result ? reconShapeText(reconShape(result)) : "",
     });
   } catch (e) {

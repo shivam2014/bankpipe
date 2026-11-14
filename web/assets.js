@@ -23,6 +23,26 @@ const LEGACY = {
   insurance: "insurance", policy: "insurance",
 };
 
+const FUND_WORDS = /mutual\s*fund|^mf$/i;
+
+// A folio is a demat-shaped account that holds one AMC's fund units. It is not
+// a custody account, so it may hold fund rows but never bond or share positions.
+export function isFundAccount(asset) {
+  return categoryOf(asset) === "demat"
+    && FUND_WORDS.test(String(asset?.subtype || ""));
+}
+
+// One class per holding row, shared by the account page and the class pages.
+// A bond is bond first; a fund by its category, its legacy category or an INF
+// ISIN; everything else is a share. The SQL totals in db.js mirror this rule.
+export function holdingClass(row) {
+  const cat = String(row?.category || "").trim().toLowerCase();
+  if (cat === "bond") return "bond";
+  if (["mf", "mutual fund", "mutualfund", "fund"].includes(cat)) return "mf";
+  if (/^INF/i.test(String(row?.security_id || "").trim())) return "mf";
+  return "equity";
+}
+
 export function categoryOf(asset) {
   const direct = String(asset?.category || "").toLowerCase();
   if (CATEGORIES.some((c) => c.id === direct)) return direct;
@@ -113,6 +133,12 @@ export function assetSections(assets) {
     if (meta.cost_only) continue;
     const cat = categoryOf(asset);
     if (cat === "demat") {
+      // A folio is a fund account. Even a stray bond row written into it must
+      // not turn the Assets page into a second place for that bond.
+      if (isFundAccount(asset)) {
+        add("mf", CLASS_LABELS.mf, asset, assetValue(asset).paise);
+        continue;
+      }
       const parts = [
         ["bond", Number(asset.class_bond_value) || 0],
         ["equity", Number(asset.class_equity_value) || 0],
@@ -177,16 +203,31 @@ export function allocationGroups(assets) {
 // for it. A holding with no price must not make the ring disagree with the total
 // printed beside it, and a class with no recorded value falls back to the
 // container's own subtype rather than being dropped.
-export function allocationByClass(assets, byClass) {
-  const classOf = (a) => {
-    const id = a?.id;
-    const fromRows = byClass?.[id];
-    if (fromRows) return fromRows;
-    const bond = Number(a?.class_bond_value) || 0;
-    const equity = Number(a?.class_equity_value) || 0;
-    const mf = Number(a?.class_mf_value) || 0;
-    return { bond, equity, mf };
+const CLASS_KEYS = ["bond", "equity", "mf"];
+
+export function assetClassParts(asset, fromRows = null) {
+  const worth = assetValue(asset).paise || 0;
+  // A folio is a fund account even if a stray bond or share row was written into
+  // it. Its whole value belongs to the funds class, and the row itself is not a
+  // bond position on the folio page or in the reconcile.
+  if (isFundAccount(asset)) return { bond: 0, equity: 0, mf: worth };
+  const raw = fromRows || {
+    bond: asset?.class_bond_value, equity: asset?.class_equity_value,
+    mf: asset?.class_mf_value,
   };
+  const bond = Number(raw.bond) || 0;
+  const equity = Number(raw.equity) || 0;
+  const mf = Number(raw.mf) || 0;
+  const rawSum = bond + equity + mf;
+  if (rawSum) {
+    const scale = worth / rawSum;
+    return { bond: bond * scale, equity: equity * scale, mf: mf * scale };
+  }
+  if (categoryOf(asset) === "bonds") return { bond: worth, equity: 0, mf: 0 };
+  return { bond: 0, equity: worth, mf: 0 };
+}
+
+export function allocationByClass(assets, byClass) {
   const base = allocationGroups(assets);
   const out = [];
   for (const group of base) {
@@ -194,31 +235,65 @@ export function allocationByClass(assets, byClass) {
     const parts = { bond: { total: 0, rows: [] }, equity: { total: 0, rows: [] },
       mf: { total: 0, rows: [] } };
     for (const asset of group.rows) {
-      const worth = assetValue(asset).paise || 0;
-      const raw = classOf(asset);
-      const rawSum = raw.bond + raw.equity + raw.mf;
-      let share = raw;
-      if (!rawSum) {
-        const subtype = String(asset.subtype || "");
-        share = /mutual\s*fund/i.test(subtype) ? { bond: 0, equity: 0, mf: worth }
-          : group.id === "bonds" ? { bond: worth, equity: 0, mf: 0 }
-            : { bond: 0, equity: worth, mf: 0 };
-      }
-      const scale = rawSum ? worth / rawSum : 1;
-      for (const key of ["bond", "equity", "mf"]) {
+      const share = assetClassParts(asset, byClass?.[asset.id]);
+      for (const key of CLASS_KEYS) {
         if (!share[key]) continue;
-        parts[key].total += share[key] * scale;
+        parts[key].total += share[key];
         if (!parts[key].rows.includes(asset)) parts[key].rows.push(asset);
       }
     }
     const labels = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
-    for (const key of ["bond", "equity", "mf"]) {
+    for (const key of CLASS_KEYS) {
       if (!parts[key].total) continue;
       out.push({ id: key, label: labels[key], total: Math.round(parts[key].total),
         rows: parts[key].rows });
     }
   }
   return out;
+}
+
+// One class page, built from the same parts as the allocation ring so the ring's
+// legend and the page can never disagree. An account whose value lives on the
+// account rather than on a holding row gets one synthetic row. A valued holding
+// row is never joined by an account total that already includes it.
+export function classPage(accounts, holdingsByAccount, kind) {
+  const groups = [];
+  for (const asset of accounts || []) {
+    const cat = categoryOf(asset);
+    if (cat !== "demat" && cat !== "bonds") continue;
+    if (isFundAccount(asset) && kind !== "mf") continue;
+    const part = Math.round(assetClassParts(asset)[kind] || 0);
+    const holdings = (holdingsByAccount?.[asset.id] || [])
+      .filter((h) => holdingClass(h) === kind);
+    const held = holdings.reduce((t, h) => t + (Number(h.value_paise) || 0), 0);
+    if (!holdings.length && !part) continue;
+    const rows = holdings.map((h) => ({ ...h }));
+    const gap = part - held;
+    if (gap !== 0) {
+      const accountName = String(asset.label || asset.bank || asset.id || "Account");
+      rows.push({
+        label: holdings.length ? `${accountName} · value not in a row` : accountName,
+        security_id: "",
+        category: kind,
+        quantity: null,
+        cost_paise: null,
+        value_paise: gap,
+        as_of: String(asset.value_date || ""),
+        accountValue: true,
+      });
+    }
+    if (!rows.length) continue;
+    groups.push({ asset, rows, total: part });
+  }
+  const rows = groups.flatMap((group) => group.rows.map((h) => ({ ...h, _asset: group.asset })));
+  return {
+    id: kind,
+    total: rows.reduce((t, h) => t + (Number(h.value_paise) || 0), 0),
+    groups,
+    rows,
+    holdingsCount: rows.filter((h) => !h.accountValue).length,
+    accountValues: rows.filter((h) => h.accountValue).length,
+  };
 }
 
 // What a broker's import can fill on an account without touching what the user

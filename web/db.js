@@ -15,6 +15,16 @@ import { KEEP_KEY, KEEP_DEFAULT, clampKeep, keysToPrune, deletableKeys }
 
 const DB_KEY = "bankpipe.db.v1";
 
+// The class of a holding row, in SQL, matching holdingClass() in assets.js.
+// A bond wins first; a fund is its category, its legacy category or an INF ISIN;
+// everything else is a share. The three expressions partition the rows, so their
+// totals always add up to holdings_value.
+const HOLDING_BOND_SQL = "LOWER(COALESCE(h.category,''))='bond'";
+const HOLDING_MF_SQL = "(NOT (" + HOLDING_BOND_SQL + ") AND ("
+  + "LOWER(COALESCE(h.category,'')) IN ('mf','mutual fund','mutualfund','fund')"
+  + " OR UPPER(COALESCE(h.security_id,'')) LIKE 'INF%'))";
+const HOLDING_EQUITY_SQL = "(NOT (" + HOLDING_BOND_SQL + ") AND NOT " + HOLDING_MF_SQL + ")";
+
 // Same grouping as inr() in web/index.html. Issue details are stored strings,
 // so they cannot call the UI helper when the review card renders them.
 const inrText = (p) => {
@@ -1296,11 +1306,11 @@ export async function listAccounts() {
     + " a.interest_paid_paise, a.meta, a.ifsc, a.branch, a.address, a.state, a.currency,"
     + " a.bo_id, a.dp_id, a.client_id,"
     + " (SELECT SUM(h.value_paise) FROM holding h WHERE h.asset_id=a.id"
-    + "   AND h.category='bond') AS class_bond_value,"
+    + `   AND ${HOLDING_BOND_SQL}) AS class_bond_value,`
     + " (SELECT SUM(h.value_paise) FROM holding h WHERE h.asset_id=a.id"
-    + "   AND h.category='equity') AS class_equity_value,"
+    + `   AND ${HOLDING_EQUITY_SQL}) AS class_equity_value,`
     + " (SELECT SUM(h.value_paise) FROM holding h WHERE h.asset_id=a.id"
-    + "   AND h.category IN ('mf','mutual fund')) AS class_mf_value,"
+    + `   AND ${HOLDING_MF_SQL}) AS class_mf_value,`
     + " (SELECT SUM(h.cost_paise) FROM holding h WHERE h.asset_id=a.id) AS holdings_cost,"
     + " (SELECT SUM(h.value_paise) FROM holding h WHERE h.asset_id=a.id) AS holdings_value,"
     + " (SELECT SUM(CASE WHEN h.value_paise IS NOT NULL AND h.cost_paise IS NOT NULL"
@@ -1531,45 +1541,93 @@ export async function listHoldings(assetId) {
   return browserStore.listHoldings(assetId);
 }
 
-// The audit for one demat: this asset's holdings against every other asset that
-// carries the same BO ID. A bond portfolio and a demat account are two views of
-// one account, so the comparison is only meaningful inside that pair. Without a
-// second statement there is nothing to compare, and the caller is told why
-// instead of being handed an empty report that reads like a clean one.
+// The audit for one account, never the whole app. A bond portfolio compares its
+// lots with the one demat it feeds; a demat compares the cost portfolios linked
+// to it with its own positions. A fund folio, an equity-only demat or a demat
+// with no bond rows has no bond reconcile to show.
+function reconMeta(asset) {
+  try { return JSON.parse(asset?.meta || "{}") || {}; } catch (e) { return {}; }
+}
+const isBondRow = (row) => String(row?.category || "").toLowerCase() === "bond";
+const isFundDemat = (asset) => String(asset?.category || "") === "demat"
+  && /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
+
+function bondHomeOf(lots, asset, demats, positionsOf) {
+  const meta = reconMeta(asset);
+  if (meta.linked_asset && demats.some((d) => d.id === meta.linked_asset)) {
+    return meta.linked_asset;
+  }
+  const wanted = boId(meta.demat || asset?.number || "").boId;
+  if (wanted) {
+    const hit = demats.find((d) => boId(d.number).boId === wanted);
+    if (hit) return hit.id;
+  }
+  const count = new Map();
+  for (const lot of lots || []) {
+    const isin = String(lot.security_id || "").toUpperCase();
+    if (!isin) continue;
+    for (const demat of demats) {
+      if (!(positionsOf.get(demat.id) || []).some((p) =>
+        String(p.security_id || "").toUpperCase() === isin)) continue;
+      count.set(demat.id, (count.get(demat.id) || 0) + 1);
+    }
+  }
+  return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+}
+
 export async function reconFor(assetId, today = new Date().toISOString().slice(0, 10)) {
   const assets = await listAccounts();
   const me = assets.find((a) => a.id === assetId);
   if (!me) return null;
-  // Cost and holdings are not one-to-one after a demat split: a bond can be held
-  // in one demat and paid for in another portfolio. The audit therefore compares
-  // against every cost lot and every demat position, which is the same join the
-  // import uses.
-  const meSells = String(me.category || "") === "bonds";
-  const sellers = assets.filter((a) => String(a.category || "") === "bonds");
-  const demats = assets.filter((a) => String(a.category || "") === "demat");
-  const [saleRows, heldRows] = await Promise.all([
-    Promise.all(sellers.map((s) => listHoldings(s.id))),
-    Promise.all(demats.map((d) => listHoldings(d.id))),
-  ]);
-  const lots = saleRows.flat().filter((r) => String(r.category || "") === "bond");
-  const positions = heldRows.flat().filter((r) => String(r.category || "") === "bond");
-  // Once a portfolio is merged into its demat, its cost lives on the position
-  // rows and there is no second record to audit against. Reporting every bond as
-  // "no purchase record" against an empty set would be a false alarm, so say
-  // there is nothing to compare and leave the card out.
-  if (!lots.length) {
-    return { asset: me, seller: null, custodian: me, reason: "no-cost-source",
-      lines: [], inputs: reconInputs([], positions), ...reconSummary([]) };
+  const cat = String(me.category || "");
+  const isBondPortfolio = cat === "bonds";
+  const isDemat = cat === "demat" && !isFundDemat(me);
+  const hidden = (reason) => ({ asset: me, seller: null, custodian: null, reason,
+    lines: [], inputs: reconInputs([], []), ...reconSummary([]) });
+  if (!isBondPortfolio && !isDemat) return hidden("not-applicable");
+
+  const myBonds = (await listHoldings(me.id)).filter(isBondRow);
+  if (isDemat && !myBonds.length) return hidden("no-bond-holdings");
+
+  const demats = assets.filter((a) => String(a.category || "") === "demat" && !isFundDemat(a));
+  const positionsOf = new Map();
+  for (const demat of demats) {
+    positionsOf.set(demat.id, (await listHoldings(demat.id)).filter(isBondRow));
   }
+
+  if (isBondPortfolio) {
+    const home = bondHomeOf(myBonds, me, demats, positionsOf);
+    if (!home) return hidden("no-linked-demat");
+    const custodian = demats.find((d) => d.id === home);
+    const positions = positionsOf.get(home) || [];
+    if (!positions.length) return hidden("no-second-statement");
+    const lines = reconPositions({
+      lots: myBonds,
+      positions,
+      today,
+      asOf: String(reconMeta(custodian).holdings_as_of || custodian?.value_date || "").slice(0, 10),
+    });
+    return { asset: me, seller: me, custodian, reason: "ok", lines,
+      inputs: reconInputs(myBonds, positions), ...reconSummary(lines) };
+  }
+
+  const linked = [];
+  for (const seller of assets.filter((a) => String(a.category || "") === "bonds")) {
+    const lots = (await listHoldings(seller.id)).filter(isBondRow);
+    if (!lots.length) continue;
+    if (bondHomeOf(lots, seller, demats, positionsOf) === me.id) linked.push({ seller, lots });
+  }
+  const lots = linked.flatMap((entry) => entry.lots);
+  if (!lots.length) return hidden("no-cost-source");
   const lines = reconPositions({
     lots,
-    positions,
+    positions: myBonds,
     today,
-    asOf: String((me.value_date || "")).slice(0, 10),
+    asOf: String(reconMeta(me).holdings_as_of || me.value_date || "").slice(0, 10),
   });
-  return { asset: me, seller: meSells ? me : null,
-    custodian: meSells ? null : me, reason: "ok", lines,
-    inputs: reconInputs(lots, positions), ...reconSummary(lines) };
+  return { asset: me, seller: linked.length === 1 ? linked[0].seller : null,
+    custodian: me, reason: "ok", lines,
+    inputs: reconInputs(lots, myBonds), ...reconSummary(lines) };
 }
 
 export async function upsertHolding(assetId, holding) {
