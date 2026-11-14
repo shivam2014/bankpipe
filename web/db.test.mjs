@@ -379,6 +379,9 @@ test("a disposal record keeps its event key and stays out of cost totals", async
     + " FROM holding WHERE asset_id='sold-demat'")[0];
   assert.equal(totals.cost, 50000);
   assert.equal(totals.value, 52000);
+  const liveCount = store.query("SELECT COUNT(*) AS n FROM holding"
+    + " WHERE asset_id='sold-demat' AND (disposed_at IS NULL OR disposed_at='')")[0].n;
+  assert.equal(liveCount, 1);
 });
 
 test("holdings totals appear on the asset row", async () => {

@@ -11551,7 +11551,7 @@ function positionCard(a, holdings) {
 // with a single valued asset gets nothing, because a one-slice ring says
 // nothing a number has not already said.
 function dematHero(a, holdings) {
-  const rows = holdings || [];
+  const rows = (holdings || []).filter((h) => !h.disposed_at);
   const valued = rows.filter((h) => h.value_paise !== null && h.value_paise !== undefined);
   const held = valued.reduce((t, h) => t + (Number(h.value_paise) || 0), 0);
   const fallback = assetValue(a).paise;
