@@ -7,8 +7,10 @@ Scope: the import path only.
 
 Reduce the import path to four properties:
 
-1. One inbox owns all four writers: CAS, broker holdings report, bank statement,
-   workbook re-import.
+1. One inbox owns the entry point and dispatch for all four writers: CAS,
+   broker holdings report, bank statement, workbook re-import. "Owns" does not
+   mean one plan schema: a bank statement is a ledger plan, and the workbook is
+   a whole-database restore.
 2. One plan per resolved account.
 3. One confirmation per plan.
 4. A file whose account is unresolved stays its own plan, and says so.
@@ -147,7 +149,7 @@ than one account. This phase needs `web/db.js`, so it is a handoff.
 
 The map counts 33 import tests that assert source text or CSS selectors,
 including all 21 in `web/cas-import-ui.test.mjs`. A coarse scan finds 36
-candidates in import-named files.
+candidates in import-named files at `616b515`.
 
 Removes: grep-based assertions that fail on a rename.
 
