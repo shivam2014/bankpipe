@@ -294,8 +294,10 @@ function readTables(items, tables, headers = []) {
   const headerFor = (anchor) => tables
     .filter((t) => t.page === anchor.page && t.y > anchor.y)
     .sort((a, b) => a.y - b.y)[0]
+    // A table continued from the previous page belongs to the header printed
+    // last on that page, not the first one.
     || tables.filter((t) => t.page < anchor.page)
-      .sort((a, b) => b.page - a.page || b.y - a.y)[0]
+      .sort((a, b) => b.page - a.page || a.y - b.y)[0]
     || null;
 
   const groups = new Map();
@@ -325,15 +327,20 @@ function readTables(items, tables, headers = []) {
       // below the lowest of them, or the labels are read as the row's values.
       const headerBottom = table.cols.length
         ? Math.min(...table.cols.map((c) => c.y)) : table.y - 1;
-      const high = index === 0 ? headerBottom - 1 : (rows[index - 1].y + anchor.y) / 2;
+      // A table continued from the previous page has no header bound on this
+      // page. Its first row reads down to the top of the page; the next rows use
+      // the neighbour printed above them on the same page.
+      const prevOnPage = rows.slice(0, index).filter((row) => row.page === anchor.page).pop();
+      const nextOnPage = rows.slice(index + 1).find((row) => row.page === anchor.page);
+      const high = prevOnPage ? (prevOnPage.y + anchor.y) / 2
+        : table.page < anchor.page ? Infinity : headerBottom - 1;
       // A table ends with a Sub Total line. The last row must stop above it, or
       // the total is read as that row's value.
       const totalLine = items.filter((i) => i.page === anchor.page && i.y < anchor.y
         && i.y > anchor.y - 90 && /^(sub\s*total|total)$/i.test(i.str))
         .sort((a, b) => b.y - a.y)[0];
-      const low = index === rows.length - 1
-        ? (totalLine ? totalLine.y + 2 : anchor.y - 42)
-        : (anchor.y + rows[index + 1].y) / 2;
+      const low = nextOnPage ? (anchor.y + nextOnPage.y) / 2
+        : (totalLine ? totalLine.y + 2 : anchor.y - 42);
       const band = items.filter((i) => i.page === anchor.page && i.y <= high && i.y > low
         && i !== anchor && i.x > 20);
       const cells = band.filter((i) => NUMBER.test(i.str));
@@ -361,6 +368,16 @@ function readTables(items, tables, headers = []) {
           .sort((a, b) => b.right - a.right)[0] || null;
       };
       const qtyCell = find(QUANTITY_LABEL);
+      // A closed position prints "--" in its quantity column. The cell is not a
+      // number, so the column map never sees it; read the dash directly or the
+      // row would become a live holding with no units.
+      const dashUnder = (re) => {
+        const cols = table.cols.filter((c) => re.test(c.str));
+        if (!cols.length) return null;
+        return band.find((i) => /^[-–—]+$/.test(i.str)
+          && cols.includes(colAt(i.right))) || null;
+      };
+      const qtyDash = qtyCell ? null : dashUnder(QUANTITY_LABEL);
       // A folio table prints "Current" for the value and "Bal" for the units,
       // beside a profit column. Two of those columns can share a heading in the
       // bilingual header, so a fund's value is settled by the identity the
@@ -376,7 +393,7 @@ function readTables(items, tables, headers = []) {
           || [...perColumn.values()].sort((a, b) => b.right - a.right)[0]
           || null)
         : [...perColumn.values()].sort((a, b) => b.right - a.right)[0] || null;
-      if (!valueCell && !qtyCell) return;
+      if (!valueCell && !qtyCell && !qtyDash) return;
       // A date is text, not a number, so it is not in the column map.
       const maturityCol = table.cols.find((c) => /maturity/i.test(c.str));
       const dateCell = band.find((i) => isoAny(i.str)
@@ -392,8 +409,9 @@ function readTables(items, tables, headers = []) {
         ? table.cols.find((c) => /^folio/i.test(c.str)) : null;
       const folioCell = folioCol
         ? band.filter((i) => colAt(i.right) === folioCol)
-          .sort((a, b) => b.str.length - a.str.length)[0] || null
-        : null;
+          .sort((a, b) => b.y - a.y || a.x - b.x)
+        : [];
+      const folioText = folioCell.length ? tidy(folioCell.map((i) => i.str).join("")) : "";
       const costCell = table.kind === "mf"
         ? fundCostCell(cells, valueCell, fund) : null;
       // The scheme name is every text line in the band; "CFGP - TestOne Asset
@@ -442,7 +460,7 @@ function readTables(items, tables, headers = []) {
           : /monthly|twelve times a year|12 times/i.test(freqText) ? "Monthly"
             : /half[- ]yearly|twice a year|two times/i.test(freqText) ? "Half-yearly"
               : /annual|annually|once a year|yearly/i.test(freqText) ? "Annual" : "";
-      const folio = folioCell ? tidy(folioCell.str) : "";
+      const folio = folioText;
       const fullAmc = table.kind === "mf"
         ? fullAmcName(amcFor(table, items) || amcMap.get(folio) || fundHouseFromLabel(label))
         : "";
@@ -461,7 +479,7 @@ function readTables(items, tables, headers = []) {
         folio,
         amc,
         amcFull: fullAmc,
-        quantity: qtyCell ? quantity(qtyCell.str) : null,
+        quantity: qtyCell ? quantity(qtyCell.str) : qtyDash ? 0 : null,
         faceValuePaise: faceCell ? rupees(faceCell.str) : null,
         pricePaise: null,
         costPaise: costCell ? rupees(costCell.str) : null,
@@ -543,6 +561,29 @@ function readTransactions(items, tables, headers) {
     const dates = range.filter((i) => isoAny(i.str)
       && (!dateCol || Math.abs(i.x - dateCol.x) <= 60))
       .sort((a, b) => b.y - a.y);
+    // A movement prints a date. A line of balances with none inside the block is
+    // a row the reader cannot place; reading it into the row above takes the
+    // wrong units, and dropping it loses a trade. Quarantine it and keep its
+    // cells out of every band. Lines below the last row are totals and footers,
+    // not movements.
+    const stray = new Set();
+    const blockBottom = dates.length ? Math.min(...dates.map((date) => date.y)) - 42 : -Infinity;
+    const balanceCols = table.cols.filter((c) =>
+      [OPENING_LABEL, CREDIT_LABEL, DEBIT_LABEL, CLOSING_LABEL, STAMP_LABEL]
+        .some((re) => re.test(c.str) || re.test(labelWindow(c))));
+    const isBalanceNumber = (item) => NUMBER.test(item.str)
+      && balanceCols.includes(colAt(item.right));
+    for (const line of linesOf(range, 3)) {
+      if (line.y <= blockBottom) continue;
+      if (dates.some((date) => Math.abs(date.y - line.y) <= 4)) continue;
+      const text = line.items.map((i) => i.str).join(" ");
+      if (/^(sub\s*total|total|grand\s*total)\b/i.test(text)) continue;
+      if (!line.items.some(isBalanceNumber)) continue;
+      if (line.items.some((i) => isIsin(i.str))) continue;
+      for (const item of line.items) stray.add(item);
+      quarantined += 1;
+      warnings.push({ code: "txn_no_date", count: 1, isin: "redacted" });
+    }
     dates.forEach((anchor, index) => {
       const high = index === 0 ? headerBottom - 1 : (dates[index - 1].y + anchor.y) / 2;
       const totalLine = pageItems.filter((i) => i.y < anchor.y
@@ -551,12 +592,22 @@ function readTransactions(items, tables, headers) {
       const low = index === dates.length - 1
         ? (totalLine ? totalLine.y + 2 : Math.max(anchor.y - 42, bottom))
         : (anchor.y + dates[index + 1].y) / 2;
-      const isinCell = isins.find((i) => i.y >= anchor.y - 2) || null;
+      // A block prints its ISIN once, above the first row, and its later rows
+      // carry no ISIN of their own. The nearest ISIN at or above the row is the
+      // block's; the topmost ISIN on the page would give every continuation row
+      // the first block's security.
+      const isinCell = isins.filter((i) => i.y >= anchor.y - 2)
+        .sort((a, b) => a.y - b.y)[0] || null;
       const isin = isinCell
         ? String(isinCell.str).toUpperCase().replace(/\s+/g, "") : lastIsin;
       if (isinCell) lastIsin = isin;
       const band = pageItems.filter((i) => i.y <= high && i.y > low
-        && i !== anchor && i.x > 20);
+        && i !== anchor && i.x > 20 && !stray.has(i));
+      const dashCellFor = (re) => {
+        const col = table.cols.find((c) => re.test(c.str) || re.test(labelWindow(c)));
+        if (!col) return null;
+        return band.find((i) => /^[-–—]+$/.test(i.str) && colAt(i.right) === col) || null;
+      };
       const perColumn = new Map();
       for (const cell of band.filter((i) => NUMBER.test(i.str))) {
         const col = colAt(cell.right);
@@ -591,8 +642,17 @@ function readTransactions(items, tables, headers) {
       const debitPaise = debitCell ? hundredths(debitCell.str) : 0;
       const closingPaise = closingCell ? hundredths(closingCell.str) : null;
       const carryKey = `${ownerKey}|${isin}`;
-      const openingPaise = openingPrinted !== null ? openingPrinted
-        : (lastClosing.has(carryKey) ? lastClosing.get(carryKey) : null);
+      // The opening column can print "--" for a position opened in this period.
+      // The cell is not a number, so the column map never sees it; without the
+      // dash the row is quarantined as txn_no_opening instead of balanced.
+      const openingDash = !openingCell && !!dashCellFor(OPENING_LABEL);
+      let openingPaise = openingPrinted;
+      if (openingPaise === null) {
+        if (lastClosing.has(carryKey)) openingPaise = lastClosing.get(carryKey);
+        else if (openingDash && closingPaise !== null) {
+          openingPaise = closingPaise - creditPaise + debitPaise;
+        }
+      }
       const date = isoAny(anchor.str);
       const quantity = Math.max(Math.abs(creditPaise), Math.abs(debitPaise)) / 100;
       const balanced = openingPaise !== null && closingPaise !== null
@@ -666,11 +726,11 @@ function readMfTransactions(items, tables) {
     const range = pageItems.filter((i) => i.y <= headerBottom - 1 && i.y > bottom);
     // The section heading names the scheme and its ISIN. The nearest ISIN above
     // the table wins; a table continued across a page break uses the last one
-    // on the earlier page.
+    // printed on the earlier page, not the first.
     const isinHit = pageItems.filter((i) => i.y > table.y
       && /INF[A-Z0-9]{9}/.test(i.str)).sort((a, b) => a.y - b.y)[0]
       || items.filter((i) => i.page < table.page && /INF[A-Z0-9]{9}/.test(i.str))
-        .sort((a, b) => b.page - a.page || b.y - a.y)[0] || null;
+        .sort((a, b) => b.page - a.page || a.y - b.y)[0] || null;
     const isin = (String(isinHit?.str || "").match(/INF[A-Z0-9]{9}/) || [])[0] || "";
     const schemeLine = isinHit
       ? linesOf(pageItems.filter((i) => i.y > isinHit.y), 3)
@@ -981,19 +1041,26 @@ function holderName(items) {
  * @returns {number|null} paise
  */
 function grandTotalPaise(items) {
-  let total = null;
   for (const page of new Set(items.map((i) => i.page))) {
     const pageItems = items.filter((i) => i.page === page);
-    for (const line of linesOf(pageItems, 3)) {
+    const lines = linesOf(pageItems, 3);
+    for (const line of lines) {
       const text = line.items.slice().sort((a, b) => a.x - b.x)
         .map((i) => i.str).join(" ");
       if (!/\bgrand\s+total\b/i.test(text)) continue;
       const cells = line.items.filter((i) => NUMBER.test(i.str))
         .sort((a, b) => a.x - b.x);
-      if (cells.length && total === null) total = rupees(cells[cells.length - 1].str);
+      if (cells.length) return rupees(cells[cells.length - 1].str);
+      // The label can print on its own line with its number just above or below.
+      // The first Grand Total is the portfolio one; a later folio total must not
+      // become the check when the first label's number sits on an adjacent line.
+      const near = lines.filter((other) => Math.abs(other.y - line.y) <= 12)
+        .flatMap((other) => other.items).filter((i) => NUMBER.test(i.str))
+        .sort((a, b) => a.x - b.x);
+      return near.length ? rupees(near[near.length - 1].str) : null;
     }
   }
-  return total;
+  return null;
 }
 
 /**
@@ -1038,15 +1105,18 @@ export function parseCas(pdf) {
   }
 
   // The same ISIN can appear in a transaction table and again in the holdings
-  // table, and a page break can repeat a row. One holding, one entry.
-  const byIsin = new Map();
+  // table, and a page break can repeat a row. One holding per account and ISIN:
+  // a consolidated statement can hold the same security in two demats, and
+  // keying by ISIN alone dropped one account's row.
+  const byAccountIsin = new Map();
   for (const holding of result.holdings) {
-    const prev = byIsin.get(holding.isin);
+    const key = `${holding.account || ""}|${holding.isin}`;
+    const prev = byAccountIsin.get(key);
     if (!prev || (holding.valuePaise || 0) > (prev.valuePaise || 0)) {
-      byIsin.set(holding.isin, holding);
+      byAccountIsin.set(key, holding);
     }
   }
-  const holdings = [...byIsin.values()];
+  const holdings = [...byAccountIsin.values()];
   // One statement can hold several demat accounts; each keeps its own.
   const byAccount = new Map();
   for (const holding of holdings) {

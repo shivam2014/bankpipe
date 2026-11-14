@@ -563,7 +563,7 @@ export function makeStore(SQLlib, save) {
          r.disposed_at || "", r.disposed_quantity ?? null, r.disposed_type || "",
          r.disposed_source || "", r.disposed_reason || "", r.disposed_cost_paise ?? null,
          r.source_row || 0,
-         r.as_of || asOf || "", key, "report"]);
+         r.as_of || asOf || "", key, r.source || "report"]);
       inserted++;
     }
     return { inserted, manualKept: manual.length - superseded.length,

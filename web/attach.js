@@ -234,6 +234,10 @@ export function planCostFile({ positions = [], rows = [], asOf = "" } = {}) {
     sources: [{ id: "file", lots: rows }],
   });
   const merged = applyCost(positions, plan.updates).filter(alive);
+  // A disposal is history. A cost file lists only what is held, so replacing
+  // the account with its rows must not erase the record of a sale.
+  const disposed = (positions || []).filter((position) => position?.disposed_at)
+    .map((position) => ({ ...position }));
   const held = new Set((positions || []).filter(alive).map((p) => clean(p.security_id)));
   const missing = (rows || []).filter((r) => r && r.security_id && !held.has(clean(r.security_id)));
   const newer = missing.filter((r) => !asOf || String(r.purchase_date || "") > asOf);
@@ -252,7 +256,7 @@ export function planCostFile({ positions = [], rows = [], asOf = "" } = {}) {
     };
   });
   return {
-    rows: [...merged, ...added],
+    rows: [...merged, ...added, ...disposed],
     attached: plan.updates.length,
     added: added.length,
     stale: missing.length - added.length,
@@ -270,7 +274,8 @@ export function planCostFile({ positions = [], rows = [], asOf = "" } = {}) {
  * @param {{positions?: Array<object>, rows?: Array<object>, fileAsOf?: string,
  *   statementAsOf?: string}} input
  * @returns {{rows: Array<object>, mode: "reconcile"|"cost", added: number,
- *   removed: number, changed: number, attached: number}}
+ *   removed: number, changed: number, attached: number,
+ *   sold: Array<{isin: string, from: number, to: number, quantity: number}>}}
  */
 export function planSnapshot({ positions = [], rows = [], fileAsOf = "",
   statementAsOf = "" } = {}) {
@@ -283,10 +288,11 @@ export function planSnapshot({ positions = [], rows = [], fileAsOf = "",
   if (!newer) {
     const plan = planCostFile({ positions, rows, asOf: statementAsOf });
     return { rows: plan.rows, mode: "cost", added: 0, removed: 0, changed: 0,
-      attached: plan.attached };
+      attached: plan.attached, sold: [] };
   }
   const seen = new Set();
   const out = [];
+  const sold = [];
   let added = 0;
   let changed = 0;
   for (const row of rows || []) {
@@ -319,6 +325,12 @@ export function planSnapshot({ positions = [], rows = [], fileAsOf = "",
       cost = Math.round(cost * (qty / prevQty));
     }
     if (qty !== null && prevQty !== 0 && qty !== prevQty) changed += 1;
+    // A file newer than the statement is the newer truth. When it shows fewer
+    // units than the account holds, that is a sale; say so instead of taking the
+    // smaller quantity silently.
+    if (qty !== null && qty < prevQty) {
+      sold.push({ isin, from: prevQty, to: qty, quantity: prevQty - qty });
+    }
     out.push({
       security_id: isin,
       label: row.label || prev.label || "",
@@ -330,8 +342,17 @@ export function planSnapshot({ positions = [], rows = [], fileAsOf = "",
       purchase_date: prev.purchase_date || row.purchase_date || "",
     });
   }
-  const removed = [...byIsin.keys()].filter((isin) => !seen.has(isin)).length;
-  return { rows: out, mode: "reconcile", added, removed, changed, attached: 0 };
+  const removed = [...byIsin.keys()].filter((isin) => !seen.has(isin));
+  for (const isin of removed) {
+    const prevQty = Number(byIsin.get(isin)?.quantity) || 0;
+    if (prevQty > 0) sold.push({ isin, from: prevQty, to: 0, quantity: prevQty });
+  }
+  // A disposal is history. The file lists holdings, not sales, so the sold rows
+  // on file stay beside the live set the file writes.
+  const disposed = (positions || []).filter((position) => position?.disposed_at)
+    .map((position) => ({ ...position }));
+  return { rows: [...out, ...disposed], mode: "reconcile", added,
+    removed: removed.length, changed, attached: 0, sold };
 }
 
 /**

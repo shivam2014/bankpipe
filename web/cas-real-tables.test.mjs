@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCas } from "./cas.js";
+import { casTotals, parseCas } from "./cas.js";
 import { applyCasEvents, casEventKey, casReplacePlan } from "./cas-apply.js";
 
 // These are the real NSDL/CDSL headers, with synthetic rows. The bond table is
@@ -133,6 +133,101 @@ test("a bond block carries the ISIN and opening balance to its next rows", () =>
   assert.equal(parsed.transactions[1].openingPaise, 12000);
   assert.equal(parsed.transactions[1].creditPaise, 3000);
   assert.equal(parsed.transactions[1].closingPaise, 15000);
+});
+
+test("each ISIN block keeps its own ISIN for its continuation rows", () => {
+  const items = [...SEC_HEADER,
+    text(ISIN_A, 50, 660), text("TEST BOND A", 142, 660), text("SALE", 234, 660),
+    text("09-08-2026", 327, 660), money("100", 390, 660), money("--", 424, 660),
+    money("20", 474, 660), money("80", 524, 660), money("0", 584, 660),
+    text("15-08-2026", 327, 620), money("80", 390, 620), money("30", 424, 620),
+    money("--", 474, 620), money("110", 524, 620), money("0", 584, 620),
+    text(ISIN_B, 50, 580), text("TEST BOND B", 142, 580), text("SALE", 234, 580),
+    text("20-08-2026", 327, 580), money("50", 390, 580), money("--", 424, 580),
+    money("10", 474, 580), money("40", 524, 580), money("0", 584, 580),
+    text("25-08-2026", 327, 540), money("40", 390, 540), money("5", 424, 540),
+    money("--", 474, 540), money("45", 524, 540), money("0", 584, 540),
+  ];
+  const parsed = parseCas(page(items));
+  assert.deepEqual(parsed.transactions.map((txn) => [txn.isin, txn.quantity]),
+    [[ISIN_A, 20], [ISIN_A, 30], [ISIN_B, 10], [ISIN_B, 5]]);
+});
+
+test("the same ISIN in two demats is not collapsed to one holding", () => {
+  const table = (y, value) => [
+    ...BOND_HOLD_HEADER.map((header) => ({ ...header, y })),
+    ...bondHoldRow({ isin: ISIN_A, quantity: 10, value }, y - 40),
+  ];
+  const items = [
+    text("DP Name : ZERODHA BROKING LIMITED", 20, 700),
+    text("BO ID : 1200000000000001", 420, 700),
+    ...table(660, "1,00,000.00"),
+    text("DP Name : MOTILAL OSWAL FINANCIAL SERVICES LIMITED", 20, 560),
+    text("BO ID : 1200000012345678", 420, 560),
+    ...table(520, "2,00,000.00"),
+    text("Grand Total", 20, 300), money("3,00,000.00", 578, 300),
+  ];
+  const parsed = parseCas(page(items));
+  assert.equal(parsed.holdings.length, 2);
+  assert.deepEqual(parsed.holdings.map((holding) => holding.account).sort(),
+    ["1200000000000001", "1200000012345678"]);
+  assert.equal(parsed.printedTotalPaise, 30000000);
+  assert.equal(casTotals(parsed, parsed.printedTotalPaise).ok, true);
+});
+
+test("an undated movement inside a dated block is quarantined, not dropped", () => {
+  const items = [...SEC_HEADER,
+    ...secRow({ isin: ISIN_A, date: "09-08-2026", open: 100, credit: "--", debit: 20,
+      close: 80 }, 660),
+    text("SOME BOND", 142, 620), text("SALE", 234, 620),
+    money("80", 390, 620), money("--", 424, 620), money("10", 474, 620),
+    money("70", 524, 620), money("0", 584, 620),
+  ];
+  const parsed = parseCas(page(items));
+  assert.equal(parsed.transactions.length, 1);
+  assert.equal(parsed.transactions[0].closingPaise, 8000);
+  assert.equal(parsed.counts.quarantined, 1);
+  assert.equal(parsed.warnings.some((warning) => warning.code === "txn_no_date"), true);
+});
+
+test("an opening balance printed as -- is read as zero for a purchase", () => {
+  const items = [...SEC_HEADER,
+    text(ISIN_A, 50, 660), text("SOME BOND", 142, 660), text("PURCHASE", 234, 660),
+    text("09-08-2026", 327, 660), money("--", 390, 660), money("100", 424, 660),
+    money("--", 474, 660), money("100", 524, 660), money("0", 584, 660),
+  ];
+  const parsed = parseCas(page(items));
+  assert.equal(parsed.transactions.length, 1);
+  assert.equal(parsed.transactions[0].openingPaise, 0);
+  assert.equal(parsed.transactions[0].quantity, 100);
+  assert.equal(parsed.counts.quarantined, 0);
+});
+
+test("the first Grand Total wins even when its number is on the next line", () => {
+  const items = [
+    text("Grand Total", 20, 400),
+    money("1,89,552.00", 578, 392),
+    text("Grand Total", 20, 200), money("9,99,999.00", 578, 200),
+  ];
+  const parsed = parseCas(page(items));
+  assert.equal(parsed.printedTotalPaise, 18955200);
+});
+
+test("a mutual fund table continued on a new page uses the last ISIN above it", () => {
+  const parsed = parseCas({ pages: [
+    { items: [
+      text("AMC Name : TEST ONE MUTUAL FUND", 20, 700),
+      text("ISIN : INF000000001", 50, 690),
+      text("AMC Name : TEST TWO MUTUAL FUND", 20, 300),
+      text("ISIN : INF999900287", 50, 290),
+    ] },
+    { items: [
+      ...MF_HEADER.map((header) => ({ ...header, y: 700 })),
+      ...mfRow({ date: "16-08-2026", description: "PURCHASE", amount: 5000, units: 100 }, 660),
+    ] },
+  ] });
+  assert.equal(parsed.transactions.length, 1);
+  assert.equal(parsed.transactions[0].isin, "INF999900287");
 });
 
 test("a mutual fund redemption maps Units, never Amount, NAV or Price", () => {

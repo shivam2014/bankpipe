@@ -18,6 +18,25 @@ export function soldTypeLabel(row) {
 }
 
 /**
+ * The sold rows a CAS preview lists. A movement line says what changed; this
+ * says what the disposal record stores: its date, units and cost basis.
+ * @param {object} plan a casReplacePlan / planLinkedSales result
+ * @param {{money?: Function}} [fmt]
+ * @returns {string[]}
+ */
+export function casSoldLines(plan, fmt = {}) {
+  const money = fmt.money || ((value) => String(Number(value) / 100));
+  return (plan?.sold || []).map((row) => {
+    const units = row.disposed_quantity === null || row.disposed_quantity === undefined
+      ? "—" : row.disposed_quantity;
+    const cost = row.disposed_cost_paise === null || row.disposed_cost_paise === undefined
+      ? "cost not known" : `cost ${money(row.disposed_cost_paise)}`;
+    return `${soldTypeLabel(row)} ${units} units of ${row.security_id || ""} on `
+      + `${row.disposed_at || "an unknown date"}: ${cost}`;
+  });
+}
+
+/**
  * @param {Array<object>} rows holding rows with disposed_at
  * @param {string} assetId
  * @param {{esc?: Function, money?: Function, dateLabel?: Function, jsArg?: Function}} [fmt]

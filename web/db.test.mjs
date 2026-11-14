@@ -318,6 +318,29 @@ test("manual holdings survive a report sync", async () => {
   assert.equal(store.listHoldings("bonds1").length, 0);
 });
 
+test("a replaced manual lot keeps its manual source", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "bonds-manual", label: "Bonds", category: "bonds" });
+  store.upsertHolding("bonds-manual", { security_id: "INE000000001",
+    label: "10.00% TEST 31 DEC 2030", quantity: 100, cost_paise: 100000,
+    purchase_date: "2024-01-01" });
+  const [manual] = store.listHoldings("bonds-manual");
+  assert.equal(manual.source, "manual");
+  store.replaceHoldings("bonds-manual", [
+    { ...manual, quantity: 60, cost_paise: 60000 },
+    { security_id: "INE000000001", label: "10.00% TEST 31 DEC 2030",
+      category: "bond", quantity: 0, cost_paise: 0, value_paise: 0,
+      disposed_at: "2026-08-12", disposed_quantity: 40, disposed_type: "sale",
+      disposed_source: "CAS", disposed_reason: "SALE", disposed_cost_paise: 40000 },
+  ], "2026-08-31");
+  const rows = store.listHoldings("bonds-manual");
+  const live = rows.find((row) => !row.disposed_at);
+  assert.equal(live.quantity, 60);
+  assert.equal(live.source, "manual");
+  assert.equal(rows.filter((row) => row.disposed_at).length, 1);
+});
+
 test("holdings replace as a snapshot, not append", async () => {
   const store = makeStore(SQL, null);
   await store.open();

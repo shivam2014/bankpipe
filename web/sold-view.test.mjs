@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitHoldings, soldHoldingsHtml, soldTypeLabel } from "./sold-view.js";
+import { casSoldLines, splitHoldings, soldHoldingsHtml, soldTypeLabel } from "./sold-view.js";
 
 const live = { id: 1, label: "9.00% LIVE BOND", security_id: "INE000000031",
   category: "bond", quantity: 60, value_paise: 6000000 };
@@ -45,4 +45,15 @@ test("a transfer out is labelled as a transfer, not a sale", () => {
 test("no disposals render nothing", () => {
   assert.equal(soldHoldingsHtml([], "demat-a", fmt), "");
   assert.equal(soldHoldingsHtml([live], "demat-a", fmt), "");
+});
+
+test("the CAS preview lists the sold row with its date, units and cost", () => {
+  const lines = casSoldLines({ sold: [sold] }, fmt);
+  assert.deepEqual(lines,
+    ["Sold 50 units of INE000000032 on 2026-08-12: cost ₹5000"]);
+});
+
+test("a sold row with no cost says so instead of printing zero", () => {
+  const lines = casSoldLines({ sold: [{ ...sold, disposed_cost_paise: null }] }, fmt);
+  assert.match(lines[0], /cost not known/);
 });

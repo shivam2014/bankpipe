@@ -34,6 +34,49 @@ test("the linked cost portfolio is found through the demat link", () => {
   assert.deepEqual(linkedCostPortfolios("demat-a", [demat], rowsOf), []);
 });
 
+test("a disposed lot does not decide which demat a portfolio feeds", () => {
+  const OTHER = "INE000000032";
+  const portfolio = { id: "cost-a", label: "Cost portfolio A", category: "bonds" };
+  const accounts = [demat, otherDemat, portfolio];
+  const holdings = new Map([
+    ["demat-a", [{ security_id: ISIN, category: "bond", quantity: 100 }]],
+    ["demat-b", [{ security_id: OTHER, category: "bond", quantity: 10 }]],
+    ["cost-a", [
+      { security_id: ISIN, category: "bond", quantity: 0, disposed_at: "2026-08-01" },
+      { security_id: OTHER, category: "bond", quantity: 10, cost_paise: 10000 },
+    ]],
+  ]);
+  const rowsOf = (id) => holdings.get(id) || [];
+  assert.deepEqual(linkedCostPortfolios("demat-b", accounts, rowsOf).map((a) => a.id),
+    ["cost-a"]);
+});
+
+test("link inference counts distinct ISINs, not lot occurrences", () => {
+  const OTHER_A = "INE000000041";
+  const OTHER_B = "INE000000042";
+  const portfolio = { id: "cost-a", label: "Cost portfolio A", category: "bonds" };
+  const accounts = [demat, otherDemat, portfolio];
+  const holdings = new Map([
+    ["demat-a", [{ security_id: ISIN, category: "bond", quantity: 1 }]],
+    ["demat-b", [
+      { security_id: OTHER_A, category: "bond", quantity: 1 },
+      { security_id: OTHER_B, category: "bond", quantity: 1 },
+    ]],
+    ["cost-a", [
+      { security_id: ISIN, category: "bond", quantity: 1, cost_paise: 1 },
+      { security_id: ISIN, category: "bond", quantity: 1, cost_paise: 1 },
+      { security_id: ISIN, category: "bond", quantity: 1, cost_paise: 1 },
+      { security_id: OTHER_A, category: "bond", quantity: 1, cost_paise: 1 },
+      { security_id: OTHER_B, category: "bond", quantity: 1, cost_paise: 1 },
+    ]],
+  ]);
+  const rowsOf = (id) => holdings.get(id) || [];
+  // Three lots of one ISIN used to outvote two other ISINs. Distinct ISINs make
+  // demat-b (two ISINs) the home, not demat-a (one ISIN, three lots).
+  assert.deepEqual(linkedCostPortfolios("demat-b", accounts, rowsOf).map((a) => a.id),
+    ["cost-a"]);
+});
+
 test("the linked portfolio consumes lots FIFO and records the sum of their costs", () => {
   const rows = [
     lot({ quantity: 50, cost_paise: 50000, purchase_date: "2024-01-01" }),
@@ -107,4 +150,67 @@ test("no linked cost portfolio is not an error", () => {
   assert.deepEqual(linked.portfolios, []);
   assert.deepEqual(linked.warnings, []);
   assert.deepEqual(linked.reconciliations, []);
+});
+
+test("a partial sale scales the live lot's value and face", () => {
+  const rows = [lot({ quantity: 100, cost_paise: 110000, value_paise: 1000000,
+    face_paise: 10000000 })];
+  const plan = applyCasEventsToPortfolio(rows, [sale({ quantity: 60 })],
+    { assetId: "cost-a", asOf: "2026-08-31" });
+  const live = plan.rows.find((row) => !row.disposed_at);
+  assert.equal(live.quantity, 40);
+  assert.equal(live.cost_paise, 44000);
+  assert.equal(live.value_paise, 400000);
+  assert.equal(live.face_paise, 4000000);
+});
+
+test("a cost basis that differs from the demat row is surfaced, not overwritten", () => {
+  const soldRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 60, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", disposed_cost_paise: 120000,
+    txn_key: casEventKey(sale(), "demat-a") };
+  const liveRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 40, cost_paise: 80000, value_paise: 400000, as_of: "2026-08-31" };
+  const dematPlan = { events: [sale()], sold: [soldRow], rows: [liveRow, soldRow] };
+  const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+  const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
+    asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
+  assert.equal(soldRow.disposed_cost_paise, 66000);
+  assert.equal(liveRow.cost_paise, 134000);
+  assert.match(linked.warnings.join(" "),
+    /linked cost portfolio holds 440\.00 in cost after the sale/);
+});
+
+test("a demat cost that matches the remaining portfolio cost raises no warning", () => {
+  const soldRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 60, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", disposed_cost_paise: 66000,
+    txn_key: casEventKey(sale(), "demat-a") };
+  const liveRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 40, cost_paise: 44000, value_paise: 400000, as_of: "2026-08-31" };
+  const dematPlan = { events: [sale()], sold: [soldRow], rows: [liveRow, soldRow] };
+  const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+  const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
+    asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
+  assert.equal(liveRow.cost_paise, 44000);
+  assert.deepEqual(linked.warnings, []);
+});
+
+test("a null live demat cost takes the linked portfolio's remaining cost", () => {
+  const soldRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 60, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", disposed_cost_paise: null,
+    txn_key: casEventKey(sale(), "demat-a") };
+  const liveRow = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 40, cost_paise: null, value_paise: 400000, as_of: "2026-08-31" };
+  const dematPlan = { events: [sale()], sold: [soldRow], rows: [liveRow, soldRow] };
+  const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+  const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
+    asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
+  assert.equal(soldRow.disposed_cost_paise, 66000);
+  assert.equal(liveRow.cost_paise, 44000);
+  assert.deepEqual(linked.warnings, []);
 });

@@ -390,3 +390,227 @@ test("the preview and the writer share one event plan", () => {
     write.rows.map((row) => [row.security_id, row.quantity, row.disposed_at || ""]).sort(),
   );
 });
+
+// --- re-import and multi-account routing -------------------------------------
+
+test("re-importing the same full-sale statement does not resurrect the sold lot", () => {
+  const parsed = fullSale();
+  const args = { parsed, existing: [brokerRow()], holdings: parsed.holdings,
+    asOf: "2026-08-31", confirmed: true, assetId: "demat-a", route: true,
+    accounts: ["1200000000000001"] };
+  const first = casReplacePlan(args);
+  assert.equal(first.rows.filter((row) => !row.disposed_at).length, 0);
+  assert.equal(first.rows.filter((row) => row.disposed_at).length, 1);
+
+  const again = casReplacePlan({ ...args, existing: first.rows });
+  assert.equal(again.rows.filter((row) => !row.disposed_at).length, 0);
+  assert.equal(again.rows.filter((row) => row.disposed_at).length, 1);
+  assert.equal(again.rows[0].disposed_quantity, 100);
+});
+
+test("re-importing the same partial sale keeps the live units and one sold row", () => {
+  const parsed = fullSale({
+    transactions: [{ isin: ISIN_A, security: "TEST BOND", date: "2026-08-12",
+      type: "SALE", description: "SALE", quantity: 40, openingPaise: 10000,
+      creditPaise: 0, debitPaise: 4000, closingPaise: 6000, stampDutyPaise: 0 }],
+  });
+  const args = { parsed, existing: [brokerRow()], holdings: parsed.holdings,
+    asOf: "2026-08-31", confirmed: true, assetId: "demat-a", route: true,
+    accounts: ["1200000000000001"] };
+  const first = casReplacePlan(args);
+  assert.equal(first.rows.find((row) => !row.disposed_at).quantity, 60);
+
+  const again = casReplacePlan({ ...args, existing: first.rows });
+  const live = again.rows.find((row) => !row.disposed_at);
+  assert.equal(live.quantity, 60);
+  assert.equal(live.cost_paise, 120000);
+  assert.equal(again.rows.filter((row) => row.disposed_at).length, 1);
+});
+
+test("each demat receives only its own movements", () => {
+  const ACCOUNT_A = "1200000000000001";
+  const ACCOUNT_B = "1200000000000002";
+  const holding = (isin, label, quantity, account, coupon, maturity) => ({
+    isin, label, kind: "bond", quantity, valuePaise: quantity * 100000,
+    couponPct: coupon, maturity, account,
+  });
+  const sale = (isin, account, open, debit, close) => ({ isin, account,
+    security: "TEST BOND", date: "2026-08-12", type: "SALE", description: "SALE",
+    quantity: debit / 100, openingPaise: open, creditPaise: 0, debitPaise: debit,
+    closingPaise: close });
+  const parsed = {
+    holdings: [holding(ISIN_A, "A BOND", 100, ACCOUNT_A, 9, "2028-12-31"),
+      holding(ISIN_B, "B BOND", 50, ACCOUNT_B, 8, "2029-12-31")],
+    transactions: [
+      sale(ISIN_A, ACCOUNT_A, 10000, 4000, 6000),
+      sale(ISIN_B, ACCOUNT_B, 5000, 1000, 4000),
+      sale(ISIN_A, ACCOUNT_B, 3000, 1000, 2000),
+      sale(ISIN_B, ACCOUNT_A, 2000, 500, 1500),
+    ],
+    counts: { rows: 2, quarantined: 0 },
+    printedTotalPaise: null,
+  };
+  const row = (isin, account, quantity) => ({ security_id: isin, label: "BOND",
+    category: "bond", quantity, cost_paise: quantity * 1000, as_of: "2026-07-31",
+    account });
+  const planA = casReplacePlan({ parsed, existing: [row(ISIN_A, ACCOUNT_A, 100)],
+    holdings: [parsed.holdings[0]], assetId: "demat-a", asOf: "2026-08-31",
+    confirmed: true, accounts: [ACCOUNT_A], route: true });
+  const planB = casReplacePlan({ parsed, existing: [row(ISIN_B, ACCOUNT_B, 50)],
+    holdings: [parsed.holdings[1]], assetId: "demat-b", asOf: "2026-08-31",
+    confirmed: true, accounts: [ACCOUNT_B], route: true });
+  assert.deepEqual(planA.sold.map((sold) => sold.security_id).sort(),
+    [ISIN_A, ISIN_B].sort());
+  assert.deepEqual(planB.sold.map((sold) => sold.security_id).sort(),
+    [ISIN_A, ISIN_B].sort());
+  // Each account's own two movements are recorded, plus the foreign one that
+  // names this account; the other account's movements are not.
+  assert.equal(planA.sold.length, 2);
+  assert.equal(planB.sold.length, 2);
+});
+
+test("a movement with no account goes only to the demat that holds it", () => {
+  const ACCOUNT_A = "1200000000000001";
+  const ACCOUNT_B = "1200000000000002";
+  const holdingA = { isin: ISIN_A, label: "A BOND", kind: "bond", quantity: 100,
+    valuePaise: 10000000, couponPct: 9, maturity: "2028-12-31", account: ACCOUNT_A };
+  const event = { isin: ISIN_A, account: "", security: "A BOND", date: "2026-08-12",
+    type: "SALE", description: "SALE", quantity: 40, openingPaise: 10000,
+    creditPaise: 0, debitPaise: 4000, closingPaise: 6000 };
+  const parsed = { holdings: [holdingA], transactions: [event],
+    counts: { rows: 1, quarantined: 0 }, printedTotalPaise: null };
+  const a = casReplacePlan({ parsed, existing: [{ security_id: ISIN_A,
+    label: "A BOND", category: "bond", quantity: 100, cost_paise: 100000,
+    as_of: "2026-07-31" }], holdings: [holdingA], assetId: "demat-a",
+    asOf: "2026-08-31", confirmed: true, accounts: [ACCOUNT_A], route: true });
+  const b = casReplacePlan({ parsed, existing: [{ security_id: ISIN_B,
+    label: "B BOND", category: "bond", quantity: 50, cost_paise: 50000,
+    as_of: "2026-07-31" }], holdings: [], assetId: "demat-b",
+    asOf: "2026-08-31", confirmed: true, accounts: [ACCOUNT_B], route: true });
+  assert.equal(a.sold.length, 1);
+  assert.equal(b.sold.length, 0);
+});
+
+test("a debit larger than the largest lot consumes every live lot", () => {
+  const lot = (quantity, costPaise) => ({ security_id: ISIN_A, label: "TEST BOND",
+    category: "bond", quantity, cost_paise: costPaise, value_paise: costPaise,
+    face_paise: costPaise * 100, as_of: "2026-08-01" });
+  const event = { isin: ISIN_A, security: "TEST BOND", date: "2026-08-12",
+    type: "SALE", description: "SALE", quantity: 100, openingPaise: 10000,
+    creditPaise: 0, debitPaise: 10000, closingPaise: 0 };
+  const result = applyCasEvents([lot(70, 70000), lot(30, 30000)], [event]);
+  assert.equal(result.rows.filter((row) => !row.disposed_at).length, 0);
+  assert.equal(result.sold.length, 1);
+  assert.equal(result.sold[0].disposed_quantity, 100);
+  assert.equal(result.sold[0].disposed_cost_paise, 100000);
+});
+
+test("a partial debit consumes from each lot and leaves the rest priced", () => {
+  const lot = (quantity, costPaise) => ({ security_id: ISIN_A, label: "TEST BOND",
+    category: "bond", quantity, cost_paise: costPaise, value_paise: costPaise,
+    face_paise: costPaise * 100, as_of: "2026-08-01" });
+  const event = { isin: ISIN_A, security: "TEST BOND", date: "2026-08-12",
+    type: "SALE", description: "SALE", quantity: 80, openingPaise: 10000,
+    creditPaise: 0, debitPaise: 8000, closingPaise: 2000 };
+  const result = applyCasEvents([lot(70, 70000), lot(30, 30000)], [event]);
+  const live = result.rows.filter((row) => !row.disposed_at);
+  assert.equal(live.length, 1);
+  assert.equal(live[0].quantity, 20);
+  assert.equal(live[0].cost_paise, 20000);
+  assert.equal(result.sold[0].disposed_cost_paise, 80000);
+});
+
+test("a credit across several lots adds only its units to the total", () => {
+  const lot = (quantity, costPaise) => ({ security_id: ISIN_A, label: "TEST BOND",
+    category: "bond", quantity, cost_paise: costPaise, value_paise: costPaise,
+    as_of: "2026-08-01" });
+  const event = { isin: ISIN_A, security: "TEST BOND", date: "2026-08-12",
+    type: "PURCHASE", description: "PURCHASE", quantity: 50, openingPaise: 10000,
+    creditPaise: 5000, debitPaise: 0, closingPaise: 15000 };
+  const result = applyCasEvents([lot(70, 70000), lot(30, 30000)], [event]);
+  const live = result.rows.filter((row) => !row.disposed_at);
+  assert.equal(live.reduce((sum, row) => sum + row.quantity, 0), 150);
+  assert.equal(live.length, 2);
+});
+
+test("a transfer-out conflict is named as a transfer, not a sale", () => {
+  const parsed = fullSale({
+    holdings: [],
+    transactions: [{ isin: ISIN_A, security: "TEST BOND", date: "2026-08-12",
+      type: "TRANSFER OUT TO CDSL", description: "TRANSFER OUT TO CDSL", quantity: 40,
+      openingPaise: 10000, creditPaise: 0, debitPaise: 4000, closingPaise: 6000 }],
+  });
+  const result = applyCasEvents([brokerRow({ as_of: "2026-09-30" })], parsed.transactions,
+    { asOf: "2026-10-01" });
+  assert.equal(result.conflicts.length, 1);
+  assert.match(result.conflicts[0].message, /transferred out/);
+  assert.equal(/sold/.test(result.conflicts[0].message), false);
+});
+
+test("a corporate-action conflict keeps its printed reason", () => {
+  const parsed = fullSale({
+    holdings: [],
+    transactions: [{ isin: ISIN_A, security: "TEST BOND", date: "2026-08-12",
+      type: "CORPORATE ACTION", description: "CORPORATE ACTION", quantity: 40,
+      openingPaise: 10000, creditPaise: 0, debitPaise: 4000, closingPaise: 6000 }],
+  });
+  const result = applyCasEvents([brokerRow({ as_of: "2026-09-30" })], parsed.transactions,
+    { asOf: "2026-10-01" });
+  assert.equal(result.conflicts.length, 1);
+  assert.match(result.conflicts[0].message, /disposed \(CORPORATE ACTION\)/);
+});
+
+test("a disposal with no live row takes its label and class from the parsed holding", () => {
+  const parsed = fullSale({
+    holdings: [{ isin: ISIN_A, label: "TEST BOND", kind: "bond", quantity: 100,
+      valuePaise: 10000000, couponPct: 9, maturity: "2028-12-31" }],
+    printedTotalPaise: null,
+    transactions: [{ isin: ISIN_A, security: "", date: "2026-08-12",
+      type: "CORPORATE ACTION", description: "CORPORATE ACTION", quantity: 100,
+      openingPaise: 10000, creditPaise: 0, debitPaise: 10000, closingPaise: 0 }],
+  });
+  const plan = casReplacePlan({ parsed, existing: [], holdings: [],
+    asOf: "2026-08-31", confirmed: true, assetId: "demat-a" });
+  assert.equal(plan.rows.length, 1);
+  assert.equal(plan.rows[0].category, "bond");
+  assert.equal(plan.rows[0].label, "9% TEST BOND 31 Dec 2028");
+});
+
+test("an older debit cannot be suppressed by a closing balance it predates", () => {
+  const rows = [{ security_id: ISIN_A, label: "TEST BOND", category: "bond",
+    quantity: 30, cost_paise: 60000, value_paise: 60000, as_of: "2026-07-31" }];
+  const result = applyCasEvents(rows, [{ isin: ISIN_A, security: "TEST BOND",
+    date: "2026-08-12", type: "SALE", description: "SALE", quantity: 40,
+    openingPaise: 10000, creditPaise: 0, debitPaise: 4000, closingPaise: 6000 }]);
+  assert.equal(result.rows.filter((row) => !row.disposed_at).length, 0);
+  assert.equal(result.sold[0].disposed_quantity, 40);
+  assert.match(result.warnings.join(" "), /closes at 60 units/);
+});
+
+test("re-importing a credit does not compound the units", () => {
+  const rows = [{ security_id: ISIN_A, label: "TEST FUND", category: "mf",
+    quantity: 100, cost_paise: 100000, value_paise: 100000, as_of: "2026-07-31" }];
+  const event = { isin: ISIN_A, date: "2026-08-12", type: "PURCHASE",
+    description: "PURCHASE", side: "credit", quantity: 50, creditPaise: null,
+    debitPaise: null, closingPaise: null };
+  const first = applyCasEvents(rows, [event], { asOf: "2026-08-31" });
+  assert.equal(first.rows[0].quantity, 150);
+  assert.equal(first.rows[0].as_of, "2026-08-12");
+  const again = applyCasEvents(first.rows, [event], { asOf: "2026-08-31" });
+  assert.equal(again.rows[0].quantity, 150);
+});
+
+test("two same-day sales of the same units get different event keys", () => {
+  const rows = [{ security_id: ISIN_A, label: "TEST BOND", category: "bond",
+    quantity: 100, cost_paise: 100000, value_paise: 100000, as_of: "2026-08-01" }];
+  const events = [
+    { isin: ISIN_A, date: "2026-08-12", type: "SALE", description: "SALE", quantity: 10,
+      openingPaise: 10000, creditPaise: 0, debitPaise: 1000, closingPaise: 9000 },
+    { isin: ISIN_A, date: "2026-08-12", type: "SALE", description: "SALE", quantity: 10,
+      openingPaise: 9000, creditPaise: 0, debitPaise: 1000, closingPaise: 8000 },
+  ];
+  assert.notEqual(casEventKey(events[0]), casEventKey(events[1]));
+  const result = applyCasEvents(rows, events, { asOf: "2026-08-31" });
+  assert.equal(result.sold.length, 2);
+  assert.equal(result.rows.find((row) => !row.disposed_at).quantity, 80);
+});

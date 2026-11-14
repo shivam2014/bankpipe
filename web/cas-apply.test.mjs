@@ -123,3 +123,82 @@ test("the preview and the writer agree on absent rows", () => {
   assert.equal(write.rows.length, 1);
   assert.equal(write.dropped.length, 1);
 });
+
+// --- rows on file -----------------------------------------------------------
+
+test("a sold row never shadows the live cost of the same ISIN", () => {
+  const live = existingBroker({ quantity: 60, cost_paise: 120000 });
+  const sold = { security_id: ISIN_A, label: "9.00% TEST BOND 31 Dec 2027",
+    category: "bond", quantity: 0, cost_paise: 0, value_paise: 0,
+    disposed_at: "2026-08-12", disposed_quantity: 40, disposed_type: "sale",
+    txn_key: "sale-key" };
+  const plan = casApplyRows({ existing: [live, sold],
+    holdings: [casHolding({ quantity: 60 })], asOf: "2026-10-31" });
+  const kept = plan.rows.find((row) => !row.disposed_at);
+  assert.equal(kept.quantity, 60);
+  assert.equal(kept.cost_paise, 120000);
+  assert.equal(kept.purchase_date, "2024-06-06");
+  assert.equal(plan.rows.filter((row) => row.disposed_at).length, 1);
+});
+
+test("a manual holding with a partial sale keeps its remaining units and source", () => {
+  const manual = { security_id: ISIN_A, label: "MANUAL BOND", category: "bond",
+    quantity: 100, cost_paise: 200000, value_paise: 1000000, as_of: "2026-07-31",
+    source: "manual" };
+  const parsed = {
+    holdings: [],
+    asOf: "2026-08-31",
+    transactions: [{ isin: ISIN_A, security: "MANUAL BOND", date: "2026-08-12",
+      type: "SALE", description: "SALE", quantity: 40, openingPaise: 10000,
+      creditPaise: 0, debitPaise: 4000, closingPaise: 6000 }],
+    counts: { rows: 0, quarantined: 0 },
+    printedTotalPaise: null,
+  };
+  const plan = casReplacePlan({ parsed, existing: [manual], holdings: [],
+    asOf: "2026-08-31", confirmed: true, assetId: "demat-a" });
+  const live = plan.rows.find((row) => !row.disposed_at);
+  const sold = plan.rows.find((row) => row.disposed_at);
+  assert.equal(live.quantity, 60);
+  assert.equal(live.source, "manual");
+  assert.equal(sold.disposed_quantity, 40);
+  assert.equal(sold.disposed_cost_paise, 80000);
+});
+
+test("a movements-only statement never drops a live row it does not name", () => {
+  const parsed = {
+    holdings: [],
+    asOf: "2026-08-31",
+    transactions: [{ isin: ISIN_A, security: "TEST BOND", date: "2026-08-12",
+      type: "SALE", description: "SALE", quantity: 100, openingPaise: 10000,
+      creditPaise: 0, debitPaise: 10000, closingPaise: 0 }],
+    counts: { rows: 0, quarantined: 0 },
+    printedTotalPaise: null,
+  };
+  const other = existingBroker({ security_id: ISIN_B, label: "8.00% OTHER BOND",
+    quantity: 200, cost_paise: 200000 });
+  const plan = casReplacePlan({ parsed, existing: [existingBroker(), other],
+    holdings: [], asOf: "2026-08-31", confirmed: true, assetId: "demat-a" });
+  assert.equal(plan.preserveAbsent, true);
+  assert.equal(plan.dropped.length, 0);
+  const kept = plan.rows.find((row) => row.security_id === ISIN_B && !row.disposed_at);
+  assert.equal(kept.quantity, 200);
+  assert.equal(plan.sold.length, 1);
+  assert.equal(plan.sold[0].security_id, ISIN_A);
+});
+
+test("the plan takes its date from the parsed statement when asOf is omitted", () => {
+  const parsed = {
+    holdings: [{ isin: ISIN_A, label: "TEST BOND", kind: "bond", quantity: 100,
+      valuePaise: 10000000, couponPct: 9, maturity: "2028-12-31" }],
+    asOf: "2026-08-31",
+    transactions: [{ isin: ISIN_A, security: "TEST BOND", date: "2026-08-12",
+      type: "SALE", description: "SALE", quantity: 40, openingPaise: 10000,
+      creditPaise: 0, debitPaise: 4000, closingPaise: 6000 }],
+    counts: { rows: 1, quarantined: 0 },
+    printedTotalPaise: 10000000,
+  };
+  const plan = casReplacePlan({ parsed, existing: [existingBroker()],
+    holdings: parsed.holdings, confirmed: true, assetId: "demat-a" });
+  assert.equal(plan.conflicts.length, 1);
+  assert.match(plan.conflicts[0].message, /still shows 100 units/);
+});

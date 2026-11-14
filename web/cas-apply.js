@@ -6,6 +6,7 @@
 
 import { casTotals } from "./cas.js";
 import { bondHomeOf, carryBrokerFields, isLiveBondRow } from "./bonds.js";
+import { boId } from "./bo-id.js";
 
 /**
  * The label a CAS row is stored under. The label carries the coupon and the
@@ -35,6 +36,11 @@ export function casHoldingLabel(h) {
 
 const TOL = 1e-9;
 const tidyText = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+const laterDate = (a, b) => {
+  const one = String(a || "").slice(0, 10);
+  const two = String(b || "").slice(0, 10);
+  return one > two ? one : two;
+};
 
 function fnv1a(text) {
   let hash = 0x811c9dc5;
@@ -60,8 +66,14 @@ export function casEventKey(event, scope = "") {
   const date = String(event?.date || "").slice(0, 10);
   const type = tidyText(event?.type || "").toLowerCase();
   const quantity = Number(event?.quantity) || 0;
+  // The printed balances separate two genuine same-day trades with the same
+  // security, type, units and remark. They are stable across a re-import.
+  const balance = (value) => (value === null || value === undefined
+    ? "" : Number(value) || 0);
+  const opening = balance(event?.openingPaise);
+  const closing = balance(event?.closingPaise);
   const hash = fnv1a(tidyText(event?.description || event?.type || "").toLowerCase());
-  const stem = [isin, date, type, quantity, hash].join("|");
+  const stem = [isin, date, type, quantity, opening, closing, hash].join("|");
   return scope ? `${String(scope)}|${stem}` : stem;
 }
 
@@ -182,20 +194,28 @@ function rebuyRow(prior, event, { key, quantity, asOf }) {
  * Apply CAS movements to holdings. Pure: the same rows and events always give
  * the same plan, which is what lets the preview and the writer share it.
  *
- * A debit reduces the units, floors at zero and leaves a disposal record. A
- * credit increases units only when the statement says purchase or transfer in.
- * An event the snapshot already reflects (the row's date is on or after the
- * event, and its units already sit at that event's closing balance) is recorded
- * but not subtracted twice. A later snapshot that still shows the old units is
- * surfaced as a disagreement, because the sale is the fact and the snapshot is
- * the claim.
+ * A debit reduces the units across the live lots, floors at zero and leaves a
+ * disposal record. A credit increases units only when the statement says
+ * purchase or transfer in. An event the snapshot already reflects (the row's
+ * date is on or after the event, and its units already sit at that event's
+ * closing balance) is recorded but not subtracted twice. A later snapshot that
+ * still shows the old units is surfaced as a disagreement, because the sale is
+ * the fact and the snapshot is the claim.
+ *
+ * A statement can cover several demats. `accounts` names the BO IDs the target
+ * holds; `route` turns on account routing for a preview or write. A movement
+ * with an account belongs only to that account, and a movement with none
+ * belongs to the account that holds the security. `known` is the parsed
+ * holdings table, used to name a disposal that has no live row.
  * @param {Array<object>} rows holding rows
  * @param {Array<object>} events parsed CAS transactions
- * @param {{asOf?: string, source?: string, assetId?: string}} [opts]
+ * @param {{asOf?: string, source?: string, assetId?: string,
+ *   accounts?: Array<string>, route?: boolean, known?: Array<object>}} [opts]
  * @returns {{rows: Array<object>, applied: Array<object>, sold: Array<object>,
  *   skipped: Array<object>, warnings: Array<string>, conflicts: Array<object>}}
  */
-export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetId = "" } = {}) {
+export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetId = "",
+  accounts = [], route = false, known = [] } = {}) {
   const out = (rows || []).map((row) => ({ ...row }));
   const applied = [];
   const sold = [];
@@ -203,8 +223,27 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
   const warnings = [];
   const conflicts = [];
   const seen = new Set(out.map((row) => row.txn_key).filter(Boolean));
+  // One statement can cover several demats. A movement that names its account
+  // belongs to that account only; every target receiving every movement put two
+  // foreign sold rows on each demat's plan.
+  const targetAccounts = (Array.isArray(accounts) ? accounts : [accounts])
+    .map((value) => boId(value).boId).filter(Boolean);
+  const held = new Set(out.map(isinOf).filter(Boolean));
+  const parsedByIsin = new Map();
+  for (const holding of known || []) {
+    const isin = isinOf(holding);
+    if (isin && !parsedByIsin.has(isin)) parsedByIsin.set(isin, holding);
+  }
   const ordered = (events || []).map((event, index) => ({ event, index }))
     .filter(({ event }) => isinOf({ security_id: event?.isin }))
+    .filter(({ event }) => {
+      const isin = isinOf({ security_id: event?.isin });
+      const named = boId(event?.account || "").boId;
+      if (named && targetAccounts.length) return targetAccounts.includes(named);
+      // A movement with no account of its own belongs to the account that holds
+      // the security.
+      return !route || held.has(isin);
+    })
     .sort((a, b) => String(a.event.date || "").localeCompare(String(b.event.date || ""))
       || a.index - b.index);
   const groups = new Map();
@@ -219,8 +258,13 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
       && (Number(row.quantity) || 0) > 0);
     live.sort((a, b) => (Number(b.quantity) || 0) - (Number(a.quantity) || 0));
     let target = live[0] || null;
-    let current = target ? Number(target.quantity) || 0 : 0;
-    const rowAsOf = target ? String(target.as_of || "").slice(0, 10) : "";
+    // The statement's closing balance is the account's total, so the plan works
+    // on the sum of the live lots, not on the largest one alone.
+    let current = live.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+    const rowAsOf = live.reduce((latest, row) => {
+      const when = String(row.as_of || "").slice(0, 10);
+      return when > latest ? when : latest;
+    }, "");
     const startQty = current;
     const lastDate = String(group[group.length - 1]?.event?.date || "").slice(0, 10);
     const lastClosing = (() => {
@@ -288,9 +332,15 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
         }
         // A sale can arrive before any holding row exists: the bond was bought
         // and sold inside the statement period, so the holdings table never
-        // printed it. The transaction is still the record.
-        const record = disposalRow(null, event, cls, { key, costPaise: null, source,
-          asOf, quantity });
+        // printed it. The transaction is still the record; the parsed holding,
+        // when the statement prints one, supplies its name and class.
+        const parsedHolding = parsedByIsin.get(isin) || null;
+        const record = disposalRow(parsedHolding ? {
+          security_id: isin,
+          label: casHoldingLabel(parsedHolding),
+          category: parsedHolding.kind || "",
+          issuer: "",
+        } : null, event, cls, { key, costPaise: null, source, asOf, quantity });
         out.push(record);
         sold.push(record);
         seen.add(key);
@@ -308,40 +358,65 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
       const included = matchesFinal
         || (closing === null && !!rowAsOf && !!event.date && event.date <= rowAsOf)
         || (!!rowAsOf && !!event.date && event.date <= rowAsOf && !postAll);
-      const atClosing = closing !== null && (cls.side === "debit"
+      // A row older than the movement cannot already include it, even when its
+      // units happen to sit below the printed closing balance. Only a row dated
+      // on or after the last movement can be "already at closing".
+      const atClosing = postAll && closing !== null && (cls.side === "debit"
         ? current <= closing + TOL
         : current >= closing - TOL);
       const change = !(included || atClosing);
       const before = current;
-      const costPaise = target.cost_paise === null || target.cost_paise === undefined
-        ? null : Number(target.cost_paise);
       let disposedCost = null;
       if (cls.side === "debit") {
-        const unitsSold = Math.min(quantity, before);
-        if (costPaise !== null && before > 0 && unitsSold > 0) {
-          disposedCost = Math.round(costPaise * (unitsSold / before));
+        // A debit larger than one lot is sold across every lot the account
+        // holds, largest first, so no lot is left live beside a sold record.
+        let remaining = Math.min(quantity, before);
+        const consumed = [];
+        for (const lot of live) {
+          if (remaining <= TOL) break;
+          const have = Number(lot.quantity) || 0;
+          const take = Math.min(remaining, have);
+          if (take <= 0) continue;
+          const cost = lot.cost_paise === null || lot.cost_paise === undefined
+            ? null : Number(lot.cost_paise);
+          const takeCost = cost === null ? null
+            : (take >= have - TOL ? cost : Math.round(cost * take / have));
+          consumed.push({ lot, have, take, takeCost });
+          remaining -= take;
         }
+        const costKnown = consumed.every(({ takeCost }) => takeCost !== null);
+        disposedCost = costKnown
+          ? consumed.reduce((sum, { takeCost }) => sum + takeCost, 0) : null;
         const after = change ? Math.max(0, before - quantity) : before;
         const record = disposalRow(target, event, cls, { key, costPaise: disposedCost,
           source, asOf, quantity });
         out.push(record);
         sold.push(record);
         if (change) {
-          const ratio = before > 0 ? after / before : 0;
-          const terms = carryBrokerFields(target, after);
-          target.quantity = after;
-          target.as_of = target.as_of || event.date || asOf;
-          target.value_paise = scaledPaise(target.value_paise, ratio);
-          target.face_paise = scaledPaise(target.face_paise, ratio);
-          if (costPaise !== null) {
-            target.cost_paise = Math.max(0, costPaise - (disposedCost || 0));
+          for (const { lot, have, take, takeCost } of consumed) {
+            const left = Math.max(0, have - take);
+            const ratio = have > 0 ? left / have : 0;
+            const terms = carryBrokerFields(lot, left);
+            lot.quantity = left;
+            lot.as_of = laterDate(lot.as_of, event.date || asOf);
+            lot.value_paise = scaledPaise(lot.value_paise, ratio);
+            lot.face_paise = scaledPaise(lot.face_paise, ratio);
+            if (takeCost !== null && lot.cost_paise !== null && lot.cost_paise !== undefined) {
+              lot.cost_paise = Math.max(0, Number(lot.cost_paise) - takeCost);
+            }
+            Object.assign(lot, terms);
+            if (left <= TOL) {
+              const at = out.indexOf(lot);
+              if (at >= 0) out.splice(at, 1);
+            }
           }
-          Object.assign(target, terms);
-          if (after <= 0) {
-            const at = out.indexOf(target);
-            if (at >= 0) out.splice(at, 1);
-            target = null;
+          if (!costKnown) {
+            warnings.push(`${isin}: a consumed lot has no cost; the sold cost basis is not known.`);
           }
+          live = out.filter((row) => !row.disposed_at && isinOf(row) === isin
+            && (Number(row.quantity) || 0) > 0);
+          live.sort((a, b) => (Number(b.quantity) || 0) - (Number(a.quantity) || 0));
+          target = live[0] || null;
         }
         current = after;
         applied.push({ ...base, status: change ? "applied" : "reflected",
@@ -349,10 +424,14 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
       } else {
         const after = change ? before + quantity : before;
         if (change) {
-          const ratio = before > 0 ? after / before : 0;
-          const terms = carryBrokerFields(target, after);
-          target.quantity = after;
-          target.as_of = target.as_of || event.date || asOf;
+          // The credit lands on the largest lot; the account's total gains the
+          // same units. A lot added to one row must not be set to the total.
+          const have = Number(target.quantity) || 0;
+          const nextQty = have + quantity;
+          const ratio = have > 0 ? nextQty / have : 0;
+          const terms = carryBrokerFields(target, nextQty);
+          target.quantity = nextQty;
+          target.as_of = laterDate(target.as_of, event.date || asOf);
           target.value_paise = scaledPaise(target.value_paise, ratio);
           target.face_paise = scaledPaise(target.face_paise, ratio);
           Object.assign(target, terms);
@@ -374,13 +453,17 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
       const sale = group.map(({ event }) => event)
         .filter((event) => classifyCasEvent(event).side === "debit")
         .sort((a, b) => String(a.date).localeCompare(String(b.date))).pop();
+      const saleCls = classifyCasEvent(sale);
+      const moved = saleCls.kind === "sale" ? "sold"
+        : saleCls.kind === "transfer-out" ? "transferred out"
+          : `disposed${saleCls.reason ? ` (${saleCls.reason})` : ""}`;
       conflicts.push({
         isin,
         txn_key: casEventKey(sale, assetId),
         date: sale.date || "",
         message: `The holding on file is dated ${rowAsOf} and still shows `
           + `${startQty} units. The statement records `
-          + `${Number(sale.quantity)} sold on ${sale.date}, so it now holds `
+          + `${Number(sale.quantity)} ${moved} on ${sale.date}, so it now holds `
           + `${lastClosing}.`,
         from: startQty,
         expected: lastClosing,
@@ -433,6 +516,9 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
   for (const old of existing || []) {
     const isin = String(old.security_id || old.isin || "").toUpperCase();
     if (!isin) continue;
+    // A disposal is history. It must never shadow the live row for the same
+    // ISIN, or a re-import would take the sold record's empty cost as the lot's.
+    if (old.disposed_at) continue;
     oldByIsin.set(isin, old);
     if (old.cost_paise !== null && old.cost_paise !== undefined) withCost.set(isin, old);
   }
@@ -488,7 +574,10 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
       continue;
     }
     if (stamped.has(isin)) continue;
-    if (old.source === "manual") {
+    // A manually added holding is normally outside the statement's reach, but a
+    // movement in the statement names it, so the event pass has to see the row
+    // and reduce it instead of leaving it untouched.
+    if (old.source === "manual" && !keepForEvent.has(isin)) {
       manualKept += 1;
       continue;
     }
@@ -519,11 +608,13 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
  * the rows this plan will write, so the sale a person sees is the sale stored.
  * @param {{parsed?: object, existing?: Array<object>, holdings?: Array<object>,
  *   events?: Array<object>, assetId?: string, asOf?: string, confirmed?: boolean,
- *   merge?: boolean, safety?: object}} input
+ *   merge?: boolean, safety?: object, accounts?: Array<string>,
+ *   route?: boolean}} input
  * @returns {object}
  */
 export function casReplacePlan({ parsed = {}, existing = [], holdings = [], events = null,
-  assetId = "", asOf = "", confirmed = false, merge = false, safety = null } = {}) {
+  assetId = "", asOf = parsed?.asOf || "", confirmed = false, merge = false,
+  safety = null, accounts = [], route = false } = {}) {
   const verdict = safety || casSafety(parsed);
   if (verdict.blocked) {
     return { ok: false, blocked: true, safety: verdict, rows: existing, absent: [],
@@ -533,14 +624,42 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
   const movements = events === null ? (parsed?.transactions || []) : (events || []);
   const eventIsins = new Set(movements.map((event) =>
     String(event?.isin || "").toUpperCase()).filter(Boolean));
-  const preserveAbsent = merge || !(confirmed && verdict.complete);
+  // A statement that printed no holdings table is a movements-only statement,
+  // not a complete zero-row snapshot. A confirmed replace must not drop every
+  // live row it does not name.
+  const printedHoldings = Array.isArray(parsed?.holdings) && parsed.holdings.length > 0;
+  const preserveAbsent = merge || !(confirmed && verdict.complete && printedHoldings);
   const applied = casApplyRows({ existing, holdings, asOf, preserveAbsent,
     keepAbsent: eventIsins });
+  // An event already on file was applied by an earlier import. The holdings
+  // table inside the statement can be older than the rows that import wrote, so
+  // a rebuilt row must not resurrect units the sale already removed. Keep the
+  // live rows on file for the ISINs whose events are already recorded.
+  const priorKeys = new Set((existing || []).map((row) => row.txn_key).filter(Boolean));
+  const priorIsins = new Set();
+  for (const event of movements) {
+    const key = casEventKey(event, assetId);
+    if (priorKeys.has(key) || priorKeys.has(casEventKey(event))) {
+      priorIsins.add(String(event?.isin || "").toUpperCase());
+    }
+  }
+  let baseRows = applied.rows;
+  if (priorIsins.size) {
+    baseRows = applied.rows.filter((row) => row.disposed_at
+      || !priorIsins.has(String(row.security_id || "").toUpperCase()));
+    for (const row of existing || []) {
+      const isin = String(row.security_id || row.isin || "").toUpperCase();
+      if (row.disposed_at || !priorIsins.has(isin)) continue;
+      if (!((Number(row.quantity) || 0) > 0)) continue;
+      baseRows.push({ ...row });
+    }
+  }
   if (!movements.length) {
     return { ok: true, blocked: false, safety: verdict, preserveAbsent, ...applied,
       events: [], sold: [], conflicts: [], warnings: [] };
   }
-  const result = applyCasEvents(applied.rows, movements, { asOf, assetId });
+  const result = applyCasEvents(baseRows, movements, { asOf, assetId, accounts, route,
+    known: parsed?.holdings || [] });
   return {
     ok: true, blocked: false, safety: verdict, preserveAbsent, ...applied,
     rows: result.rows,
@@ -567,13 +686,16 @@ export function linkedCostPortfolios(dematId, accounts = [], holdingsOf = () => 
     || /mutual\s*fund|^mf$/i.test(String(demat.subtype || ""))) return [];
   const demats = accounts.filter((account) => String(account.category || "") === "demat"
     && !/mutual\s*fund|^mf$/i.test(String(account.subtype || "")));
+  const liveLots = (id) => (holdingsOf(id) || []).filter(isLiveBondRow)
+    .filter((row) => row.quantity === null || row.quantity === undefined
+      || Number(row.quantity) > 0);
   const positionsOf = new Map();
   for (const account of demats) {
-    positionsOf.set(account.id, (holdingsOf(account.id) || []).filter(isLiveBondRow));
+    positionsOf.set(account.id, liveLots(account.id));
   }
   return accounts.filter((account) => String(account.category || "") === "bonds")
-    .filter((account) => (holdingsOf(account.id) || []).some(isLiveBondRow))
-    .filter((account) => bondHomeOf(holdingsOf(account.id) || [], account, demats,
+    .filter((account) => liveLots(account.id).length > 0)
+    .filter((account) => bondHomeOf(liveLots(account.id), account, demats,
       positionsOf) === dematId);
 }
 
@@ -637,7 +759,7 @@ export function applyCasEventsToPortfolio(rows, events, { asOf = "", assetId = "
         ? null : Number(lot.cost_paise);
       const takeCost = cost === null ? null
         : (take >= have - TOL ? cost : Math.round(cost * take / have));
-      consumed.push({ lot, take, takeCost });
+      consumed.push({ lot, have, take, takeCost });
       remaining -= take;
     }
     if (!consumed.length) {
@@ -651,10 +773,14 @@ export function applyCasEventsToPortfolio(rows, events, { asOf = "", assetId = "
     const baseLot = { ...consumed[0].lot };
     let costKnown = true;
     let costTotal = 0;
-    for (const { lot, take, takeCost } of consumed) {
+    for (const { lot, have, take, takeCost } of consumed) {
       if (takeCost === null) costKnown = false;
       else costTotal += takeCost;
-      lot.quantity = Math.max(0, (Number(lot.quantity) || 0) - take);
+      const left = Math.max(0, have - take);
+      const ratio = have > 0 ? left / have : 0;
+      lot.quantity = left;
+      lot.value_paise = scaledPaise(lot.value_paise, ratio);
+      lot.face_paise = scaledPaise(lot.face_paise, ratio);
       if (takeCost !== null && lot.cost_paise !== null && lot.cost_paise !== undefined) {
         lot.cost_paise = Math.max(0, Number(lot.cost_paise) - takeCost);
       }
@@ -674,8 +800,13 @@ export function applyCasEventsToPortfolio(rows, events, { asOf = "", assetId = "
     out.push(record);
     sold.push(record);
     seen.add(key);
+    const liveRows = out.filter((row) => !row.disposed_at && isinOf(row) === isin
+      && (Number(row.quantity) || 0) > 0);
+    const remainingCostPaise = liveRows.some((row) => row.cost_paise === null
+      || row.cost_paise === undefined)
+      ? null : liveRows.reduce((sum, row) => sum + Number(row.cost_paise || 0), 0);
     applied.push({ ...base, status: "applied", matchedQuantity: base.quantity - remaining,
-      costPaise });
+      costPaise, remainingCostPaise });
   }
   return { rows: out, applied, sold, skipped, warnings };
 }
@@ -711,9 +842,27 @@ export function planLinkedSales({ dematPlan = {}, dematAssetId = "", asOf = "",
       const live = (dematPlan.rows || []).find((row) => !row.disposed_at
         && String(row.security_id || "").toUpperCase() === sale.isin
         && (Number(row.quantity) || 0) > 0);
-      if (live && before !== null && before !== undefined) {
-        live.cost_paise = Math.max(0, (Number(live.cost_paise) || 0)
-          + Number(before) - Number(sale.costPaise));
+      if (live) {
+        if (before !== null && before !== undefined) {
+          live.cost_paise = Math.max(0, (Number(live.cost_paise) || 0)
+            + Number(before) - Number(sale.costPaise));
+        } else if ((live.cost_paise === null || live.cost_paise === undefined)
+          && sale.remainingCostPaise !== null && sale.remainingCostPaise !== undefined) {
+          // The demat row had no cost to adjust, so the linked plan's remaining
+          // cost is the only basis it can take. A known live cost is never
+          // overwritten with it.
+          live.cost_paise = sale.remainingCostPaise;
+        }
+        const liveCost = live.cost_paise === null || live.cost_paise === undefined
+          ? null : Number(live.cost_paise);
+        if (sale.remainingCostPaise !== null && sale.remainingCostPaise !== undefined
+          && liveCost !== null
+          && Math.abs(sale.remainingCostPaise - liveCost) > 0.5) {
+          warnings.push(`${sale.isin}: the linked cost portfolio holds `
+            + `${(sale.remainingCostPaise / 100).toFixed(2)} in cost after the sale, but `
+            + `the demat row holds ${(liveCost / 100).toFixed(2)}. The demat row keeps its `
+            + "own basis; the difference is not overwritten.");
+        }
       }
       if (Number(before) !== Number(sale.costPaise)) {
         reconciliations.push({ isin: sale.isin, date: sale.date, from: before,

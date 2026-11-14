@@ -22,9 +22,16 @@ function assetMeta(asset) {
   }
 }
 
+// A holding lot with no quantity is unknown, not empty. A zero is a closed
+// position and does not participate in a link or a cost calculation.
+const hasUnits = (row) => row?.quantity === null || row?.quantity === undefined
+  || Number(row.quantity) > 0;
+
 /**
  * The demat account a bond portfolio feeds. The explicit link wins, then the
  * demat number the portfolio names, then the demat holding most of its ISINs.
+ * The overlap is counted over distinct ISINs, so a portfolio with several lots
+ * of one bond cannot outvote two other bonds, and history is not counted.
  * @param {Array<object>} lots
  * @param {object} asset a bond portfolio
  * @param {Array<object>} demats
@@ -41,13 +48,17 @@ export function bondHomeOf(lots, asset, demats, positionsOf) {
     const hit = demats.find((d) => boId(d.number).boId === wanted);
     if (hit) return hit.id;
   }
-  const count = new Map();
+  const isins = new Set();
   for (const lot of lots || []) {
+    if (lot?.disposed_at || !hasUnits(lot)) continue;
     const isin = String(lot.security_id || "").toUpperCase();
-    if (!isin) continue;
+    if (isin) isins.add(isin);
+  }
+  const count = new Map();
+  for (const isin of isins) {
     for (const demat of demats) {
       if (!(positionsOf.get(demat.id) || []).some((p) =>
-        String(p.security_id || "").toUpperCase() === isin)) continue;
+        String(p.security_id || "").toUpperCase() === isin && hasUnits(p))) continue;
       count.set(demat.id, (count.get(demat.id) || 0) + 1);
     }
   }
