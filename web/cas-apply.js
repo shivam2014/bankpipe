@@ -506,8 +506,11 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
         const consumedCost = costKnown
           ? consumed.reduce((sum, { takeCost }) => sum + takeCost, 0) : null;
         // The post-sale row prices the remaining units, so a reflected sale is
-        // costed at the same per-unit basis for the printed units.
-        const costScale = !change && before > 0 ? unitsSold / before : 1;
+        // costed at the same per-unit basis. `consumedCost` already covers
+        // min(unitsSold, before) units; only a printed sale larger than the
+        // post-sale row needs the extra scaling.
+        const costScale = !change && before > 0
+          ? unitsSold / Math.min(unitsSold, before) : 1;
         disposedCost = consumedCost === null ? null
           : Math.round(consumedCost * costScale);
         // A sold record cannot claim more units than the account held. The
@@ -1028,10 +1031,12 @@ export function planLinkedSales({ dematPlan = {}, dematAssetId = "", asOf = "",
       if (sale.status !== "applied" || sale.costPaise === null) continue;
       const event = sale.event || sale;
       // A sold row written before the balance key carries the legacy key. It is
-      // still this sale, so reconcile it rather than leave its cost stale.
+      // still this sale, so reconcile it rather than leave its cost stale. The
+      // row can be in `sold` (built this run) or already in `rows` (history).
       const keys = [casEventKey(event, dematAssetId),
         casLegacyEventKey(event, dematAssetId)];
-      const dematSold = (dematPlan.sold || [])
+      const dematSold = [...(dematPlan.sold || []),
+        ...(dematPlan.rows || []).filter((row) => row.disposed_at)]
         .find((row) => keys.includes(row.txn_key));
       if (!dematSold) continue;
       const before = dematSold.disposed_cost_paise;

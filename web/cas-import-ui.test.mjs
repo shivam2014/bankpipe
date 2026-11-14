@@ -31,7 +31,19 @@ test("a movement-only demat is seeded into the preview", () => {
   assert.match(html, /casPreviewAccounts\(\{/);
   assert.match(html, /const previewAccounts = casPreviewAccounts/);
   assert.match(html, /for \(const account of previewAccounts\)/);
-  assert.match(html, /const headerHoldings = casWritableHoldings/);
+  assert.match(html, /const headerHoldings = writableHoldings\.length/);
+  assert.match(html, /const kindCount = \{\}/);
+  assert.match(html, /for \(const holding of writableHoldings\)/);
+});
+
+test("the inbox preview includes a movement-named demat missing from the holdings table", () => {
+  assert.match(html, /const extraMovementTargets = casPreviewAccounts/);
+  assert.match(html, /for \(const extra of extraMovementTargets\)/);
+  assert.match(html, /accounts: \[extra\.boId\]/);
+});
+
+test("unticking a seeded movement-only demat stops its sale", () => {
+  assert.match(html, /card\.picked && \(named \|\| movementHome\)/);
 });
 
 test("a trade-only statement with no account is not reported ready", () => {
@@ -69,7 +81,7 @@ test("the preview and the writer share the closed-holding rule", () => {
   assert.match(html, /import \{ casClosedRow, /);
   assert.equal(/function casClosedRow\(/.test(html), false);
   assert.match(html, /casClosedRow\(h, importDay\)/);
-  assert.match(html, /casClosedRow\(h, cardImportDay\)/);
+  assert.match(html, /const writableHoldings = casWritableHoldings\(cas\.holdings, cardImportDay\)/);
 });
 
 test("an identity-only target contributes no rows to the write", () => {

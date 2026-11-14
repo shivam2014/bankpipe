@@ -834,3 +834,44 @@ test("a full sale and a re-buy restarts the lot through the sold record", () => 
   assert.equal(result.sold.length, 1);
   assert.equal(result.sold[0].disposed_quantity, 100);
 });
+
+// --- the fourth review round -------------------------------------------------
+
+test("a reflected partial sale prices the printed units once", () => {
+  const rows = [{ security_id: ISIN_A, label: "TEST BOND", category: "bond",
+    quantity: 60, cost_paise: 60000, value_paise: 600000, as_of: "2026-08-31" }];
+  const result = applyCasEvents(rows, [{ isin: ISIN_A, security: "TEST BOND",
+    date: "2026-08-12", type: "SALE", description: "SALE", quantity: 40,
+    openingPaise: 10000, creditPaise: 0, debitPaise: 4000, closingPaise: 6000 }],
+  { asOf: "2026-09-30" });
+  assert.equal(result.sold.length, 1);
+  assert.equal(result.sold[0].disposed_quantity, 40);
+  assert.equal(result.sold[0].disposed_cost_paise, 40000);
+  assert.equal(result.rows.find((row) => !row.disposed_at).quantity, 60);
+  assert.equal(result.rows.find((row) => !row.disposed_at).cost_paise, 60000);
+  assert.equal(result.conflicts.length, 0);
+});
+
+test("a reflected fund redemption prices the printed units once", () => {
+  const rows = [{ security_id: ISIN_A, label: "TEST FUND", category: "mf",
+    quantity: 150, cost_paise: 500000, value_paise: 500000, as_of: "2026-08-31" }];
+  const result = applyCasEvents(rows, [{ isin: ISIN_A, date: "2026-08-16",
+    type: "REDEMPTION", description: "REDEMPTION", side: "debit", quantity: 50,
+    creditPaise: null, debitPaise: null, closingPaise: null }], { asOf: "2026-08-31" });
+  assert.equal(result.sold[0].disposed_quantity, 50);
+  assert.equal(result.sold[0].disposed_cost_paise, 166667);
+  assert.equal(result.rows.find((row) => !row.disposed_at).quantity, 150);
+  assert.equal(result.conflicts.length, 0);
+});
+
+test("a reflected sale on a post-sale row costs the printed units, not the ratio twice", () => {
+  const rows = [{ security_id: ISIN_A, label: "TEST BOND", category: "bond",
+    quantity: 50, cost_paise: 50000, value_paise: 500000, as_of: "2026-08-31" }];
+  const result = applyCasEvents(rows, [{ isin: ISIN_A, security: "TEST BOND",
+    date: "2026-08-12", type: "SALE", description: "SALE", quantity: 20,
+    openingPaise: 7000, creditPaise: 0, debitPaise: 2000, closingPaise: 5000 }],
+  { asOf: "2026-09-30" });
+  assert.equal(result.sold[0].disposed_quantity, 20);
+  assert.equal(result.sold[0].disposed_cost_paise, 20000);
+  assert.equal(result.rows.find((row) => !row.disposed_at).quantity, 50);
+});

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applyCasEvents, applyCasEventsToPortfolio, casEventKey, casLegacyEventKey,
-  linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
+  casReplacePlan, linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
 
 const ISIN = "INE000000031";
 const sale = (over = {}) => ({ isin: ISIN, date: "2026-08-12", type: "SALE",
@@ -254,5 +254,31 @@ test("a legacy-keyed sold row still reconciles to the linked FIFO cost", () => {
     asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
   assert.equal(soldRow.disposed_cost_paise, 66000);
   assert.equal(liveRow.cost_paise, 54000);
+  assert.equal(linked.reconciliations.length, 1);
+});
+
+test("a legacy sold row on file is reconciled through the real plan", () => {
+  const ACCOUNT = "1200000000000001";
+  const event = sale();
+  const legacySold = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 60, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", disposed_cost_paise: 72000,
+    txn_key: casLegacyEventKey(event, "demat-a") };
+  const live = { security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 40, cost_paise: 48000, value_paise: 400000, as_of: "2026-08-31" };
+  const parsed = { holdings: [], asOf: "2026-08-31", transactions: [event],
+    counts: { rows: 0, quarantined: 0 }, printedTotalPaise: null };
+  const plan = casReplacePlan({ parsed, existing: [legacySold, live], holdings: [],
+    events: [event], assetId: "demat-a", asOf: "2026-08-31", confirmed: true,
+    accounts: [ACCOUNT], route: true });
+  assert.equal(plan.sold.length, 0);
+  assert.equal(plan.rows.find((row) => !row.disposed_at).quantity, 40);
+  const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+  const linked = planLinkedSales({ dematPlan: plan, dematAssetId: "demat-a",
+    asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
+  const sold = plan.rows.find((row) => row.disposed_at);
+  assert.equal(sold.disposed_cost_paise, 66000);
+  assert.equal(plan.rows.find((row) => !row.disposed_at).cost_paise, 54000);
   assert.equal(linked.reconciliations.length, 1);
 });

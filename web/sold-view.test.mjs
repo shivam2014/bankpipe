@@ -57,3 +57,8 @@ test("a sold row with no cost says so instead of printing zero", () => {
   const lines = casSoldLines({ sold: [{ ...sold, disposed_cost_paise: null }] }, fmt);
   assert.match(lines[0], /cost not known/);
 });
+
+test("a zero cost basis is shown, not hidden", () => {
+  const html = soldHoldingsHtml([{ ...sold, disposed_cost_paise: 0 }], "demat-a", fmt);
+  assert.match(html, /cost ₹0/);
+});

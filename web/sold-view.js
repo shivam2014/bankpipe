@@ -57,7 +57,8 @@ export function soldHoldingsHtml(rows, assetId = "", fmt = {}) {
         ${holding.disposed_quantity === null || holding.disposed_quantity === undefined
           ? "—" : esc(holding.disposed_quantity)} units
         ${holding.disposed_at ? ` · ${esc(dateLabel(holding.disposed_at))}` : ""}
-        ${holding.disposed_cost_paise ? ` · cost ${esc(money(holding.disposed_cost_paise))}` : ""}</div>
+        ${holding.disposed_cost_paise !== null && holding.disposed_cost_paise !== undefined
+          ? ` · cost ${esc(money(holding.disposed_cost_paise))}` : ""}</div>
       ${holding.id ? `<button class="mini-btn" title="Remove this recorded disposal"
         onclick="bpBondHoldingDelete(${jsArg(assetId)}, ${jsArg(holding.id)})">Remove</button>` : ""}
     </div>`;
