@@ -19,6 +19,14 @@ One contract belongs to one checkout. Parallel threads get separate worktrees; d
 Do not edit `.ratchet/`, bypass a hook with `--no-verify`, or widen scope silently. Put throwaway probes in the OS temp directory (`/tmp` on POSIX, `%TEMP%` on Windows), not in the repo.
 <!-- ratchet:end -->
 
+## Privacy
+
+Never commit real statements, databases, denylists or identifiers. Fixtures are synthetic only. Real files are read through `BANKPIPE_PRIVATE_IMPORT_DIR` and never copied into the repo. After adding new statements, regenerate the local denylist:
+
+    BANKPIPE_PRIVATE_IMPORT_DIR="$HOME/statements" node web/tools/privacy-denylist.mjs
+
+Keep the repository private. `.github/workflows/privacy.yml` fails the build if it is not.
+
 ## UI work
 
 A change to a screen in `web/` starts from [`.opencode/skills/bankpipe-ui/SKILL.md`](.opencode/skills/bankpipe-ui/SKILL.md).
