@@ -539,6 +539,18 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
   };
 }
 
+/** The key an account was identified by, from the fields already on it. */
+function storedIdentityValue(account, source, meta) {
+  if (source === "cas") {
+    const raw = account?.bo_id || account?.number || meta.bo_id || meta.demat || "";
+    return boId(raw).boId || upper(raw);
+  }
+  // A broker stores its own key under the family's field. Legacy accounts may
+  // carry one without a family, so fall back to whichever key is present.
+  return upper(meta.ucid || meta.client_id || meta.demat
+    || account?.ucid || account?.client_id || "");
+}
+
 /** The dates the fields on one account were last written, and by what. */
 export function accountFieldState(account, holdings = []) {
   const meta = safeMeta(account);
@@ -549,7 +561,8 @@ export function accountFieldState(account, holdings = []) {
   const identityAsOf = parseDate(meta.identity_as_of || "")
     || (identitySource === "cas" ? snapshotAsOf : "");
   return {
-    identity: { source: identitySource, asOf: identityAsOf },
+    identity: { source: identitySource, asOf: identityAsOf,
+      value: storedIdentityValue(account, identitySource, meta) },
     snapshot: { source: snapshotSource, asOf: snapshotAsOf },
     cost: {
       source: meta.cost_source || meta.broker_source || "",
@@ -1116,17 +1129,20 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       const identity = incoming?.identity;
       if (!identity?.value) return null;
       const current = existing.identity || {};
+      const from = String(current.value || "");
+      const to = String(identity.value || "");
+      // The stored key is the evidence. An unchanged key is not an alias, even
+      // when the family's spelling of it differs in case or spacing.
+      const same = upper(from) === upper(to);
       if (!current.source) return { action: "attach", value: identity.value, kind: identity.kind };
       if (incoming.kind === "cas" && current.source !== "cas") {
-        return { action: "replace", value: identity.value, kind: identity.kind };
+        return { action: "replace", from, value: identity.value, kind: identity.kind };
       }
-      if (incoming.kind === "cas" && current.source === "cas"
-        && String(current.value || "") !== String(identity.value)) {
-        return { action: "replace", value: identity.value, kind: identity.kind };
+      if (incoming.kind === "cas" && current.source === "cas" && !same) {
+        return { action: "replace", from, value: identity.value, kind: identity.kind };
       }
-      if (current.source !== "cas" && incoming.kind !== "cas"
-        && String(current.value || "") !== String(identity.value)) {
-        return { action: "alias", value: identity.value, kind: identity.kind };
+      if (current.source !== "cas" && incoming.kind !== "cas" && !same) {
+        return { action: "alias", from, value: identity.value, kind: identity.kind };
       }
       return null;
     })(),

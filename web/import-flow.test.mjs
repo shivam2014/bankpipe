@@ -943,6 +943,56 @@ test("importing the same two dated files in either order converges on one row", 
     purchaseDate: "2024-06-06" });
 });
 
+test("an identical re-import of the broker's own key changes nothing", () => {
+  const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
+    category: "bond", quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
+    value_paise: 100000, as_of: "2026-11-12", source: "motilal" };
+  const cases = [
+    { family: "motilal", source: "motilal", key: "9990001", kind: "ucid",
+      meta: { ucid: "9990001" } },
+    { family: "zerodha", source: "zerodha", key: "AB1234", kind: "client",
+      meta: { client_id: "AB1234" } },
+  ];
+  for (const item of cases) {
+    const account = { id: `${item.family}-account`, label: "Demat", category: "demat",
+      subtype: "equity", number: "", meta: JSON.stringify({ broker_only: "1",
+        identity_source: item.source, identity_as_of: "2026-11-12",
+        holdings_source: item.source, holdings_as_of: "2026-11-12",
+        cost_source: item.family, cost_as_of: "2026-11-12", ...item.meta }) };
+    const existing = { ...accountFieldState(account, [row]), holdings: [row] };
+    const plan = planMerge({
+      incoming: incoming({ kind: item.family, asOf: "2026-11-12",
+        identity: { kind: item.kind, value: item.key } }),
+      existing,
+      today: "2026-11-15",
+    });
+    assert.equal(plan.identityChange, null, item.family);
+    assert.equal(plan.summary.added + plan.summary.updated + plan.summary.history, 0,
+      item.family);
+  }
+});
+
+test("a genuine alias still reports the stored key and the incoming key", () => {
+  const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
+    category: "bond", quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
+    value_paise: 100000, as_of: "2026-11-12", source: "motilal" };
+  const account = { id: "motilal-account", label: "Demat", category: "demat",
+    subtype: "equity", number: "", meta: JSON.stringify({ broker_only: "1",
+      identity_source: "motilal", identity_as_of: "2026-11-12",
+      holdings_source: "motilal", holdings_as_of: "2026-11-12",
+      cost_source: "motilal", cost_as_of: "2026-11-12", ucid: "9990001" }) };
+  const existing = { ...accountFieldState(account, [row]), holdings: [row] };
+  const plan = planMerge({
+    incoming: incoming({ kind: "motilal", asOf: "2026-11-12",
+      identity: { kind: "ucid", value: "9990002" } }),
+    existing,
+    today: "2026-11-15",
+  });
+  assert.equal(plan.identityChange.action, "alias");
+  assert.equal(plan.identityChange.value, "9990002");
+  assert.equal(plan.identityChange.from, "9990001");
+});
+
 test("the account field state names the source and date of each group", () => {
   const account = { number: "IN99990001344321", meta: JSON.stringify({
     holdings_source: "cas", holdings_as_of: "2026-10-31",
@@ -950,7 +1000,8 @@ test("the account field state names the source and date of each group", () => {
     cost_as_of: "2026-11-12", identity_source: "cas", identity_as_of: "2026-10-31",
   }) };
   const state = accountFieldState(account, []);
-  assert.deepEqual(state.identity, { source: "cas", asOf: "2026-10-31" });
+  assert.deepEqual(state.identity, { source: "cas", asOf: "2026-10-31",
+    value: "IN99990001344321" });
   assert.deepEqual(state.snapshot, { source: "cas", asOf: "2026-10-31" });
   assert.equal(state.cost.asOf, "2026-11-12");
   assert.equal(state.cost.manual, false);
