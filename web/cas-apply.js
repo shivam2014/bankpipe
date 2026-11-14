@@ -49,16 +49,20 @@ function fnv1a(text) {
  * A stable key for one printed movement. Re-importing the same statement finds
  * the same key, so the same sale is never applied twice. The description is
  * hashed because a remark can be long and can carry punctuation a PDF splits.
+ * The scope is the account id: one statement can name a security in two demats,
+ * and both sold records belong in the same unique column.
  * @param {object} event a parsed CAS transaction
+ * @param {string} [scope] account or asset id
  * @returns {string}
  */
-export function casEventKey(event) {
+export function casEventKey(event, scope = "") {
   const isin = String(event?.isin || "").toUpperCase().replace(/\s+/g, "");
   const date = String(event?.date || "").slice(0, 10);
   const type = tidyText(event?.type || "").toLowerCase();
   const quantity = Number(event?.quantity) || 0;
   const hash = fnv1a(tidyText(event?.description || event?.type || "").toLowerCase());
-  return [isin, date, type, quantity, hash].join("|");
+  const stem = [isin, date, type, quantity, hash].join("|");
+  return scope ? `${String(scope)}|${stem}` : stem;
 }
 
 const SALE_WORD = /\b(sale|sold|sell|selling)\b/i;
@@ -135,6 +139,43 @@ function disposalRow(base, event, cls, { key, costPaise, source, asOf, quantity 
 }
 
 /**
+ * The live row a re-buy after a sale starts again. The sold record is the only
+ * place the label, issuer and terms survive a full sale, so the new lot inherits
+ * them. Cost and value are unknown until a broker report or the next statement
+ * prices it, and the purchase date is the day the credit was printed.
+ */
+function rebuyRow(prior, event, { key, quantity, asOf }) {
+  const row = { ...prior };
+  delete row.id;
+  const sold = Number(prior.disposed_quantity) || 0;
+  const ratio = sold > 0 ? quantity / sold : 0;
+  return {
+    ...row,
+    quantity,
+    cost_paise: null,
+    value_paise: null,
+    value_source: "",
+    face_paise: scaledPaise(prior.face_paise, ratio),
+    payout_paise: scaledPaise(prior.payout_paise, ratio),
+    future_interest_paise: scaledPaise(prior.future_interest_paise, ratio),
+    future_principal_paise: scaledPaise(prior.future_principal_paise, ratio),
+    returned_paise: null,
+    returned_at: "",
+    returned_record_date: "",
+    returned_source: "",
+    purchase_date: String(event.date || "").slice(0, 10),
+    as_of: String(event.date || asOf || "").slice(0, 10),
+    txn_key: key,
+    disposed_at: "",
+    disposed_quantity: null,
+    disposed_type: "",
+    disposed_source: "",
+    disposed_reason: "",
+    disposed_cost_paise: null,
+  };
+}
+
+/**
  * Apply CAS movements to holdings. Pure: the same rows and events always give
  * the same plan, which is what lets the preview and the writer share it.
  *
@@ -147,11 +188,11 @@ function disposalRow(base, event, cls, { key, costPaise, source, asOf, quantity 
  * the claim.
  * @param {Array<object>} rows holding rows
  * @param {Array<object>} events parsed CAS transactions
- * @param {{asOf?: string, source?: string}} [opts]
+ * @param {{asOf?: string, source?: string, assetId?: string}} [opts]
  * @returns {{rows: Array<object>, applied: Array<object>, sold: Array<object>,
  *   skipped: Array<object>, warnings: Array<string>, conflicts: Array<object>}}
  */
-export function applyCasEvents(rows, events, { asOf = "", source = "CAS" } = {}) {
+export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetId = "" } = {}) {
   const out = (rows || []).map((row) => ({ ...row }));
   const applied = [];
   const sold = [];
@@ -194,7 +235,8 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS" } = {})
       && Math.abs(current - lastClosing) <= TOL;
 
     for (const { event } of group) {
-      const key = casEventKey(event);
+      const key = casEventKey(event, assetId);
+      const legacyKey = casEventKey(event);
       const cls = classifyCasEvent(event);
       const quantity = Number(event.quantity) || 0;
       const base = { txn_key: key, isin, date: event.date || "", type: event.type || "",
@@ -203,7 +245,7 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS" } = {})
         skipped.push({ ...base, reason: "no movement to apply" });
         continue;
       }
-      if (seen.has(key)) {
+      if (seen.has(key) || (legacyKey !== key && seen.has(legacyKey))) {
         applied.push({ ...base, status: "already", from: current, to: current });
         continue;
       }
@@ -215,7 +257,28 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS" } = {})
       }
       if (!target) {
         if (cls.side === "credit") {
-          const reason = "no holding to add this purchase to";
+          // A full sale and a re-buy can print in the same statement. The credit
+          // has no live row to add to because the sale removed it, so the sold
+          // record is the only base: restart a live lot with the closing units
+          // and leave cost and value empty until a report prices them.
+          const prior = [...out].reverse()
+            .find((row) => row.disposed_at && isinOf(row) === isin);
+          const closing = event.closingPaise === null || event.closingPaise === undefined
+            ? null : Number(event.closingPaise) / 100;
+          const restored = closing !== null && closing > 0 ? closing : quantity;
+          if (prior && restored > 0) {
+            const row = rebuyRow(prior, event, { key, quantity: restored, asOf });
+            out.push(row);
+            target = row;
+            current = restored;
+            seen.add(key);
+            applied.push({ ...base, status: "restored", from: 0, to: restored,
+              reason: "re-bought after a recorded sale" });
+            continue;
+          }
+          const reason = prior
+            ? "a credit after a sale closes at zero; no live row is added"
+            : "no holding to add this purchase to";
           skipped.push({ ...base, reason });
           warnings.push(`${isin}: ${reason}${cls.reason ? ` (${cls.reason})` : ""}.`);
           continue;
@@ -307,7 +370,7 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS" } = {})
         .sort((a, b) => String(a.date).localeCompare(String(b.date))).pop();
       conflicts.push({
         isin,
-        txn_key: casEventKey(sale),
+        txn_key: casEventKey(sale, assetId),
         date: sale.date || "",
         message: `The holding on file is dated ${rowAsOf} and still shows `
           + `${startQty} units. The statement records `

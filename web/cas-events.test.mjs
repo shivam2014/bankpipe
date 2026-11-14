@@ -149,7 +149,7 @@ test("a trades-only statement does not turn its rows into holdings", () => {
 test("a full sale removes the live row and leaves a sold record", () => {
   const parsed = fullSale();
   const plan = casReplacePlan({ parsed, existing: [brokerRow()], holdings: parsed.holdings,
-    asOf: "2026-08-31", confirmed: true });
+    asOf: "2026-08-31", confirmed: true, assetId: "demat-a" });
   assert.equal(plan.ok, true);
   assert.equal(plan.rows.length, 1);
   const sold = plan.rows[0];
@@ -162,7 +162,7 @@ test("a full sale removes the live row and leaves a sold record", () => {
   assert.equal(sold.disposed_reason, "SALE");
   assert.equal(sold.cost_paise, 0);
   assert.equal(sold.value_paise, 0);
-  assert.equal(sold.txn_key, casEventKey(parsed.transactions[0]));
+  assert.equal(sold.txn_key, casEventKey(parsed.transactions[0], "demat-a"));
   assert.equal(plan.sold.length, 1);
   assert.equal(plan.events[0].from, 100);
   assert.equal(plan.events[0].to, 0);
@@ -202,6 +202,43 @@ test("the same statement applied twice does not sell the bond twice", () => {
   assert.equal(second.sold.length, 0);
   assert.equal(second.rows.filter((row) => row.disposed_at).length, 1);
   assert.equal(second.applied[0].status, "already");
+});
+
+test("a full sale and a re-buy in one stale statement end with a live lot, not zero", () => {
+  const parsed = fullSale({
+    holdings: [{ isin: ISIN_A, label: "TEST BOND", kind: "bond", quantity: 100,
+      valuePaise: 10000000, couponPct: 9, maturity: "2028-12-31" }],
+    counts: { rows: 1, quarantined: 0, transactions: 2 },
+    transactions: [
+      { isin: ISIN_A, security: "TEST BOND", date: "2026-08-03", type: "SALE",
+        description: "SALE", quantity: 100, openingPaise: 10000, creditPaise: 0,
+        debitPaise: 10000, closingPaise: 0, stampDutyPaise: 0 },
+      { isin: ISIN_A, security: "TEST BOND", date: "2026-08-20", type: "PURCHASE",
+        description: "PURCHASE", quantity: 50, openingPaise: 0, creditPaise: 5000,
+        debitPaise: 0, closingPaise: 5000, stampDutyPaise: 0 },
+    ],
+  });
+  const plan = casReplacePlan({ parsed, existing: [brokerRow()], holdings: parsed.holdings,
+    asOf: "2026-08-31", confirmed: true, assetId: "demat-a" });
+  const live = plan.rows.find((row) => !row.disposed_at);
+  const sold = plan.rows.find((row) => row.disposed_at);
+  assert.equal(live.quantity, 50);
+  assert.equal(live.purchase_date, "2026-08-20");
+  assert.equal(live.cost_paise, null);
+  assert.equal(live.txn_key, casEventKey(parsed.transactions[1], "demat-a"));
+  assert.equal(sold.disposed_quantity, 100);
+  assert.equal(sold.disposed_cost_paise, 200000);
+  // The stale snapshot still said 100, so the disagreement is named rather than
+  // being mistaken for the final state.
+  assert.equal(plan.conflicts.length, 1);
+  assert.match(plan.conflicts[0].message, /still shows 100 units/);
+
+  const again = applyCasEvents(plan.rows, parsed.transactions, { asOf: "2026-08-31",
+    assetId: "demat-a" });
+  assert.equal(again.rows.find((row) => !row.disposed_at).quantity, 50);
+  assert.equal(again.rows.filter((row) => row.disposed_at).length, 1);
+  assert.equal(again.sold.length, 0);
+  assert.equal(again.applied.every((event) => event.status === "already"), true);
 });
 
 test("a sale recorded before any holding exists still leaves a sold row", () => {

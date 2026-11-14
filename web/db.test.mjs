@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { makeStore, showDeleteAll, verifySealedDb } from "./db.js";
 import { sealBytes } from "./dbatrest.js";
+import { applyCasEvents, casEventKey } from "./cas-apply.js";
 
 const require = createRequire(import.meta.url);
 const initSqlJs = require("./vendor/sql-wasm.js");
@@ -382,6 +383,32 @@ test("a disposal record keeps its event key and stays out of cost totals", async
   const liveCount = store.query("SELECT COUNT(*) AS n FROM holding"
     + " WHERE asset_id='sold-demat' AND (disposed_at IS NULL OR disposed_at='')")[0].n;
   assert.equal(liveCount, 1);
+});
+
+test("the same sale leaves a sold row in each account that holds it", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "acct-a", label: "Demat A", category: "demat" });
+  store.createAccount({ id: "acct-b", label: "Demat B", category: "demat" });
+  const event = { isin: "INE000000041", date: "2026-08-12", type: "SALE",
+    description: "SALE", quantity: 100, openingPaise: 10000, creditPaise: 0,
+    debitPaise: 10000, closingPaise: 0 };
+  const lot = () => ({ security_id: "INE000000041", label: "TEST BOND",
+    category: "bond", quantity: 100, cost_paise: 100000, value_paise: 100000,
+    as_of: "2026-07-31" });
+  const a = applyCasEvents([lot()], [event], { assetId: "acct-a" });
+  const b = applyCasEvents([lot()], [event], { assetId: "acct-b" });
+  store.replaceHoldings("acct-a", a.rows, "2026-08-31");
+  store.replaceHoldings("acct-b", b.rows, "2026-08-31");
+  const aRows = store.listHoldings("acct-a");
+  const bRows = store.listHoldings("acct-b");
+  assert.equal(aRows.length, 1);
+  assert.equal(bRows.length, 1);
+  assert.equal(aRows[0].disposed_at, "2026-08-12");
+  assert.equal(bRows[0].disposed_at, "2026-08-12");
+  assert.equal(aRows[0].txn_key, casEventKey(event, "acct-a"));
+  assert.equal(bRows[0].txn_key, casEventKey(event, "acct-b"));
+  assert.notEqual(aRows[0].txn_key, bRows[0].txn_key);
 });
 
 test("holdings totals appear on the asset row", async () => {
