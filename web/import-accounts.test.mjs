@@ -357,3 +357,40 @@ test("the list says what it holds and refreshes when Import opens", () => {
   assert.match(html, /No securities accounts yet/);
   assert.match(html, /bpImportAccountsLoad\?\.\(true\)/);
 });
+
+// --- one plan per resolved account ------------------------------------------
+
+test("the inbox groups resolved files into plans, not family bundles", () => {
+  const prepare = between("async function bpImportInboxPrepare", "function bpImportInboxEntryError");
+  assert.match(prepare, /state\.plans = bpImportPlans\(/,
+    "the prepare step regroups once resolution has run");
+  const plans = between("function bpImportPlans", "async function bpImportInboxPrepare");
+  assert.match(plans, /groupResolvedPlans\(/,
+    "the grouping key is the account each file resolved to");
+  assert.match(html, /function bpImportPlanForBundles\(/);
+});
+
+test("the inbox renders one card per plan and one confirmation per card", () => {
+  assert.match(html, /const plans = state\.plans \|\| \[\]/);
+  assert.match(html, /\$\{plans\.map\(bpImportPlanHtml\)\.join\(""\)\}/);
+  assert.equal(/bpImportApplyBundle/.test(html), false,
+    "the per-family-bundle confirmation is gone");
+  const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
+  assert.match(apply, /for \(const extra of plan\.extras\)/);
+  assert.match(apply, /bpImportApplyBroker\(/);
+});
+
+test("a plan checks every file before the head writer runs", () => {
+  const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
+  const guard = apply.indexOf("bpImportPlanBlockedReceipt(plan)");
+  const write = apply.indexOf("bpImportApplyCas(plan.head");
+  assert.ok(guard >= 0, "the plan has a blocked-file pre-flight");
+  assert.ok(write > guard, "the pre-flight runs before any writer");
+  assert.match(apply, /Nothing was written/);
+});
+
+test("a plan's extra receipt is planned after the head file's rows", () => {
+  const plans = between("function bpImportPlanForBundles", "function bpImportPlans");
+  assert.match(plans, /planImportChains\(\{/);
+  assert.match(plans, /extras/);
+});
