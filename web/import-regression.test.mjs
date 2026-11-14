@@ -4,19 +4,21 @@
 // round-trip. Real statements are never stored here; see fixtures/import/README.md.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { detectImportFile, parseTradebook, parseTradebookMatrix, groupBundles }
   from "./import-flow.js";
 import { parseZerodhaHoldings, parseZerodhaHoldingsSheets } from "./zerodha.js";
+import { scanFiles } from "./privacy-scan.mjs";
 import { DETECTION_CASES, DIGIFINN_FILES, ZERODHA_HOLDINGS_MATRIX,
   ZERODHA_TRADEBOOK_MATRIX } from "./fixtures/import/samples.mjs";
 
 const require = createRequire(import.meta.url);
 const XLSX = require("./vendor/xlsx.full.min.js");
 
-const WEB = new URL("./", import.meta.url).pathname;
+const ROOT = new URL("../", import.meta.url).pathname;
 const FIXTURES = new URL("./fixtures/import/", import.meta.url).pathname;
 const PRIVATE = new URL("./private/import-denylist.txt", import.meta.url).pathname;
 
@@ -164,7 +166,7 @@ test("the committed fixture corpus stays synthetic and small", () => {
   }
 });
 
-test("no test or fixture contains an identifier from the local denylist", () => {
+test("no tracked web file contains an identifier from the local denylist", () => {
   let denylist = [];
   try {
     denylist = readFileSync(PRIVATE, "utf8").split(/\r?\n/)
@@ -173,17 +175,9 @@ test("no test or fixture contains an identifier from the local denylist", () => 
     if (error?.code !== "ENOENT") throw error;
   }
   if (!denylist.length) return;
-  const targets = [
-    ...readdirSync(WEB).filter((name) => name.endsWith(".test.mjs"))
-      .map((name) => join(WEB, name)),
-    ...readdirSync(FIXTURES).map((name) => join(FIXTURES, name)),
-  ];
-  for (const path of targets) {
-    if (!statSync(path).isFile()) continue;
-    const body = readFileSync(path, "utf8");
-    for (const secret of denylist) {
-      assert.equal(body.includes(secret), false,
-        `${basename(path)} leaks a real identifier from ${PRIVATE}`);
-    }
-  }
+  const tracked = execFileSync("git", ["-C", ROOT, "ls-files", "-z", "web"],
+    { encoding: "utf8" }).split("\0").filter(Boolean);
+  const findings = scanFiles(tracked, denylist, { root: ROOT });
+  assert.deepEqual(findings, [],
+    findings.map((finding) => `${finding.path}:${finding.line}`).join("\n"));
 });
