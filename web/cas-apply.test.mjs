@@ -75,6 +75,16 @@ test("a CAS label carries the coupon and the maturity", () => {
     "9% TEST BOND 31 Dec 2027");
 });
 
+test("a label that already ends in a September date is not given a second one", () => {
+  // Node's en-IN renders September as "Sept", four letters. A three-letter
+  // guard missed it and appended the same date in its "Sep" form. A dated label
+  // is returned as written, which is the existing contract.
+  assert.equal(casHoldingLabel(casHolding({ label: "TEST BOND 15 Sept 2029",
+    maturity: "2029-09-15" })), "TEST BOND 15 Sept 2029");
+  assert.equal(casHoldingLabel(casHolding({ label: "TEST BOND 15 September 2029",
+    maturity: "2029-09-15" })), "TEST BOND 15 September 2029");
+});
+
 test("an absent row is preserved by default and dropped only for a complete confirmed replace", () => {
   const existing = [existingBroker(),
     existingBroker({ security_id: ISIN_B, label: "8.00% OTHER BOND 31 Dec 2028" })];
@@ -133,6 +143,91 @@ test("a printed total that disagrees with the rows blocks the replace", () => {
   assert.equal(safety.blocked, true);
   assert.equal(safety.totals.ok, false);
   assert.equal(safety.totals.diffPaise, -100000);
+  // The explicit no-total override is not a way past a printed mismatch.
+  const plan = casReplacePlan({ parsed, existing: [existingBroker()],
+    holdings: parsed.holdings, asOf: "2026-10-31", confirmed: true,
+    replaceWithoutTotal: true });
+  assert.equal(plan.ok, false);
+  assert.equal(plan.blocked, true);
+});
+
+test("a statement with no printed total cannot remove a row, and names what a replace would", () => {
+  const existing = [existingBroker(),
+    existingBroker({ security_id: ISIN_B, label: "8.00% OTHER BOND 31 Dec 2028",
+      value_paise: 250000 })];
+  const parsed = {
+    holdings: [{ isin: ISIN_A, valuePaise: 400000 }],
+    counts: { rows: 1, quarantined: 0 },
+    printedTotalPaise: null,
+  };
+  const safety = casSafety(parsed);
+  // Not a refusal: the rows the file does name are still worth recording.
+  assert.equal(safety.blocked, false);
+  assert.equal(safety.totalPrinted, false);
+  assert.equal(safety.complete, false);
+  assert.match(safety.note, /prints no total/i);
+
+  const plan = casReplacePlan({ parsed, existing, holdings: parsed.holdings,
+    asOf: "2026-10-31", confirmed: true });
+  assert.equal(plan.ok, true);
+  assert.equal(plan.preserveAbsent, true);
+  assert.equal(plan.dropped.length, 0);
+  assert.deepEqual(plan.rows.map((row) => row.security_id).sort(),
+    [ISIN_A, ISIN_B]);
+  // The dialog can name exactly what the choice would delete.
+  assert.deepEqual(plan.wouldDrop.map((row) => row.isin), [ISIN_B]);
+  assert.equal(plan.wouldDrop[0].value_paise, 250000);
+  assert.equal(plan.wouldDropPaise, 250000);
+});
+
+test("the no-total replace needs the explicit override and removes those rows", () => {
+  const existing = [existingBroker(),
+    existingBroker({ security_id: ISIN_B, value_paise: 250000 })];
+  const parsed = {
+    holdings: [{ isin: ISIN_A, valuePaise: 400000 }],
+    counts: { rows: 1, quarantined: 0 },
+    printedTotalPaise: null,
+  };
+  const plan = casReplacePlan({ parsed, existing, holdings: parsed.holdings,
+    asOf: "2026-10-31", confirmed: true, replaceWithoutTotal: true });
+  assert.equal(plan.ok, true);
+  assert.equal(plan.preserveAbsent, false);
+  assert.deepEqual(plan.dropped.map((row) => row.isin), [ISIN_B]);
+  assert.equal(plan.rows.length, 1);
+  assert.equal(plan.rows[0].security_id, ISIN_A);
+});
+
+test("the override belongs to one plan and is not inherited by the next", () => {
+  const existing = [existingBroker(),
+    existingBroker({ security_id: ISIN_B, value_paise: 250000 })];
+  const parsed = {
+    holdings: [{ isin: ISIN_A, valuePaise: 400000 }],
+    counts: { rows: 1, quarantined: 0 },
+    printedTotalPaise: null,
+  };
+  const asked = casReplacePlan({ parsed, existing, holdings: parsed.holdings,
+    asOf: "2026-10-31", confirmed: true, replaceWithoutTotal: true });
+  const next = casReplacePlan({ parsed, existing, holdings: parsed.holdings,
+    asOf: "2026-10-31", confirmed: true });
+  assert.equal(asked.preserveAbsent, false);
+  assert.equal(next.preserveAbsent, true);
+  assert.equal(next.dropped.length, 0);
+});
+
+test("a holdings-only statement with no total still records its rows in an empty account", () => {
+  // An absolute block would strand this file: with no rows on file, nothing can
+  // be deleted, and the four holdings it does name are worth keeping.
+  const parsed = {
+    holdings: [{ isin: ISIN_A, valuePaise: 400000 }],
+    counts: { rows: 1, quarantined: 0 },
+    printedTotalPaise: null,
+  };
+  assert.equal(casSafety(parsed).blocked, false);
+  const plan = casReplacePlan({ parsed, existing: [], holdings: parsed.holdings,
+    asOf: "2026-10-31", confirmed: true });
+  assert.equal(plan.ok, true);
+  assert.equal(plan.rows.length, 1);
+  assert.equal(plan.rows[0].security_id, ISIN_A);
 });
 
 test("the preview and the writer agree on absent rows", () => {
