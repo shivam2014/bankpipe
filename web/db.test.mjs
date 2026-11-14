@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
-import { makeStore, showDeleteAll } from "./db.js";
+import { makeStore, showDeleteAll, verifySealedDb } from "./db.js";
+import { sealBytes } from "./dbatrest.js";
 
 const require = createRequire(import.meta.url);
 const initSqlJs = require("./vendor/sql-wasm.js");
@@ -38,6 +39,22 @@ const reviewRows = [
   { date: "2024-04-04", amount: -2000, balance: 1081000, description: "E", source_row: 6 },
   { date: "2024-04-06", amount: 1000, balance: 1082000, description: "F", source_row: 7 },
 ];
+
+test("a sealed database verifies only with its own passphrase", async () => {
+  const plain = new Uint8Array(64);
+  plain.set(new TextEncoder().encode("SQLite format 3\u0000"), 0);
+  const sealed = await sealBytes(plain, "correct horse battery");
+  const opened = await verifySealedDb(sealed, "correct horse battery");
+  assert.equal(opened.length, plain.length);
+  await assert.rejects(
+    () => verifySealedDb(sealed, "wrong passphrase"),
+    /wrong passphrase|modified/
+  );
+  await assert.rejects(
+    () => verifySealedDb(new Uint8Array([1, 2, 3]), "x"),
+    /not a sealed/
+  );
+});
 
 test("a fresh import inserts every row", async () => {
   const store = makeStore(SQL, null);

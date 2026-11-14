@@ -1141,10 +1141,38 @@ export async function exportSealedDb() {
   return bytes;
 }
 
-export async function importSealedDb(bytes) {
-  refuseOnDemo();
+export async function verifySealedDb(bytes, passphrase) {
   const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   if (!isSealed(b)) throw new Error("not a sealed BankPipe database");
+  if (!passphrase) throw new Error("enter the passphrase for this database file");
+  const plain = await openBytes(b, passphrase);
+  const header = new TextDecoder().decode(plain.slice(0, 16));
+  if (header !== "SQLite format 3\u0000") {
+    throw new Error("that passphrase opened the file, but it is not a BankPipe database");
+  }
+  return plain;
+}
+
+export async function importSealedDb(bytes, passphrase) {
+  // Importing is the one write allowed from the sample: it replaces the demo
+  // with a real database. The check below runs before anything is written.
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const plain = await verifySealedDb(b, passphrase);
+  if (!SQL) SQL = await initSqlJs({ locateFile: (f) => `vendor/${f}` });
+  let probe;
+  try {
+    probe = new SQL.Database(plain);
+    const check = probe.exec("PRAGMA integrity_check");
+    const result = check?.[0]?.values?.[0]?.[0];
+    if (result && result !== "ok") {
+      throw new Error("the database file failed its integrity check");
+    }
+  } catch (e) {
+    if (e instanceof Error && /integrity check|not a database|file is not a database/i.test(e.message)) throw e;
+    throw new Error("the database file is not a readable SQLite database");
+  } finally {
+    if (probe) probe.close();
+  }
   await idbPut(DB_KEY, b.buffer);
   noteData(true);
   lockDb();

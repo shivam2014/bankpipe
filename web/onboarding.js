@@ -239,22 +239,23 @@ export async function boot(options = {}) {
   }
 
   // A hidden picker, reused by the "I have a backup file" choice. The app's own
-  // importer confirms, decrypts with the existing passphrase, and reloads.
+  // importer asks for the file's passphrase, verifies it before replacing the
+  // database, and reloads into the unlock screen.
   if (!document.getElementById("bp-import")) {
     const input = document.createElement("input");
     input.type = "file";
     input.id = "bp-import";
-    input.accept = ".bpk,.db,.bin";
+    input.accept = ".bpk,.db,.bin,application/octet-stream";
     input.style.display = "none";
     input.onchange = async () => {
       const file = input.files && input.files[0];
       if (!file) return;
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const { importSealedDb } = await import("./db.js");
-        await importSealedDb(bytes);
+        await window.bpAskImportDbPassphrase(bytes, file.name);
       } catch (err) {
         const msg = String((err && err.message) || err);
+        if (msg === "cancelled") return;
         mount(chooseBody(state.reason, `Could not import that file: ${msg}`));
         wire();
         return;

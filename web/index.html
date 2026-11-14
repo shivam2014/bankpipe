@@ -846,6 +846,8 @@ dialog{padding:0;border:1px solid var(--line);border-radius:16px;background:var(
  color:var(--ink);width:min(420px,calc(100vw - 28px));box-shadow:0 24px 70px rgba(0,0,0,.35)}
 dialog::backdrop{background:rgba(15,18,22,.5)}
 .dialog-body{padding:20px}
+.dialog-note{font-size:12px}
+.dialog-error{font-size:12px;color:var(--red);margin-top:8px}
 </style>
 </head>
 <body>
@@ -894,6 +896,22 @@ try {
     <div style="display:flex;gap:8px;margin-top:14px">
       <button class="btn" onclick="bpSaveDbPass()">Change passphrase</button>
       <button class="btn" onclick="document.getElementById('pass-dialog').close()">Cancel</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="import-db-dialog" onclose="bpImportDbClosed()">
+  <div class="dialog-body">
+    <h2 style="margin-top:0">Import encrypted database</h2>
+    <p class="muted dialog-note">This replaces the database in this browser.
+    Enter the passphrase that was used when <b id="import-db-name">this file</b> was
+    downloaded. A file from another device may use a different passphrase.</p>
+    <label class="field">Database passphrase
+      <input id="import-db-pass" type="password" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();bpConfirmImportDb();}"></label>
+    <div id="import-db-err" class="dialog-error"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn" id="import-db-btn" onclick="bpConfirmImportDb()">Import and replace</button>
+      <button class="btn" onclick="bpCancelImportDb()">Cancel</button>
     </div>
   </div>
 </dialog>
@@ -2275,16 +2293,76 @@ window.bpDownloadSealedDb = async () => {
     alert("Cannot export: " + String(e.message || e));
   }
 };
+window.bpAskImportDbPassphrase = (bytes, name) => new Promise((resolve, reject) => {
+  const dialog = document.getElementById("import-db-dialog");
+  if (!dialog) { reject(new Error("the import dialog is unavailable")); return; }
+  window.bpPendingImportDb = { bytes, name, resolve, reject };
+  document.getElementById("import-db-name").textContent = name || "this file";
+  document.getElementById("import-db-pass").value = "";
+  document.getElementById("import-db-err").textContent = "";
+  document.getElementById("import-db-btn").disabled = false;
+  dialog.showModal();
+  setTimeout(() => document.getElementById("import-db-pass").focus(), 0);
+});
+window.bpImportDbClosed = () => {
+  const pending = window.bpPendingImportDb;
+  if (!pending) return;
+  window.bpPendingImportDb = null;
+  pending.reject(new Error("cancelled"));
+};
+window.bpConfirmImportDb = async () => {
+  const pending = window.bpPendingImportDb;
+  if (!pending) return;
+  const pass = document.getElementById("import-db-pass").value || "";
+  const err = document.getElementById("import-db-err");
+  const btn = document.getElementById("import-db-btn");
+  if (!pass) { err.textContent = "Enter the passphrase for this file."; return; }
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    const store = await import("./db.js");
+    await store.importSealedDb(pending.bytes, pass);
+    window.bpPendingImportDb = null;
+    document.getElementById("import-db-dialog").close();
+    pending.resolve(pass);
+  } catch (e) {
+    const code = e && e.code;
+    err.textContent = code === "bad_passphrase" || code === "corrupt"
+      ? "That passphrase did not open this file. Nothing was changed."
+      : String((e && e.message) || e);
+    btn.disabled = false;
+  }
+};
+window.bpCancelImportDb = () => {
+  const pending = window.bpPendingImportDb;
+  window.bpPendingImportDb = null;
+  const dialog = document.getElementById("import-db-dialog");
+  if (dialog) dialog.close();
+  if (pending) pending.reject(new Error("cancelled"));
+};
 window.bpImportSealedDb = async (file) => {
   if (!file) return;
-  if (!confirm("Replace this browser's database with the selected encrypted file? The passphrase stays the same.")) return;
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
+    const pass = await window.bpAskImportDbPassphrase(bytes, file.name);
     const store = await import("./db.js");
-    await store.importSealedDb(bytes);
-    location.reload();
+    localStorage.setItem("bp.mode", "real");
+    window.bp.demo = false;
+    const banner = document.getElementById("sample-banner");
+    if (banner) banner.style.display = "none";
+    try {
+      await store.openDb(pass);
+    } catch (e) {
+      alert("The database was imported, but it could not be opened. Reload and enter the file's passphrase. "
+        + String((e && e.message) || e));
+      location.reload();
+      return;
+    }
+    go("home");
+    startAutoBackup();
   } catch (e) {
-    alert("Cannot import: " + String(e.message || e));
+    if (String((e && e.message) || e) === "cancelled") return;
+    alert("Cannot import: " + String((e && e.message) || e));
   }
 };
 window.bpAppAudit = async () => {
@@ -6203,14 +6281,13 @@ function renderSettings() {
     <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
       <div style="font-weight:600;font-size:13.5px">Encrypted database file</div>
       <p class="muted" style="font-size:12.5px;margin:4px 0 8px">Download a copy, or open one
-      from another device. This is the whole database, not a snapshot of it.</p>
+      from another device. This is the whole database, not a snapshot of it. An imported
+      file keeps the passphrase it was downloaded with.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="bpDownloadSealedDb()">Download encrypted database</button>
-        <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer">
-          Import encrypted database
-          <input type="file" id="dbfile" accept=".bpk,.db,.bin" style="display:none"
-            onchange="if(this.files[0]) bpImportSealedDb(this.files[0])">
-        </label>
+        <button class="btn" onclick="document.getElementById('dbfile').click()">Import encrypted database</button>
+        <input type="file" id="dbfile" accept=".bpk,.db,.bin,application/octet-stream"
+          style="display:none" onchange="if(this.files[0]) bpImportSealedDb(this.files[0])">
       </div>
       <div class="muted" style="font-size:11.5px;margin-top:8px">Never move a plaintext
       database; the export refuses one.</div>
