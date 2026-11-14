@@ -5,7 +5,7 @@
 // does not name. Nothing here touches the DOM or the database.
 
 import { casTotals } from "./cas.js";
-import { carryBrokerFields } from "./bonds.js";
+import { bondHomeOf, carryBrokerFields, isLiveBondRow } from "./bonds.js";
 
 /**
  * The label a CAS row is stored under. The label carries the coupon and the
@@ -65,10 +65,10 @@ export function casEventKey(event, scope = "") {
   return scope ? `${String(scope)}|${stem}` : stem;
 }
 
-const SALE_WORD = /\b(sale|sold|sell|selling)\b/i;
+const SALE_WORD = /\b(sale|sold|sell|selling|redemption|redeemed|switch\s*out|withdrawal|withdrawn)\b/i;
 const TRANSFER_OUT_WORD = /\b(transfer(?:red|s)?\s*(?:out|to)|transferred\s+out|off.?market|debit\s+transfer|inter.?depository|remateriali[sz](?:ed|ation)?|remat)\b/i;
 const TRANSFER_IN_WORD = /\b(transfer(?:red|s)?\s*(?:in|from)|credit\s+transfer|remateriali[sz]ed\s+in)\b/i;
-const PURCHASE_WORD = /\b(purchase[ds]?|buy|bought|allot(?:ted|ment)?|acquisition|subscri(?:bed|ption))\b/i;
+const PURCHASE_WORD = /\b(purchase[ds]?|buy|bought|allot(?:ted|ment)?|acquisition|subscri(?:bed|ption)|sip|systematic\s+investment|switch\s*in|reinvest(?:ed|ment)?)\b/i;
 
 /**
  * Which side of the ledger a row moves and why. A debit is a sale only when the
@@ -80,7 +80,10 @@ const PURCHASE_WORD = /\b(purchase[ds]?|buy|bought|allot(?:ted|ment)?|acquisitio
 export function classifyCasEvent(event) {
   const credit = Math.abs(Number(event?.creditPaise) || 0);
   const debit = Math.abs(Number(event?.debitPaise) || 0);
-  const side = debit > 0 ? "debit" : credit > 0 ? "credit" : "";
+  // A mutual fund row carries its side from the description because it has no
+  // credit/debit balance columns.
+  const side = event?.side === "debit" || event?.side === "credit"
+    ? event.side : debit > 0 ? "debit" : credit > 0 ? "credit" : "";
   const text = `${event?.type || ""} ${event?.description || ""}`.trim();
   const reason = tidyText(event?.description || event?.type || "");
   if (side === "debit") {
@@ -297,10 +300,13 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
 
       const closing = event.closingPaise === null || event.closingPaise === undefined
         ? null : Number(event.closingPaise) / 100;
-      // The row is on or after this movement's date, but it may belong to an
-      // earlier movement group (a mid-period broker report). Then only the
-      // movements printed after that date are new.
+      // A mutual fund trade has no closing balance to compare. Its holdings row
+      // is the post-period snapshot, so a row dated on or after the trade already
+      // includes it: record the sale, never subtract it a second time. A fund
+      // that is absent from the statement keeps its older row and the debit is
+      // applied below.
       const included = matchesFinal
+        || (closing === null && !!rowAsOf && !!event.date && event.date <= rowAsOf)
         || (!!rowAsOf && !!event.date && event.date <= rowAsOf && !postAll);
       const atClosing = closing !== null && (cls.side === "debit"
         ? current <= closing + TOL
@@ -544,4 +550,176 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
     conflicts: result.conflicts,
     warnings: result.warnings,
   };
+}
+
+/**
+ * The bond cost portfolios that feed one demat. The link is the same one the
+ * bond reconcile uses: the explicit linked_asset, then the demat number, then
+ * the demat holding most of the portfolio's ISINs.
+ * @param {string} dematId
+ * @param {Array<object>} accounts
+ * @param {(id: string) => Array<object>} holdingsOf
+ * @returns {Array<object>} the linked bond account rows
+ */
+export function linkedCostPortfolios(dematId, accounts = [], holdingsOf = () => []) {
+  const demat = accounts.find((account) => account.id === dematId);
+  if (!demat || String(demat.category || "") !== "demat"
+    || /mutual\s*fund|^mf$/i.test(String(demat.subtype || ""))) return [];
+  const demats = accounts.filter((account) => String(account.category || "") === "demat"
+    && !/mutual\s*fund|^mf$/i.test(String(account.subtype || "")));
+  const positionsOf = new Map();
+  for (const account of demats) {
+    positionsOf.set(account.id, (holdingsOf(account.id) || []).filter(isLiveBondRow));
+  }
+  return accounts.filter((account) => String(account.category || "") === "bonds")
+    .filter((account) => (holdingsOf(account.id) || []).some(isLiveBondRow))
+    .filter((account) => bondHomeOf(holdingsOf(account.id) || [], account, demats,
+      positionsOf) === dematId);
+}
+
+/**
+ * Apply the same sales to a linked bond cost portfolio. Lots are consumed FIFO
+ * by purchase date, then the date on file, then the largest. A lot with no
+ * purchase date is not guessed at: it stays in place with a warning. The sold
+ * cost basis is the sum of the consumed lots, and each sold row keeps its own
+ * account-scoped txn_key.
+ * @param {Array<object>} rows the portfolio's holding rows
+ * @param {Array<object>} events the demat plan's events
+ * @param {{asOf?: string, assetId?: string, source?: string}} [opts]
+ * @returns {{rows: Array<object>, applied: Array<object>, sold: Array<object>,
+ *   skipped: Array<object>, warnings: Array<string>}}
+ */
+export function applyCasEventsToPortfolio(rows, events, { asOf = "", assetId = "",
+  source = "CAS" } = {}) {
+  const out = (rows || []).map((row) => ({ ...row }));
+  const applied = [];
+  const sold = [];
+  const skipped = [];
+  const warnings = [];
+  const seen = new Set(out.map((row) => row.txn_key).filter(Boolean));
+  const ordered = (events || []).map((event, index) => ({ event, index }))
+    .filter(({ event }) => event?.side === "debit" && Number(event.quantity) > 0)
+    .sort((a, b) => String(a.event.date || "").localeCompare(String(b.event.date || ""))
+      || a.index - b.index);
+  for (const { event } of ordered) {
+    const isin = String(event.isin || "").toUpperCase();
+    const key = casEventKey(event, assetId);
+    const base = { txn_key: key, event, isin, date: event.date || "",
+      kind: event.kind || "", quantity: Number(event.quantity) || 0 };
+    if (seen.has(key)) {
+      applied.push({ ...base, status: "already", costPaise: null });
+      continue;
+    }
+    const lots = out.filter((row) => !row.disposed_at && isinOf(row) === isin
+      && (Number(row.quantity) || 0) > 0);
+    if (!lots.length) {
+      skipped.push({ ...base, reason: "no lot in the linked cost portfolio" });
+      warnings.push(`${isin}: no lot in the linked cost portfolio carries this sale.`);
+      continue;
+    }
+    const dated = lots.filter((row) => String(row.purchase_date || "").trim())
+      .sort((a, b) => String(a.purchase_date).localeCompare(String(b.purchase_date))
+        || String(a.as_of || "").localeCompare(String(b.as_of || ""))
+        || (Number(b.quantity) || 0) - (Number(a.quantity) || 0));
+    const undated = lots.filter((row) => !String(row.purchase_date || "").trim());
+    if (undated.length) {
+      warnings.push(`${isin}: ${undated.length} lot${undated.length === 1 ? "" : "s"} `
+        + "have no purchase date; FIFO left them in place.");
+    }
+    let remaining = Number(event.quantity) || 0;
+    const consumed = [];
+    for (const lot of dated) {
+      if (remaining <= TOL) break;
+      const have = Number(lot.quantity) || 0;
+      const take = Math.min(remaining, have);
+      if (take <= 0) continue;
+      const cost = lot.cost_paise === null || lot.cost_paise === undefined
+        ? null : Number(lot.cost_paise);
+      const takeCost = cost === null ? null
+        : (take >= have - TOL ? cost : Math.round(cost * take / have));
+      consumed.push({ lot, take, takeCost });
+      remaining -= take;
+    }
+    if (!consumed.length) {
+      skipped.push({ ...base, reason: "no dated lot to match the sale" });
+      continue;
+    }
+    if (remaining > TOL) {
+      warnings.push(`${isin}: the sale is ${base.quantity} units but only `
+        + `${base.quantity - remaining} matched a dated lot; the rest stays in place.`);
+    }
+    const baseLot = { ...consumed[0].lot };
+    let costKnown = true;
+    let costTotal = 0;
+    for (const { lot, take, takeCost } of consumed) {
+      if (takeCost === null) costKnown = false;
+      else costTotal += takeCost;
+      lot.quantity = Math.max(0, (Number(lot.quantity) || 0) - take);
+      if (takeCost !== null && lot.cost_paise !== null && lot.cost_paise !== undefined) {
+        lot.cost_paise = Math.max(0, Number(lot.cost_paise) - takeCost);
+      }
+      if (lot.quantity <= TOL) {
+        const at = out.indexOf(lot);
+        if (at >= 0) out.splice(at, 1);
+      }
+    }
+    const cls = { side: "debit", kind: event.kind || "disposed",
+      reason: event.description || event.type || "" };
+    const costPaise = costKnown ? costTotal : null;
+    if (!costKnown) {
+      warnings.push(`${isin}: a consumed lot has no cost; the sold cost basis is not known.`);
+    }
+    const record = disposalRow(baseLot, event, cls, { key, costPaise, source, asOf,
+      quantity: base.quantity });
+    out.push(record);
+    sold.push(record);
+    seen.add(key);
+    applied.push({ ...base, status: "applied", matchedQuantity: base.quantity - remaining,
+      costPaise });
+  }
+  return { rows: out, applied, sold, skipped, warnings };
+}
+
+/**
+ * The one plan the CAS preview and writer use for linked cost portfolios. The
+ * demat's sold rows are reconciled to the FIFO cost of the lots actually
+ * consumed, and the live demat row's cost is reduced by the same amount.
+ * Mutates the demat plan's sold rows on purpose; the caller writes those rows.
+ * @param {{dematPlan: object, dematAssetId: string, asOf?: string,
+ *   portfolios?: Array<{account: object, rows: Array<object>}>}} input
+ * @returns {{portfolios: Array<object>, warnings: Array<string>,
+ *   reconciliations: Array<object>}}
+ */
+export function planLinkedSales({ dematPlan = {}, dematAssetId = "", asOf = "",
+  portfolios = [] } = {}) {
+  const plans = [];
+  const warnings = [];
+  const reconciliations = [];
+  for (const entry of portfolios) {
+    const account = entry.account || entry;
+    const plan = applyCasEventsToPortfolio(entry.rows || [], dematPlan.events || [],
+      { assetId: account.id, asOf });
+    plans.push({ account, plan });
+    warnings.push(...plan.warnings);
+    for (const sale of plan.applied) {
+      if (sale.status !== "applied" || sale.costPaise === null) continue;
+      const key = casEventKey(sale.event || sale, dematAssetId);
+      const dematSold = (dematPlan.sold || []).find((row) => row.txn_key === key);
+      if (!dematSold) continue;
+      const before = dematSold.disposed_cost_paise;
+      dematSold.disposed_cost_paise = sale.costPaise;
+      const live = (dematPlan.rows || []).find((row) => !row.disposed_at
+        && String(row.security_id || "").toUpperCase() === sale.isin
+        && (Number(row.quantity) || 0) > 0);
+      if (live && before !== null && before !== undefined) {
+        live.cost_paise = Math.max(0, (Number(live.cost_paise) || 0)
+          + Number(before) - Number(sale.costPaise));
+      }
+      if (Number(before) !== Number(sale.costPaise)) {
+        reconciliations.push({ isin: sale.isin, date: sale.date, from: before,
+          to: sale.costPaise });
+      }
+    }
+  }
+  return { portfolios: plans, warnings, reconciliations };
 }

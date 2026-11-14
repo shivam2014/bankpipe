@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseBondLabel, inferFace, bondAnalytics, bondSummary, accruedInterest,
   BOND_RATINGS, bondRatingRank, bondFillPlan, bondGrade, bondRatingChange,
-  carryBrokerFields, soldGain } from "./bonds.js";
+  carryBrokerFields, soldGain, bondHomeOf, isLiveBondRow } from "./bonds.js";
 
 test("parses the coupon and maturity from a bond label", () => {
   const p = parseBondLabel("10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026");
@@ -385,4 +385,29 @@ test("principal already returned counts towards the gain", () => {
   assert.equal(a.schedule.returned, 5000000);
   assert.equal(a.schedule.gain, 5000000 + 297534 + 5000000 - 9859863);
   assert.equal(a.schedule.short, false);
+});
+
+test("a cost portfolio resolves to its demat by link, number, then ISIN overlap", () => {
+  const demats = [
+    { id: "d1", category: "demat", number: "IN99990001344321" },
+    { id: "d2", category: "demat", number: "IN99990005344322" },
+  ];
+  const positionsOf = new Map([
+    ["d1", [{ security_id: "INE000000001" }]],
+    ["d2", [{ security_id: "INE000000002" }]],
+  ]);
+  assert.equal(bondHomeOf([], { id: "p1",
+    meta: JSON.stringify({ linked_asset: "d1" }) }, demats, positionsOf), "d1");
+  assert.equal(bondHomeOf([], { id: "p1", number: "IN99990005344322" },
+    demats, positionsOf), "d2");
+  assert.equal(bondHomeOf([{ security_id: "INE000000001" }], { id: "p1" },
+    demats, positionsOf), "d1");
+  assert.equal(bondHomeOf([{ security_id: "INE000000009" }], { id: "p1" },
+    demats, positionsOf), "");
+});
+
+test("a disposed row is not a live bond", () => {
+  assert.equal(isLiveBondRow({ category: "bond", quantity: 0 }), true);
+  assert.equal(isLiveBondRow({ category: "bond", disposed_at: "2026-08-12" }), false);
+  assert.equal(isLiveBondRow({ category: "equity" }), false);
 });

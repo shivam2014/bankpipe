@@ -1371,7 +1371,9 @@ import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
   reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
-import { casHoldingLabel, casReplacePlan, casSafety } from "./cas-apply.js";
+import { casHoldingLabel, casReplacePlan, casSafety, linkedCostPortfolios,
+  planLinkedSales } from "./cas-apply.js";
+import { soldHoldingsHtml, splitHoldings } from "./sold-view.js";
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, accountMatches, planMerge, accountFieldState,
@@ -7642,11 +7644,20 @@ function bpImportResolveCas(bundle) {
       // matching ISIN out of thirteen is a different demat.
       if (best && (best.identity || (best.hits > 0 && share >= 0.8))) targetId = best.id;
     }
-    const targetRow = targetId ? bpImportAccountRow(targetId) : null;
-    const plan = bpImportPlanFor(bundle, targetRow, rows,
-      { kind: "bo", value: account.boId });
-    return { ...account, rows, match, targetId, plan, createChoice,
-      action: targetRow ? "update" : "create" };
+      const targetRow = targetId ? bpImportAccountRow(targetId) : null;
+      const plan = bpImportPlanFor(bundle, targetRow, rows,
+        { kind: "bo", value: account.boId });
+      const holdingsOf = (id) => accounts.find((item) => item.id === id)?.holdings || [];
+      const eventPlan = casReplacePlan({ parsed: base?.parsed || {},
+        existing: targetRow?.holdings || [], holdings: rows || [],
+        events: base?.parsed?.transactions || [], assetId: targetId,
+        asOf: bundle.asOf || "", confirmed: false });
+      const linkedPortfolios = linkedCostPortfolios(targetId, accounts, holdingsOf)
+        .map((item) => ({ account: item, rows: holdingsOf(item.id) }));
+      const linked = planLinkedSales({ dematPlan: eventPlan, dematAssetId: targetId,
+        asOf: bundle.asOf || "", portfolios: linkedPortfolios });
+      return { ...account, rows, match, targetId, plan, linked, createChoice,
+        action: targetRow ? "update" : "create" };
   });
   // A CAS can also carry mutual fund folios. They are not under the demat's BO
   // ID, so they get their own line here and the existing CAS writer routes them
@@ -7688,6 +7699,16 @@ function bpImportResolveCas(bundle) {
     saleConflicts.push(...(plan.conflicts || []));
     saleEvents.push(...(plan.events || []).filter((event) => event.status !== "already"
       && event.side === "debit"));
+    for (const entry of target.linked?.portfolios || []) {
+      for (const sale of entry.plan.applied.filter((item) => item.status === "applied")) {
+        saleLines.push(`Cost portfolio ${entry.account.label || entry.account.id}: `
+          + `${sale.quantity} units of ${sale.isin} on ${sale.date}`
+          + `${sale.costPaise === null ? "" : `, cost ${money(sale.costPaise)}`}`);
+      }
+    }
+    for (const warning of target.linked?.warnings || []) {
+      saleConflicts.push({ message: warning });
+    }
   }
   bundle.saleLines = saleLines;
   bundle.saleConflicts = saleConflicts;
@@ -7716,7 +7737,8 @@ async function bpImportInboxPrepare(force = false) {
     if (!state.accountRows || force) {
       try {
         const store = await import("./db.js");
-        const accounts = (await store.listAccounts()).filter((a) => categoryOf(a) === "demat");
+        const accounts = (await store.listAccounts())
+          .filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
         const rows = [];
         for (const account of accounts) {
           const holdings = await store.listHoldings(account.id);
@@ -9026,19 +9048,42 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     if (!cardState.picked) cardState.picked = new Set(units.map((u) => u.key));
     // The preview and the writer both call casReplacePlan with the same event
     // list. What is shown here is the row set the import will store.
+    const linkRows = new Map();
+    for (const asset of assets) {
+      if (["demat", "bonds"].includes(categoryOf(asset))) {
+        linkRows.set(asset.id, await store.listHoldings(asset.id));
+      }
+    }
+    const rowsOf = (id) => linkRows.get(id) || [];
     const salePlans = [];
+    const linkedLines = [];
+    const linkedWarnings = [];
     if ((cas.transactions || []).length) {
       for (const account of route.accounts || []) {
         if (!account.assetId) continue;
         if (cardState.picked && !cardState.picked.has(`bo:${account.boId}`)) continue;
-        const existing = await store.listHoldings(account.assetId);
+        const existing = rowsOf(account.assetId);
         const mine = dematRowsOf(account.boId);
-        salePlans.push(casReplacePlan({ parsed: cas, existing, holdings: mine,
+        const plan = casReplacePlan({ parsed: cas, existing, holdings: mine,
           events: cas.transactions, assetId: account.assetId, asOf: cas.asOf || "",
-          confirmed: false }));
+          confirmed: false });
+        salePlans.push(plan);
+        const linked = linkedCostPortfolios(account.assetId, assets, rowsOf)
+          .map((asset) => ({ account: asset, rows: rowsOf(asset.id) }));
+        const result = planLinkedSales({ dematPlan: plan, dematAssetId: account.assetId,
+          asOf: cas.asOf || "", portfolios: linked });
+        for (const entry of result.portfolios) {
+          for (const sale of entry.plan.applied.filter((item) => item.status === "applied")) {
+            linkedLines.push(`Cost portfolio ${entry.account.label || entry.account.id}: `
+              + `${sale.quantity} units of ${sale.isin} on ${sale.date}`
+              + `${sale.costPaise === null ? "" : `, cost ${money(sale.costPaise)}`}`);
+          }
+        }
+        linkedWarnings.push(...result.warnings);
       }
     }
-    const saleLines = salePlans.flatMap((plan) => casEventLines(plan));
+    const saleLines = salePlans.flatMap((plan) => casEventLines(plan))
+      .concat(linkedLines, linkedWarnings);
     const saleConflicts = salePlans.flatMap((plan) => plan.conflicts || []);
     cardState.eventAssets = route.accounts.map((account) => account.assetId).filter(Boolean);
     // The statement names its holder. That is the one field the file can default
@@ -10559,6 +10604,12 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     const store = await import("./db.js");
     const accounts = await store.listAccounts();
     const assetOf = (id) => accounts.find((item) => item.id === id);
+    const holdingsOf = new Map();
+    for (const account of accounts) {
+      if (!["demat", "bonds"].includes(categoryOf(account))) continue;
+      holdingsOf.set(account.id, await store.listHoldings(account.id));
+    }
+    const rowsOf = (id) => holdingsOf.get(id) || [];
     const today = new Date().toISOString().slice(0, 10);
     const asOf = cas.asOf || today;
     // The preview and the writer call the same planner. A row the statement does
@@ -10611,9 +10662,10 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     let carriedCount = 0;
     let keptNewer = 0;
     let soldCount = 0;
+    let linkedSold = 0;
     const conflictMessages = [];
     for (const [assetId, holdings] of byAsset) {
-      const existing = await store.listHoldings(assetId);
+      const existing = rowsOf(assetId);
       const asset = assetOf(assetId);
       // A demat statement is the complete truth for its BO ID, and a confirmed
       // replace may drop what it does not name. A folio account collects folios
@@ -10627,7 +10679,19 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
           <div class="muted">${esc(plan.safety.reasons.join(" "))}</div></div>`;
         return;
       }
+      const linkedPortfolios = linkedCostPortfolios(assetId, accounts, rowsOf)
+        .map((account) => ({ account, rows: rowsOf(account.id) }));
+      const linked = planLinkedSales({ dematPlan: plan, dematAssetId: assetId, asOf,
+        portfolios: linkedPortfolios });
       await store.replaceHoldings(assetId, plan.rows, asOf);
+      holdingsOf.set(assetId, plan.rows);
+      for (const entry of linked.portfolios) {
+        if (!entry.plan.sold.length) continue;
+        await store.replaceHoldings(entry.account.id, entry.plan.rows, asOf);
+        holdingsOf.set(entry.account.id, entry.plan.rows);
+        linkedSold += entry.plan.sold.length;
+      }
+      for (const warning of linked.warnings) conflictMessages.push(warning);
       written += holdings.length;
       carriedCount += plan.carried;
       keptNewer += plan.keptNewer;
@@ -10696,6 +10760,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       written} holdings into ${places} account${places === 1 ? "" : "s"}.${
       soldCount ? ` ${soldCount} sale${soldCount === 1 ? "" : "s"} or transfer${
         soldCount === 1 ? "" : "s"} recorded as sold; they stay on the account as history.` : ""}${
+      linkedSold ? ` ${linkedSold} of them also reduced in the linked cost portfolio.` : ""}${
       skipped ? ` ${skipped} had no matching account and were not written.` : ""}${
       conflictMessages.length ? ` ${conflictMessages.join(" ")}` : ""}${
       auto.attached ? ` Cost and purchase dates attached to ${auto.attached} bond${
@@ -12153,36 +12218,9 @@ function holdingCards(rows, kind = "", { header = true, assetId = "" } = {}) {
         <span class="muted holding-bits">${bits}</span>${addButton}</div></div>
     <div class="holding-cards">${cards}</div></div>`;
 }
-function soldHoldingsHtml(rows, assetId) {
-  if (!rows.length) return "";
-  const typeLabel = (h) => h.disposed_type === "sale" ? "Sold"
-    : h.disposed_type === "transfer-out" ? "Transferred out" : "Disposed";
-  const row = (h) => `<div class="sold-row">
-      <div><div class="sold-name">${esc(h.label || h.security_id || "Holding")}</div>
-        <div class="muted">${esc(h.security_id || "")}${h.disposed_reason
-          ? ` · ${esc(h.disposed_reason)}` : ""}</div></div>
-      <div class="sold-figs"><b>${esc(typeLabel(h))}</b>
-        ${h.disposed_quantity === null || h.disposed_quantity === undefined
-          ? "—" : esc(h.disposed_quantity)} units
-        ${h.disposed_at ? ` · ${esc(dateLabel(h.disposed_at))}` : ""}
-        ${h.disposed_cost_paise ? ` · cost ${esc(money(h.disposed_cost_paise))}` : ""}</div>
-      ${h.id ? `<button class="mini-btn" title="Remove this recorded disposal"
-        onclick="bpBondHoldingDelete(${jsArg(assetId)}, ${jsArg(h.id)})">Remove</button>` : ""}
-    </div>`;
-  return `<details class="sold-holdings"><summary>Sold and transferred out (${rows.length})
-      · not counted</summary>
-      <div class="muted sold-note">Recorded from the depository statement. These units are no
-      longer held, so they sit outside every total above. The date and quantity are what the
-      CAS printed.</div>
-      <div class="sold-list">${rows.slice()
-        .sort((a, b) => String(b.disposed_at || "").localeCompare(String(a.disposed_at || "")))
-        .map(row).join("")}</div>
-    </details>`;
-}
 function holdingsBlock(rows, assetId) {
-  const all = rows || [];
-  const list = all.filter((row) => !row.disposed_at);
-  const soldHtml = soldHoldingsHtml(all.filter((row) => !!row.disposed_at), assetId);
+  const { live: list, sold } = splitHoldings(rows || []);
+  const soldHtml = soldHoldingsHtml(sold, assetId, { esc, money, dateLabel, jsArg });
   const asset = (window.bpAssetsForFocus || []).find((a) => a.id === assetId);
   const cat = categoryOf(asset);
   const isDemat = cat === "demat";

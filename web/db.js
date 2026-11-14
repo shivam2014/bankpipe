@@ -12,6 +12,7 @@ import { reconPositions, reconSummary } from "./recon.js";
 import { reconInputs } from "./recon-diagnostics.js";
 import { KEEP_KEY, KEEP_DEFAULT, clampKeep, keysToPrune, deletableKeys }
   from "./snapshots.js";
+import { bondHomeOf, isLiveBondRow } from "./bonds.js";
 
 const DB_KEY = "bankpipe.db.v1";
 
@@ -1559,33 +1560,8 @@ export async function listHoldings(assetId) {
 function reconMeta(asset) {
   try { return JSON.parse(asset?.meta || "{}") || {}; } catch (e) { return {}; }
 }
-const isBondRow = (row) => !row?.disposed_at
-  && String(row?.category || "").toLowerCase() === "bond";
 const isFundDemat = (asset) => String(asset?.category || "") === "demat"
   && /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
-
-function bondHomeOf(lots, asset, demats, positionsOf) {
-  const meta = reconMeta(asset);
-  if (meta.linked_asset && demats.some((d) => d.id === meta.linked_asset)) {
-    return meta.linked_asset;
-  }
-  const wanted = boId(meta.demat || asset?.number || "").boId;
-  if (wanted) {
-    const hit = demats.find((d) => boId(d.number).boId === wanted);
-    if (hit) return hit.id;
-  }
-  const count = new Map();
-  for (const lot of lots || []) {
-    const isin = String(lot.security_id || "").toUpperCase();
-    if (!isin) continue;
-    for (const demat of demats) {
-      if (!(positionsOf.get(demat.id) || []).some((p) =>
-        String(p.security_id || "").toUpperCase() === isin)) continue;
-      count.set(demat.id, (count.get(demat.id) || 0) + 1);
-    }
-  }
-  return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-}
 
 export async function reconFor(assetId, today = new Date().toISOString().slice(0, 10)) {
   const assets = await listAccounts();
@@ -1598,13 +1574,13 @@ export async function reconFor(assetId, today = new Date().toISOString().slice(0
     lines: [], inputs: reconInputs([], []), ...reconSummary([]) });
   if (!isBondPortfolio && !isDemat) return hidden("not-applicable");
 
-  const myBonds = (await listHoldings(me.id)).filter(isBondRow);
+  const myBonds = (await listHoldings(me.id)).filter(isLiveBondRow);
   if (isDemat && !myBonds.length) return hidden("no-bond-holdings");
 
   const demats = assets.filter((a) => String(a.category || "") === "demat" && !isFundDemat(a));
   const positionsOf = new Map();
   for (const demat of demats) {
-    positionsOf.set(demat.id, (await listHoldings(demat.id)).filter(isBondRow));
+    positionsOf.set(demat.id, (await listHoldings(demat.id)).filter(isLiveBondRow));
   }
 
   if (isBondPortfolio) {
@@ -1625,7 +1601,7 @@ export async function reconFor(assetId, today = new Date().toISOString().slice(0
 
   const linked = [];
   for (const seller of assets.filter((a) => String(a.category || "") === "bonds")) {
-    const lots = (await listHoldings(seller.id)).filter(isBondRow);
+    const lots = (await listHoldings(seller.id)).filter(isLiveBondRow);
     if (!lots.length) continue;
     if (bondHomeOf(lots, seller, demats, positionsOf) === me.id) linked.push({ seller, lots });
   }
