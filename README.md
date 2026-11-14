@@ -109,7 +109,9 @@ The runtime shape, import gate, ledger schema, OAuth flow and backup protocol ar
 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md). The diagrams are SVG rendered from
 checked Mermaid sources. The schema, module graph, route table and project facts are
 generated from the code on every commit; the pipeline is documented in
-[docs/README.md](./docs/README.md).
+[docs/README.md](./docs/README.md). The settled product rules — a maturity date is not
+a payment, and India is a constraint rather than the model — are in
+[docs/PRODUCT.md](./docs/PRODUCT.md).
 
 ## What stays on your machine
 

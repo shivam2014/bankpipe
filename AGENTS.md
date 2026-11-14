@@ -27,6 +27,12 @@ Never commit real statements, databases, denylists or identifiers. Fixtures are 
 
 Keep the repository private. `.github/workflows/privacy.yml` fails the build if it is not.
 
+## Product rules
+
+Two settled decisions live in [`docs/PRODUCT.md`](docs/PRODUCT.md) and apply before any change to valuation or account identity. A maturity date is not a payment: a matured bond stays in net worth, flagged `awaiting payment`, until a matched bank credit marks it received. India is the constraint, not the model: accounts are containers, a report is optional enrichment, manual entry is first-class, and identity is the account plus its source's stable key rather than a BO ID.
+
+Read the page before changing either. If another document or an issue-log row disagrees, the page wins and the row gets a pointer.
+
 ## UI work
 
 A change to a screen in `web/` starts from [`.opencode/skills/bankpipe-ui/SKILL.md`](.opencode/skills/bankpipe-ui/SKILL.md).
