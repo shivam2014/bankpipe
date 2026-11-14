@@ -13164,10 +13164,10 @@ function renderManualHoldingForm() {
       <div class="card pad"><div class="form">
         <label class="field wide">${kind === "mf" ? "Fund name" : "Share name"}
           <input id="mh-name" value="${esc(val("label"))}" autocomplete="off"
-            placeholder="${kind === "mf" ? "Axis Bluechip Fund" : "Reliance Industries"}"></label>
+            placeholder="${kind === "mf" ? "TEST FUND 1" : "TEST EQUITY 1"}"></label>
         <label class="field">ISIN <span class="muted">optional</span>
           <input id="mh-isin" value="${esc(isinValue)}" autocomplete="off"
-            placeholder="${kind === "mf" ? "INF999900345" : "INE999900025"}"
+            placeholder="${kind === "mf" ? "INF000000001" : "INE000000001"}"
             class="uppercase-input"></label>
         ${fixed ? "" : `<label class="field">Class
           <select id="mh-class">
