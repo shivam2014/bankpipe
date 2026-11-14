@@ -544,11 +544,31 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
     || b.hits - a.hits || a.label.localeCompare(b.label));
   const tie = matches.length > 1 && !matches[0].identity && !matches[1].identity
     && matches[0].hits === matches[1].hits;
+  const top = matches[0] || null;
+  const share = top && top.of ? top.hits / top.of : 0;
+  // One attach rule for both report families. A file's BO ID, UCID or client ID
+  // names the account. Without one, an ISIN overlap has to explain most of the
+  // file; one match out of five hundred does not buy a whole snapshot a home.
+  const attachId = !tie && top && (top.identity || (top.hits > 0 && share >= 0.8))
+    ? top.id : "";
   return {
     matches, total: wanted.length, tie,
-    bestId: !tie && matches.length ? matches[0].id : "",
-    identityId: matches.length && matches[0].identity ? matches[0].id : "",
+    bestId: !tie && top ? top.id : "",
+    attachId,
+    identityId: top && top.identity ? top.id : "",
   };
+}
+
+/** The key an account was identified by, from the fields already on it. */
+function storedIdentityValue(account, source, meta) {
+  if (source === "cas") {
+    const raw = account?.bo_id || account?.number || meta.bo_id || meta.demat || "";
+    return boId(raw).boId || upper(raw);
+  }
+  // A broker stores its own key under the family's field. Legacy accounts may
+  // carry one without a family, so fall back to whichever key is present.
+  return upper(meta.ucid || meta.client_id || meta.demat
+    || account?.ucid || account?.client_id || "");
 }
 
 /** The dates the fields on one account were last written, and by what. */
@@ -561,7 +581,8 @@ export function accountFieldState(account, holdings = []) {
   const identityAsOf = parseDate(meta.identity_as_of || "")
     || (identitySource === "cas" ? snapshotAsOf : "");
   return {
-    identity: { source: identitySource, asOf: identityAsOf },
+    identity: { source: identitySource, asOf: identityAsOf,
+      value: storedIdentityValue(account, identitySource, meta) },
     snapshot: { source: snapshotSource, asOf: snapshotAsOf },
     cost: {
       source: meta.cost_source || meta.broker_source || "",
@@ -814,6 +835,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
 
   const decisions = [];
   let added = 0, updated = 0, kept = 0, ask = 0, flagged = 0, skipped = 0, manualOnly = 0;
+  let costCarried = 0;
   for (const row of inRows) {
     const old = oldByIsin.get(row.isin) || (!row.isin ? oldByLabel.get(norm(row.label)) : null);
     if (!old) {
@@ -1052,6 +1074,16 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
         "payoutPaise", "futureInterestPaise", "futurePrincipalPaise"]);
     if (labelChanged) changes.push(fieldChange("label", "label", old.label, row.label,
       incoming?.label || incoming?.kind, incomingState.date));
+    // A quantity that moves while the file carries no cost keeps the stored
+    // cost. Mark the change so the preview says the units moved and the money
+    // did not, instead of leaving the person to infer it from a blank field.
+    if (changes.some((change) => change.group === "snapshot" && change.field === "quantity")
+      && row.costPaise === null && old.costPaise !== null) {
+      for (const change of changes) {
+        if (change.group === "snapshot" && change.field === "quantity") change.costCarried = true;
+      }
+      costCarried += 1;
+    }
     const needsConfirm = changes.some((change) => change.requiresConfirm);
     if (needsConfirm) {
       ask += 1;
@@ -1105,6 +1137,9 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   if (manualOnly) {
     warnings.push(`${manualOnly} holding${manualOnly === 1 ? "" : "s"} entered by hand ${manualOnly === 1 ? "is" : "are"} not in this file and stay on the account.`);
   }
+  if (costCarried) {
+    warnings.push(`${costCarried} holding${costCarried === 1 ? "" : "s"} changed quantity without a cost in the file. The last known cost is kept.`);
+  }
   if (flagged) warnings.push(`${flagged} holding${flagged === 1 ? "" : "s"} not in the newer report ${flagged === 1 ? "was" : "were"} kept and flagged.`);
 
   return {
@@ -1114,17 +1149,20 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       const identity = incoming?.identity;
       if (!identity?.value) return null;
       const current = existing.identity || {};
+      const from = String(current.value || "");
+      const to = String(identity.value || "");
+      // The stored key is the evidence. An unchanged key is not an alias, even
+      // when the family's spelling of it differs in case or spacing.
+      const same = upper(from) === upper(to);
       if (!current.source) return { action: "attach", value: identity.value, kind: identity.kind };
       if (incoming.kind === "cas" && current.source !== "cas") {
-        return { action: "replace", value: identity.value, kind: identity.kind };
+        return { action: "replace", from, value: identity.value, kind: identity.kind };
       }
-      if (incoming.kind === "cas" && current.source === "cas"
-        && String(current.value || "") !== String(identity.value)) {
-        return { action: "replace", value: identity.value, kind: identity.kind };
+      if (incoming.kind === "cas" && current.source === "cas" && !same) {
+        return { action: "replace", from, value: identity.value, kind: identity.kind };
       }
-      if (current.source !== "cas" && incoming.kind !== "cas"
-        && String(current.value || "") !== String(identity.value)) {
-        return { action: "alias", value: identity.value, kind: identity.kind };
+      if (current.source !== "cas" && incoming.kind !== "cas" && !same) {
+        return { action: "alias", from, value: identity.value, kind: identity.kind };
       }
       return null;
     })(),

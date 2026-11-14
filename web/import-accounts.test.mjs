@@ -308,6 +308,23 @@ test("the CAS resolver asks the matcher for depository targets only", () => {
   assert.doesNotMatch(broker, /forCas/, "a broker file keeps the wider list");
 });
 
+test("a broker file attaches or creates only on the shared match rule", () => {
+  const broker = between("function bpImportResolveBroker", "function bpImportResolveCas");
+  assert.match(broker, /bundle\.match\.attachId/, "the broker resolver uses the shared attach id");
+  assert.doesNotMatch(broker, /bundle\.match\.bestId/, "a weak best match is not a target");
+  assert.match(broker, /bundle\.canCreate = bundle\.match\.matches\.length === 0/);
+  assert.match(broker, /bundle\.create = bundle\.canCreate/,
+    "only a file that matches nothing may create an account");
+  assert.match(broker, /bundle\.needsChoice = !targetId && bundle\.match\.matches\.length > 0/,
+    "a weak overlap is a question");
+});
+
+test("the CAS resolver reads the same threshold from the matcher", () => {
+  const cas = between("function bpImportResolveCas", "async function bpImportInboxPrepare");
+  assert.match(cas, /match\.attachId/);
+  assert.doesNotMatch(cas, /share >= 0\.8/, "the threshold lives in the matcher, not here");
+});
+
 test("the status line renders the holding count before the rest of the metadata", () => {
   const render = between("function bpImportAccountsHtml", "function bpImportAccountsRender");
   assert.match(render, /const bits = \[status\.countText,/);
