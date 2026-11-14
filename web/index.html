@@ -600,7 +600,9 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-account-main{min-width:0}
 .import-account-name{font-size:13.5px;font-weight:620;overflow-wrap:anywhere}
 .import-account-meta{font-size:11px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
-.import-account-name,.import-account-meta{display:block}
+.import-account-gap{font-size:12px;color:var(--amber);margin-top:4px;overflow-wrap:anywhere}
+.import-account-gap.optional{color:var(--muted)}
+.import-account-name,.import-account-meta,.import-account-gap{display:block}
 .import-account-status{font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}
 .import-account-status.good{color:var(--green);font-weight:620}
 .import-account-status.warn{color:var(--amber);font-weight:620}
@@ -1347,7 +1349,8 @@ import { folioAdoptionPlan, folioHome, folioKey, folioTail, isFolioAccount,
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, mergeRowsFromPlan, planImportChains, movementGate, statementAccounts,
-  importAccountSummary, normalizeAccount, parseTradebook, parseTradebookMatrix,
+  importAccountSummary, importAccountGaps, IMPORT_REPORT_GUIDE, normalizeAccount,
+  parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
@@ -6931,21 +6934,49 @@ function bpImportAccountsHtml() {
     return `<div class="import-empty-state">No securities accounts yet. A CAS, a broker
       holdings report or a bond purchase creates the first one.</div>`;
   }
-  return state.accountRows.map((row) => {
+  // One gap list per account, from what is already stored. An account with
+  // nothing missing renders no line at all; a typed account says what it could
+  // add and never reads like breakage.
+  const gaps = state.accountRows.map((row) =>
+    importAccountGaps(row.account, row.holdings, dateLabel));
+  const rows = state.accountRows.map((row, index) => {
     const status = bpImportAccountState(row);
     const label = row.account.label || row.account.bank || row.account.id;
     const number = bpImportAccountName(row.account);
     const bits = [status.countText, number && !String(label).includes(number) ? number : "",
       status.dates, status.brokerOnly ? "No CAS to reconcile against" : ""]
       .filter(Boolean).join(" · ");
+    const gap = gaps[index];
+    const gapHtml = gap.gaps.length
+      ? `<span class="import-account-gap${gap.manual ? " optional" : ""}">${
+        esc(gap.gaps.map((item) => item.text).join(" · "))}</span>` : "";
     return `<button type="button" class="import-account-btn" onclick="bpAsset(${jsArg(row.account.id)})">
       <span class="import-account-main">
         <span class="import-account-name">${esc(label)}</span>
         <span class="import-account-meta">${esc(bits)}</span>
+        ${gapHtml}
       </span>
       <span class="import-account-status ${status.kind}">${esc(status.label)}</span>
     </button>`;
   }).join("");
+  const guide = gaps.some((gap) => !gap.manual && gap.gaps.length)
+    ? bpImportReportGuideHtml() : "";
+  return `${rows}${guide}`;
+}
+
+// The guide is on demand, once for the card: one line per report, no paragraph
+// above the accounts and no hint that anything arrives on its own.
+function bpImportReportGuideHtml() {
+  const lines = IMPORT_REPORT_GUIDE.sources.map((source) => `<div class="import-help-row">
+    <b>${esc(source.source)}</b>
+    <span class="muted">${esc(source.when)} — ${esc(source.adds)}</span></div>`).join("");
+  return `<details class="import-help">
+    <summary>Which report?</summary>
+    <div class="import-help-body">${lines}
+      <div class="import-help-row"><span class="muted">${
+        esc(IMPORT_REPORT_GUIDE.note)}</span></div>
+    </div>
+  </details>`;
 }
 
 function bpImportAccountsRender() {
