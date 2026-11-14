@@ -18,6 +18,7 @@ test("reads the Zerodha equity holdings columns", () => {
   const p = parseZerodhaHoldings(matrix);
   assert.equal(p.error, null);
   assert.equal(p.asOf, "2026-11-12");
+  assert.equal(p.clientId, "XXX002");
   assert.equal(p.rows.length, 2);
   assert.deepEqual(p.rows[0], {
     symbol: "ADANIPOWER", isin: "INE999900207", sector: "ENERGY",
@@ -50,4 +51,25 @@ test("rejects a file with no holdings table", () => {
   const p = parseZerodhaHoldings([["hello"], ["world"]]);
   assert.match(p.error, /No holdings header/);
   assert.equal(p.rows.length, 0);
+});
+
+test("reads the 28-equity statement with its Client ID and date", () => {
+  const rows = [
+    ["Client ID", "XXX002"],
+    ["Equity Holdings Statement as on 2026-11-12"],
+    [],
+    ["Symbol", "ISIN", "Sector", "Quantity Available", "Quantity Discrepant",
+      "Quantity Long Term", "Quantity Pledged (Margin)", "Quantity Pledged (Loan)",
+      "Average Price", "Previous Closing Price", "Unrealized P&L", "Unrealized P&L Pct."],
+  ];
+  for (let i = 0; i < 28; i++) {
+    rows.push([`STOCK${i}`, `INE${String(100000000 + i)}`, "ENERGY",
+      10 + i, 0, 0, 0, 0, 100 + i, 110 + i, 10, 1]);
+  }
+  const p = parseZerodhaHoldings(rows);
+  assert.equal(p.error, null);
+  assert.equal(p.clientId, "XXX002");
+  assert.equal(p.asOf, "2026-11-12");
+  assert.equal(p.rows.length, 28);
+  assert.equal(p.rows[27].quantity, 37);
 });

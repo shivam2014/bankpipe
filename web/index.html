@@ -553,6 +553,124 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .eq-preview .status.same{color:var(--green)}
 .eq-summary{font-size:11px;color:var(--muted);margin-top:7px}
 .eq-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
+/* The import inbox. One drop zone, one set of decisions per account. */
+.import-inbox-card{margin-bottom:14px}
+.import-drop{position:relative;display:grid;justify-items:center;gap:4px;text-align:center;
+ border:1.5px dashed var(--line);border-radius:var(--r);background:var(--card);padding:22px 16px;
+ cursor:pointer}
+.import-drop:hover{border-color:var(--green)}
+.import-drop:focus-visible{border-color:var(--green);outline:2px solid var(--green);outline-offset:2px}
+.import-drop.drag{border-color:var(--green);background:var(--hair)}
+.import-drop-title{font-size:17px;font-weight:640;letter-spacing:-.01em;color:var(--green)}
+.import-drop-sub{font-size:13.5px;color:var(--ink)}
+.import-drop-note{font-size:12px;color:var(--muted)}
+.import-file-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.import-status{font-size:12px;color:var(--muted);margin-top:10px;min-height:17px}
+.import-status.bad{color:var(--red)}
+.import-status.good{color:var(--green)}
+.import-help{margin-top:12px;border-top:1px solid var(--hair);padding-top:10px}
+.import-help summary{cursor:pointer;font-size:12px;color:var(--muted)}
+.import-help summary:hover{color:var(--ink)}
+.import-help summary::after{content:"▸";margin-left:auto;color:var(--muted)}
+.import-help[open] summary::after{content:"▾"}
+.import-help-body{display:grid;gap:9px;margin-top:9px}
+.import-help-row{font-size:13.5px;line-height:1.5}
+.import-help-row b{display:block;font-size:13.5px;font-weight:620}
+.import-help-row .muted{font-size:12px}
+.import-card-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+ flex-wrap:wrap}
+.import-card-head h2{margin:0}
+.import-card-sub{font-size:12px;color:var(--muted)}
+.import-accounts{display:grid;margin-top:6px}
+.import-account-btn{display:flex;justify-content:space-between;gap:10px;align-items:center;
+ width:100%;min-height:44px;border:0;border-top:1px solid var(--hair);border-radius:0;
+ background:none;color:var(--ink);font:inherit;text-align:left;padding:10px 0;cursor:pointer}
+.import-account-btn:first-child{border-top:0}
+.import-account-btn:hover .import-account-name{color:var(--green)}
+.import-account-main{min-width:0}
+.import-account-name{font-size:13.5px;font-weight:620;overflow-wrap:anywhere}
+.import-account-meta{font-size:11px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.import-account-name,.import-account-meta{display:block}
+.import-account-status{font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}
+.import-account-status.good{color:var(--green);font-weight:620}
+.import-account-status.warn{color:var(--amber);font-weight:620}
+.import-empty-state{font-size:13.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+.import-batch{display:flex;gap:10px;align-items:center;justify-content:space-between;
+ flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+ margin-top:12px;background:var(--hair)}
+.import-batch-copy{min-width:0;font-size:13.5px}
+.import-batch-copy .muted{display:block;font-size:12px;margin-top:1px}
+.import-batch-actions{display:flex;gap:8px;flex-wrap:wrap}
+.import-bundle{margin-top:12px}
+.import-bundle-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;
+ flex-wrap:wrap}
+.import-kicker{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+ font-weight:680}
+.import-title{font-size:17px;font-weight:640;letter-spacing:-.01em;margin-top:2px}
+.import-sub{font-size:13.5px;color:var(--muted);margin-top:2px}
+.import-pill{display:inline-flex;align-items:center;border:1px solid var(--line);
+ border-radius:99px;padding:3px 9px;font-size:11px;font-weight:640;color:var(--muted);
+ white-space:nowrap}
+.import-pill.good{color:var(--green);border-color:var(--green)}
+.import-pill.warn{color:var(--amber);border-color:var(--amber)}
+.import-files{display:grid;gap:5px;margin-top:10px}
+.import-file{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+ border-top:1px solid var(--hair);padding-top:5px;font-size:12px}
+.import-file:first-child{border-top:0;padding-top:0}
+.import-file-name{min-width:0;overflow-wrap:anywhere;font-weight:600}
+.import-file-meta{color:var(--muted);font-size:11px;white-space:nowrap}
+.import-section{margin-top:12px;border-top:1px solid var(--hair);padding-top:10px}
+.import-section-title{font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+ color:var(--muted);font-weight:680}
+.import-account-list{display:grid;gap:6px;margin-top:7px}
+.import-account-choice{display:flex;justify-content:space-between;gap:10px;align-items:center;
+ width:100%;min-height:44px;text-align:left;border:1px solid var(--line);border-radius:10px;
+ background:var(--card);color:var(--ink);font:inherit;padding:9px 11px;cursor:pointer}
+.import-account-choice:hover{border-color:var(--green)}
+.import-account-choice.on{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
+.import-choice-main{min-width:0}
+.import-choice-name{font-size:13.5px;font-weight:620;overflow-wrap:anywhere}
+.import-choice-meta{font-size:11px;color:var(--muted);margin-top:1px}
+.import-choice-name,.import-choice-meta{display:block}
+.import-choice-hits{font-size:12px;font-weight:640;white-space:nowrap}
+.import-change-grid{display:grid;gap:10px;margin-top:12px}
+.import-change{font-size:12px;line-height:1.5;min-width:0}
+.import-change b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+ color:var(--muted);margin-bottom:4px}
+.import-change ul{margin:0;padding-left:16px}
+.import-change li{margin:2px 0;overflow-wrap:anywhere}
+.import-change-more{margin-top:4px}
+.import-change-more summary{cursor:pointer;font-size:12px;color:var(--muted)}
+.import-change-more summary:hover{color:var(--ink)}
+.import-change-more ul{margin-top:4px}
+.import-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.import-actions .btn,.import-batch-actions .btn{min-height:44px}
+.import-help summary{display:flex;align-items:center;min-height:44px}
+.import-wrong{margin-top:10px;border:1px solid var(--amber);border-radius:10px;padding:12px}
+.import-wrong b{font-size:13.5px}
+.import-wrong .muted{font-size:12px;margin-top:4px;line-height:1.5}
+.import-ask-list{font-size:12px;margin:6px 0 0;padding-left:16px;line-height:1.5}
+.import-ask-list li{overflow-wrap:anywhere}
+.import-password{margin-top:10px;border:1px solid var(--amber);border-radius:10px;padding:12px}
+.import-password b{font-size:13.5px}
+.import-password .muted{font-size:12px;margin-top:4px}
+.import-password input{width:100%;min-height:44px;padding:9px 11px;border:1px solid var(--line);
+ border-radius:9px;font:inherit;font-size:15px;background:var(--bg);color:var(--ink);margin-top:8px}
+.import-bank-copy{font-size:13.5px;color:var(--muted);margin:6px 0 10px}
+.import-old-copy{font-size:13.5px;color:var(--muted);margin:6px 0 10px}
+.import-old-card{border-top:1px solid var(--hair);margin-top:12px;padding-top:12px}
+.import-pick{display:inline-flex;align-items:center;cursor:pointer}
+.import-note{font-size:11px;margin-top:7px;line-height:1.55}
+@media (min-width:720px){.import-change-grid{grid-template-columns:1fr 1fr}}
+@media (max-width:520px){.import-account-btn{align-items:flex-start;flex-direction:column;gap:3px}
+ .import-account-status{text-align:left;white-space:normal}
+ .import-file{flex-wrap:wrap}
+ .import-file-meta{white-space:normal}}
+.btn:focus-visible,.import-account-btn:focus-visible,.import-account-choice:focus-visible,
+.import-help summary:focus-visible,.import-password input:focus-visible{
+ outline:2px solid var(--green);outline-offset:2px}
+.import-account-btn:focus,.import-account-choice:focus,.import-drop:focus{
+ outline:2px solid var(--green);outline-offset:2px}
 .more-menu{position:relative;margin-left:auto}
 .more-menu>summary{list-style:none;cursor:pointer}
 .more-menu>summary::-webkit-details-marker{display:none}
@@ -1206,7 +1324,9 @@ import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
 import { parseZerodhaHoldingsSheets } from "./zerodha.js";
 import { parseMotilalPages, motilalHoldingPatch as motilalPatch } from "./motilal.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
-import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio } from "./digifinn-reports.js";
+import { parseReportFile, buildBondSync, scorePortfolio as scoreBondPortfolio,
+  parsePortfolioReport, parseInvestmentReport, parseTransactionReport,
+  parsePayoutReport, parseCashflowReport } from "./digifinn-reports.js";
 import { matchDemat } from "./portfolio-match.js";
 import { dematCardHtml, dematLast4, dematMismatchLine, dematText,
   syncPreviewCardHtml } from "./demat-card.js";
@@ -1215,6 +1335,8 @@ import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
+import { detectImportFile, groupBundles, accountMatches, planMerge, accountFieldState,
+  normalizeAccount, parseTradebook, IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 import { bondSyncNotices, bondSyncAcceptLabel, bondSyncConfirmText } from "./bond-sync-warnings.js";
@@ -3319,10 +3441,10 @@ function brokerImportBodyHtml() {
   const bond = chosen ? bondBroker(chosen) : null;
   const equity = chosen ? equityBroker(chosen) : null;
   return `<div id="import-broker-step" style="margin-top:12px">
-    <div class="import-step-title">2. Broker reports
+    <div class="import-step-title">Broker holdings reports
       <span class="muted import-step-sub">optional — invested, dates and terms</span></div>
     <div class="muted import-step-note">One demat holds bonds, equities and mutual funds.
-      The CAS creates all three; a broker file fills the classes it contains. Files land by
+      A CAS creates all three; a broker file fills the classes it contains. Files land by
       ISIN; nothing is written until you confirm.</div>
     <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
       text-transform:uppercase;margin-top:12px">Supported brokers</div>
@@ -3342,42 +3464,80 @@ function renderImport() {
   window.bpImportTargetOnce = false;
   setTimeout(() => window.bpZerodhaTargetNote?.(), 0);
   return `<h1>Import</h1>
-  <p class="muted import-intro">Nothing is uploaded. Bank and
-  broker logins, OTPs and PINs are never requested. A locked PDF is opened on this device with
-  the password you type; it is not saved.</p>
+  <p class="muted import-intro">Add a depository statement (CAS), a broker holdings report,
+  or a bank statement. Bank and broker logins, OTPs and PINs are never requested. Nothing is
+  saved until you confirm.</p>
 
-  <div class="card pad" style="margin-bottom:14px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
-      <h2 style="margin:0">Demat accounts</h2>
-      <span class="muted" style="font-size:11.5px">CAS + optional broker reports</span></div>
-    <div class="muted" style="font-size:12.5px;margin-top:6px"><b>1. CAS statement
-    (required).</b> CDSL or NSDL. Creates or updates the demat accounts with bonds,
-    equities and mutual funds.</div>
-    <label class="btn primary" style="display:inline-flex;align-items:center;cursor:pointer;margin-top:8px">
-      Choose CAS statement
-      <input type="file" accept=".pdf" multiple id="bond-cas-input" style="display:none"
-        onchange="bpCasFiles(this.files);this.value=''"></label>
-    <div id="bond-cas-host" style="margin-top:10px"></div>
-    ${brokerImportBodyHtml()}
-    <div class="muted" style="font-size:11.5px;margin-top:8px">Updating? Re-import the CAS;
-    cost already on matching holdings is kept.</div>
+  <div class="card pad import-inbox-card">
+    <label class="import-drop" id="import-inbox-drop" for="import-inbox-files"
+      tabindex="0" role="button" aria-describedby="import-inbox-note">
+      <span class="import-drop-title">Choose files</span>
+      <span class="import-drop-sub">Drop a PDF, CSV or XLSX here. Several files are fine.</span>
+      <span class="import-drop-note" id="import-inbox-note">Nothing is saved until you confirm.</span>
+      <input type="file" id="import-inbox-files" class="import-file-input" multiple
+        tabindex="-1" accept=".pdf,.csv,.txt,.xlsx,.xls,.xlsm">
+    </label>
+    <details class="import-help">
+      <summary>What can I add?</summary>
+      <div class="import-help-body">
+        <div class="import-help-row"><b>Depository statement (CAS)</b>
+          CDSL or NSDL. One file can name more than one demat. It creates the account and its
+          holdings. <span class="muted">Get it from CDSL or NSDL → CAS / e-CAS statement.</span></div>
+        <div class="import-help-row"><b>Broker holdings report</b>
+          Motilal Oswal Portfolio Holding Summary, Zerodha holdings XLSX, or DigiFInn
+          holdings, investment, transactions, payouts and cashflow reports. Fills cost,
+          purchase dates and terms. A broker report can start an account on its own.
+          <span class="muted">Get it from the broker's Reports or Portfolio page.</span></div>
+        <div class="import-help-row"><b>Bank statement</b>
+          PDF, CSV or Excel. Creates or updates the bank account and its transactions.
+          <span class="muted">Get it from your bank's statement download.</span></div>
+      </div>
+    </details>
+    <div id="import-inbox-status" class="import-status" role="status" aria-live="polite"></div>
+    <div id="import-inbox-gate"></div>
+    <div id="import-inbox-host"></div>
   </div>
 
   <div class="card pad">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0">Bank accounts</h2>
-      <span class="muted" style="font-size:11.5px">Last import ${lastImportShort()}</span></div>
-    <p class="muted" style="margin:6px 0 10px;font-size:13px">PDF, CSV or Excel bank
-    statements. Creates or updates the bank account and its transactions. Nothing is written
-    until you confirm.</p>
-    <label class="btn" style="display:inline-flex;align-items:center;cursor:pointer">
-      Choose bank statement
+    <div class="import-card-head"><h2>Your accounts</h2>
+      <span class="import-card-sub" id="import-accounts-count"></span></div>
+    <div id="import-accounts" class="import-accounts">
+      <div class="import-empty-state">Reading accounts…</div></div>
+  </div>
+
+  <div class="card pad">
+    <div class="import-card-head"><h2>Bank statements</h2>
+      <span class="import-card-sub">Last import ${lastImportShort()}</span></div>
+    <p class="muted import-bank-copy">PDF, CSV or Excel bank statements. Creates or updates
+    the bank account and its transactions. Nothing is written until you confirm.</p>
+    <label class="btn import-pick">Choose bank statement
       <input type="file" id="import-files" multiple
         accept=".csv,.xlsx,.xlsm,.xls,.pdf" style="display:none">
     </label>
-    <div id="import-queue" style="margin-top:10px"></div>
+    <div id="import-queue"></div>
   </div>
   <div id="import-panels"></div>
+
+  <details class="adv" id="import-by-type">
+    <summary>Choose by file type</summary>
+    <div class="card pad">
+      <div class="import-card-head"><h2>Depository statement (CAS)</h2>
+        <span class="import-card-sub">CDSL or NSDL</span></div>
+      <p class="muted import-old-copy">A CAS creates or updates the demat accounts with bonds,
+      equities and mutual funds. Choose it here only when the drop zone above cannot read it.</p>
+      <label class="btn primary import-pick">Choose CAS statement
+        <input type="file" accept=".pdf" multiple id="bond-cas-input" style="display:none"
+          onchange="bpCasFiles(this.files);this.value=''"></label>
+      <div id="bond-cas-host"></div>
+      <div class="import-old-card">
+        <div class="import-card-head"><h2>Broker holdings reports</h2>
+          <span class="import-card-sub">adds cost, dates and terms</span></div>
+        ${brokerImportBodyHtml()}
+      </div>
+      <div class="muted import-note">Updating? Choose the newer file; a newer snapshot wins and
+      an older one only fills empty fields.</div>
+    </div>
+  </details>
 
   <details class="adv">
     <summary>Advanced: replace everything from the family workbook</summary>
@@ -3849,10 +4009,38 @@ function wireImport() {
       input.value = "";
     };
   }
+  const inbox = document.getElementById("import-inbox-files");
+  if (inbox) {
+    inbox.onchange = () => {
+      window.bpImportInboxAdd([...(inbox.files || [])]);
+      inbox.value = "";
+    };
+  }
+  const drop = document.getElementById("import-inbox-drop");
+  if (drop && !drop.dataset.wired) {
+    drop.dataset.wired = "1";
+    const on = (event) => { event.preventDefault(); drop.classList.add("drag"); };
+    const off = () => drop.classList.remove("drag");
+    drop.addEventListener("dragenter", on);
+    drop.addEventListener("dragover", on);
+    drop.addEventListener("dragleave", off);
+    drop.addEventListener("drop", (event) => {
+      event.preventDefault();
+      off();
+      window.bpImportInboxAdd([...(event.dataTransfer?.files || [])]);
+    });
+    drop.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      document.getElementById("import-inbox-files")?.click();
+    });
+  }
   // A file can arrive from the URL (?guide=broker&import=...) as before, but the
   // queue is the only path now: one list, one type per row, one confirmation.
   if (!window.bpImportQueue) window.bpImportQueue = [];
   window.bpImportRender();
+  window.bpImportAccountsLoad?.();
+  window.bpImportInboxRender?.();
 }
 function renderTransactions() {
   renderRealTransactions(document.getElementById("view"));
@@ -7188,6 +7376,1401 @@ window.bpCasFiles = async (files) => {
     await window.bpCasFile(list[i], id);
   }
 };
+// --- the import inbox -------------------------------------------------------
+// One drop zone, one plan per account. Detection and the date rules live in
+// import-flow.js; this block owns reading the file, matching the account and
+// writing only after the person presses Import.
+const bpImportInboxState = () => {
+  if (!window.bpImportInbox) {
+    window.bpImportInbox = { entries: [], bundles: [], accountRows: null,
+      accountError: "", choices: {}, creates: {}, acceptAsk: {}, last: null,
+      message: "", messageKind: "", preparing: false, pending: false, applying: false };
+  }
+  return window.bpImportInbox;
+};
+
+function bpImportInboxStatus(text, kind = "") {
+  const state = bpImportInboxState();
+  state.message = text || "";
+  state.messageKind = kind;
+  const host = document.getElementById("import-inbox-status");
+  if (!host) return;
+  host.className = `import-status${kind ? ` ${kind}` : ""}`;
+  host.textContent = text || "";
+}
+
+function bpImportCategoryText(rows) {
+  const counts = {};
+  for (const row of rows || []) {
+    const kind = String(row.category || "bond");
+    counts[kind] = (counts[kind] || 0) + 1;
+  }
+  const one = { bond: "bond", equity: "equity", mf: "fund" };
+  const many = { bond: "bonds", equity: "equities", mf: "funds" };
+  const parts = Object.entries(counts).map(([kind, count]) =>
+    `${count} ${count === 1 ? (one[kind] || kind) : (many[kind] || `${kind}s`)}`);
+  if (parts.length <= 1) return parts[0] || "";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+function bpImportBundleLabel(bundle) {
+  return bundle.family === "cas" ? (bundle.base?.parsed?.depository
+    ? `${bundle.base.parsed.depository} CAS` : "Depository statement (CAS)")
+    : bundle.family === "motilal" ? "Motilal Oswal holdings report"
+      : bundle.family === "zerodha" ? "Zerodha holdings"
+        : bundle.family === "digifinn" ? "DigiFInn bundle" : "Holdings report";
+}
+
+function bpImportBrokerName(family) {
+  return family === "motilal" ? "Motilal Oswal"
+    : family === "zerodha" ? "Zerodha" : family === "digifinn" ? "DigiFInn" : "";
+}
+
+function bpImportBrokerOnlyLabel(bundle) {
+  const key = String(bundle.accountKey || "");
+  if (bundle.family === "motilal") return `Demat · Motilal Oswal${key ? ` · ${key}` : ""}`;
+  if (bundle.family === "zerodha") return "Demat · Zerodha";
+  if (bundle.family === "digifinn") return `Demat · DigiFInn${key ? ` · …${key.slice(-4)}` : ""}`;
+  return `Demat · ${bpImportBrokerName(bundle.family) || "Broker"}`;
+}
+
+function bpImportAccountName(account) {
+  const meta = metaOf(account || {});
+  if (meta.ucid) return `UCID ${meta.ucid}`;
+  if (meta.client_id) return `Client ${meta.client_id}`;
+  const id = boId(account?.number || "");
+  if (id.kind === "bo") return `…${id.boId.slice(-4)}`;
+  return String(account?.number || "").trim();
+}
+
+function bpImportAccountState(row) {
+  const meta = metaOf(row.account);
+  const state = accountFieldState(row.account, row.holdings);
+  const brokerOnly = meta.broker_only === "1" || meta.broker_only === true
+    || (!state.identity.source && !!state.snapshot.source);
+  const brokerAsOf = state.cost.asOf || String(meta.broker_as_of || "").slice(0, 10)
+    || (state.identity.source && state.identity.source !== "cas" ? state.identity.asOf : "");
+  const casAsOf = state.identity.source === "cas" ? state.identity.asOf : "";
+  let label = "No holdings yet";
+  let kind = "";
+  if (brokerOnly) { label = "Broker-only"; kind = "warn"; }
+  else if (casAsOf) { label = "CAS verified"; kind = "good"; }
+  if (brokerAsOf && casAsOf && brokerAsOf > casAsOf) { label = "Newer broker data"; kind = "warn"; }
+  return { label, kind, brokerOnly, brokerAsOf, casAsOf,
+    dates: [casAsOf ? `CAS ${dateLabel(casAsOf)}` : "",
+      brokerAsOf ? `Broker ${dateLabel(brokerAsOf)}` : ""].filter(Boolean).join(" · ") };
+}
+
+function bpImportAccountsHtml() {
+  const state = bpImportInboxState();
+  if (state.accountError) {
+    return `<div class="import-empty-state">Could not read the accounts. ${esc(state.accountError)}</div>`;
+  }
+  if (!state.accountRows) return `<div class="import-empty-state">Reading accounts…</div>`;
+  if (!state.accountRows.length) {
+    return `<div class="import-empty-state">No demat accounts yet. A CAS or a broker holdings
+      report creates the first one.</div>`;
+  }
+  return state.accountRows.map((row) => {
+    const status = bpImportAccountState(row);
+    const label = row.account.label || row.account.bank || row.account.id;
+    const number = bpImportAccountName(row.account);
+    const bits = [number && !String(label).includes(number) ? number : "", status.dates,
+      status.brokerOnly ? "No CAS to reconcile against" : ""]
+      .filter(Boolean).join(" · ");
+    return `<button type="button" class="import-account-btn" onclick="bpAsset(${jsArg(row.account.id)})">
+      <span class="import-account-main">
+        <span class="import-account-name">${esc(label)}</span>
+        <span class="import-account-meta">${esc(bits)}</span>
+      </span>
+      <span class="import-account-status ${status.kind}">${esc(status.label)}</span>
+    </button>`;
+  }).join("");
+}
+
+function bpImportAccountsRender() {
+  const host = document.getElementById("import-accounts");
+  if (!host) return;
+  const state = bpImportInboxState();
+  host.innerHTML = bpImportAccountsHtml();
+  const count = document.getElementById("import-accounts-count");
+  if (count) {
+    count.textContent = state.accountRows
+      ? `${state.accountRows.length} account${state.accountRows.length === 1 ? "" : "s"}`
+      : "";
+  }
+}
+
+window.bpImportAccountsLoad = async (force = false) => {
+  const state = bpImportInboxState();
+  if (state.accountRows && !force) { bpImportAccountsRender(); return state.accountRows; }
+  try {
+    const store = await import("./db.js");
+    const accounts = (await store.listAccounts()).filter((a) => categoryOf(a) === "demat");
+    const rows = [];
+    for (const account of accounts) {
+      const holdings = await store.listHoldings(account.id);
+      rows.push({ account, holdings, normalized: normalizeAccount(account, holdings) });
+    }
+    state.accountRows = rows;
+    state.accountError = "";
+    if (state.entries.length) await bpImportInboxPrepare();
+    else bpImportInboxRender();
+  } catch (e) {
+    state.accountRows = state.accountRows || [];
+    state.accountError = e?.message || String(e);
+    bpImportInboxRender();
+  }
+  return state.accountRows;
+};
+
+function bpImportAccountRow(id) {
+  return (bpImportInboxState().accountRows || []).find((row) => row.account.id === id) || null;
+}
+
+function bpImportPlanFor(bundle, accountRow, rows, identity) {
+  const state = accountRow
+    ? { ...accountFieldState(accountRow.account, accountRow.holdings), holdings: accountRow.holdings }
+    : { identity: { source: "", asOf: "" }, snapshot: { source: "", asOf: "" },
+      cost: { source: "", asOf: "", manual: false }, holdings: [] };
+  return planMerge({
+    incoming: {
+      kind: bundle.family, label: bpImportBundleLabel(bundle), asOf: bundle.asOf || "",
+      identity, categories: [...new Set((rows || []).map((row) => row.category).filter(Boolean))],
+      rows: rows || [],
+    },
+    existing: state,
+    today: new Date().toISOString().slice(0, 10),
+  });
+}
+
+function bpImportAggregatePlans(plans) {
+  const summary = { added: 0, updated: 0, kept: 0, ask: 0, flagged: 0,
+    skipped: 0, manualOnly: 0, history: 0 };
+  const warnings = [];
+  let blocking = false;
+  for (const plan of plans.filter(Boolean)) {
+    blocking = blocking || plan.blocking;
+    for (const key of Object.keys(summary)) summary[key] += plan.summary[key] || 0;
+    warnings.push(...(plan.warnings || []));
+  }
+  return { summary, warnings: [...new Set(warnings)], blocking,
+    identityOnly: plans.length > 0 && plans.every((plan) => plan?.identityOnly) };
+}
+
+function bpImportResolveBroker(bundle) {
+  const state = bpImportInboxState();
+  const accounts = (state.accountRows || []).map((row) => ({
+    ...row.account, holdings: row.holdings,
+  }));
+  bundle.match = accountMatches({
+    accountKey: bundle.accountKey, accountKind: bundle.accountKind, rows: bundle.rows,
+  }, accounts);
+  let targetId = state.choices[bundle.key] || "";
+  if (targetId && !bpImportAccountRow(targetId)) targetId = "";
+  if (!targetId && bundle.match.identityId) targetId = bundle.match.identityId;
+  if (!targetId && bundle.match.bestId) targetId = bundle.match.bestId;
+  if (!targetId && bundle.match.tie) targetId = "";
+  bundle.targetId = targetId;
+  bundle.create = !targetId && !bundle.match.tie;
+  bundle.createLabel = bpImportBrokerOnlyLabel(bundle);
+  bundle.canCreate = bundle.match.matches.length === 0 || !!state.creates[bundle.key];
+  const identity = bundle.accountKey
+    ? { kind: bundle.accountKind || "bo", value: bundle.accountKey } : null;
+  bundle.plan = bpImportPlanFor(bundle, targetId ? bpImportAccountRow(targetId) : null,
+    bundle.rows, identity);
+  bundle.ready = !!(bundle.plan && !bundle.plan.blocking
+    && (bundle.plan.summary.ask === 0 || bundle.acceptAsk)
+    && (targetId || bundle.canCreate));
+  bundle.needsChoice = bundle.match.tie && !targetId;
+}
+
+function bpImportResolveCas(bundle) {
+  const state = bpImportInboxState();
+  const accounts = (state.accountRows || []).map((row) => ({
+    ...row.account, holdings: row.holdings,
+  }));
+  const base = bundle.base;
+  const casAccounts = base?.accounts?.length ? base.accounts : [];
+  const dematTargets = casAccounts.map((account) => {
+    const rows = (account.rows || []).filter((row) =>
+      !(row.category === "mf" && row.folio));
+    const match = accountMatches({
+      accountKey: account.boId, accountKind: "bo", rows,
+    }, accounts);
+    const choiceKey = `${bundle.key}:${account.boId}`;
+    const choice = state.choices[choiceKey] || "";
+    const createChoice = choice === "__create__";
+    let targetId = choice && !createChoice ? choice : "";
+    if (targetId && !bpImportAccountRow(targetId)) targetId = "";
+    if (!targetId && match.identityId) targetId = match.identityId;
+    if (!targetId && match.bestId && !match.tie) {
+      const best = match.matches.find((candidate) => candidate.id === match.bestId);
+      const share = best?.of ? best.hits / best.of : 0;
+      // A CAS names its own BO ID. ISIN overlap is only strong enough to attach
+      // to a broker-only account when it explains most of the statement; one
+      // matching ISIN out of thirteen is a different demat.
+      if (best && (best.identity || (best.hits > 0 && share >= 0.8))) targetId = best.id;
+    }
+    const targetRow = targetId ? bpImportAccountRow(targetId) : null;
+    const plan = bpImportPlanFor(bundle, targetRow, rows,
+      { kind: "bo", value: account.boId });
+    return { ...account, rows, match, targetId, plan, createChoice,
+      action: targetRow ? "update" : "create" };
+  });
+  // A CAS can also carry mutual fund folios. They are not under the demat's BO
+  // ID, so they get their own line here and the existing CAS writer routes them
+  // to the AMC's account.
+  const folioGroups = new Map();
+  for (const row of bundle.rows || []) {
+    if (row.category !== "mf" || !row.folio) continue;
+    const amc = String(row.amc || "Folio").trim();
+    const key = amc.toLowerCase();
+    if (!folioGroups.has(key)) folioGroups.set(key, { amc, rows: [] });
+    folioGroups.get(key).rows.push(row);
+  }
+  const folioTargets = [...folioGroups.entries()].map(([key, group]) => {
+    const match = accountMatches({ rows: group.rows }, accounts);
+    const choiceKey = `${bundle.key}:mf:${key}`;
+    let targetId = state.choices[choiceKey] || "";
+    if (targetId && !bpImportAccountRow(targetId)) targetId = "";
+    if (!targetId && !match.tie) targetId = match.identityId || match.bestId || "";
+    const targetRow = targetId ? bpImportAccountRow(targetId) : null;
+    const plan = bpImportPlanFor(bundle, targetRow, group.rows, null);
+    return { boId: `mf:${key}`, dpName: `${group.amc} mutual fund`, rows: group.rows,
+      match, targetId, plan, action: targetRow ? "update" : "create", folio: true };
+  });
+  bundle.casTargets = [...dematTargets, ...folioTargets];
+  bundle.plans = bundle.casTargets.map((target) => target.plan);
+  bundle.plan = bpImportAggregatePlans(bundle.plans);
+  bundle.needsChoice = bundle.casTargets.some((target) =>
+    target.match.tie && !target.targetId && !target.createChoice);
+  bundle.create = bundle.casTargets.some((target) => !target.targetId);
+  bundle.ready = bundle.casTargets.length > 0 && bundle.casTargets.every((target) =>
+    target.plan && !target.plan.blocking
+    && (target.plan.summary.ask === 0 || bundle.acceptAsk)
+    && (target.targetId || !target.match.tie || target.createChoice));
+}
+
+async function bpImportInboxPrepare(force = false) {
+  const state = bpImportInboxState();
+  if (state.preparing) { state.pending = true; return; }
+  state.preparing = true;
+  try {
+    if (!state.accountRows || force) {
+      try {
+        const store = await import("./db.js");
+        const accounts = (await store.listAccounts()).filter((a) => categoryOf(a) === "demat");
+        const rows = [];
+        for (const account of accounts) {
+          const holdings = await store.listHoldings(account.id);
+          rows.push({ account, holdings, normalized: normalizeAccount(account, holdings) });
+        }
+        state.accountRows = rows;
+        state.accountError = "";
+      } catch (e) {
+        state.accountError = e?.message || String(e);
+      }
+    }
+    const ready = state.entries.filter((entry) => entry.status === "ready" && entry.kind !== "bank");
+    state.bundles = groupBundles(ready.map((entry) => ({
+      kind: entry.kind, name: entry.name, asOf: entry.asOf,
+      accountKey: entry.accountKey, accountKind: entry.accountKind,
+      rows: entry.rows, firstBuyByIsin: entry.firstBuyByIsin,
+      termsByIsin: entry.termsByIsin, termsByLabel: entry.termsByLabel,
+      parsed: entry.parsed, accounts: entry.casAccounts, file: entry.file,
+      entryId: entry.id,
+    })));
+    for (const entry of state.entries) entry.bundleKey = "";
+    for (const bundle of state.bundles) {
+      for (const file of bundle.files) {
+        const entry = state.entries.find((item) => item.id === file.entryId);
+        if (entry) entry.bundleKey = bundle.key;
+      }
+      bundle.choice = state.choices[bundle.key] || "";
+      bundle.create = !!state.creates[bundle.key];
+      bundle.acceptAsk = !!state.acceptAsk[bundle.key];
+      if (bundle.family === "cas") bpImportResolveCas(bundle);
+      else bpImportResolveBroker(bundle);
+    }
+  } finally {
+    state.preparing = false;
+    bpImportInboxRender();
+    if (state.pending) {
+      state.pending = false;
+      bpImportInboxPrepare(force);
+    }
+  }
+}
+
+function bpImportInboxEntryError(entry) {
+  if (!entry) return "";
+  if (entry.kind === "bank") return "Bank statement sent to the bank import below.";
+  if (entry.error) return entry.error;
+  if (entry.status === "reading") return "Reading this file…";
+  return "";
+}
+
+function bpImportMatchHtml(bundle) {
+  const state = bpImportInboxState();
+  const matches = bundle.match?.matches || [];
+  const chosen = bundle.targetId || "";
+  const rows = matches.map((match) => {
+    const chosenNow = match.id === chosen;
+    const best = bundle.match.bestId === match.id;
+    const meta = [
+      match.identityKind ? `${match.identityKind} match` : "ISIN overlap",
+      match.brokerOnly ? "broker-only · no CAS to check against" : "",
+    ].filter(Boolean).join(" · ");
+    return `<button type="button" class="import-account-choice${chosenNow ? " on" : ""}"
+      aria-pressed="${chosenNow}" onclick="bpImportChoose(${jsArg(bundle.key)}, ${jsArg(match.id)})">
+      <span class="import-choice-main">
+        <span class="import-choice-name">${esc(match.label)}${best
+          ? ' <span class="import-pill good">Best match</span>' : ""}</span>
+        <span class="import-choice-meta">${esc(meta)}</span>
+      </span>
+      <span class="import-choice-hits">${match.hits} of ${match.of}</span>
+    </button>`;
+  }).join("");
+  const create = bundle.create ? `<div class="import-account-list">
+      <div class="import-account-choice on">
+        <span class="import-choice-main">
+          <span class="import-choice-name">Create broker-only account</span>
+          <span class="import-choice-meta">${esc(bundle.createLabel)} · no CAS to check against</span>
+        </span>
+        <span class="import-choice-hits">New</span>
+      </div></div>
+    <div class="muted import-note">No CAS is needed. The account stays marked broker-only
+      until a depository statement arrives.</div>` : "";
+  const noMatch = !matches.length && !bundle.targetId
+    ? `<div class="import-empty-state">No account matches this file by BO ID, UCID, client ID
+      or ISIN. Add it as a broker-only account, or choose the CAS above if you have one.</div>`
+    : "";
+  return `<div class="import-section">
+    <div class="import-section-title">Account</div>
+    ${rows ? `<div class="import-account-list">${rows}</div>` : noMatch}
+    ${chosen ? `<div class="muted import-note">Only
+      ${esc(bpImportAccountRow(chosen)?.account?.label || bundle.createLabel || "this account")}
+      changes. Other accounts with overlapping ISINs are untouched.</div>` : ""}
+    ${create}
+  </div>`;
+}
+
+function bpImportCasAccountsHtml(bundle) {
+  const targets = bundle.casTargets || [];
+  if (!targets.length) return `<div class="import-empty-state">No demat account was read from
+    this statement.</div>`;
+  return `<div class="import-section">
+    <div class="import-section-title">Accounts in this statement</div>
+    <div class="import-account-list">${targets.map((target) => {
+      const status = target.targetId
+        ? `Update ${esc(bpImportAccountRow(target.targetId)?.account?.label || "the account")}`
+        : target.folio ? "New mutual fund folio account" : "New demat account";
+      const matchLine = target.match?.matches?.length
+        ? `${target.match.matches[0].hits} of ${target.match.matches[0].of} ISINs match`
+        : "";
+      const showMatches = !target.targetId && !!target.match?.matches?.length;
+      const createSelected = !target.targetId
+        && (!target.match?.tie || target.createChoice);
+      const choose = showMatches
+        ? target.match.matches.map((match) => `<button type="button" class="import-account-choice"
+            onclick="bpImportChoose(${jsArg(`${bundle.key}:${target.boId}`)}, ${jsArg(match.id)})">
+            <span class="import-choice-main"><span class="import-choice-name">${esc(match.label)}
+              ${match.identityKind ? `<span class="import-pill good">${esc(match.identityKind)}</span>` : ""}</span>
+            <span class="import-choice-meta">${match.identityKind ? `${match.identityKind} match` : "ISIN overlap"}
+              · ${target.rows.length} holding${target.rows.length === 1 ? "" : "s"} in the statement</span></span>
+            <span class="import-choice-hits">${match.hits} of ${match.of}</span></button>`).join("")
+          + `<button type="button" class="import-account-choice${createSelected ? " on" : ""}"
+            onclick="bpImportChoose(${jsArg(`${bundle.key}:${target.boId}`)}, '__create__')">
+            <span class="import-choice-main"><span class="import-choice-name">Create a new
+              ${target.folio ? "mutual fund folio" : "demat"} account${target.boId && !target.folio
+                ? ` · …${esc(target.boId.slice(-4))}` : ""}</span>
+            <span class="import-choice-meta">The statement's account number is not on file
+              · ${target.rows.length} holding${target.rows.length === 1 ? "" : "s"}</span></span>
+            <span class="import-choice-hits">New</span></button>`
+        : "";
+      if (showMatches) return choose;
+      return `<div class="import-account-choice">
+        <span class="import-choice-main">
+          <span class="import-choice-name">${esc(target.folio
+            ? target.dpName : shortDp(target.dpName || "Demat"))}${target.boId && !target.folio
+            ? ` · …${esc(target.boId.slice(-4))}` : ""}</span>
+          <span class="import-choice-meta">${esc(status)}${matchLine ? ` · ${matchLine}` : ""}
+            ${target.plan?.identityOnly ? " · older than the data on file; identity only" : ""}</span>
+        </span>
+        <span class="import-choice-hits">${target.rows.length} holding${target.rows.length === 1 ? "" : "s"}</span>
+      </div>`;
+    }).join("")}</div>
+    <div class="muted import-note">The account number in the statement decides where its holdings
+      go. A new number creates a new account.</div>
+  </div>`;
+}
+
+function bpImportFieldLabel(field) {
+  return ({ quantity: "quantity", value: "value", cost: "cost", purchase: "purchase date",
+    couponPct: "coupon", frequency: "frequency", facePaise: "face value",
+    maturity: "maturity", label: "label", yieldPct: "yield",
+    interestDate: "next interest date", payoutPaise: "payout",
+    futureInterestPaise: "future interest", futurePrincipalPaise: "future principal",
+    valueSource: "value source" })[field] || field;
+}
+
+function bpImportAskLines(bundle) {
+  const decisions = bundle.family === "cas"
+    ? (bundle.casTargets || []).flatMap((target) => target.plan?.decisions || [])
+    : (bundle.plan?.decisions || []);
+  return decisions.filter((decision) => decision.action === "ask").slice(0, 5).map((decision) => {
+    const changes = (decision.changes || []).map((change) =>
+      `${bpImportFieldLabel(change.field)} ${change.from ?? "empty"} → ${change.to ?? "empty"}`)
+      .join(", ");
+    return `${decision.label || decision.isin}: ${changes}`;
+  });
+}
+
+function bpImportPlanItems(bundle) {  const summary = bundle.plan?.summary || {};
+  const change = [];
+  if (summary.added) change.push(`Add ${summary.added} holding${summary.added === 1 ? "" : "s"}`);
+  if (summary.updated) change.push(`Update ${summary.updated} holding${summary.updated === 1 ? "" : "s"}`);
+  if (summary.history) change.push(`Move ${summary.history} matured bond${summary.history === 1 ? "" : "s"} to history`);
+  const identityChanging = bundle.family === "cas"
+    ? (bundle.casTargets || []).some((target) =>
+      target.targetId && (target.plan?.identityChange || target.plan?.identityOnly))
+    : !!bundle.plan?.identityChange;
+  if (identityChanging) change.push(bundle.family === "cas"
+    ? "Attach the CAS identity" : "Attach the account identity");
+  if (!change.length) change.push("Nothing to change");
+  const still = [
+    "Nothing is written until you press Import",
+    "Other accounts with overlapping ISINs are untouched",
+    bundle.plan?.identityOnly
+      ? "Newer quantities, cost and dates stay; only empty fields fill from this older statement"
+      : "Quantity and value come from the newest dated snapshot",
+  ];
+  const stillMore = ["Cost you entered by hand is kept unless you confirm"];
+  if (summary.flagged) stillMore.push(`${summary.flagged} row${summary.flagged === 1 ? "" : "s"} absent from the newer report stay and are flagged`);
+  if (summary.skipped) stillMore.push(`${summary.skipped} row${summary.skipped === 1 ? "" : "s"} from an older snapshot are not added`);
+  if (bundle.family === "cas") stillMore.push("A broker's cost and purchase date are not replaced by the statement");
+  return { change, still, stillMore };
+}
+
+function bpImportBundleHtml(bundle) {
+  const state = bpImportInboxState();
+  const summary = bundle.plan?.summary || {};
+  const changes = bpImportPlanItems(bundle);
+  const files = bundle.files.map((file) => {
+    const info = INBOX_KINDS[file.kind] || {};
+    const optional = bundle.optional.includes(file);
+    const adds = optional ? (bundle.adds || []).find((item) => item.kind === file.kind)?.adds || "" : "";
+    return `<div class="import-file">
+      <span class="import-file-name">${esc(file.name || info.label || file.kind)}</span>
+      <span class="import-file-meta">${esc(info.label || file.kind)}${file.asOf
+        ? ` · ${esc(dateLabel(file.asOf))}` : ""}${adds ? ` · ${esc(adds)}` : ""}</span>
+    </div>`;
+  }).join("");
+  const pill = !bundle.ready
+    ? `<span class="import-pill warn">${bundle.needsChoice ? "Choose an account" : "Check the file"}</span>`
+    : summary.ask && !bundle.acceptAsk
+      ? `<span class="import-pill warn">Review the differences</span>`
+      : `<span class="import-pill good">Ready</span>`;
+  const title = bpImportBundleLabel(bundle);
+  const where = bundle.family === "cas" ? bpImportCasAccountsHtml(bundle) : bpImportMatchHtml(bundle);
+  const countText = bpImportCategoryText(bundle.rows);
+  const sub = [countText, bundle.asOf ? `as on ${dateLabel(bundle.asOf)}` : "No date on the file",
+    `${bundle.files.length} file${bundle.files.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  const askLines = bpImportAskLines(bundle);
+  const ask = summary.ask && !bundle.acceptAsk
+    ? `<div class="import-wrong"><b>${summary.ask} difference${summary.ask === 1 ? "" : "s"}
+        need${summary.ask === 1 ? "s" : ""} your decision.</b>
+      <div class="muted">The report and the data on file carry the same date, or the difference
+        would replace a cost you entered by hand. Choose what to keep.</div>
+      ${askLines.length ? `<ul class="muted import-ask-list">${askLines
+        .map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
+      <div class="import-actions">
+        <button class="btn" onclick="bpImportAccept(${jsArg(bundle.key)})">Use the file's values</button>
+      </div></div>` : "";
+  const warning = (bundle.plan?.warnings || []).length
+    ? `<div class="muted import-note">${esc(bundle.plan.warnings.join(" "))}</div>` : "";
+  const planned = summary.added + summary.updated + summary.history;
+  const primary = bundle.family === "cas"
+    ? (bundle.plan?.identityOnly
+      ? "Attach identity and fill empty values"
+      : planned ? `Import ${planned} holdings` : "Attach identity")
+    : `${bundle.create && !bundle.targetId ? "Create account and import " : "Import "}${
+      planned} ${bundle.family === "zerodha" ? "equities" : "holdings"}`;
+  return `<div class="card pad import-bundle" data-bundle="${esc(bundle.key)}">
+    <div class="import-bundle-head">
+      <div><div class="import-kicker">${bundle.family === "cas"
+        ? "Depository statement" : "Broker holdings report"}</div>
+        <div class="import-title">${esc(title)}</div>
+        <div class="import-sub">${esc(sub)}</div></div>
+      ${pill}
+    </div>
+    <div class="import-files">${files}</div>
+    ${where}
+    <div class="import-change-grid">
+      <div class="import-change"><b>What will change</b><ul>${changes.change.map((item) =>
+        `<li>${esc(item)}</li>`).join("")}</ul></div>
+      <div class="import-change"><b>What will not change</b><ul>${changes.still.map((item) =>
+        `<li>${esc(item)}</li>`).join("")}</ul>
+        ${changes.stillMore?.length ? `<details class="import-change-more">
+          <summary>More</summary><ul>${changes.stillMore.map((item) =>
+            `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}</div>
+    </div>
+    ${ask}
+    ${warning}
+    <div class="import-actions">
+      <button class="btn primary" ${bundle.ready && !state.applying ? "" : "disabled"}
+        onclick="bpImportApplyBundle(${jsArg(bundle.key)})">${esc(primary)}</button>
+      <button class="btn" onclick="bpImportReview(${jsArg(bundle.key)})">Review differences</button>
+      <button class="btn ghost" onclick="bpImportDropBundle(${jsArg(bundle.key)})">Remove</button>
+    </div>
+  </div>`;
+}
+
+function bpImportInboxRender() {
+  const host = document.getElementById("import-inbox-host");
+  if (!host) return;
+  const state = bpImportInboxState();
+  bpImportAccountsRender();
+  const loose = state.entries.filter((entry) => !entry.bundleKey && entry.status !== "ready");
+  const looseHtml = loose.map((entry) => {
+    const error = bpImportInboxEntryError(entry);
+    const isError = entry.status === "error" || (entry.error && entry.status !== "bank");
+    return `<div class="${isError ? "import-wrong" : "import-section"}">
+      <b>${esc(entry.name)}</b>
+      <div class="muted">${esc(error || "Reading this file…")}</div>
+      <div class="import-actions">
+        ${entry.kind === "bank" ? "" : `<button class="btn ghost"
+          onclick="bpImportDropEntry(${jsArg(entry.id)})">Remove</button>`}
+        ${isError ? `<button class="btn" onclick="bpImportOpenTypes()">Choose by file type</button>` : ""}
+      </div></div>`;
+  }).join("");
+  const bundles = state.bundles || [];
+  const allReady = bundles.length > 0 && bundles.every((bundle) => bundle.ready);
+  const totalFiles = bundles.reduce((total, bundle) => total + bundle.files.length, 0);
+  const batch = bundles.length ? `<div class="import-batch">
+    <div class="import-batch-copy"><b>${totalFiles} file${totalFiles === 1 ? "" : "s"} ·
+      ${bundles.length} account set${bundles.length === 1 ? "" : "s"}</b>
+      <span class="muted">Selection order does not matter. Each set is matched by its contents.
+        ${allReady ? "" : "Choose an account or review the differences before importing all."}</span></div>
+    <div class="import-batch-actions">
+      <button class="btn" onclick="bpImportReviewAll()">Review differences</button>
+      <button class="btn primary" ${allReady && !state.applying ? "" : "disabled"}
+        onclick="bpImportApplyAll()">Import all</button>
+    </div></div>` : "";
+  host.innerHTML = `${looseHtml}${batch}${bundles.map(bpImportBundleHtml).join("")}`;
+}
+
+function bpImportInboxEntryDescriptor(entry) {
+  return {
+    kind: entry.kind, name: entry.name, asOf: entry.asOf,
+    accountKey: entry.accountKey, accountKind: entry.accountKind,
+    rows: entry.rows, firstBuyByIsin: entry.firstBuyByIsin,
+    termsByIsin: entry.termsByIsin, termsByLabel: entry.termsByLabel,
+    parsed: entry.parsed, accounts: entry.casAccounts, file: entry.file,
+    entryId: entry.id,
+  };
+}
+
+async function bpImportInboxReadOne(entry) {
+  const state = bpImportInboxState();
+  entry.status = "reading";
+  entry.error = "";
+  bpImportInboxStatus(`Reading ${entry.name}…`);
+  const ext = (String(entry.name).match(/\.([^.]+)$/) || [, ""])[1].toLowerCase();
+  try {
+    let detected = { kind: "unknown", family: "", broker: "", label: "", confidence: "none" };
+    if (ext === "pdf") {
+      const { extractPdf } = await import("./pdf-statement.js");
+      const pdf = await extractPdf(new Uint8Array(await entry.file.arrayBuffer()), {
+        onPassword: (attempt) => bpImportInboxPassword(entry, attempt?.wrong),
+      });
+      entry.pdf = pdf;
+      const body = (pdf.pages || []).flatMap((page) => page.items || [])
+        .map((item) => item.str).join(" ");
+      detected = detectImportFile({ name: entry.name, text: body });
+      if (detected.kind === "motilal") {
+        const { parseMotilalPages } = await import("./motilal.js");
+        const parsed = parseMotilalPages(pdf.pages);
+        if (parsed.error) throw new Error(parsed.error);
+        entry.parsed = parsed;
+        entry.kind = "motilal";
+        entry.broker = "motilal";
+        entry.asOf = parsed.asOf;
+        entry.accountKey = parsed.clientUcid || "";
+        entry.accountKind = parsed.clientUcid ? "ucid" : "";
+        entry.rows = parsed.rows.map((row) => ({
+          isin: row.isin,
+          label: row.label || row.isin,
+          category: row.section === "mf" ? "mf" : row.section,
+          quantity: row.quantity,
+          valuePaise: null,
+          costPaise: row.cost_paise,
+          purchaseDate: row.purchase_date,
+          couponPct: row.coupon_pct,
+          frequency: row.frequency,
+          maturity: row.maturity_date,
+          facePaise: row.face_paise,
+          sourceRow: row.source_row,
+        }));
+      } else if (detected.kind === "cas") {
+        const { parseCas } = await import("./cas.js");
+        const parsed = parseCas(pdf);
+        if (!parsed.holdings.length) {
+          throw new Error("No holdings could be read from this PDF. It may have no text layer.");
+        }
+        entry.parsed = parsed;
+        entry.kind = "cas";
+        entry.broker = "";
+        entry.asOf = parsed.asOf;
+        const accounts = parsed.accounts || [];
+        entry.casAccounts = (accounts.length ? accounts : [{ boId: parsed.demat || "",
+          dpName: "", holdings: parsed.holdings }]).map((account) => ({
+          boId: account.boId || parsed.demat || "",
+          dpName: account.dpName || "",
+          rows: (account.holdings || []).map((holding) => bpImportCasRow(holding)),
+        }));
+        entry.accountKey = (accounts.map((account) => account.boId).filter(Boolean).sort()[0]
+          || parsed.demat || "");
+        entry.accountKind = "bo";
+        entry.rows = (parsed.holdings || []).map((holding) => bpImportCasRow(holding));
+      } else if (detected.kind === "bank") {
+        entry.kind = "bank";
+        entry.status = "bank";
+        window.bpImportAdd?.([entry.file]);
+        bpImportInboxStatus("Bank statement sent to the bank import below.");
+        return;
+      } else {
+        throw new Error("This PDF is not a CAS or a broker holdings report. Nothing was read.");
+      }
+    } else if (ext === "csv" || ext === "txt") {
+      const body = await entry.file.text();
+      detected = detectImportFile({ name: entry.name, text: body });
+      if (detected.kind === "digifinn-portfolio") {
+        const parsed = parsePortfolioReport(body, entry.name);
+        if (!parsed) throw new Error("That is not the DigiFInn holdings report.");
+        entry.parsed = parsed;
+        entry.kind = detected.kind;
+        entry.broker = "digifinn";
+        entry.asOf = parsed.asOf;
+        entry.accountKey = parsed.demat || "";
+        entry.accountKind = parsed.demat ? "bo" : "";
+        entry.rows = parsed.rows.map((row) => ({
+          isin: row.isin, label: row.label || row.isin, category: "bond",
+          quantity: row.quantity, valuePaise: null, costPaise: row.cost_paise,
+          purchaseDate: row.purchase_date, sourceRow: row.source_row,
+        }));
+      } else if (detected.kind === "digifinn-investment") {
+        const parsed = parseInvestmentReport(body, entry.name);
+        if (!parsed) throw new Error("That is not the DigiFInn investment report.");
+        entry.parsed = parsed;
+        entry.kind = detected.kind;
+        entry.broker = "digifinn";
+        entry.termsByLabel = parsed.rows.map((row) => ({
+          label: row.label, couponPct: row.coupon_pct, maturity: row.maturity,
+          issuer: row.issuer, yieldPct: row.yield_pct, purchaseDate: row.purchase_date,
+        }));
+      } else if (detected.kind === "digifinn-transactions") {
+        const parsed = parseTransactionReport(body, entry.name);
+        if (!parsed) throw new Error("That is not the DigiFInn transactions report.");
+        entry.parsed = parsed;
+        entry.kind = detected.kind;
+        entry.broker = "digifinn";
+        entry.firstBuyByIsin = {};
+        for (const row of parsed.rows) {
+          if (!/buy/i.test(row.type) || !row.date) continue;
+          if (!entry.firstBuyByIsin[row.isin] || row.date < entry.firstBuyByIsin[row.isin]) {
+            entry.firstBuyByIsin[row.isin] = row.date;
+          }
+        }
+      } else if (detected.kind === "digifinn-payouts") {
+        const parsed = parsePayoutReport(body, entry.name);
+        if (!parsed) throw new Error("That is not the DigiFInn payouts report.");
+        entry.parsed = parsed;
+        entry.kind = detected.kind;
+        entry.broker = "digifinn";
+        entry.termsByIsin = (parsed.groups || []).map((group) => ({
+          isin: group.isin, frequency: group.frequency, interestDate: group.interest_date,
+          payoutPaise: group.amount_paise,
+        }));
+      } else if (detected.kind === "digifinn-cashflow") {
+        const parsed = parseCashflowReport(body, entry.name);
+        if (!parsed) throw new Error("That is not the DigiFInn cashflow report.");
+        entry.parsed = parsed;
+        entry.kind = detected.kind;
+        entry.broker = "digifinn";
+        entry.termsByIsin = (parsed.groups || []).map((group) => ({
+          isin: group.isin, frequency: group.frequency, interestDate: group.interest_date,
+          payoutPaise: group.amount_paise, futureInterestPaise: group.future_interest_paise,
+          futurePrincipalPaise: group.future_principal_paise,
+          yieldPct: group.yield_pct, investmentPaise: group.investment_paise,
+          investmentDate: group.investment_date,
+        }));
+      } else if (detected.kind === "zerodha-tradebook") {
+        const parsed = parseTradebook(body);
+        if (parsed.error) throw new Error(parsed.error);
+        entry.parsed = parsed;
+        entry.kind = detected.kind;
+        entry.broker = "zerodha";
+        entry.firstBuyByIsin = parsed.firstBuyByIsin;
+        entry.firstBuyBySymbol = parsed.firstBuyBySymbol;
+      } else if (detected.kind === "bank") {
+        entry.kind = "bank";
+        entry.status = "bank";
+        window.bpImportAdd?.([entry.file]);
+        bpImportInboxStatus("Bank statement sent to the bank import below.");
+        return;
+      } else {
+        throw new Error("This file is not a CAS, broker holdings report or bank statement. "
+          + "Nothing was read.");
+      }
+    } else if (ext === "xlsx" || ext === "xls" || ext === "xlsm") {
+      const wb = XLSX.read(await entry.file.arrayBuffer(), { type: "array" });
+      const sheets = wb.SheetNames.map((name) => sheetRows(wb.Sheets[name], true));
+      for (const sheet of sheets) {
+        const found = detectImportFile({ matrix: sheet });
+        if (found.kind !== "unknown") { detected = found; break; }
+      }
+      if (detected.kind !== "zerodha-holdings") {
+        throw new Error("This spreadsheet is not a Zerodha holdings export. Nothing was read.");
+      }
+      const parsed = parseZerodhaHoldingsSheets(sheets);
+      if (parsed.error) throw new Error(parsed.error);
+      entry.parsed = parsed;
+      entry.kind = "zerodha-holdings";
+      entry.broker = "zerodha";
+      entry.asOf = parsed.asOf;
+      entry.accountKey = parsed.clientId || "";
+      entry.accountKind = parsed.clientId ? "client" : "";
+      entry.rows = parsed.rows.map((row) => ({
+        isin: row.isin, label: row.symbol || row.isin, category: "equity",
+        quantity: row.quantity,
+        valuePaise: null,
+        costPaise: Math.round(row.averagePrice * row.quantity * 100),
+        purchaseDate: "", sourceRow: 0,
+      }));
+    } else {
+      throw new Error("This file type is not supported. Choose a PDF, CSV or XLSX.");
+    }
+    entry.status = "ready";
+    entry.kind = entry.kind || detected.kind;
+    entry.detected = detected;
+  } catch (e) {
+    const cancelled = e?.cancelled || /cancelled|canceled/i.test(String(e?.message || ""));
+    entry.error = cancelled
+      ? "No password entered. Nothing was read."
+      : (String(e?.message || e) || "The file could not be read.");
+    entry.status = cancelled ? "queued" : "error";
+  }
+}
+
+function bpImportCasRow(holding) {
+  return {
+    isin: holding.isin,
+    label: casHoldingLabel(holding),
+    category: holding.kind,
+    quantity: holding.quantity,
+    valuePaise: holding.valuePaise,
+    costPaise: holding.costPaise ?? null,
+    purchaseDate: "",
+    couponPct: holding.couponPct,
+    frequency: holding.frequency,
+    maturity: holding.maturity,
+    facePaise: holding.faceValuePaise,
+    account: holding.account || "",
+    folio: holding.folio || "",
+    amc: holding.amc || "",
+    sourceRow: 0,
+  };
+}
+
+function bpImportInboxPassword(entry, wrong) {
+  return new Promise((resolve, reject) => {
+    const host = document.getElementById("import-inbox-gate");
+    if (!host) { reject({ cancelled: true }); return; }
+    host.innerHTML = `<div class="import-password">
+      <b>${wrong ? "That password did not open the PDF" : "This PDF is password protected"}</b>
+      <p class="muted">Type the PDF password for <b>${esc(entry.name)}</b>. It is usually your
+      PAN in capitals. It is not your BankPipe passphrase and it is not saved.</p>
+      <input id="import-inbox-pw" type="password" autocomplete="off" spellcheck="false"
+        placeholder="PDF password">
+      <div class="import-actions">
+        <button class="btn primary" id="import-inbox-pw-go">Unlock</button>
+        <button class="btn" id="import-inbox-pw-cancel">Cancel</button>
+      </div>
+      <div id="import-inbox-pw-msg" class="muted"></div>
+    </div>`;
+    const input = document.getElementById("import-inbox-pw");
+    const submit = () => {
+      const value = String(input?.value || "").trim();
+      if (!value) {
+        const msg = document.getElementById("import-inbox-pw-msg");
+        if (msg) msg.textContent = "Enter the password, or Cancel.";
+        input?.focus();
+        return;
+      }
+      host.innerHTML = "";
+      resolve(value);
+    };
+    input.onkeydown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        host.innerHTML = "";
+        reject({ cancelled: true });
+        return;
+      }
+      if (event.key === "Enter") { event.preventDefault(); submit(); }
+    };
+    document.getElementById("import-inbox-pw-go").onclick = submit;
+    document.getElementById("import-inbox-pw-cancel").onclick = () => {
+      host.innerHTML = "";
+      reject({ cancelled: true });
+    };
+    setTimeout(() => input?.focus(), 0);
+  });
+}
+
+window.bpImportInboxAdd = async (files) => {
+  const state = bpImportInboxState();
+  const list = [...(files || [])];
+  if (!list.length) return;
+  for (const file of list) {
+    state.entries.push({
+      id: `inbox-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      file, name: file.name, size: file.size, status: "queued", kind: "",
+      broker: "", asOf: "", accountKey: "", accountKind: "", rows: [],
+      firstBuyByIsin: {}, termsByIsin: [], termsByLabel: [], error: "",
+    });
+  }
+  bpImportInboxRender();
+  for (const entry of state.entries.filter((item) => item.status === "queued")) {
+    await bpImportInboxReadOne(entry);
+    bpImportInboxRender();
+  }
+  await bpImportInboxPrepare(true);
+  const ready = state.bundles.filter((bundle) => bundle.ready).length;
+  if (ready) bpImportInboxStatus(`${ready} account set${ready === 1 ? "" : "s"} ready. Nothing is saved until you confirm.`);
+  else bpImportInboxStatus("No account set is ready yet. Check the file messages above.", "bad");
+};
+
+window.bpImportChoose = async (key, accountId) => {
+  const state = bpImportInboxState();
+  const choiceKey = String(key);
+  const bundle = state.bundles.find((item) =>
+    choiceKey === item.key || choiceKey.startsWith(`${item.key}:`));
+  if (!bundle) return;
+  state.choices[choiceKey] = accountId;
+  state.creates[bundle.key] = false;
+  await bpImportInboxPrepare();
+};
+
+window.bpImportCreate = async (key) => {
+  const state = bpImportInboxState();
+  const bundle = state.bundles.find((item) => item.key === key);
+  if (!bundle) return;
+  state.creates[key] = true;
+  state.choices[key] = "";
+  await bpImportInboxPrepare();
+};
+
+window.bpImportAccept = async (key) => {
+  const state = bpImportInboxState();
+  state.acceptAsk[key] = true;
+  await bpImportInboxPrepare();
+};
+
+window.bpImportDropEntry = (id) => {
+  const state = bpImportInboxState();
+  state.entries = state.entries.filter((entry) => entry.id !== id);
+  bpImportInboxPrepare();
+};
+
+window.bpImportDropBundle = (key) => {
+  const state = bpImportInboxState();
+  const bundle = state.bundles.find((item) => item.key === key);
+  const ids = new Set((bundle?.files || []).map((file) => file.entryId));
+  state.entries = state.entries.filter((entry) => !ids.has(entry.id));
+  delete state.choices[key];
+  delete state.creates[key];
+  delete state.acceptAsk[key];
+  bpImportInboxPrepare();
+};
+
+function bpImportScrollBehavior() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
+window.bpImportOpenTypes = () => {
+  const card = document.getElementById("import-by-type");
+  if (!card) return;
+  card.open = true;
+  card.scrollIntoView({ block: "start", behavior: bpImportScrollBehavior() });
+};
+
+window.bpImportReview = (key) => {
+  const card = document.querySelector(`[data-bundle="${CSS.escape(String(key))}"]`);
+  const target = card?.querySelector(".import-change-grid");
+  if (target) {
+    target.scrollIntoView({ block: "center", behavior: bpImportScrollBehavior() });
+    target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+  }
+};
+
+window.bpImportReviewAll = () => {
+  const state = bpImportInboxState();
+  const first = state.bundles.find((bundle) => bundle.ready) || state.bundles[0];
+  if (first) window.bpImportReview(first.key);
+};
+
+function bpImportHoldingRow(next, bundle, manual) {
+  const category = next.category || "bond";
+  const cost = next.costPaise ?? (manual?.cost_paise ?? null);
+  const purchase = next.purchaseDate || manual?.purchase_date || "";
+  return {
+    security_id: next.isin || next.security_id || "",
+    label: next.label || "",
+    issuer: next.issuer || "",
+    category,
+    rating: next.rating || "",
+    frequency: next.frequency || "",
+    yield_bps: next.yieldPct !== null && next.yieldPct !== undefined
+      ? Math.round(Number(next.yieldPct) * 100) : (next.yield_bps ?? null),
+    payout_paise: next.payoutPaise ?? next.payout_paise ?? null,
+    quantity: next.quantity ?? null,
+    cost_paise: cost,
+    value_paise: next.valuePaise ?? next.value_paise ?? null,
+    face_paise: next.facePaise ?? next.face_paise ?? null,
+    purchase_date: purchase,
+    interest_date: next.interestDate || next.interest_date || "",
+    future_interest_paise: next.futureInterestPaise ?? next.future_interest_paise ?? null,
+    future_principal_paise: next.futurePrincipalPaise ?? next.future_principal_paise ?? null,
+    principal_dates: next.principal_dates || "",
+    redemption_dates: next.redemption_dates || "",
+    value_source: next.valueSource || next.value_source
+      || (bundle.family === "cas" ? "CAS" : bpImportBundleLabel(bundle)),
+    returned_paise: next.returned_paise ?? null,
+    returned_at: next.returned_at || "",
+    returned_record_date: next.returned_record_date || "",
+    returned_source: next.returned_source || "",
+    source_row: next.sourceRow || next.source_row || 0,
+    as_of: next.asOf || bundle.asOf || "",
+    rating_at_purchase: next.rating_at_purchase || "",
+  };
+}
+
+function bpImportRowsFromPlan(holdings, plan, bundle, acceptAsk) {
+  const decisions = new Map(plan.decisions.map((decision) =>
+    [String(decision.isin || "").toUpperCase(), decision]));
+  const manual = new Map((holdings || []).filter((holding) => holding.source === "manual"
+    && holding.security_id).map((holding) =>
+    [String(holding.security_id).toUpperCase(), holding]));
+  const out = [];
+  const seen = new Set();
+  const push = (row) => {
+    const key = [row.security_id, row.label, row.quantity, row.purchase_date, row.as_of].join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(row);
+  };
+  for (const holding of holdings || []) {
+    if (holding.source === "manual") continue;
+    const key = String(holding.security_id || "").toUpperCase();
+    const decision = decisions.get(key);
+    if (!decision || decision.action === "keep" || decision.action === "skip"
+      || decision.action === "manual") {
+      push(holding);
+      continue;
+    }
+    if (decision.action === "ask" && !acceptAsk) { push(holding); continue; }
+    push(bpImportHoldingRow(decision.next, bundle, manual.get(key)));
+  }
+  for (const decision of plan.decisions) {
+    if (decision.action === "add") {
+      push(bpImportHoldingRow(decision.next, bundle,
+        manual.get(String(decision.isin || "").toUpperCase())));
+    }
+    if (decision.action === "history" && !decision.existing) {
+      push(bpImportHoldingRow(decision.next, bundle,
+        manual.get(String(decision.isin || "").toUpperCase())));
+    }
+  }
+  return out;
+}
+
+async function bpImportUpdateAccountMeta(accountId, bundle, plan, account) {
+  const store = await import("./db.js");
+  const fresh = (await store.listAccounts()).find((item) => item.id === accountId) || account;
+  if (!fresh) return;
+  const meta = { ...metaOf(fresh) };
+  const hadCas = meta.identity_source === "cas" || meta.holdings_source === "cas";
+  const cas = bundle.family === "cas";
+  if (cas) {
+    meta.identity_source = "cas";
+    meta.identity_as_of = plan?.incomingAsOf || bundle.asOf || meta.identity_as_of || "";
+    meta.holdings_source = "cas";
+    meta.holdings_as_of = bundle.asOf || meta.holdings_as_of || "";
+    meta.broker_only = "0";
+    if (bundle.base?.parsed?.depository) meta.depository = bundle.base.parsed.depository;
+  } else {
+    const day = bundle.asOf || "";
+    const snapshotChanged = (plan?.summary?.added || 0) > 0
+      || (plan?.summary?.history || 0) > 0
+      || (plan?.decisions || []).some((decision) =>
+        (decision.changes || []).some((change) => change.group === "snapshot"));
+    const costChanged = (plan?.decisions || []).some((decision) =>
+      (decision.changes || []).some((change) => change.group === "cost"));
+    if (snapshotChanged || !meta.holdings_as_of) {
+      meta.snapshot_source = bundle.family;
+      meta.snapshot_as_of = day || meta.snapshot_as_of || "";
+      meta.holdings_source = bundle.family;
+      meta.holdings_as_of = day || meta.holdings_as_of || "";
+    }
+    meta.broker_source = bundle.broker;
+    if (costChanged || !meta.cost_as_of) {
+      meta.cost_source = bpImportBundleLabel(bundle);
+      meta.cost_as_of = day || meta.cost_as_of || "";
+    }
+    if (day && (!meta.broker_as_of || meta.broker_as_of < day)) meta.broker_as_of = day;
+    if (bundle.family === "motilal" && bundle.accountKey) meta.ucid = bundle.accountKey;
+    if (bundle.family === "zerodha" && bundle.accountKey) meta.client_id = bundle.accountKey;
+    if (bundle.family === "digifinn" && bundle.accountKey) meta.demat = bundle.accountKey;
+    if (hadCas) {
+      // A depository statement owns the identity. A later broker report adds
+      // cost and terms; it never turns a CAS account back into broker-only.
+      meta.identity_source = "cas";
+      meta.broker_only = "0";
+    } else {
+      if (plan?.identityChange) {
+        if (meta.identity_source !== "cas") {
+          meta.identity_source = bundle.family;
+          meta.identity_as_of = day || meta.identity_as_of || "";
+        }
+      }
+      if (meta.identity_source !== "cas") meta.broker_only = "1";
+    }
+  }
+  const patch = { meta: JSON.stringify(meta) };
+  if (!String(fresh.number || "").trim() && (cas || bundle.family === "digifinn")) {
+    patch.number = bundle.accountKey || "";
+  }
+  if (!String(fresh.holder || "").trim() && cas && bundle.base?.parsed?.holder) {
+    patch.holder = bundle.base.parsed.holder;
+  }
+  await store.updateAccount(accountId, patch);
+}
+
+async function bpImportCreateBrokerAccount(bundle) {
+  const store = await import("./db.js");
+  const accounts = await store.listAccounts();
+  const base = `${bundle.family}-${String(bundle.accountKey || "account")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-")}`.slice(0, 40);
+  let id = base;
+  let n = 2;
+  while (accounts.some((account) => account.id === id)) id = `${base}-${n++}`;
+  const label = bundle.createLabel || bpImportBrokerOnlyLabel(bundle);
+  const number = bundle.family === "digifinn" ? (bundle.accountKey || "") : "";
+  const meta = {
+    broker_only: "1",
+    broker_source: bundle.broker,
+    identity_source: bundle.family,
+    identity_as_of: bundle.asOf || "",
+    depository: bundle.family === "digifinn" ? "CDSL" : "",
+    dp: bundle.family === "motilal" ? "Motilal Oswal"
+      : bundle.family === "zerodha" ? "Zerodha" : "DigiFInn",
+  };
+  if (bundle.family === "motilal" && bundle.accountKey) meta.ucid = bundle.accountKey;
+  if (bundle.family === "zerodha" && bundle.accountKey) meta.client_id = bundle.accountKey;
+  if (bundle.family === "digifinn" && bundle.accountKey) meta.demat = bundle.accountKey;
+  await store.createAccount({
+    id, label, bank: bpImportBrokerName(bundle.family), category: "demat",
+    subtype: "equity", type: "equity", number, holder: "",
+    meta: JSON.stringify(meta),
+  });
+  return id;
+}
+
+async function bpImportApplyBroker(bundle, opts = {}) {
+  const store = await import("./db.js");
+  let targetId = bundle.targetId || "";
+  if (!targetId) targetId = await bpImportCreateBrokerAccount(bundle);
+  const account = (await store.listAccounts()).find((item) => item.id === targetId);
+  if (!account) throw new Error("That account is no longer here.");
+  const holdings = await store.listHoldings(targetId);
+  const identity = bundle.accountKey
+    ? { kind: bundle.accountKind || "bo", value: bundle.accountKey } : null;
+  const plan = bpImportPlanFor(bundle, { account, holdings }, bundle.rows, identity);
+  if (plan.blocking) {
+    bpImportInboxStatus("The file's date needs checking before it can be imported.", "bad");
+    return { ok: false };
+  }
+  if (plan.summary.ask && !bundle.acceptAsk) {
+    bpImportInboxStatus("Review the differences and choose what to keep first.", "bad");
+    return { ok: false };
+  }
+  const total = plan.summary.added + plan.summary.updated + plan.summary.history;
+  const meta = metaOf(account);
+  const aliasMissing = !!bundle.accountKey && (
+    bundle.family === "motilal" ? String(meta.ucid || "") !== bundle.accountKey
+      : bundle.family === "zerodha" ? String(meta.client_id || "") !== bundle.accountKey
+        : bundle.family === "digifinn" ? String(meta.demat || "") !== bundle.accountKey
+          : false);
+  if (!total && !plan.identityChange && !aliasMissing) {
+    bpImportInboxStatus("Nothing to change: every fact in this file is already on the account.");
+    return { ok: false };
+  }
+  try { await store.snapshotDb("Before broker import"); } catch (e) {}
+  const rows = bpImportRowsFromPlan(holdings, plan, bundle, bundle.acceptAsk);
+  await store.replaceHoldings(targetId, rows, bundle.asOf || "");
+  await bpImportUpdateAccountMeta(targetId, bundle, plan, account);
+  return { ok: true, accountId: targetId, total,
+    added: plan.summary.added, updated: plan.summary.updated, history: plan.summary.history,
+    filled: 0, accounts: 1,
+    label: account.label || bpImportBrokerOnlyLabel(bundle) };
+}
+
+async function bpImportApplyCas(bundle, opts = {}) {
+  const store = await import("./db.js");
+  const targets = bundle.casTargets || [];
+  if (!targets.length) {
+    bpImportInboxStatus("No demat account was read from this statement.", "bad");
+    return { ok: false };
+  }
+  if (targets.some((target) => target.plan?.blocking)) {
+    bpImportInboxStatus("The statement's date needs checking before it can be imported.", "bad");
+    return { ok: false };
+  }
+  if (targets.some((target) => target.plan?.summary.ask) && !bundle.acceptAsk) {
+    bpImportInboxStatus("Review the differences and choose what to keep first.", "bad");
+    return { ok: false };
+  }
+  const identityOnly = [];
+  const importTargets = [];
+  for (const target of targets) {
+    if (target.plan?.identityOnly && target.targetId) identityOnly.push(target);
+    else importTargets.push(target);
+  }
+  for (const target of targets) {
+    if (!target.targetId) continue;
+    const account = (await store.listAccounts()).find((item) => item.id === target.targetId);
+    if (!account) continue;
+    const meta = { ...metaOf(account) };
+    meta.identity_source = "cas";
+    meta.identity_as_of = bundle.asOf || target.plan?.incomingAsOf || meta.identity_as_of || "";
+    meta.broker_only = "0";
+    if (bundle.base?.parsed?.depository) meta.depository = bundle.base.parsed.depository;
+    if (target.dpName) meta.dp = target.dpName;
+    const patch = { meta: JSON.stringify(meta) };
+    if (!String(account.number || "").trim() && target.boId && !target.boId.startsWith("mf:")) {
+      patch.number = target.boId;
+    }
+    if (target.dpName && /^Demat · /.test(String(account.label || ""))) {
+      patch.label = `Demat · ${shortDp(target.dpName)} · …${target.boId.slice(-4)}`;
+    }
+    await store.updateAccount(target.targetId, patch);
+  }
+  // An older CAS still fills fields the newer broker report left empty. It does
+  // not touch quantity, cost or dates, because those already have a newer source.
+  let filled = 0;
+  let history = 0;
+  for (const target of identityOnly) {
+    if (!target.targetId || (!target.plan?.summary.updated && !target.plan?.summary.history)) continue;
+    const account = (await store.listAccounts()).find((item) => item.id === target.targetId);
+    if (!account) continue;
+    const holdings = await store.listHoldings(target.targetId);
+    const merged = bpImportRowsFromPlan(holdings, target.plan, bundle, bundle.acceptAsk);
+    await store.replaceHoldings(target.targetId, merged, bundle.asOf || "");
+    filled += target.plan.summary.updated || 0;
+    history += target.plan.summary.history || 0;
+  }
+  if (!importTargets.length) {
+    return { ok: true, accountId: identityOnly[0]?.targetId || "",
+      total: filled + history, added: 0, updated: filled, filled, history,
+      identityOnly: true, accounts: targets.length,
+      label: identityOnly[0]?.targetId
+        ? bpImportAccountRow(identityOnly[0].targetId)?.account?.label || "the account"
+        : "the account" };
+  }
+  const parsed = bundle.base?.parsed;
+  if (!parsed) throw new Error("The statement is no longer in memory. Choose it again.");
+  const importIsins = new Set(importTargets.flatMap((target) => target.rows || [])
+    .map((row) => String(row.isin || "").toUpperCase()).filter(Boolean));
+  const holdings = (parsed.holdings || []).filter((holding) =>
+    importIsins.has(String(holding.isin || "").toUpperCase())).map((holding) => {
+    if (holding.costPaise === null || holding.costPaise === undefined) return holding;
+    const target = importTargets.find((item) => item.boId === (holding.account || ""));
+    const decision = target?.plan?.decisions?.find((item) =>
+      String(item.isin || "").toUpperCase() === String(holding.isin || "").toUpperCase());
+    const tookCost = decision?.changes?.some((change) =>
+      change.group === "cost" && change.field === "cost");
+    return tookCost ? holding : { ...holding, costPaise: null };
+  });
+  const cas = {
+    ...parsed,
+    accounts: (parsed.accounts || [])
+      .map((account) => ({ ...account,
+        holdings: (account.holdings || []).filter((holding) =>
+          importIsins.has(String(holding.isin || "").toUpperCase())) }))
+      .filter((account) => account.holdings.length),
+    holdings,
+  };
+  const accounts = await store.listAccounts();
+  const route = casRoute(cas, accounts);
+  const units = new Set();
+  for (const account of route.accounts) units.add(`bo:${account.boId}`);
+  for (const group of [...route.groups, ...route.homeless]) {
+    if (group.kind === "mf" && group.folio) units.add(`mf:${String(group.amc || "").toLowerCase()}`);
+  }
+  const key = `inbox-${String(bundle.key).replace(/[^a-z0-9]+/gi, "-")}`;
+  window.bpCasCards = window.bpCasCards || {};
+  window.bpCasCards[key] = {
+    cas, route, file: bundle.base?.file || null, owner: cas.holder || "",
+    picked: units.size ? units : undefined,
+  };
+  let host = document.getElementById("cas-inbox-apply");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "cas-inbox-apply";
+    host.hidden = true;
+    (document.getElementById("import-inbox-gate") || document.body).appendChild(host);
+  }
+  host.innerHTML = "";
+  await window.bpCasCreateAndImport(key, true);
+  // The existing CAS import wrote the rows and may have created demat and folio
+  // accounts. Re-route once more so every account the statement touched carries
+  // the CAS identity, not a broker-only flag from an earlier import.
+  const after = casRoute(cas, await store.listAccounts());
+  const touched = new Set();
+  for (const account of after.accounts || []) if (account.assetId) touched.add(account.assetId);
+  for (const group of [...(after.groups || []), ...(after.homeless || [])]) {
+    if (group.assetId) touched.add(group.assetId);
+  }
+  for (const id of touched) {
+    const account = (await store.listAccounts()).find((item) => item.id === id);
+    if (!account) continue;
+    const meta = { ...metaOf(account), identity_source: "cas",
+      identity_as_of: bundle.asOf || meta.identity_as_of || "",
+      holdings_source: "cas", holdings_as_of: bundle.asOf || meta.holdings_as_of || "",
+      broker_only: "0" };
+    if (bundle.base?.parsed?.depository) meta.depository = bundle.base.parsed.depository;
+    const patch = { meta: JSON.stringify(meta) };
+    const home = (after.accounts || []).find((item) => item.assetId === id);
+    if (home?.dpName) {
+      meta.dp = home.dpName;
+      patch.meta = JSON.stringify(meta);
+      if (/^Demat · /.test(String(account.label || ""))) {
+        patch.label = `Demat · ${shortDp(home.dpName)} · …${String(home.boId).slice(-4)}`;
+      }
+    }
+    await store.updateAccount(id, patch);
+  }
+  const summary = bundle.plan?.summary || { added: 0, updated: 0, history: 0 };
+  return { ok: true, total: summary.added + summary.updated + summary.history,
+    added: summary.added, updated: summary.updated, history: summary.history,
+    filled, accounts: targets.length,
+    label: targets.length > 1 ? `${targets.length} accounts`
+      : importTargets[0]?.targetId
+        ? bpImportAccountRow(importTargets[0].targetId)?.account?.label || "the account"
+        : "the new account" };
+}
+
+window.bpImportApplyBundle = async (key, opts = {}) => {
+  const state = bpImportInboxState();
+  const bundle = state.bundles.find((item) => item.key === key);
+  if (!bundle) return;
+  if (!bundle.ready) {
+    bpImportInboxStatus(bundle.needsChoice
+      ? "Choose the account this file belongs to first."
+      : "Review the differences before importing.", "bad");
+    return;
+  }
+  state.applying = true;
+  bpImportInboxStatus(`Importing ${bpImportBundleLabel(bundle)}…`);
+  try {
+    const result = bundle.family === "cas"
+      ? await bpImportApplyCas(bundle, opts)
+      : await bpImportApplyBroker(bundle, opts);
+    if (!result?.ok) return;
+    const ids = new Set((bundle.files || []).map((file) => file.entryId));
+    state.entries = state.entries.filter((entry) => !ids.has(entry.id));
+    delete state.choices[key];
+    delete state.creates[key];
+    delete state.acceptAsk[key];
+    state.last = { ...result, family: bundle.family };
+    await bpImportInboxPrepare(true);
+    const extras = [];
+    if (result.filled) extras.push(`${result.filled} empty value${result.filled === 1 ? "" : "s"} filled`);
+    if (result.history) extras.push(`${result.history} matured bond${result.history === 1 ? "" : "s"} moved to history`);
+    const extraText = extras.length ? `, ${extras.join(" and ")}` : "";
+    const live = Number(result.added || 0)
+      + Math.max(0, Number(result.updated || 0) - Number(result.filled || 0));
+    const what = result.identityOnly
+      ? `Identity attached${extraText}`
+      : `${live} holding${live === 1 ? "" : "s"} imported${extraText}`;
+    if (!opts.silent) {
+      bpImportInboxStatus(`${what} into ${result.label || "the account"}.`, "good");
+    }
+  } catch (e) {
+    bpImportInboxStatus(`Could not import this set: ${e?.message || e}`, "bad");
+  } finally {
+    state.applying = false;
+    bpImportInboxRender();
+  }
+};
+
+window.bpImportApplyAll = async () => {
+  const state = bpImportInboxState();
+  const bundles = [...(state.bundles || [])];
+  if (!bundles.length) return;
+  if (bundles.some((bundle) => !bundle.ready)) {
+    bpImportInboxStatus("Choose an account or review the differences for every set first.", "bad");
+    return;
+  }
+  const total = bundles.reduce((sum, bundle) => sum +
+    (bundle.plan?.summary.added || 0) + (bundle.plan?.summary.updated || 0)
+    + (bundle.plan?.summary.history || 0), 0);
+  bpImportInboxStatus(`Importing ${total} holdings into ${bundles.length} account set${bundles.length === 1 ? "" : "s"}…`);
+  const keys = bundles.map((bundle) => bundle.key);
+  let imported = 0;
+  for (const key of keys) {
+    const before = state.entries.length;
+    await window.bpImportApplyBundle(key, { silent: true });
+    if (state.entries.length < before) imported += 1;
+  }
+  bpImportInboxStatus(imported
+    ? `${imported} account set${imported === 1 ? "" : "s"} imported. Nothing else was written.`
+    : "Nothing was imported. Check the messages above.", imported ? "good" : "bad");
+};
+
+window.bpImportUseWrongCas = async () => {
+  const wrong = window.bpCasWrongFile;
+  window.bpCasWrongFile = null;
+  if (!wrong?.file || !wrong?.parsed) return;
+  const state = bpImportInboxState();
+  const parsed = wrong.parsed;
+  state.entries.push({
+    id: `inbox-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    file: wrong.file, name: wrong.file.name, size: wrong.file.size,
+    status: "ready", kind: "motilal", broker: "motilal",
+    asOf: parsed.asOf || "", accountKey: parsed.clientUcid || "",
+    accountKind: parsed.clientUcid ? "ucid" : "", error: "",
+    rows: parsed.rows.map((row) => ({
+      isin: row.isin, label: row.label || row.isin,
+      category: row.section === "mf" ? "mf" : row.section,
+      quantity: row.quantity, valuePaise: null, costPaise: row.cost_paise,
+      purchaseDate: row.purchase_date, couponPct: row.coupon_pct,
+      frequency: row.frequency, maturity: row.maturity_date,
+      facePaise: row.face_paise, sourceRow: row.source_row,
+    })),
+  });
+  const host = document.getElementById("bond-cas-host");
+  if (host) host.innerHTML = "";
+  await bpImportInboxPrepare(true);
+  document.getElementById("import-inbox-host")?.scrollIntoView({ block: "start",
+    behavior: bpImportScrollBehavior() });
+  bpImportInboxStatus("Motilal holdings report added to the import above. Nothing is saved until you confirm.", "good");
+};
+
 // The native prompt can be suppressed by the browser, and an Escape there is
 // indistinguishable from a crash. Ask in the same place the statement appears.
 function bpCasPasswordPrompt(host, wrong) {
@@ -7233,6 +8816,24 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const pdf = await extractPdf(bytes, {
       onPassword: ({ wrong }) => bpCasPasswordPrompt(host, wrong),
     });
+    // A Motilal report in the CAS input is the most common wrong-place file.
+    // Name it and move it to the right reader instead of showing 17 equities.
+    const body = (pdf.pages || []).flatMap((page) => page.items || [])
+      .map((item) => item.str).join(" ");
+    const detected = detectImportFile({ name: file.name, text: body });
+    if (detected.kind === "motilal") {
+      const parsed = parseMotilalPages(pdf.pages);
+      window.bpCasWrongFile = { file, pdf, parsed };
+      host.innerHTML = `<div class="import-wrong">
+        <b>This is a Motilal holdings report, not a CAS.</b>
+        <div class="muted">Use it as a Motilal report. It carries ${parsed.rows.length}
+          holding${parsed.rows.length === 1 ? "" : "s"} and its own report date; it does not
+          create a depository statement.</div>
+        <div class="import-actions">
+          <button class="btn primary" onclick="bpImportUseWrongCas()">Use it as a Motilal report</button>
+        </div></div>`;
+      return;
+    }
     const cas = parseCas(pdf);
     window.bpCasParsed = cas;
     // Never store the File on this name: it is the function the next file calls.
@@ -7896,7 +9497,7 @@ window.bpZerodhaTargetNote = async () => {
     const accounts = (await store.listAccounts())
       .filter((a) => categoryOf(a) === "demat");
     if (!accounts.length) {
-      host.textContent = "Import the CAS first so the holdings have a demat account to land on.";
+      host.textContent = "No demat account yet. A Zerodha holdings file can create a broker-only account in the import inbox.";
       return;
     }
     const target = window.bpEquityImportTarget
@@ -7917,8 +9518,8 @@ window.bpZerodhaTargetNote = async () => {
     host.textContent = "";
   }
 };
-window.bpZerodhaHoldings = async (file) => {
-  const host = document.getElementById("eq-zerodha-preview");
+window.bpZerodhaHoldings = async (file, opts = {}) => {
+  const host = document.getElementById(opts.host || "eq-zerodha-preview");
   if (!host || !file) return;
   host.innerHTML = `<div class="eq-summary">Reading ${esc(file.name)}…</div>`;
   try {
@@ -7932,6 +9533,17 @@ window.bpZerodhaHoldings = async (file) => {
     const store = await import("./db.js");
     const accounts = (await store.listAccounts())
       .filter((a) => categoryOf(a) === "demat");
+    if (!accounts.length) {
+      window.bpZerodhaPendingFile = file;
+      host.innerHTML = `<div class="card pad eq-preview">
+        <b class="eq-preview-title">No demat account yet.</b>
+        <div class="eq-summary">${parsed.clientId
+          ? `This file names Client ID ${esc(parsed.clientId)}. ` : ""}A broker holding can
+          start an account on its own; the account stays broker-only until a CAS arrives.</div>
+        <div class="eq-actions"><button class="btn primary" onclick="bpZerodhaUseInbox()">
+          Create broker-only account</button></div></div>`;
+      return;
+    }
     const target = window.bpEquityImportTarget
       ? accounts.find((a) => a.id === window.bpEquityImportTarget) : null;
     const scoped = target ? [target] : accounts;
@@ -7957,7 +9569,7 @@ window.bpZerodhaHoldings = async (file) => {
       && Math.abs(Number(h.cost_paise) - costOf(row, h)) <= 1;
     const total = matched.reduce((t, p) => t + costOf(p.row, p.matches[0]), 0);
     const hasUpdates = matched.some((p) => !sameOf(p.row, p.matches[0]));
-    window.bpZerodhaPlan = { parsed, plan, fileName: file.name };
+    window.bpZerodhaPlan = { parsed, plan, fileName: file.name, hostId: host.id };
     const rows = matched.map(({ row, matches }) => {
       const h = matches[0];
       const same = sameOf(row, h);
@@ -7999,9 +9611,18 @@ window.bpZerodhaHoldings = async (file) => {
   }
 };
 window.bpZerodhaCancel = () => {
+  const plan = window.bpZerodhaPlan;
   window.bpZerodhaPlan = null;
-  const host = document.getElementById("eq-zerodha-preview");
+  const host = document.getElementById(plan?.hostId || "eq-zerodha-preview");
   if (host) host.innerHTML = "";
+};
+window.bpZerodhaUseInbox = async () => {
+  const file = window.bpZerodhaPendingFile;
+  window.bpZerodhaPendingFile = null;
+  if (!file) return;
+  await window.bpImportInboxAdd([file]);
+  document.getElementById("import-inbox-host")?.scrollIntoView({ block: "start",
+    behavior: bpImportScrollBehavior() });
 };
 window.bpZerodhaApply = async () => {
   const plan = window.bpZerodhaPlan;
@@ -8019,7 +9640,7 @@ window.bpZerodhaApply = async () => {
     updated += 1;
     if (!opened) opened = h._asset;
   }
-  const host = document.getElementById("eq-zerodha-preview");
+  const host = document.getElementById(plan.hostId || "eq-zerodha-preview");
   if (host) host.innerHTML = `<div class="card pad">
     <b class="eq-preview-title">${updated
       ? `Invested filled for ${updated} holding${updated === 1 ? "" : "s"}.`
@@ -8590,7 +10211,7 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
   }
 };
 window.bpConsolidateBonds = async () => { await window.bpConsolidate({ ask: true }); };
-window.bpCasCreateAndImport = async (key = "cas-host") => {
+window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   const card = (window.bpCasCards || {})[key] || {};
   const cas = card.cas || window.bpCasParsed;
   const route = card.route || window.bpCasRoute;
@@ -8684,7 +10305,7 @@ window.bpCasCreateAndImport = async (key = "cas-host") => {
       demat account. Import again to write the holdings.</div>`;
     return;
   }
-  await window.bpCasImport(key);
+  await window.bpCasImport(key, confirmed);
 };
 window.bpCasImport = async (key = "cas-host", confirmed = false) => {
   const card = (window.bpCasCards || {})[key] || {};

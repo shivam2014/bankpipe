@@ -10,6 +10,26 @@ const num = (v) => {
 const key = (v) => text(v).toLowerCase().replace(/[^a-z0-9]/g, "");
 const ISIN = /^IN[A-Z0-9]{10}$/;
 
+// The Client ID is a label, not a demat number, but it is the only identity a
+// holdings export carries. Keep it so a file with no CAS can become a
+// broker-only account.
+function clientIdFrom(rows, header) {
+  for (let r = 0; r < header; r++) {
+    const cells = rows[r] || [];
+    for (let c = 0; c < cells.length; c++) {
+      const cell = text(cells[c]);
+      if (!/client\s*id/i.test(cell)) continue;
+      const inline = cell.match(/client\s*id\s*[:#-]?\s*([A-Z0-9]+)/i);
+      if (inline) return inline[1].toUpperCase();
+      for (let k = c + 1; k < cells.length; k++) {
+        const value = text(cells[k]);
+        if (value) return value.toUpperCase();
+      }
+    }
+  }
+  return "";
+}
+
 export function parseZerodhaHoldings(matrix) {
   const rows = Array.isArray(matrix) ? matrix : [];
   let header = -1;
@@ -36,7 +56,7 @@ export function parseZerodhaHoldings(matrix) {
     }
   }
   if (header < 0) {
-    return { rows: [], asOf: "", error: "No holdings header found in this file." };
+    return { rows: [], asOf: "", clientId: "", error: "No holdings header found in this file." };
   }
   const asOfCell = rows.slice(0, header).flat().map(text)
     .find((line) => /holdings statement as on/i.test(line));
@@ -62,7 +82,8 @@ export function parseZerodhaHoldings(matrix) {
       pnl: cols.pnl === undefined ? null : num(cells[cols.pnl]),
     });
   }
-  return { rows: out, asOf, error: out.length ? null : "No holdings rows found in this file." };
+  return { rows: out, asOf, clientId: clientIdFrom(rows, header),
+    error: out.length ? null : "No holdings rows found in this file." };
 }
 
 // The browser reads the XLSX into matrices; the Equity sheet is the one that
@@ -74,5 +95,5 @@ export function parseZerodhaHoldingsSheets(sheets) {
     const parsed = parseZerodhaHoldings(sheet);
     if (!parsed.error) return parsed;
   }
-  return { rows: [], asOf: "", error: "No equity holdings sheet found in this file." };
+  return { rows: [], asOf: "", clientId: "", error: "No equity holdings sheet found in this file." };
 }

@@ -86,6 +86,17 @@ function reportAsOf(items) {
   return "";
 }
 
+// The report names the client account with a UCID, not a BO ID. It is the one
+// identity a broker-only import can attach; the demat number is not printed.
+function reportClientUcid(items) {
+  for (const line of buildLines(items)) {
+    const match = line.text.match(/\bCLIENT\s+UCID\b\s*[:#-]?\s*([A-Z0-9]{4,})/i)
+      || line.text.match(/\bUCID\b\s*(?:NO\.?)?\s*[:#-]?\s*([A-Z0-9]{4,})/i);
+    if (match) return match[1].toUpperCase();
+  }
+  return "";
+}
+
 function roleFor(label) {
   const key = compact(label);
   if (!key) return "";
@@ -335,7 +346,7 @@ function parseSection(items, heading, bottom) {
 export function parseMotilalPages(pages) {
   const items = itemsOf(pages);
   if (!items.length) {
-    return { rows: [], sections: [], asOf: "",
+    return { rows: [], sections: [], asOf: "", clientUcid: "",
       error: "This PDF has no text layer, so the holdings cannot be read." };
   }
   const headings = [];
@@ -346,7 +357,7 @@ export function parseMotilalPages(pages) {
     headings.push({ ...first, page: first.page, y: line.y, title });
   }
   if (!headings.length) {
-    return { rows: [], sections: [], asOf: "",
+    return { rows: [], sections: [], asOf: "", clientUcid: reportClientUcid(items),
       error: "This is not a Motilal Oswal Portfolio Holding Summary. The report has no BONDS, DIRECT EQUITY or MUTUAL FUND section." };
   }
   // A heading owns the page from its own line down to the next heading on the
@@ -377,6 +388,7 @@ export function parseMotilalPages(pages) {
     rows: [...byIsin.values()],
     sections,
     asOf: reportAsOf(items),
+    clientUcid: reportClientUcid(items),
     error: null,
   };
 }

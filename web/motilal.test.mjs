@@ -195,6 +195,20 @@ test("reads the report date without treating it as a holding", () => {
   assert.equal(parsed.asOf, "2026-11-12");
 });
 
+test("reads the CLIENT UCID that a broker-only account can attach to", () => {
+  const parsed = parseMotilalPages([page([
+    item("CLIENT UCID : 6638002", 57, 840, 160),
+    ...bondsPage().items,
+  ])]);
+  assert.equal(parsed.clientUcid, "6638002");
+  assert.equal(parsed.rows.length, 2);
+  const ucidNo = parseMotilalPages([page([
+    item("UCID NO. : 6638002", 57, 840, 160),
+    ...bondsPage().items,
+  ])]);
+  assert.equal(ucidNo.clientUcid, "6638002");
+});
+
 const bondRow = {
   isin: "INE999900132", section: "bond", label: "ACAPL-11.90%-3-12-26-PVT",
   quantity: 2, purchase_date: "2024-06-06", cost_paise: 20000000,
