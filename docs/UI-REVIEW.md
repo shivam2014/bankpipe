@@ -4,6 +4,9 @@ Started 27 Oct 2026 from the preview annotations on the Assets, Bonds, Import an
 Transactions screens. One row per issue, grouped so related fixes ship together.
 Status values: **open**, **doing**, **done**, **decide** (needs a product call).
 
+A settled product rule lives in [PRODUCT.md](./PRODUCT.md), not in this log; a row that
+conflicts with one is a bug to fix, not a precedent.
+
 The app is local-first and must stay usable by someone who does not use DigiFInn,
 so every "automated" path needs a manual equivalent that lands in the same tables.
 
