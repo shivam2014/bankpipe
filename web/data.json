@@ -14,78 +14,78 @@
  },
  "accounts": [
   {
-   "id": "hdfc-TEST HOLDER 2",
-   "label": "HDFC Bank · TEST HOLDER 2",
-   "bank": "HDFC Bank",
-   "number": "5012 8842 0001",
+   "id": "hdfc-holder1",
+   "label": "TEST BANK 1 · TEST HOLDER 1",
+   "bank": "TEST BANK 1",
+   "number": "9999 0000 0001",
    "city": "Bengaluru",
-   "holder": "TEST HOLDER 2",
+   "holder": "TEST HOLDER 1",
    "acct_type": "savings",
    "balance": 184256040,
    "last": "2026-10-31"
   },
   {
-   "id": "icici-kavita",
-   "label": "ICICI Bank · Kavita",
-   "bank": "ICICI Bank",
-   "number": "0150 0048 0002",
+   "id": "icici-holder2",
+   "label": "TEST BANK 2 · TEST HOLDER 2",
+   "bank": "TEST BANK 2",
+   "number": "9999 0000 0002",
    "city": "Bengaluru",
-   "holder": "Kavita",
+   "holder": "TEST HOLDER 2",
    "acct_type": "savings",
    "balance": 97842015,
    "last": "2026-10-31"
   },
   {
-   "id": "sbi-TEST HOLDER 2",
-   "label": "State Bank of India · TEST HOLDER 2",
-   "bank": "State Bank of India",
-   "number": "999900010000",
+   "id": "sbi-holder1",
+   "label": "TEST BANK 3 · TEST HOLDER 1",
+   "bank": "TEST BANK 3",
+   "number": "9999 0000 0003",
    "city": "Bengaluru",
-   "holder": "TEST HOLDER 2",
+   "holder": "TEST HOLDER 1",
    "acct_type": "savings",
    "balance": 62451000,
    "last": "2026-10-31"
   },
   {
-   "id": "axis-rohan",
-   "label": "Axis Bank · Rohan",
-   "bank": "Axis Bank",
-   "number": "999900020000",
+   "id": "axis-holder3",
+   "label": "TEST BANK 4 · TEST HOLDER 3",
+   "bank": "TEST BANK 4",
+   "number": "9999 0000 0004",
    "city": "Hyderabad",
-   "holder": "Rohan",
+   "holder": "TEST HOLDER 3",
    "acct_type": "savings",
    "balance": 31804575,
    "last": "2026-10-31"
   },
   {
-   "id": "scb-TEST HOLDER 2",
-   "label": "Standard Chartered · TEST HOLDER 2",
-   "bank": "Standard Chartered",
-   "number": "999900030000",
+   "id": "scb-holder1",
+   "label": "TEST BANK 5 · TEST HOLDER 1",
+   "bank": "TEST BANK 5",
+   "number": "9999 0000 0005",
    "city": "Mumbai",
-   "holder": "TEST HOLDER 2",
+   "holder": "TEST HOLDER 1",
    "acct_type": "savings",
    "balance": 148623060,
    "last": "2026-10-31"
   },
   {
-   "id": "pnb-kavita",
-   "label": "Punjab National Bank · Kavita",
-   "bank": "Punjab National Bank",
-   "number": "999900040000",
+   "id": "pnb-holder2",
+   "label": "TEST BANK 6 · TEST HOLDER 2",
+   "bank": "TEST BANK 6",
+   "number": "9999 0000 0006",
    "city": "New Delhi",
-   "holder": "Kavita",
+   "holder": "TEST HOLDER 2",
    "acct_type": "savings",
    "balance": 44258025,
    "last": "2026-10-31"
   },
   {
-   "id": "bob-TEST HOLDER 2",
-   "label": "Bank of Baroda · TEST HOLDER 2",
-   "bank": "Bank of Baroda",
-   "number": "999900050000",
+   "id": "bob-holder1",
+   "label": "TEST BANK 7 · TEST HOLDER 1",
+   "bank": "TEST BANK 7",
+   "number": "9999 0000 0007",
    "city": "Pune",
-   "holder": "TEST HOLDER 2",
+   "holder": "TEST HOLDER 1",
    "acct_type": "savings",
    "balance": 26731090,
    "last": "2026-10-31"
@@ -98,169 +98,169 @@
    "rows": [
     {
      "id": 1,
-     "label": "HDFC Bank",
+     "label": "TEST EQUITY 1",
      "value": 51360000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "qty": "300",
       "price": 171200,
-      "isin": "INE999900215",
+      "isin": "INE000000101",
       "bought": "2022-06-14",
       "buy": 147850
      }
     },
     {
      "id": 2,
-     "label": "ICICI Bank",
+     "label": "TEST EQUITY 2",
      "value": 49800000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "qty": "400",
       "price": 124500,
-      "isin": "INE999900355",
+      "isin": "INE000000102",
       "bought": "2023-01-19",
       "buy": 108225
      }
     },
     {
      "id": 3,
-     "label": "Infosys",
+     "label": "TEST EQUITY 3",
      "value": 64600000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "qty": "400",
       "price": 161500,
-      "isin": "INE999900157",
+      "isin": "INE000000103",
       "bought": "2021-11-03",
       "buy": 174250
      }
     },
     {
      "id": 4,
-     "label": "Reliance Industries",
+     "label": "TEST EQUITY 4",
      "value": 88650000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "qty": "300",
       "price": 295500,
-      "isin": "INE999900025",
+      "isin": "INE999900314",
       "bought": "2022-09-27",
       "buy": 261000
      }
     },
     {
      "id": 5,
-     "label": "Larsen & Toubro",
+     "label": "TEST EQUITY 5",
      "value": 66384000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "qty": "180",
       "price": 368800,
-      "isin": "INE999900363",
+      "isin": "INE000000105",
       "bought": "2024-02-08",
       "buy": 390500
      }
     },
     {
      "id": 6,
-     "label": "ITC",
+     "label": "TEST EQUITY 6",
      "value": 52560000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "qty": "1200",
       "price": 43800,
-      "isin": "INE999900223",
+      "isin": "INE000000106",
       "bought": "2023-07-11",
       "buy": 40250
      }
     },
     {
      "id": 7,
-     "label": "Tata Motors",
+     "label": "TEST EQUITY 7",
      "value": 44700000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "qty": "600",
       "price": 74500,
-      "isin": "INE999900231",
+      "isin": "INE000000107",
       "bought": "2024-05-21",
       "buy": 68200
      }
     },
     {
      "id": 8,
-     "label": "Sun Pharmaceutical",
+     "label": "TEST EQUITY 8",
      "value": 62300000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "qty": "350",
       "price": 178000,
-      "isin": "INE999900371",
+      "isin": "INE000000108",
       "bought": "2022-03-16",
       "buy": 161500
      }
     },
     {
      "id": 9,
-     "label": "Asian Paints",
+     "label": "TEST EQUITY 9",
      "value": 57800000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "qty": "200",
       "price": 289000,
-      "isin": "INE999900389",
+      "isin": "INE000000109",
       "bought": "2021-08-30",
       "buy": 312000
      }
     },
     {
      "id": 10,
-     "label": "Hindustan Unilever",
+     "label": "TEST EQUITY 10",
      "value": 47700000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "qty": "180",
       "price": 265000,
-      "isin": "INE999900397",
+      "isin": "INE000000110",
       "bought": "2023-10-05",
       "buy": 258000
      }
     },
     {
      "id": 11,
-     "label": "Bajaj Finance",
+     "label": "TEST EQUITY 11",
      "value": 64350000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "qty": "90",
       "price": 715000,
-      "isin": "INE999900405",
+      "isin": "INE000000111",
       "bought": "2024-01-24",
       "buy": 698000
      }
     },
     {
      "id": 12,
-     "label": "Titan Company",
+     "label": "TEST EQUITY 12",
      "value": 51300000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "qty": "150",
       "price": 342000,
-      "isin": "INE999900413",
+      "isin": "INE999900322",
       "bought": "2022-12-14",
       "buy": 305000
      }
     },
     {
      "id": 13,
-     "label": "Bharti Airtel",
+     "label": "TEST EQUITY 13",
      "value": 58800000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "qty": "350",
       "price": 168000,
-      "isin": "INE999900421",
+      "isin": "INE000000113",
       "bought": "2023-04-27",
       "buy": 145500
      }
@@ -273,70 +273,70 @@
    "rows": [
     {
      "id": 101,
-     "label": "Parag Parikh Flexi Cap · Growth",
+     "label": "TEST FUND 1 · Growth",
      "value": 184130419,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "units": "28450.312",
       "price": 6472,
       "folio": "F20481",
-      "isin": "INF999900436",
+      "isin": "INF999900337",
       "bought": "2021-05-10",
       "buy": 4810
      }
     },
     {
      "id": 102,
-     "label": "HDFC Balanced Advantage · Growth",
+     "label": "TEST FUND 2 · Growth",
      "value": 126080000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "units": "32000.000",
       "price": 3940,
       "folio": "F20482",
-      "isin": "INF999900444",
+      "isin": "INF000000102",
       "bought": "2022-02-18",
       "buy": 3125
      }
     },
     {
      "id": 103,
-     "label": "ICICI Prudential Bluechip · Growth",
+     "label": "TEST FUND 3 · Growth",
      "value": 81955000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "units": "18500.000",
       "price": 4430,
       "folio": "F20483",
-      "isin": "INF999900451",
+      "isin": "INF000000103",
       "bought": "2023-03-09",
       "buy": 3810
      }
     },
     {
      "id": 104,
-     "label": "SBI Small Cap · Growth",
+     "label": "TEST FUND 4 · Growth",
      "value": 68082000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "units": "4200.000",
       "price": 16210,
       "folio": "F20484",
-      "isin": "INF200K01UT6",
+      "isin": "INF000000104",
       "bought": "2021-12-02",
       "buy": 12040
      }
     },
     {
      "id": 105,
-     "label": "Kotak Bond Short Term · Growth",
+     "label": "TEST FUND 5 · Growth",
      "value": 41100000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "units": "20000.000",
       "price": 2055,
       "folio": "F20485",
-      "isin": "INF999900469",
+      "isin": "INF000000105",
       "bought": "2024-06-13",
       "buy": 1980
      }
@@ -349,11 +349,11 @@
    "rows": [
     {
      "id": 301,
-     "label": "7.15% IRFC 15 May 2031",
+     "label": "7.15% TEST BOND 1 15 May 2031",
      "value": 104000000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
-      "isin": "INE053F07AX5",
+      "isin": "INE000000121",
       "units": "1000",
       "rate": "7.15%",
       "maturity": "2031-05-15",
@@ -371,11 +371,11 @@
     },
     {
      "id": 302,
-     "label": "8.10% Tata Capital 20 Nov 2028",
+     "label": "8.10% TEST BOND 2 20 Nov 2028",
      "value": 54250000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
-      "isin": "INE306N07KX3",
+      "isin": "INE000000122",
       "units": "500",
       "rate": "8.10%",
       "maturity": "2028-11-20",
@@ -393,11 +393,11 @@
     },
     {
      "id": 303,
-     "label": "7.40% HUDCO 10 Feb 2030",
+     "label": "7.40% TEST BOND 3 10 Feb 2030",
      "value": 81440000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
-      "isin": "INE999900470",
+      "isin": "INE000000123",
       "units": "800",
       "rate": "7.40%",
       "maturity": "2030-02-10",
@@ -426,11 +426,11 @@
    "rows": [
     {
      "id": 201,
-     "label": "HDFC fixed deposit",
+     "label": "TEST BANK 1 fixed deposit",
      "value": 250000000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
-      "bank": "HDFC",
+      "bank": "TEST BANK 1",
       "fd_no": "FD-0001",
       "rate": 725,
       "started": "2025-06-30",
@@ -439,11 +439,11 @@
     },
     {
      "id": 202,
-     "label": "ICICI fixed deposit",
+     "label": "TEST BANK 2 fixed deposit",
      "value": 300000000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
-      "bank": "ICICI",
+      "bank": "TEST BANK 2",
       "fd_no": "FD-0002",
       "rate": 750,
       "started": "2025-03-31",
@@ -452,11 +452,11 @@
     },
     {
      "id": 203,
-     "label": "SBI fixed deposit",
+     "label": "TEST BANK 3 fixed deposit",
      "value": 200000000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
-      "bank": "SBI",
+      "bank": "TEST BANK 3",
       "fd_no": "FD-0003",
       "rate": 680,
       "started": "2025-12-31",
@@ -465,11 +465,11 @@
     },
     {
      "id": 204,
-     "label": "Axis fixed deposit",
+     "label": "TEST BANK 4 fixed deposit",
      "value": 125000000,
-     "holder": "Rohan",
+     "holder": "TEST HOLDER 3",
      "details": {
-      "bank": "Axis",
+      "bank": "TEST BANK 4",
       "fd_no": "FD-0004",
       "rate": 730,
       "started": "2025-11-30",
@@ -478,11 +478,11 @@
     },
     {
      "id": 205,
-     "label": "PNB fixed deposit",
+     "label": "TEST BANK 6 fixed deposit",
      "value": 75000000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
-      "bank": "PNB",
+      "bank": "TEST BANK 6",
       "fd_no": "FD-0005",
       "rate": 710,
       "started": "2025-01-15",
@@ -491,11 +491,11 @@
     },
     {
      "id": 206,
-     "label": "Bank of Baroda fixed deposit",
+     "label": "TEST BANK 7 fixed deposit",
      "value": 180000000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
-      "bank": "Bank of Baroda",
+      "bank": "TEST BANK 7",
       "fd_no": "FD-0006",
       "rate": 705,
       "started": "2024-09-30",
@@ -510,20 +510,20 @@
    "rows": [
     {
      "id": 501,
-     "label": "PPF · TEST HOLDER 2",
+     "label": "PPF · TEST HOLDER 1",
      "value": 124000000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
-      "bank": "State Bank of India",
+      "bank": "TEST BANK 3",
       "started": "2016-04-01",
       "matures": "2031-04-01"
      }
     },
     {
      "id": 502,
-     "label": "PPF · Kavita",
+     "label": "PPF · TEST HOLDER 2",
      "value": 86000000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "bank": "Post Office",
       "started": "2018-04-01",
@@ -538,9 +538,9 @@
    "rows": [
     {
      "id": 401,
-     "label": "24k bars",
+     "label": "TEST GOLD 1",
      "value": 94500000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
       "purity": "24k",
       "grams": "100",
@@ -549,9 +549,9 @@
     },
     {
      "id": 402,
-     "label": "24k coins",
+     "label": "TEST GOLD 2",
      "value": 47250000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "purity": "24k",
       "grams": "50",
@@ -560,9 +560,9 @@
     },
     {
      "id": 403,
-     "label": "22k jewellery",
+     "label": "TEST GOLD 3",
      "value": 189640000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
       "purity": "22k",
       "grams": "220",
@@ -577,12 +577,12 @@
    "rows": [
     {
      "id": 601,
-     "label": "LIC Jeevan Labh",
+     "label": "TEST POLICY 1",
      "value": 41000000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
-      "insurer": "LIC",
-      "policy_no": "884-221-501",
+      "insurer": "TEST INSURER 1",
+      "policy_no": "TEST-POLICY-1",
       "cover_type": "endowment",
       "sum_assured": 150000000,
       "premium": 4525000,
@@ -592,12 +592,12 @@
     },
     {
      "id": 602,
-     "label": "PNB MetLife Endowment",
+     "label": "TEST POLICY 2",
      "value": 28500000,
-     "holder": "Kavita",
+     "holder": "TEST HOLDER 2",
      "details": {
-      "insurer": "PNB MetLife",
-      "policy_no": "224-860-102",
+      "insurer": "TEST INSURER 2",
+      "policy_no": "TEST-POLICY-2",
       "cover_type": "endowment",
       "sum_assured": 100000000,
       "premium": 3800000,
@@ -607,12 +607,12 @@
     },
     {
      "id": 603,
-     "label": "ICICI Pru iProtect",
+     "label": "TEST POLICY 3",
      "value": 15200000,
-     "holder": "TEST HOLDER 2",
+     "holder": "TEST HOLDER 1",
      "details": {
-      "insurer": "ICICI Prudential",
-      "policy_no": "160-881-460",
+      "insurer": "TEST INSURER 3",
+      "policy_no": "TEST-POLICY-3",
       "cover_type": "term",
       "sum_assured": 500000000,
       "premium": 1820000,

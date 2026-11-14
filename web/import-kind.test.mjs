@@ -16,7 +16,7 @@ test("a CDSL transaction file is a CAS from its first page", () => {
 });
 
 test("a broker holdings export is read from its header row", () => {
-  const csv = "ISIN,Stock Name,Quantity,Buy Value,Current Value\nINE999900140,BAJAJ,34,300000,326196";
+  const csv = "ISIN,Stock Name,Quantity,Buy Value,Current Value\nINE000000030,BAJAJ,34,300000,326196";
   assert.equal(sniffKind({ name: "any.csv", text: csv }), "broker");
 });
 
