@@ -1028,7 +1028,8 @@ test("a bond re-import does not count a maturity field the holding table cannot 
   assert.equal(plan.summary.ask, 0);
 });
 
-test("a genuine alias still reports the stored key and the incoming key", () => {  const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
+test("a genuine alias still reports the stored key and the incoming key", () => {
+  const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
     category: "bond", quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
     value_paise: 100000, as_of: "2026-11-12", source: "motilal" };
   const account = { id: "motilal-account", label: "Demat", category: "demat",
