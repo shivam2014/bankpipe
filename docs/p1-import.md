@@ -182,7 +182,7 @@ that touches the screen, not as a sweep.
 | reachable confirmation gates | 14 | 14 | 0 |
 | planners | 4 | 4 | 0 |
 
-The first eight rows are counted from the tree. The last five are the map's
+The first seven rows are counted from the tree. The last five are the map's
 live counts, checked for changed references rather than re-derived: the deleted
 symbols do not appear in them.
 
