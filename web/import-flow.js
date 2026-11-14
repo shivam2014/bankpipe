@@ -4,6 +4,7 @@
 // here: the page owns the preview, the confirmation and the database.
 
 import { boId } from "./bo-id.js";
+import { isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
 import { parseBondLabel } from "./bonds.js";
@@ -495,8 +496,11 @@ export function accountMatches(file, accounts = []) {
   const wantedSet = new Set(wanted);
   const matches = [];
   for (const raw of accounts) {
+    // The import list and the matcher share one rule: a demat, a fund folio or
+    // a bond portfolio can receive a holdings report. A bank or FD cannot, and
+    // a cost-only bond record is bookkeeping rather than a target.
+    if (!isImportAccount(raw)) continue;
     const account = normalizeAccount(raw, raw?.holdings || []);
-    if (account.category && account.category !== "demat") continue;
     let identityKind = "";
     if (identity) {
       if ((identity.kind === "bo" || identity.kind === "demat")
@@ -545,6 +549,35 @@ export function accountFieldState(account, holdings = []) {
     },
     manualAsOf: parseDate(meta.manual_as_of || ""),
   };
+}
+
+/**
+ * One account's status line: the label, the holding count and the newest
+ * statement dates. Pure, so the page can render it and a test can read it
+ * without a DOM; the caller supplies the date formatter it already uses.
+ */
+export function importAccountSummary(account, holdings = [],
+  formatDate = (value) => String(value || "")) {
+  const meta = safeMeta(account);
+  const rows = holdings || [];
+  const state = accountFieldState(account, rows);
+  const brokerOnly = meta.broker_only === "1" || meta.broker_only === true
+    || (!state.identity.source && !!state.snapshot.source);
+  const brokerAsOf = state.cost.asOf || String(meta.broker_as_of || "").slice(0, 10)
+    || (state.identity.source && state.identity.source !== "cas" ? state.identity.asOf : "");
+  const casAsOf = state.identity.source === "cas" ? state.identity.asOf : "";
+  const count = rows.length;
+  // A count is the fact; the label only names the account's state. An account
+  // nobody has marked still holds things, so it must not read "No holdings yet".
+  let label = count > 0 ? "Holdings" : "No holdings yet";
+  let kind = "";
+  if (brokerOnly) { label = "Broker-only"; kind = "warn"; }
+  else if (casAsOf) { label = "CAS verified"; kind = "good"; }
+  if (brokerAsOf && casAsOf && brokerAsOf > casAsOf) { label = "Newer broker data"; kind = "warn"; }
+  return { label, kind, brokerOnly, brokerAsOf, casAsOf, count,
+    countText: count > 0 ? `${count} holding${count === 1 ? "" : "s"}` : "",
+    dates: [casAsOf ? `CAS ${formatDate(casAsOf)}` : "",
+      brokerAsOf ? `Broker ${formatDate(brokerAsOf)}` : ""].filter(Boolean).join(" · ") };
 }
 
 // --- the merge plan ---------------------------------------------------------

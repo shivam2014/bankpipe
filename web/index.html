@@ -1333,7 +1333,7 @@ import { reorderLine } from "./reorder-line.js";
 import { balanceRunsFromSheet } from "./balance-formula.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
-import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, assetClassParts, classPage, holdingClass, isFundAccount, importFillPlan } from "./assets.js";
+import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, assetClassParts, classPage, holdingClass, isFundAccount, isImportAccount, importFillPlan } from "./assets.js";
 import { buildFdGroups, fdHistoryValue, fdMatured, orderAccountsByFdTotal } from "./fd-view.js";
 import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
@@ -1362,7 +1362,7 @@ import { casHoldingLabel, casReplacePlan, casSafety } from "./cas-apply.js";
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, accountMatches, planMerge, accountFieldState,
-  normalizeAccount, parseTradebook, parseTradebookMatrix,
+  importAccountSummary, normalizeAccount, parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
@@ -3526,7 +3526,7 @@ function renderImport() {
   </div>
 
   <div class="card pad">
-    <div class="import-card-head"><h2>Your accounts</h2>
+    <div class="import-card-head"><h2>Securities accounts</h2>
       <span class="import-card-sub" id="import-accounts-count"></span></div>
     <div id="import-accounts" class="import-accounts">
       <div class="import-empty-state">Reading accounts…</div></div>
@@ -4066,7 +4066,7 @@ function wireImport() {
   // queue is the only path now: one list, one type per row, one confirmation.
   if (!window.bpImportQueue) window.bpImportQueue = [];
   window.bpImportRender();
-  window.bpImportAccountsLoad?.();
+  window.bpImportAccountsLoad?.(true);
   window.bpImportInboxRender?.();
 }
 function renderTransactions() {
@@ -7460,21 +7460,7 @@ function bpImportAccountName(account) {
 }
 
 function bpImportAccountState(row) {
-  const meta = metaOf(row.account);
-  const state = accountFieldState(row.account, row.holdings);
-  const brokerOnly = meta.broker_only === "1" || meta.broker_only === true
-    || (!state.identity.source && !!state.snapshot.source);
-  const brokerAsOf = state.cost.asOf || String(meta.broker_as_of || "").slice(0, 10)
-    || (state.identity.source && state.identity.source !== "cas" ? state.identity.asOf : "");
-  const casAsOf = state.identity.source === "cas" ? state.identity.asOf : "";
-  let label = "No holdings yet";
-  let kind = "";
-  if (brokerOnly) { label = "Broker-only"; kind = "warn"; }
-  else if (casAsOf) { label = "CAS verified"; kind = "good"; }
-  if (brokerAsOf && casAsOf && brokerAsOf > casAsOf) { label = "Newer broker data"; kind = "warn"; }
-  return { label, kind, brokerOnly, brokerAsOf, casAsOf,
-    dates: [casAsOf ? `CAS ${dateLabel(casAsOf)}` : "",
-      brokerAsOf ? `Broker ${dateLabel(brokerAsOf)}` : ""].filter(Boolean).join(" · ") };
+  return importAccountSummary(row.account, row.holdings, dateLabel);
 }
 
 function bpImportAccountsHtml() {
@@ -7484,15 +7470,15 @@ function bpImportAccountsHtml() {
   }
   if (!state.accountRows) return `<div class="import-empty-state">Reading accounts…</div>`;
   if (!state.accountRows.length) {
-    return `<div class="import-empty-state">No demat accounts yet. A CAS or a broker holdings
-      report creates the first one.</div>`;
+    return `<div class="import-empty-state">No securities accounts yet. A CAS, a broker
+      holdings report or a bond purchase creates the first one.</div>`;
   }
   return state.accountRows.map((row) => {
     const status = bpImportAccountState(row);
     const label = row.account.label || row.account.bank || row.account.id;
     const number = bpImportAccountName(row.account);
-    const bits = [number && !String(label).includes(number) ? number : "", status.dates,
-      status.brokerOnly ? "No CAS to reconcile against" : ""]
+    const bits = [status.countText, number && !String(label).includes(number) ? number : "",
+      status.dates, status.brokerOnly ? "No CAS to reconcile against" : ""]
       .filter(Boolean).join(" · ");
     return `<button type="button" class="import-account-btn" onclick="bpAsset(${jsArg(row.account.id)})">
       <span class="import-account-main">
@@ -7522,7 +7508,7 @@ window.bpImportAccountsLoad = async (force = false) => {
   if (state.accountRows && !force) { bpImportAccountsRender(); return state.accountRows; }
   try {
     const store = await import("./db.js");
-    const accounts = (await store.listAccounts()).filter((a) => categoryOf(a) === "demat");
+    const accounts = (await store.listAccounts()).filter(isImportAccount);
     const rows = [];
     for (const account of accounts) {
       const holdings = await store.listHoldings(account.id);
@@ -7684,7 +7670,7 @@ async function bpImportInboxPrepare(force = false) {
     if (!state.accountRows || force) {
       try {
         const store = await import("./db.js");
-        const accounts = (await store.listAccounts()).filter((a) => categoryOf(a) === "demat");
+        const accounts = (await store.listAccounts()).filter(isImportAccount);
         const rows = [];
         for (const account of accounts) {
           const holdings = await store.listHoldings(account.id);

@@ -25,11 +25,33 @@ const LEGACY = {
 
 const FUND_WORDS = /mutual\s*fund|^mf$/i;
 
+// The meta column is JSON text in the database and an object in tests, so every
+// reader parses it the same way and a malformed row never breaks a page.
+function assetMeta(asset) {
+  if (asset?.meta && typeof asset.meta === "object") return asset.meta;
+  try { return JSON.parse(asset?.meta || "{}") || {}; } catch (e) { return {}; }
+}
+
 // A folio is a demat-shaped account that holds one AMC's fund units. It is not
 // a custody account, so it may hold fund rows but never bond or share positions.
 export function isFundAccount(asset) {
   return categoryOf(asset) === "demat"
     && FUND_WORDS.test(String(asset?.subtype || ""));
+}
+
+// A securities account holds market positions: a demat, a fund folio (a demat
+// subtype) or a bond portfolio. A bank account and an FD hold money, not
+// securities, and follow the bank statement flow instead.
+export function isSecuritiesAccount(asset) {
+  const cat = categoryOf(asset);
+  return cat === "demat" || cat === "bonds";
+}
+
+// A cost record only says what was paid for lots that sit on a demat. It holds
+// nothing itself, so no statement can be imported into it.
+export function isImportAccount(asset) {
+  if (!isSecuritiesAccount(asset)) return false;
+  return !assetMeta(asset).cost_only;
 }
 
 // One class per holding row, shared by the account page and the class pages.
@@ -63,9 +85,7 @@ export function typesFor(id) {
 export function assetValue(asset) {
   // A cost record is not a holding: after its lots are attached to the demat
   // account, counting it again would put the same bond in net worth twice.
-  const meta = (() => {
-    try { return JSON.parse(asset?.meta || "{}") || {}; } catch (e) { return {}; }
-  })();
+  const meta = assetMeta(asset);
   if (meta.cost_only) {
     // A cost record says where its lots went, so the portfolio page answers
     // "which demat is this?" without the reader opening another screen.
@@ -128,8 +148,7 @@ export function assetSections(assets) {
     // A cost record is the price paid for bonds that sit in a demat. It holds
     // nothing and is worth nothing, so it is not an asset row; the Assets page
     // lists these separately, below everything else.
-    let meta = {};
-    try { meta = JSON.parse(asset?.meta || "{}") || {}; } catch (e) { meta = {}; }
+    const meta = assetMeta(asset);
     if (meta.cost_only) continue;
     const cat = categoryOf(asset);
     if (cat === "demat") {
