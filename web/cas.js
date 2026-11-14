@@ -974,7 +974,9 @@ function holderName(items) {
 /**
  * The total a statement prints for the whole portfolio. Only an explicit
  * "Grand Total" is trusted: a section "Total" or a page "Sub Total" is not the
- * whole account and must not become the check.
+ * whole account and must not become the check. The first Grand Total is the
+ * portfolio summary; a later one can be a section total, as in a CDSL
+ * transaction statement whose mutual fund folio prints its own Grand Total.
  * @param {Array<object>} items
  * @returns {number|null} paise
  */
@@ -988,7 +990,7 @@ function grandTotalPaise(items) {
       if (!/\bgrand\s+total\b/i.test(text)) continue;
       const cells = line.items.filter((i) => NUMBER.test(i.str))
         .sort((a, b) => a.x - b.x);
-      if (cells.length) total = rupees(cells[cells.length - 1].str);
+      if (cells.length && total === null) total = rupees(cells[cells.length - 1].str);
     }
   }
   return total;

@@ -202,6 +202,19 @@ test("a statement without a grand total leaves the check unstated", () => {
   assert.equal(out.printedTotalPaise, null);
 });
 
+test("the first Grand Total is the portfolio, not a later section total", () => {
+  // A CDSL transaction statement prints the portfolio Grand Total on its
+  // summary page and a second one inside a mutual fund folio section.
+  const out = parseCas({ pages: [page([
+    heading("Corporate Bonds"),
+    [line([500, "Grand Total"], [620, "36,56,296.47"])],
+    [line([60, "INE999900272"], [430, "27-Nov-2028"], [600, "10.00"],
+      [660, "10,000.00"], [730, "10,075.26"], [800, "1,00,752.60"])],
+    [line([500, "Grand Total"], [620, "3,24,536.01"])],
+  ])] });
+  assert.equal(out.printedTotalPaise, 365629647);
+});
+
 // --- routing into the accounts already on file -----------------------------
 
 const accounts = [
