@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { isSecuritiesAccount, isImportAccount, isDepositoryAccount } from "./assets.js";
-import { accountMatches, groupBundles, importAccountSummary } from "./import-flow.js";
+import { accountMatches, groupBundles, importAccountSummary,
+  normalizeAccount } from "./import-flow.js";
 
 // Synthetic identifiers only. The real files are never committed.
 const isin = (n) => `INE${String(n).padStart(9, "0")}`;
@@ -130,6 +131,57 @@ test("a CAS ignores a linked bond portfolio and preserves the best demat", () =>
   assert.deepEqual(result.matches.map((match) => match.id), ["demat-1", "demat-2"]);
   assert.equal(result.matches[0].hits, 2);
   assert.equal(result.bestId, "demat-1");
+});
+
+// --- a folio is identity -----------------------------------------------------
+
+test("a folio identity matches the account that carries that folio", () => {
+  const mirae = account({ id: "mirae", label: "Mirae Asset mutual fund",
+    subtype: "mutual fund", number: "99999999999",
+    meta: meta({ folios: ["99999999999"] }), holdings: [row(1)] });
+  const other = account({ id: "other", label: "Mirae Asset mutual fund",
+    subtype: "mutual fund", number: "88888888888",
+    meta: meta({ folios: ["88888888888"] }), holdings: [] });
+  const file = { accountKey: "99999999999", accountKind: "folio",
+    rows: [{ isin: isin(9) }] };
+  const result = accountMatches(file, [other, mirae], { forCas: true });
+  assert.deepEqual(result.matches.map((match) => match.id), ["mirae"]);
+  assert.equal(result.matches[0].identityKind, "folio");
+  assert.equal(result.bestId, "mirae");
+});
+
+test("a folio identity never falls through to ISIN overlap", () => {
+  const wrongFolio = account({ id: "wrong-folio", label: "Mirae Asset mutual fund",
+    subtype: "mutual fund", number: "11111111111",
+    meta: meta({ folios: ["11111111111"] }), holdings: [row(1)] });
+  const file = { accountKey: "22222222222", accountKind: "folio",
+    rows: [{ isin: isin(1) }] };
+  const result = accountMatches(file, [wrongFolio], { forCas: true });
+  assert.equal(result.matches.length, 0);
+  assert.equal(result.bestId, "");
+});
+
+test("a folio identity prefers the account of its own AMC", () => {
+  const one = account({ id: "one", label: "AMC One mutual fund",
+    subtype: "mutual fund", number: "99999999999",
+    meta: meta({ amc: "AMC One", folios: ["99999999999"] }), holdings: [] });
+  const two = account({ id: "two", label: "AMC Two mutual fund",
+    subtype: "mutual fund", number: "99999999999",
+    meta: meta({ amc: "AMC Two", folios: ["99999999999"] }), holdings: [] });
+  const file = { accountKey: "99999999999", accountKind: "folio", amc: "AMC Two",
+    rows: [{ isin: isin(9) }] };
+  const result = accountMatches(file, [one, two], { forCas: true });
+  assert.equal(result.matches[0].id, "two");
+  assert.equal(result.bestId, "two");
+  assert.equal(result.identityId, "two");
+});
+
+test("normalizeAccount exposes the folios an account carries but not a BO ID", () => {
+  const fund = normalizeAccount(account({ subtype: "mutual fund", number: "A/1",
+    meta: meta({ folios: ["B/2"] }) }));
+  assert.deepEqual(fund.folios.sort(), ["a/1", "b/2"]);
+  const demat = normalizeAccount(account({ number: "IN99990001344321" }));
+  assert.deepEqual(demat.folios, []);
 });
 
 // --- the status line --------------------------------------------------------

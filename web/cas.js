@@ -29,13 +29,14 @@
 // DOM, no storage, no network.
 
 import { boId } from "./bo-id.js";
+import { folioHome, normalizeFolio } from "./folio.js";
 
 const ISIN = /^IN[A-Z0-9]{10}$/;
 const DATE = /^\d{1,2}-[A-Za-z]{3}-\d{4}$/;
 const NUMERIC_DATE = /^\d{1,2}[-/]\d{1,2}[-/]\d{4}$/;
 const NUMBER = /^\d[\d,]*(\.\d+)?$/;
 
-const VALUE_LABEL = /^value\b|value\s*in|valuation/i;
+const VALUE_LABEL = /^value\b|value\s*in|valuation|current\s*value/i;
 const QUANTITY_LABEL = /no\.\s*of\s*(shares|bonds|units)|^quantity$|^current$|^bal$|^balance$|\(units\)/i;
 const ISIN_LABEL = /^isin\b/i;
 const DATE_LABEL = /\bdate\b/i;
@@ -361,7 +362,10 @@ function readTables(items, tables, headers = []) {
         const label = table.cols.find((c) => re.test(c.str));
         if (!label) return null;
         const ROLE = /^isin|value|invested|total\s*cost|cost\s*per|nav|^no\.\s*of|^quantity$|^current$|^bal$|maturity|coupon|face\s*value|market\s*price|^folio|profit/i;
-        const next = table.cols.filter((c) => c.x > label.x + 1 && ROLE.test(c.str))
+        // NSDL stacks "Current" above "Value in": the two items are one heading,
+        // so the bare "Current" beside the label is not the next column.
+        const next = table.cols.filter((c) => c.x > label.x + 1 && ROLE.test(c.str)
+          && !(/^current$/i.test(c.str) && c.x - label.x <= 12))
           .sort((a, b) => a.x - b.x)[0];
         const limit = next ? next.x : Infinity;
         return cells.filter((c) => c.right >= label.x - 2 && c.right < limit)
@@ -1105,12 +1109,13 @@ export function parseCas(pdf) {
   }
 
   // The same ISIN can appear in a transaction table and again in the holdings
-  // table, and a page break can repeat a row. One holding per account and ISIN:
-  // a consolidated statement can hold the same security in two demats, and
-  // keying by ISIN alone dropped one account's row.
+  // table, and a page break can repeat a row. One holding per account, ISIN and
+  // folio: two folios of one AMC can hold the same scheme, and they are two
+  // positions. A row without a folio keeps the account-and-ISIN key.
   const byAccountIsin = new Map();
   for (const holding of result.holdings) {
-    const key = `${holding.account || ""}|${holding.isin}`;
+    const key = `${holding.account || ""}|${holding.isin}|${
+      holding.folio ? normalizeFolio(holding.folio) : ""}`;
     const prev = byAccountIsin.get(key);
     if (!prev || (holding.valuePaise || 0) > (prev.valuePaise || 0)) {
       byAccountIsin.set(key, holding);
@@ -1166,14 +1171,6 @@ export function casRoute(parsed, assets = []) {
   const groups = new Map();
   const homeless = new Map();
   const homes = [];
-  // A folio is identified by its AMC and folio number, never by a BO ID. Its
-  // account is the one named after the AMC.
-  const folioHome = (holding) => {
-    const amc = String(holding.amc || "").toLowerCase();
-    if (!amc) return null;
-    return (assets || []).find((a) => /mutual\s*fund|^mf$/i.test(String(a.subtype || ""))
-      && String(a.label || "").toLowerCase().includes(amc)) || null;
-  };
   for (const account of list) {
     const id = boId(account.boId || "");
     const key = id.kind === "bo" ? id.boId : "";
@@ -1193,11 +1190,15 @@ export function casRoute(parsed, assets = []) {
       // being written into a folio account with a value picked from the wrong cell.
       const isFolio = holding.kind === "mf" && !!holding.folio
         && Number(holding.quantity) > 0;
-      const target = isFolio ? folioHome(holding) : asset;
+      const target = isFolio ? folioHome(holding, assets) : asset;
       const bucket = target ? groups : homeless;
+      // One group per folio, even when one account carries two of them: the card
+      // ticks and the writer group by position, not by fund house.
       const bucketKey = target
-        ? `${holding.kind}|${target.id}`
-        : (isFolio ? `mf|folio:${holding.amc || "unknown"}` : `${holding.kind}|${key || "folio"}`);
+        ? `${holding.kind}|${target.id}|${isFolio ? normalizeFolio(holding.folio) : ""}`
+        : (isFolio ? `mf|folio:${String(holding.amc || "").trim().toLowerCase()}|${
+          normalizeFolio(holding.folio)}`
+          : `${holding.kind}|${key || "folio"}`);
       if (!bucket.has(bucketKey)) {
         bucket.set(bucketKey, { kind: holding.kind, assetId: target?.id || "",
           assetLabel: target?.label || "", boId: isFolio ? "" : key,

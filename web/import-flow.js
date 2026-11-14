@@ -4,6 +4,7 @@
 // here: the page owns the preview, the confirmation and the database.
 
 import { boId } from "./bo-id.js";
+import { accountFolios, normalizeFolio } from "./folio.js";
 import { isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
@@ -473,7 +474,9 @@ export function normalizeAccount(account, holdings = account?.holdings || []) {
     ucid: upper(meta.ucid || account?.ucid || ""),
     depository: text(meta.depository || ""),
     dp: text(meta.dp || ""),
+    amc: text(meta.amc || "").toLowerCase(),
     brokerOnly: meta.broker_only === "1" || meta.broker_only === true,
+    folios: accountFolios(account),
     meta,
     holdings: holdings || [],
     isins: [...new Set((holdings || []).map(rowIsin).filter(Boolean))],
@@ -502,6 +505,7 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
   const identity = identityFor(file);
   const wanted = [...new Set((file?.rows || []).map(rowIsin).filter(Boolean))];
   const wantedSet = new Set(wanted);
+  const wantedAmc = String(file?.amc || "").trim().toLowerCase();
   const matches = [];
   for (const raw of accounts) {
     // The import list and the matcher share one rule: a demat, a fund folio or
@@ -512,7 +516,13 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
     const account = normalizeAccount(raw, raw?.holdings || []);
     let identityKind = "";
     if (identity) {
-      if ((identity.kind === "bo" || identity.kind === "demat")
+      // A folio is identity. It matches only an account that answers to that
+      // folio; ISIN overlap must not attach it to a different folio of the same
+      // AMC, so a non-match drops the account instead of falling through.
+      if (identity.kind === "folio") {
+        if (!account.folios.includes(normalizeFolio(identity.value))) continue;
+        identityKind = "folio";
+      } else if ((identity.kind === "bo" || identity.kind === "demat")
         && account.boId && boId(identity.value).boId === account.boId) identityKind = "BO ID";
       else if (identity.kind === "ucid" && account.ucid === identity.value) identityKind = "UCID";
       else if (identity.kind === "client" && account.clientId === identity.value) identityKind = "client ID";
@@ -523,12 +533,14 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
     if (!identityKind && !hits) continue;
     matches.push({
       id: account.id, label: account.label, identity: !!identityKind, identityKind,
+      amcMatch: !!wantedAmc && account.amc === wantedAmc,
       hits, of: wanted.length, isins: account.isins, brokerOnly: account.brokerOnly,
       boId: account.boId, clientId: account.clientId, ucid: account.ucid,
       account,
     });
   }
   matches.sort((a, b) => Number(b.identity) - Number(a.identity)
+    || Number(b.amcMatch) - Number(a.amcMatch)
     || b.hits - a.hits || a.label.localeCompare(b.label));
   const tie = matches.length > 1 && !matches[0].identity && !matches[1].identity
     && matches[0].hits === matches[1].hits;
