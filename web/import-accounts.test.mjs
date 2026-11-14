@@ -357,3 +357,112 @@ test("the list says what it holds and refreshes when Import opens", () => {
   assert.match(html, /No securities accounts yet/);
   assert.match(html, /bpImportAccountsLoad\?\.\(true\)/);
 });
+
+// --- one plan per resolved account ------------------------------------------
+
+test("the inbox groups resolved files into plans, not family bundles", () => {
+  const prepare = between("async function bpImportInboxPrepare", "function bpImportInboxEntryError");
+  assert.match(prepare, /state\.plans = bpImportPlans\(/,
+    "the prepare step regroups once resolution has run");
+  const plans = between("function bpImportPlans", "async function bpImportInboxPrepare");
+  assert.match(plans, /groupResolvedPlans\(/,
+    "the grouping key is the account each file resolved to");
+  assert.match(html, /function bpImportPlanForBundles\(/);
+});
+
+test("the inbox renders one card per plan and one confirmation per card", () => {
+  assert.match(html, /const plans = state\.plans \|\| \[\]/);
+  assert.match(html, /\$\{plans\.map\(bpImportPlanHtml\)\.join\(""\)\}/);
+  assert.equal(/bpImportApplyBundle/.test(html), false,
+    "the per-family-bundle confirmation is gone");
+  const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
+  assert.match(apply, /for \(const extra of plan\.extras\)/);
+  assert.match(apply, /bpImportApplyBroker\(/);
+});
+
+test("a plan checks every file before the head writer runs", () => {
+  const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
+  const guard = apply.indexOf("bpImportPlanBlockedReceipt(plan)");
+  const write = apply.indexOf("bpImportApplyCas(plan.head");
+  assert.ok(guard >= 0, "the plan has a blocked-file pre-flight");
+  assert.ok(write > guard, "the pre-flight runs before any writer");
+  assert.match(apply, /Nothing was written/);
+});
+
+test("a plan's extra receipt is planned after the head file's rows", () => {
+  const plans = between("function bpImportPlanForBundles", "function bpImportPlans");
+  assert.match(plans, /planImportChains\(\{/);
+  assert.match(plans, /extras/);
+});
+
+// --- a statement with movements stays its own card --------------------------
+
+test("the inbox locks a statement that records movements", () => {
+  const plans = between("function bpImportPlans", "async function bpImportInboxPrepare");
+  assert.match(plans, /locked:/,
+    "a statement with movements is locked out of a broker's plan");
+  assert.match(plans, /base\?\.parsed\?\.transactions/);
+  assert.match(html, /import it first to keep its cost on the disposal/);
+});
+
+test("the card shows every ask it can accept", () => {
+  const asks = between("function bpImportAskLines", "function bpImportPlanAskLines");
+  assert.doesNotMatch(asks, /\.slice\(/, "the head's ask list is not truncated");
+  const planAsks = between("function bpImportPlanAskLines", "function bpImportReceiptRole");
+  assert.doesNotMatch(planAsks, /\.slice\(/, "the extras' ask list is not truncated");
+});
+
+test("the card counts the net plan change, not the sum of its files", () => {
+  const items = between("function bpImportPlanItems", "function bpImportReceiptsHtml");
+  assert.match(items, /const net = plan\.net \|\| \{\}/);
+  assert.match(items, /net\.added/);
+  assert.match(items, /net\.updated/);
+  assert.match(items, /net\.history/);
+  assert.doesNotMatch(items, /summary\.added|summary\.updated|summary\.history/,
+    "the headline is the net, not the summed receipts");
+  assert.equal(/adds \$\{summary\.added\}|updates \$\{summary\.updated\}/.test(items), false,
+    "per-file lines do not repeat additive counts");
+});
+
+test("the card and the receipt count every account the plan writes", () => {
+  const plans = between("function bpImportPlanForBundles", "function bpImportPlans");
+  assert.match(plans, /statementAccounts\(head\.casTargets\)/);
+  assert.match(html, /plan\.accountCount > 1/);
+  const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
+  assert.match(apply, /plan\.accountCount > 1/);
+});
+
+test("a movement statement's card is gated on the broker that funds its disposal", () => {
+  const plans = between("function bpImportPlans", "async function bpImportInboxPrepare");
+  assert.match(plans, /movementGate\(\{/);
+  assert.match(plans, /plan\.gate = /);
+  assert.match(plans, /if \(plan\.gate\) plan\.ready = false/);
+  assert.match(plans, /eventPlan\?\.rows/, "the gate reads the disposal the writer will make");
+  assert.match(plans, /row\.disposed_at/);
+  assert.match(plans, /!target\.plan\?\.identityOnly/);
+  assert.match(plans, /accountId: target\.targetId/);
+  assert.match(html, /function bpImportPlanChanges/);
+  assert.match(html, /function bpImportPlanDateBlocked/);
+  assert.match(html, /Import the \$\{esc\(plan\.gate\.label\)\} report first/);
+  assert.match(html, /bpImportGoToPlan/);
+  const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
+  assert.match(apply, /if \(plan\.gate\)/);
+});
+
+test("the batch closes through the ready flag and reports the net", () => {
+  const render = between("function bpImportInboxRender", "async function bpImportInboxReadOne");
+  assert.match(render, /plans\.length > 0 && plans\.every\(\(plan\) => plan\.ready\)/);
+  const all = between("window.bpImportApplyAll = async", "window.bpImportUseWrongCas");
+  assert.doesNotMatch(all, /plan\.gate/,
+    "Import all is closed by the ready flag, not a gate special case");
+  assert.match(all, /plan\.net\?\.added/);
+  assert.match(all, /plan\.net\?\.updated/);
+  assert.match(all, /plan\.net\?\.history/);
+});
+
+test("a buy-only movement card says movements, not disposals", () => {
+  const plans = between("function bpImportPlanForBundles", "function bpImportPlans");
+  assert.match(plans, /hasDebit/);
+  assert.match(plans, /This statement records movements/);
+  assert.match(plans, /This statement records disposals/);
+});

@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
-  parseTradebookMatrix, groupBundles, accountMatches, planMerge, accountFieldState,
-  normalizeAccount } from "./import-flow.js";
+  parseTradebookMatrix, groupBundles, groupResolvedPlans, accountMatches, planMerge,
+  accountFieldState, normalizeAccount, mergeRowsFromPlan, planStateAfter,
+  planImportChains, movementGate, statementAccounts } from "./import-flow.js";
 import { casReplacePlan } from "./cas-apply.js";
 
 // Synthetic identifiers only. The real files are never committed.
@@ -1006,6 +1007,27 @@ test("an identical re-import of the broker's own key changes nothing", () => {
   }
 });
 
+test("a bond re-import does not count a maturity field the holding table cannot store", () => {
+  const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2028",
+    category: "bond", quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
+    value_paise: 100000, as_of: "2026-11-05", source: "motilal" };
+  const account = { id: "demat-1", label: "Demat", category: "demat", subtype: "equity",
+    number: "IN99990001344321", meta: JSON.stringify({ broker_only: "1",
+      identity_source: "motilal", identity_as_of: "2026-11-05",
+      holdings_source: "motilal", holdings_as_of: "2026-11-05",
+      cost_source: "motilal", cost_as_of: "2026-11-05", ucid: "TEST0001" }) };
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-05", rows: [{ isin: isin(1),
+      label: "9.00% TEST BOND 31 Dec 2028", category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] }),
+    existing: { ...accountFieldState(account, [row]), holdings: [row] },
+    today: "2026-11-15",
+  });
+  assert.equal(plan.summary.added + plan.summary.updated + plan.summary.history, 0);
+  assert.equal(plan.summary.kept, 1);
+  assert.equal(plan.summary.ask, 0);
+});
+
 test("a genuine alias still reports the stored key and the incoming key", () => {
   const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
     category: "bond", quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
@@ -1048,4 +1070,550 @@ test("a broker-only account has no CAS to reconcile against", () => {
   assert.equal(account.brokerOnly, true);
   assert.equal(account.ucid, "9990001");
   assert.equal(account.boId, "");
+});
+
+// --- one plan per resolved account ------------------------------------------
+
+const resolvedBundle = (key, family, accounts, over = {}) => ({
+  key, family, accounts, ...over,
+});
+const DEMAT_BO = "IN99990001344321";
+const FOLIO = "91062983856";
+
+test("a CAS and two broker files for one demat become one plan", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:cas", "cas", ["demat-1"]),
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+    resolvedBundle("zerodha:TEST500", "zerodha", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 1);
+  assert.deepEqual(plans[0].members,
+    ["cas:cas", "motilal:9990001", "zerodha:TEST500"]);
+  assert.deepEqual(plans[0].accounts, ["demat-1"]);
+  assert.equal(plans[0].family, "cas");
+});
+
+test("files that resolve to different accounts stay separate plans", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:cas", "cas", ["demat-1"]),
+    resolvedBundle("motilal:9990001", "motilal", ["demat-2"]),
+  ]);
+  assert.deepEqual(plans.map((plan) => plan.key), ["cas:cas", "motilal:9990001"]);
+  assert.deepEqual(plans.map((plan) => plan.accounts), [["demat-1"], ["demat-2"]]);
+});
+
+test("an unresolved file keeps its own plan and is never attached to a guess", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:cas", "cas", ["demat-1"]),
+    resolvedBundle("motilal:9990001", "motilal", []),
+    resolvedBundle("zerodha:TEST500", "zerodha", []),
+  ]);
+  assert.equal(plans.length, 3);
+  assert.deepEqual(plans[1].accounts, []);
+  assert.deepEqual(plans[2].accounts, []);
+  assert.notEqual(plans[1].key, plans[2].key);
+});
+
+test("a CAS folio stays a distinct account in the plan, not a broker's home", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:cas", "cas", ["demat-1", `mf:${FOLIO}`]),
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 1);
+  assert.deepEqual(plans[0].accounts, ["demat-1", `mf:${FOLIO}`]);
+  // The broker claims the demat only; the folio account is untouched by it.
+  assert.deepEqual(plans[0].members, ["cas:cas", "motilal:9990001"]);
+});
+
+test("a file that would join two unrelated plans does not merge them", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:a", "cas", ["demat-1"]),
+    resolvedBundle("cas:b", "cas", ["demat-2"]),
+    resolvedBundle("odd", "motilal", ["demat-1", "demat-2"]),
+  ]);
+  assert.equal(plans.length, 3);
+  assert.deepEqual(plans[0].accounts, ["demat-1"]);
+  assert.deepEqual(plans[1].accounts, ["demat-2"]);
+  assert.deepEqual(plans[2].accounts, ["demat-1", "demat-2"]);
+});
+
+test("an empty set has no plans, and plan order follows the file order", () => {
+  assert.deepEqual(groupResolvedPlans([]), []);
+  const plans = groupResolvedPlans([
+    resolvedBundle("first", "motilal", []),
+    resolvedBundle("second", "zerodha", ["demat-1"]),
+    resolvedBundle("third", "digifinn", ["demat-1"]),
+  ]);
+  assert.deepEqual(plans.map((plan) => plan.key), ["first", "second"]);
+  assert.deepEqual(plans[1].members, ["second", "third"]);
+});
+
+// --- planning one account's files in order ---------------------------------
+
+const planAccount = (over = {}) => ({
+  id: "demat-1", label: "Demat · Test · …4321", category: "demat", subtype: "equity",
+  number: DEMAT_BO, meta: JSON.stringify({ ucid: "TEST0001" }), ...over,
+});
+
+const casContribution = (over = {}) => ({
+  key: "cas", family: "cas", label: "CDSL CAS", asOf: "2026-11-14",
+  accountKey: DEMAT_BO, identity: { kind: "bo", value: DEMAT_BO },
+  rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
+    quantity: 10, valuePaise: 100000, costPaise: null }],
+  ...over,
+});
+
+const brokerContribution = (over = {}) => ({
+  key: "motilal", family: "motilal", label: "Motilal Oswal holdings report",
+  asOf: "2026-11-12", accountKey: "TEST0001",
+  identity: { kind: "ucid", value: "TEST0001" }, attributed: true,
+  rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
+    quantity: 10, valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }],
+  ...over,
+});
+
+test("the second file in a plan is planned against the first file's result", () => {
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account: planAccount(), holdings: [],
+      contributions: [casContribution(), brokerContribution()] }],
+    today: "2026-11-15",
+  });
+  assert.equal(composed.chains.length, 1);
+  const [cas, broker] = composed.chains[0].receipts;
+  assert.equal(cas.plan.summary.added, 1);
+  assert.equal(broker.plan.summary.added, 0, "the broker does not add a second row");
+  assert.equal(broker.plan.summary.updated, 1);
+  const cost = broker.plan.decisions[0].changes.find((change) => change.field === "cost");
+  assert.equal(cost.to, 200000);
+  const final = composed.chains[0].rows.find((row) => row.security_id === isin(1));
+  assert.equal(final.quantity, 10);
+  assert.equal(final.value_paise, 100000);
+  assert.equal(final.cost_paise, 200000);
+  assert.equal(final.purchase_date, "2024-06-06");
+});
+
+test("a stale broker beside a newer CAS in one plan fills cost without a question", () => {
+  const account = planAccount({ meta: JSON.stringify({
+    ucid: "TEST0001", holdings_source: "broker", holdings_as_of: "2026-11-12",
+    cost_source: "motilal", cost_as_of: "2026-10-01",
+  }) });
+  const holdings = [{ security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
+    category: "bond", quantity: 8, cost_paise: 150000, value_paise: null,
+    purchase_date: "", value_source: "Motilal Oswal holdings report",
+    as_of: "2026-11-12" }];
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account, holdings,
+      contributions: [casContribution({ rows: [{ isin: isin(1),
+        label: "9.00% TEST BOND 31 Dec 2026", category: "bond", quantity: 10,
+        valuePaise: 120000, costPaise: null }] }), brokerContribution()] }],
+    today: "2026-11-15",
+  });
+  const [cas, broker] = composed.chains[0].receipts;
+  assert.equal(cas.plan.summary.updated, 1);
+  assert.equal(cas.plan.summary.ask, 0);
+  assert.equal(broker.plan.summary.updated, 1);
+  assert.equal(broker.plan.summary.ask, 0, "an older broker is not a same-date question");
+  assert.equal(broker.plan.relation, "older");
+  const final = composed.chains[0].rows.find((row) => row.security_id === isin(1));
+  assert.equal(final.quantity, 10);
+  assert.equal(final.value_paise, 120000);
+  assert.equal(final.cost_paise, 200000);
+  assert.equal(composed.summary.ask, 0);
+});
+
+test("an unsafe file blocks the plan and names the file", () => {
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account: planAccount(), holdings: [],
+      contributions: [casContribution(),
+        brokerContribution({ asOf: "2027-01-01" })] }],
+    today: "2026-11-15",
+  });
+  assert.equal(composed.blocking, true);
+  assert.equal(composed.summary.ask, 0);
+  assert.match(composed.warnings.join(" "), /Motilal Oswal holdings report: .*future/i);
+  assert.match(composed.warnings.join(" "), /will not overwrite dated data|dated .* in the future/i);
+});
+
+test("an unresolved file plans alone, with no account to update", () => {
+  const composed = planImportChains({
+    chains: [{ accountId: "", account: null, holdings: [],
+      contributions: [brokerContribution({ key: "lonely" })] }],
+    today: "2026-11-15",
+  });
+  assert.equal(composed.chains[0].accountId, "");
+  assert.equal(composed.chains[0].receipts[0].plan.summary.added, 1);
+  assert.equal(composed.chains[0].plan, undefined);
+});
+
+test("the plan's rows match the CAS writer followed by the broker writer", () => {
+  const casRows = [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
+    kind: "bond", quantity: 10, valuePaise: 100000, costPaise: null }];
+  const parsed = { depository: "CDSL", demat: DEMAT_BO, asOf: "2026-11-14",
+    counts: { quarantined: 0 }, printedTotalPaise: null,
+    accounts: [{ boId: DEMAT_BO, dpName: "Test DP", holdings: casRows }],
+    holdings: casRows, transactions: [] };
+  const written = casReplacePlan({ parsed, existing: [], holdings: casRows,
+    asOf: "2026-11-14", events: [], assetId: "demat-1", accounts: [DEMAT_BO],
+    route: true });
+  assert.equal(written.ok, true);
+  const account = { category: "demat", subtype: "equity", number: DEMAT_BO,
+    meta: JSON.stringify({ holdings_source: "cas", holdings_as_of: "2026-11-14" }) };
+  const brokerPlan = planMerge({
+    incoming: { kind: "motilal", label: "Motilal Oswal holdings report",
+      asOf: "2026-11-12", identity: { kind: "ucid", value: "TEST0001" },
+      categories: ["bond"], rows: brokerContribution().rows },
+    existing: { ...accountFieldState(account, written.rows), holdings: written.rows },
+    today: "2026-11-15",
+  });
+  const finalRows = mergeRowsFromPlan(written.rows, brokerPlan,
+    { family: "motilal", label: "Motilal Oswal holdings report", asOf: "2026-11-12" });
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account, holdings: written.rows,
+      contributions: [brokerContribution({ attributed: false })] }],
+    today: "2026-11-15",
+  });
+  const stored = (row) => ({
+    security_id: row.security_id, quantity: row.quantity, cost_paise: row.cost_paise,
+    value_paise: row.value_paise, purchase_date: row.purchase_date, as_of: row.as_of,
+    value_source: row.value_source,
+  });
+  assert.deepEqual(composed.chains[0].rows.map(stored), finalRows.map(stored));
+});
+
+test("the first plan state carries the CAS snapshot into the next file", () => {
+  const before = accountFieldState(planAccount({
+    meta: JSON.stringify({ holdings_source: "broker", holdings_as_of: "2026-11-12" }) }),
+    [{ security_id: isin(1), as_of: "2026-11-12" }]);
+  const receipt = { incomingAsOf: "2026-11-14", summary: { added: 1 }, decisions: [],
+    identityChange: { action: "replace" } };
+  const after = planStateAfter({ ...before, holdings: [] }, receipt,
+    { family: "cas", asOf: "2026-11-14", accountKey: DEMAT_BO });
+  assert.deepEqual(after.snapshot, { source: "cas", asOf: "2026-11-14" });
+  assert.equal(after.identity.source, "cas");
+  assert.equal(after.identity.asOf, "2026-11-14");
+  assert.equal(after.cost.asOf, before.cost.asOf, "the CAS does not move the cost date");
+});
+
+test("a broker receipt only moves the cost date when it changed a cost", () => {
+  const state = { identity: { source: "cas", asOf: "2026-10-31", value: "" },
+    snapshot: { source: "cas", asOf: "2026-10-31" },
+    cost: { source: "motilal", asOf: "2026-10-01", manual: false },
+    manualAsOf: "", holdings: [] };
+  const noCost = planStateAfter(state, {
+    incomingAsOf: "2026-11-12", summary: { added: 0, updated: 1 },
+    decisions: [{ changes: [{ group: "snapshot", field: "quantity" }] }],
+  }, { family: "zerodha", asOf: "2026-11-12", accountKey: "TEST500" });
+  assert.deepEqual(noCost.cost, state.cost);
+  assert.deepEqual(noCost.snapshot, { source: "zerodha", asOf: "2026-11-12" });
+
+  const withCost = planStateAfter(state, {
+    incomingAsOf: "2026-11-12", summary: { added: 0, updated: 1 },
+    decisions: [{ changes: [{ group: "cost", field: "cost" }] }],
+  }, { family: "zerodha", asOf: "2026-11-12", accountKey: "TEST500" });
+  assert.deepEqual(withCost.cost, { source: "zerodha", asOf: "2026-11-12", manual: false });
+});
+
+// --- a statement with movements is not folded into a broker plan ------------
+
+test("a statement with movements keeps a broker for the same account separate", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 2);
+  assert.deepEqual(plans[0].members, ["cas:moved"]);
+  assert.deepEqual(plans[0].accounts, ["demat-1"]);
+  assert.deepEqual(plans[1].accounts, ["demat-1"]);
+});
+
+test("a locked statement does not claim its account from an earlier plan", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+  ]);
+  assert.equal(plans.length, 2);
+  assert.deepEqual(plans[1].members, ["cas:moved"]);
+});
+
+test("a locked statement does not stop two broker files grouping", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+    resolvedBundle("motilal:m", "motilal", ["demat-1"]),
+    resolvedBundle("zerodha:z", "zerodha", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 2);
+  assert.deepEqual(plans[1].members, ["motilal:m", "zerodha:z"]);
+});
+
+const SOLD_ISIN = other(2);
+const soldLabel = "8.00% SOLD BOND 31 Dec 2028";
+const saleParsed = {
+  asOf: "2026-10-31", counts: { quarantined: 0 }, printedTotalPaise: null,
+  holdings: [], accounts: [{ boId: DEMAT_BO, dpName: "Test DP", holdings: [] }],
+  transactions: [{ isin: SOLD_ISIN, security: "SOLD BOND", date: "2026-10-10",
+    type: "SALE", description: "SALE", quantity: 10, openingPaise: 100000,
+    creditPaise: 0, debitPaise: 100000, closingPaise: 0 }],
+};
+const soldAccount = (over = {}) => ({ id: "demat-1", label: "Demat", category: "demat",
+  subtype: "equity", number: DEMAT_BO, meta: JSON.stringify({ ucid: "TEST0001" }), ...over });
+
+test("a broker that names a bond the statement sold asks, so it cannot ride that plan's accept", () => {
+  const parsed = saleParsed;
+  const written = casReplacePlan({ parsed, existing: [{ security_id: SOLD_ISIN,
+    label: soldLabel, category: "bond", quantity: 10, cost_paise: null,
+    value_paise: 100000, as_of: "2026-09-30" }], holdings: parsed.holdings,
+    asOf: parsed.asOf, events: parsed.transactions, assetId: "demat-1",
+    accounts: [DEMAT_BO], route: true });
+  const sold = written.rows.find((row) => row.disposed_at);
+  assert.equal(sold.disposed_cost_paise, null);
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    identity_source: "cas", identity_as_of: "2026-10-31",
+    holdings_source: "cas", holdings_as_of: "2026-10-31" }) });
+  const broker = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, written.rows), holdings: written.rows },
+    today: "2026-11-15" });
+  assert.equal(broker.summary.ask, 1, "the broker names a bond the statement sold");
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 2, "the ask stays on its own card");
+});
+
+test("the card's ask about a sold row cannot carry the broker's ask about another", () => {
+  const recorded = other(1);
+  const alreadySold = { security_id: recorded,
+    label: "7.00% ALREADY SOLD BOND 31 Dec 2027", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 10, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", as_of: "2026-08-12" };
+  const liveB = { security_id: SOLD_ISIN, label: soldLabel, category: "bond",
+    quantity: 10, cost_paise: null, value_paise: 100000, as_of: "2026-09-30" };
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    holdings_source: "cas", holdings_as_of: "2026-08-12" }) });
+  const cas = planMerge({ incoming: { kind: "cas", label: "CDSL CAS",
+    asOf: "2026-10-31", identity: { kind: "bo", value: DEMAT_BO },
+    categories: ["bond"], rows: [{ isin: recorded,
+      label: "7.00% ALREADY SOLD BOND 31 Dec 2027", category: "bond",
+      quantity: 10, valuePaise: 100000, costPaise: null }] },
+    existing: { ...accountFieldState(account, [alreadySold, liveB]),
+      holdings: [alreadySold, liveB] },
+    today: "2026-11-15" });
+  assert.equal(cas.summary.ask, 1, "the statement contradicts the recorded sale");
+  const written = casReplacePlan({ parsed: saleParsed,
+    existing: [alreadySold, liveB], holdings: [], asOf: saleParsed.asOf,
+    events: saleParsed.transactions, assetId: "demat-1", accounts: [DEMAT_BO],
+    route: true });
+  const broker = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, written.rows), holdings: written.rows },
+    today: "2026-11-15" });
+  assert.equal(broker.summary.ask, 1, "the broker names the bond the statement sold");
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 2, "neither ask can be accepted from the other's card");
+  assert.deepEqual(plans[0].members, ["cas:moved"]);
+  assert.deepEqual(plans[1].members, ["motilal:9990001"]);
+});
+
+test("a broker imported before a full sale gives the disposal its cost", () => {
+  const parsed = saleParsed;
+  const live = { security_id: SOLD_ISIN, label: soldLabel, category: "bond",
+    quantity: 10, cost_paise: null, value_paise: 100000, as_of: "2026-09-30" };
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    holdings_source: "broker", holdings_as_of: "2026-09-30" }) });
+  const brokerPlan = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, [live]), holdings: [live] },
+    today: "2026-11-15" });
+  const funded = mergeRowsFromPlan([live], brokerPlan,
+    { family: "motilal", label: "Motilal Oswal holdings report", asOf: "2026-11-05" },
+    false);
+  assert.equal(funded[0].cost_paise, 200000, "the broker is the only source of cost");
+  const withCost = casReplacePlan({ parsed, existing: funded, holdings: parsed.holdings,
+    asOf: parsed.asOf, events: parsed.transactions, assetId: "demat-1",
+    accounts: [DEMAT_BO], route: true });
+  const withoutCost = casReplacePlan({ parsed, existing: [{ ...live }],
+    holdings: parsed.holdings, asOf: parsed.asOf, events: parsed.transactions,
+    assetId: "demat-1", accounts: [DEMAT_BO], route: true });
+  assert.equal(withCost.rows.find((row) => row.disposed_at).disposed_cost_paise, 200000);
+  assert.equal(withoutCost.rows.find((row) => row.disposed_at).disposed_cost_paise, null);
+});
+
+// --- the plan's net count, not the sum of its files ------------------------
+
+test("the plan's net count says one added holding, not an add and an update", () => {
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account: planAccount(), holdings: [],
+      contributions: [casContribution(), brokerContribution()] }],
+    today: "2026-11-15",
+  });
+  assert.equal(composed.net.added, 1);
+  assert.equal(composed.net.updated, 0);
+  assert.equal(composed.net.kept, 0);
+  assert.equal(composed.summary.added, 1, "the receipts still say what each file did");
+});
+
+test("a holding both files change counts once as updated", () => {
+  const account = planAccount({ meta: JSON.stringify({
+    ucid: "TEST0001", holdings_source: "broker", holdings_as_of: "2026-11-12",
+    cost_source: "motilal", cost_as_of: "2026-10-01",
+  }) });
+  const holdings = [{ security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
+    category: "bond", quantity: 8, cost_paise: 150000, value_paise: null,
+    purchase_date: "", value_source: "Motilal Oswal holdings report",
+    as_of: "2026-11-12" }];
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account, holdings,
+      contributions: [casContribution({ rows: [{ isin: isin(1),
+        label: "9.00% TEST BOND 31 Dec 2026", category: "bond", quantity: 10,
+        valuePaise: 120000, costPaise: null }] }), brokerContribution()] }],
+    today: "2026-11-15",
+  });
+  assert.equal(composed.net.added, 0);
+  assert.equal(composed.net.updated, 1);
+  assert.equal(composed.net.kept, 0);
+});
+
+test("a matured row moved to history is not also counted as updated", () => {
+  const account = planAccount({ meta: JSON.stringify({
+    ucid: "TEST0001", holdings_source: "broker", holdings_as_of: "2026-09-30",
+  }) });
+  const holdings = [{ security_id: other(7), label: "7.00% MATURE BOND 31 Aug 2026",
+    category: "bond", quantity: 5, cost_paise: 50000, value_paise: 50000,
+    as_of: "2026-09-30" }];
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account, holdings,
+      contributions: [brokerContribution({ rows: [] })] }],
+    today: "2026-11-15",
+  });
+  assert.equal(composed.net.history, 1);
+  assert.equal(composed.net.updated, 0);
+});
+
+// --- the broker-first gate -------------------------------------------------
+
+const gateBroker = (over = {}) => ({
+  key: "motilal:9990001", label: "Motilal", accountId: "demat-1",
+  changes: [{ isin: other(2), group: "cost", field: "cost" }], blocked: false, ...over,
+});
+
+test("a movement statement gates on the broker that funds a disposed ISIN", () => {
+  assert.deepEqual(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker()] }), { key: "motilal:9990001", label: "Motilal" });
+});
+
+test("a broker with nothing to write does not trap the statement", () => {
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ changes: [] })] }), null);
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ changes: [
+      { isin: other(2), group: "cost", field: "purchase" }] })] }), null);
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ changes: [
+      { isin: other(2), group: "snapshot", field: "quantity" }] })] }), null);
+});
+
+test("a broker on another account or another ISIN does not gate", () => {
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ accountId: "demat-2" })] }), null);
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ changes: [
+      { isin: other(9), group: "cost", field: "cost" }] })] }), null);
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [],
+    brokers: [gateBroker()] }), null);
+});
+
+test("a date-blocked broker does not gate, and a later broker still can", () => {
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ blocked: true })] }), null);
+  assert.deepEqual(movementGate({ accounts: ["demat-1"], disposed: [other(2)],
+    brokers: [gateBroker({ blocked: true }),
+      gateBroker({ key: "zerodha:z", label: "Zerodha" })] }),
+  { key: "zerodha:z", label: "Zerodha" });
+});
+
+test("a broker for another statement account does not fund this disposal", () => {
+  const disposed = [{ isin: other(2), accountId: "demat-1" }];
+  assert.equal(movementGate({ accounts: ["demat-1", "demat-2"], disposed,
+    brokers: [gateBroker({ accountId: "demat-2" })] }), null);
+  assert.deepEqual(movementGate({ accounts: ["demat-1", "demat-2"], disposed,
+    brokers: [gateBroker({ accountId: "demat-1" })] }),
+  { key: "motilal:9990001", label: "Motilal" });
+});
+
+test("the reviewer's pair gates the statement before the cost is lost", () => {
+  const live = { security_id: SOLD_ISIN, label: soldLabel, category: "bond",
+    quantity: 10, cost_paise: null, value_paise: 100000, as_of: "2026-09-30" };
+  const written = casReplacePlan({ parsed: saleParsed, existing: [live],
+    holdings: saleParsed.holdings, asOf: saleParsed.asOf,
+    events: saleParsed.transactions, assetId: "demat-1", accounts: [DEMAT_BO],
+    route: true });
+  const disposed = written.rows.filter((row) => row.disposed_at)
+    .map((row) => ({ isin: row.security_id || row.isin, accountId: "demat-1" }));
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    holdings_source: "cas", holdings_as_of: "2026-09-30" }) });
+  const broker = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, [live]), holdings: [live] },
+    today: "2026-11-15" });
+  const changes = broker.decisions.flatMap((decision) =>
+    (decision.changes || []).map((change) => ({ isin: decision.isin,
+      group: change.group, field: change.field })));
+  assert.deepEqual(movementGate({ accounts: ["demat-1"], disposed,
+    brokers: [{ key: "motilal:9990001", label: "Motilal", accountId: "demat-1",
+      changes }] }), { key: "motilal:9990001", label: "Motilal" });
+});
+
+test("the same pair with the cost already on file does not trap the statement", () => {
+  const live = { security_id: SOLD_ISIN, label: soldLabel, category: "bond",
+    quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
+    value_paise: 100000, as_of: "2026-09-30" };
+  const written = casReplacePlan({ parsed: saleParsed, existing: [live],
+    holdings: saleParsed.holdings, asOf: saleParsed.asOf,
+    events: saleParsed.transactions, assetId: "demat-1", accounts: [DEMAT_BO],
+    route: true });
+  const disposed = written.rows.filter((row) => row.disposed_at)
+    .map((row) => ({ isin: row.security_id || row.isin, accountId: "demat-1" }));
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    holdings_source: "broker", holdings_as_of: "2026-11-05",
+    cost_source: "motilal", cost_as_of: "2026-11-05" }) });
+  const broker = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, [live]), holdings: [live] },
+    today: "2026-11-15" });
+  assert.equal(broker.summary.added + broker.summary.updated
+    + broker.summary.history, 0, "the broker has nothing to write");
+  const changes = broker.decisions.flatMap((decision) =>
+    (decision.changes || []).map((change) => ({ isin: decision.isin,
+      group: change.group, field: change.field })));
+  assert.equal(movementGate({ accounts: ["demat-1"], disposed,
+    brokers: [{ key: "motilal:9990001", label: "Motilal", accountId: "demat-1",
+      changes }] }), null);
+});
+
+test("statement accounts count a shared resolved target once", () => {
+  assert.deepEqual(statementAccounts([{ targetId: "legacy" }, { targetId: "legacy" }]),
+    { resolved: ["legacy"], unresolved: 0, count: 1 });
+  assert.deepEqual(statementAccounts([{ targetId: "demat-1" }, { targetId: "" },
+    { targetId: "" }]), { resolved: ["demat-1"], unresolved: 2, count: 3 });
+  assert.deepEqual(statementAccounts([]), { resolved: [], unresolved: 0, count: 0 });
 });

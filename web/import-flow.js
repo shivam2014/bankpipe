@@ -448,6 +448,115 @@ export function groupBundles(files = []) {
     || String(a.accountKey || a.key).localeCompare(String(b.accountKey || b.key)));
 }
 
+/**
+ * One plan per resolved account, after resolution. Every bundle arrives with the
+ * account ids its files resolved to: a broker file names one account, a CAS names
+ * one per demat and per folio it carries. A bundle that shares an account with an
+ * earlier plan joins it, so a CAS and a broker report for one demat are one plan
+ * with one preview and one confirmation.
+ *
+ * A bundle that resolved to nothing keeps its own plan and is never attached to a
+ * guess. A bundle that would join two unrelated plans starts its own instead,
+ * because merging them would put two accounts into one confirmation. Callers pass
+ * CAS bundles first: one CAS can name several accounts, and it has to claim them
+ * before a broker file is grouped.
+ *
+ * A locked bundle never joins another plan and never claims its accounts for a
+ * later bundle. The page locks a statement that records movements, because the
+ * order that keeps a disposal's cost is the broker report first and the
+ * statement second, and one card would hide that order behind a single accept.
+ *
+ * @param {Array<{key: string, family?: string, accounts?: Array<string>,
+ *   locked?: boolean}>} bundles
+ * @returns {Array<{key: string, family: string, members: Array<string>,
+ *   accounts: Array<string>}>}
+ */
+export function groupResolvedPlans(bundles = []) {
+  const plans = [];
+  const byAccount = new Map();
+  for (const bundle of bundles || []) {
+    if (!bundle?.key) continue;
+    const accounts = [...new Set((bundle.accounts || []).filter(Boolean))];
+    const locked = !!bundle.locked;
+    const homes = locked ? []
+      : [...new Set(accounts.map((id) => byAccount.get(id)).filter(Boolean))];
+    if (homes.length === 1) {
+      const plan = homes[0];
+      plan.members.push(bundle.key);
+      for (const id of accounts) {
+        if (byAccount.has(id)) continue;
+        byAccount.set(id, plan);
+        plan.accounts.push(id);
+      }
+      continue;
+    }
+    const plan = { key: bundle.key, family: bundle.family || "",
+      members: [bundle.key], accounts };
+    plans.push(plan);
+    if (locked) continue;
+    for (const id of accounts) if (!byAccount.has(id)) byAccount.set(id, plan);
+  }
+  return plans;
+}
+
+/**
+ * The accounts a statement's targets will write: one per distinct resolved id,
+ * plus one for each target that has no account yet. Two BO IDs that both
+ * resolve to one legacy account are one account, not two.
+ * @param {Array<{targetId?: string}>} targets
+ * @returns {{resolved: Array<string>, unresolved: number, count: number}}
+ */
+export function statementAccounts(targets = []) {
+  const resolved = [];
+  let unresolved = 0;
+  for (const target of targets || []) {
+    const id = String(target?.targetId || "");
+    if (!id) { unresolved += 1; continue; }
+    if (!resolved.includes(id)) resolved.push(id);
+  }
+  return { resolved, unresolved, count: resolved.length + unresolved };
+}
+
+/**
+ * The broker-first gate for a statement that disposes a security. It returns the
+ * staged broker plan that would put a cost on one of the disposed ISINs, or null
+ * when no broker would change that cost.
+ *
+ * A disposal can name its account. A broker only funds a disposal on its own
+ * account. A broker with nothing to write, another account, another ISIN, a
+ * purchase or maturity change, or a date it cannot pass does not gate. The
+ * narrow condition is what keeps the statement from being trapped behind a card
+ * that cannot be applied; an ask is not a block, because the person can answer
+ * it.
+ *
+ * @param {{accounts?: Array<string>, disposed?: Array<string|{isin?: string,
+ *   accountId?: string}>, brokers?: Array<{key: string, label?: string,
+ *   accountId?: string, blocked?: boolean, changes?: Array<{isin?: string,
+ *   group?: string, field?: string}>}>}} input
+ * @returns {{key: string, label: string}|null}
+ */
+export function movementGate({ accounts = [], disposed = [], brokers = [] } = {}) {
+  const owned = new Set((accounts || []).map((id) => String(id || "")).filter(Boolean));
+  const needs = (disposed || []).map((item) => (typeof item === "string"
+    ? { isin: String(item || "").toUpperCase(), accountId: "" }
+    : { isin: String(item?.isin || "").toUpperCase(),
+        accountId: String(item?.accountId || "") }))
+    .filter((item) => item.isin
+      && (!owned.size || !item.accountId || owned.has(item.accountId)));
+  if (!needs.length) return null;
+  for (const broker of brokers || []) {
+    if (!broker || broker.blocked) continue;
+    const accountId = String(broker.accountId || "");
+    const funds = needs.some((need) =>
+      (need.accountId ? need.accountId === accountId : owned.has(accountId))
+      && (broker.changes || []).some((change) =>
+        String(change?.isin || "").toUpperCase() === need.isin
+        && change?.group === "cost" && change?.field === "cost"));
+    if (funds) return { key: broker.key, label: broker.label || "broker report" };
+  }
+  return null;
+}
+
 // --- accounts ---------------------------------------------------------------
 
 function safeMeta(account) {
@@ -662,7 +771,10 @@ function normalizeHolding(row) {
     valueSource: String(row.valueSource ?? row.value_source ?? ""),
     couponPct: asNumber(row.couponPct),
     frequency: text(row.frequency),
-    maturity: parseDate(row.maturity ?? ""),
+    // A stored holding has no maturity column: the label carries it. Derive it
+    // for the old row too, or every re-import sees a maturity it cannot store
+    // as a new field and rewrites the same rows.
+    maturity: parseDate(row.maturity ?? row.maturity_date ?? "") || bondMaturity(row).maturity,
     interestDate: parseDate(row.interestDate ?? row.interest_date ?? ""),
     payoutPaise: asMoney(row.payoutPaise ?? row.payout_paise),
     futureInterestPaise: asMoney(row.futureInterestPaise ?? row.future_interest_paise),
@@ -1170,4 +1282,260 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
     warnings, flags,
     blocking: incomingState.state === "invalid" || incomingState.state === "future" || ask > 0,
   };
+}
+
+// --- one account's files, in write order ------------------------------------
+
+/** One holding row as it is stored, from one merge decision. */
+function importHoldingRow(next, source = {}, manual) {
+  const category = next.category || "bond";
+  const cost = next.costPaise ?? (manual?.cost_paise ?? null);
+  const purchase = next.purchaseDate || manual?.purchase_date || "";
+  return {
+    security_id: next.isin || next.security_id || "",
+    label: next.label || "",
+    issuer: next.issuer || "",
+    category,
+    rating: next.rating || "",
+    frequency: next.frequency || "",
+    yield_bps: next.yieldPct !== null && next.yieldPct !== undefined
+      ? Math.round(Number(next.yieldPct) * 100) : (next.yield_bps ?? null),
+    payout_paise: next.payoutPaise ?? next.payout_paise ?? null,
+    quantity: next.quantity ?? null,
+    cost_paise: cost,
+    value_paise: next.valuePaise ?? next.value_paise ?? null,
+    face_paise: next.facePaise ?? next.face_paise ?? null,
+    purchase_date: purchase,
+    interest_date: next.interestDate || next.interest_date || "",
+    future_interest_paise: next.futureInterestPaise ?? next.future_interest_paise ?? null,
+    future_principal_paise: next.futurePrincipalPaise ?? next.future_principal_paise ?? null,
+    principal_dates: next.principal_dates || "",
+    redemption_dates: next.redemption_dates || "",
+    value_source: next.valueSource || next.value_source
+      || (source.family === "cas" ? "CAS" : (source.label || source.family || "")),
+    returned_paise: next.returned_paise ?? null,
+    returned_at: next.returned_at || "",
+    returned_record_date: next.returned_record_date || "",
+    returned_source: next.returned_source || "",
+    disposed_at: next.disposed_at || "",
+    disposed_quantity: next.disposed_quantity ?? null,
+    disposed_type: next.disposed_type || "",
+    disposed_source: next.disposed_source || "",
+    disposed_reason: next.disposed_reason || "",
+    disposed_cost_paise: next.disposed_cost_paise ?? null,
+    txn_key: next.txn_key || "",
+    source_row: next.sourceRow || next.source_row || 0,
+    as_of: next.asOf || source.asOf || "",
+    rating_at_purchase: next.rating_at_purchase || "",
+  };
+}
+
+/**
+ * The rows a merge plan writes, without touching the store. This is the broker
+ * writer's row builder and the preview's projection of it, so one function
+ * answers both "what will the page show" and "what will it store".
+ *
+ * A row with no decision is kept. A disposal record is history and always
+ * survives. An ask the person has not accepted keeps the row already on file.
+ * @param {Array<object>} holdings
+ * @param {object} plan a planMerge result
+ * @param {{family?: string, label?: string, asOf?: string}} source
+ * @param {boolean} acceptAsk
+ * @returns {Array<object>}
+ */
+export function mergeRowsFromPlan(holdings, plan, source = {}, acceptAsk = false) {
+  const decisions = new Map(((plan?.decisions) || []).map((decision) =>
+    [String(decision.isin || "").toUpperCase(), decision]));
+  const manual = new Map((holdings || []).filter((holding) => holding.source === "manual"
+    && holding.security_id).map((holding) =>
+    [String(holding.security_id).toUpperCase(), holding]));
+  const out = [];
+  const seen = new Set();
+  const push = (row) => {
+    const key = [row.security_id, row.label, row.quantity, row.purchase_date, row.as_of].join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(row);
+  };
+  for (const holding of holdings || []) {
+    if (holding.source === "manual") continue;
+    if (holding.disposed_at) { push(holding); continue; }
+    const key = String(holding.security_id || "").toUpperCase();
+    const decision = decisions.get(key);
+    if (!decision || decision.action === "keep" || decision.action === "skip"
+      || decision.action === "manual") {
+      push(holding);
+      continue;
+    }
+    if (decision.action === "ask" && !acceptAsk) { push(holding); continue; }
+    push(importHoldingRow(decision.next, source, manual.get(key)));
+  }
+  for (const decision of plan?.decisions || []) {
+    if (decision.action === "add"
+      || (decision.action === "ask" && acceptAsk
+        && (decision.flags || []).includes("sold-conflict"))) {
+      push(importHoldingRow(decision.next, source,
+        manual.get(String(decision.isin || "").toUpperCase())));
+    }
+    if (decision.action === "history" && !decision.existing) {
+      push(importHoldingRow(decision.next, source,
+        manual.get(String(decision.isin || "").toUpperCase())));
+    }
+  }
+  return out;
+}
+
+/**
+ * The field state one receipt leaves for the next file in the same plan. It is
+ * the page's account metadata update, without the write: a CAS owns the snapshot
+ * and the identity; a broker owns the snapshot only when it changed one, and the
+ * cost only when it changed one. The next file's date and source rules read this,
+ * so a broker older than the CAS that came first is not a same-date question.
+ */
+export function planStateAfter(state = {}, receipt = null, source = {}) {
+  const family = String(source.family || "");
+  const asOf = String(source.asOf || receipt?.incomingAsOf || "");
+  const cas = family === "cas";
+  const next = {
+    identity: { ...(state.identity || {}) },
+    snapshot: { ...(state.snapshot || {}) },
+    cost: { ...(state.cost || {}) },
+    manualAsOf: state.manualAsOf || "",
+    holdings: state.holdings || [],
+  };
+  const changes = (receipt?.decisions || []).flatMap((decision) => decision.changes || []);
+  const snapshotChanged = cas || !next.snapshot.asOf
+    || (receipt?.summary?.added || 0) > 0
+    || (receipt?.summary?.history || 0) > 0
+    || changes.some((change) => change.group === "snapshot");
+  // The CAS writer records the snapshot and the identity, never a cost source.
+  // A maturity or coupon it fills is a field, not a claim on the broker's cost.
+  const costChanged = !cas && changes.some((change) => change.group === "cost");
+  if (snapshotChanged) next.snapshot = { source: cas ? "cas" : family, asOf };
+  if (costChanged) next.cost = { ...next.cost, source: family, asOf };
+  if (cas) {
+    next.identity = { source: "cas", asOf: asOf || next.identity.asOf || "",
+      value: source.accountKey || next.identity.value || "" };
+  } else if (source.accountKey
+    && (!next.identity.source || next.identity.source === family)) {
+    next.identity = { source: family, asOf: asOf || next.identity.asOf || "",
+      value: source.accountKey };
+  }
+  return next;
+}
+
+const EMPTY_FIELD_STATE = {
+  identity: { source: "", asOf: "", value: "" },
+  snapshot: { source: "", asOf: "" },
+  cost: { source: "", asOf: "", manual: false },
+  manualAsOf: "",
+  holdings: [],
+};
+
+function aggregateReceipts(receipts) {
+  const summary = { added: 0, updated: 0, kept: 0, ask: 0, flagged: 0,
+    skipped: 0, manualOnly: 0, history: 0 };
+  const warnings = [];
+  let blocking = false;
+  for (const receipt of receipts || []) {
+    const plan = receipt?.plan || {};
+    blocking = blocking || !!plan.blocking;
+    for (const key of Object.keys(summary)) summary[key] += plan.summary?.[key] || 0;
+    for (const warning of plan.warnings || []) {
+      warnings.push(receipt.attributed ? `${receipt.label}: ${warning}` : warning);
+    }
+  }
+  return { summary, warnings: [...new Set(warnings)], blocking };
+}
+
+const NET_FIELDS = ["label", "category", "quantity", "cost_paise", "value_paise",
+  "face_paise", "purchase_date", "interest_date", "frequency", "yield_bps",
+  "payout_paise", "future_interest_paise", "future_principal_paise", "value_source",
+  "as_of", "disposed_at", "disposed_quantity", "disposed_type", "disposed_source",
+  "disposed_reason", "disposed_cost_paise", "txn_key"];
+
+const holdingKey = (row) => String(row?.security_id || row?.isin || "").toUpperCase()
+  || `label:${norm(row?.label || "")}`;
+
+/**
+ * What one plan changes in one account, read from the rows before and after.
+ * The receipts say what each file did, and a row that one file adds and another
+ * fills cost on is one added holding, not an add plus an update. A matured row
+ * moved to zero is history, not an update.
+ */
+function netChange(before = [], after = []) {
+  const old = new Map((before || []).map((row) => [holdingKey(row), row]));
+  const seen = new Set();
+  const net = { added: 0, updated: 0, kept: 0, history: 0, removed: 0 };
+  for (const row of after || []) {
+    const key = holdingKey(row);
+    seen.add(key);
+    const prior = old.get(key);
+    const matured = Number(row.quantity) === 0 && !row.disposed_at
+      && (!prior || Number(prior.quantity) > 0);
+    if (!prior) {
+      if (matured) net.history += 1;
+      else net.added += 1;
+      continue;
+    }
+    if (matured) {
+      net.history += 1;
+      continue;
+    }
+    if (fieldsWouldChange(prior, row, NET_FIELDS).length) net.updated += 1;
+    else net.kept += 1;
+  }
+  for (const key of old.keys()) if (!seen.has(key)) net.removed += 1;
+  return net;
+}
+
+/**
+ * One account's files, planned in the order they will be written. Each receipt
+ * is planned against the state the previous receipt leaves, so a broker that
+ * follows a CAS sees the CAS rows and fills their cost instead of adding them a
+ * second time. A CAS target arrives with its receipt already built by the
+ * resolver; the chain only projects its rows forward.
+ *
+ * @param {{chains?: Array<{accountId?: string, account?: object|null,
+ *   holdings?: Array<object>, contributions?: Array<object>}>,
+ *   today?: string, acceptAsk?: boolean}} input
+ * @returns {{chains: Array<object>, net: object, summary: object,
+ *   warnings: Array<string>, blocking: boolean}}
+ */
+export function planImportChains({ chains = [], today = isoToday(), acceptAsk = false } = {}) {
+  const out = (chains || []).map((chain) => {
+    let state = chain.account
+      ? { ...accountFieldState(chain.account, chain.holdings || []),
+          holdings: chain.holdings || [] }
+      : { ...EMPTY_FIELD_STATE, identity: { ...EMPTY_FIELD_STATE.identity },
+          snapshot: { ...EMPTY_FIELD_STATE.snapshot }, cost: { ...EMPTY_FIELD_STATE.cost } };
+    const receipts = [];
+    for (const contribution of chain.contributions || []) {
+      const plan = contribution.plan || planMerge({
+        incoming: {
+          kind: contribution.family || "",
+          label: contribution.label || "",
+          asOf: contribution.asOf || "",
+          identity: contribution.identity || null,
+          categories: [...new Set((contribution.rows || [])
+            .map((row) => row.category).filter(Boolean))],
+          rows: contribution.rows || [],
+        },
+        existing: state,
+        today,
+      });
+      const rows = mergeRowsFromPlan(state.holdings || [], plan, contribution, acceptAsk);
+      receipts.push({ ...contribution, plan, rows });
+      state = planStateAfter({ ...state, holdings: rows }, plan, contribution);
+    }
+    return { accountId: chain.accountId || "", account: chain.account || null,
+      receipts, rows: state.holdings || [], net: netChange(chain.holdings || [], state.holdings || []),
+      ...aggregateReceipts(receipts) };
+  });
+  const net = out.reduce((total, chain) => {
+    for (const key of Object.keys(total)) total[key] += chain.net[key] || 0;
+    return total;
+  }, { added: 0, updated: 0, kept: 0, history: 0, removed: 0 });
+  return { chains: out, net,
+    ...aggregateReceipts(out.flatMap((chain) => chain.receipts)) };
 }
