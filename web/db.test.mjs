@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { makeStore, showDeleteAll, verifySealedDb } from "./db.js";
 import { sealBytes } from "./dbatrest.js";
-import { applyCasEvents, casEventKey } from "./cas-apply.js";
+import { applyCasEvents, casApplyRows, casEventKey } from "./cas-apply.js";
 
 const require = createRequire(import.meta.url);
 const initSqlJs = require("./vendor/sql-wasm.js");
@@ -339,6 +339,21 @@ test("a replaced manual lot keeps its manual source", async () => {
   assert.equal(live.quantity, 60);
   assert.equal(live.source, "manual");
   assert.equal(rows.filter((row) => row.disposed_at).length, 1);
+});
+
+test("a CAS plan carries a manual holding's source through replaceHoldings", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "cas-manual", label: "Demat", category: "demat" });
+  store.upsertHolding("cas-manual", { security_id: "INE000000001",
+    label: "10.00% MANUAL 31 DEC 2030", quantity: 100, cost_paise: 100000 });
+  const before = store.listHoldings("cas-manual");
+  assert.equal(before[0].source, "manual");
+  const plan = casApplyRows({ existing: before, asOf: "2026-08-31",
+    holdings: [{ isin: "INE000000001", label: "MANUAL BOND", kind: "bond",
+      quantity: 100, valuePaise: 1000000, couponPct: 10, maturity: "2030-12-31" }] });
+  store.replaceHoldings("cas-manual", plan.rows, "2026-08-31");
+  assert.equal(store.listHoldings("cas-manual")[0].source, "manual");
 });
 
 test("holdings replace as a snapshot, not append", async () => {

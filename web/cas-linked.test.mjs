@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyCasEventsToPortfolio, casEventKey, linkedCostPortfolios,
+import { applyCasEvents, applyCasEventsToPortfolio, casEventKey, linkedCostPortfolios,
   planLinkedSales } from "./cas-apply.js";
 
 const ISIN = "INE000000031";
 const sale = (over = {}) => ({ isin: ISIN, date: "2026-08-12", type: "SALE",
-  description: "SALE", side: "debit", kind: "sale", quantity: 60, ...over });
+  description: "SALE", side: "debit", kind: "sale", quantity: 60,
+  openingPaise: 10000, creditPaise: 0, debitPaise: 6000, closingPaise: 4000, ...over });
 const lot = (over = {}) => ({ security_id: ISIN, label: "TEST BOND", category: "bond",
   quantity: 50, cost_paise: 50000, purchase_date: "2024-01-01",
   as_of: "2026-07-31", value_paise: 500000, ...over });
@@ -152,7 +153,7 @@ test("no linked cost portfolio is not an error", () => {
   assert.deepEqual(linked.reconciliations, []);
 });
 
-test("a partial sale scales the live lot's value and face", () => {
+test("a partial sale scales the live lot's value but not its per-unit face", () => {
   const rows = [lot({ quantity: 100, cost_paise: 110000, value_paise: 1000000,
     face_paise: 10000000 })];
   const plan = applyCasEventsToPortfolio(rows, [sale({ quantity: 60 })],
@@ -161,7 +162,7 @@ test("a partial sale scales the live lot's value and face", () => {
   assert.equal(live.quantity, 40);
   assert.equal(live.cost_paise, 44000);
   assert.equal(live.value_paise, 400000);
-  assert.equal(live.face_paise, 4000000);
+  assert.equal(live.face_paise, 10000000);
 });
 
 test("a cost basis that differs from the demat row is surfaced, not overwritten", () => {
@@ -213,4 +214,26 @@ test("a null live demat cost takes the linked portfolio's remaining cost", () =>
   assert.equal(soldRow.disposed_cost_paise, 66000);
   assert.equal(liveRow.cost_paise, 44000);
   assert.deepEqual(linked.warnings, []);
+});
+
+test("a balance-bearing sale reconciles to the linked sold row and only once", () => {
+  const event = sale({ quantity: 60, openingPaise: 10000, debitPaise: 6000,
+    closingPaise: 4000 });
+  const demat = applyCasEvents([{ security_id: ISIN, label: "TEST BOND",
+    category: "bond", quantity: 100, cost_paise: 120000, value_paise: 100000,
+    as_of: "2026-07-31" }], [event], { asOf: "2026-08-31", assetId: "demat-a" });
+  const dematPlan = { ...demat, events: demat.applied };
+  assert.equal(casEventKey(demat.applied[0], "demat-a"), demat.sold[0].txn_key);
+  const portfolio = { id: "cost-a", label: "Cost portfolio A", category: "bonds" };
+  const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+  const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
+    asOf: "2026-08-31", portfolios: [{ account: portfolio, rows }] });
+  assert.equal(demat.sold[0].disposed_cost_paise, 66000);
+  assert.equal(linked.portfolios[0].plan.sold.length, 1);
+  assert.equal(linked.reconciliations.length, 1);
+  const again = planLinkedSales({ dematPlan: { ...dematPlan, events: dematPlan.events },
+    dematAssetId: "demat-a", asOf: "2026-08-31",
+    portfolios: [{ account: portfolio, rows: linked.portfolios[0].plan.rows }] });
+  assert.equal(again.portfolios[0].plan.sold.length, 0);
+  assert.equal(again.portfolios[0].plan.applied[0].status, "already");
 });

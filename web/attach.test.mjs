@@ -411,3 +411,13 @@ test("a newer snapshot names a position it drops as sold", () => {
   });
   assert.deepEqual(out.sold, [{ isin: "INE2", from: 5, to: 0, quantity: 5 }]);
 });
+
+test("a newer snapshot keeps a manual row's source", () => {
+  const out = planSnapshot({
+    positions: [held("INE1", 100, { source: "manual" })],
+    rows: [snap("INE1", 80)],
+    fileAsOf: "2026-11-09",
+    statementAsOf: "2026-09-30",
+  });
+  assert.equal(out.rows[0].source, "manual");
+});

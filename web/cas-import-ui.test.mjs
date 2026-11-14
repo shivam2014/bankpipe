@@ -18,6 +18,13 @@ test("a movement named by its own account receives the disposal without holdings
   assert.match(html, /const movementBos = new Set/);
   assert.match(html, /const movementHome = movementBos\.has\(accountBo\)/);
   assert.match(html, /movementHome\s*\n?\s*\|\| held\.some/);
+  // Only a demat target, so a cost-only portfolio never receives movements.
+  assert.match(html, /String\(account\.category \|\| ""\) !== "demat"/);
+});
+
+test("a movement BO absent from the holdings table still passes its account", () => {
+  assert.match(html, /const movementBos = new Set\(\(cas\.transactions/);
+  assert.match(html, /if \(!boIdsOf\.get\(account\.id\)\.includes\(accountBo\)\)/);
 });
 
 test("a trade-only statement with no account is not reported ready", () => {
@@ -39,9 +46,28 @@ test("the CAS preview lists a sold row with its cost", () => {
 
 test("a movement-only card keeps its manual target and says it has no account", () => {
   assert.match(html, /const movementLines = /);
-  assert.match(html, /const noHome = movementLines\.length/);
+  assert.match(html, /const noHome = !hasTarget/);
   assert.match(html, /No account for these\s+movements yet/);
-  assert.match(html, /const manual = \(!route\.demat \|\| !routeHomed\)/);
+  assert.match(html, /const manual = \(!route\.demat \|\| !routeHomed\) && manualTargets\.length/);
+});
+
+test("the card requires a homed route or a manual target before Import", () => {
+  assert.match(html, /\(!!route\.demat && routeHomed\) \|\| \(!!manual && manualTargets\.length > 0\)/);
+  assert.match(html, /manualTarget: !!manualTargetId && manualTargetId === assetId/);
+  assert.match(html, /onchange="bpCasManualPreview\('\$\{hostId\}', this\.value\)"/);
+  assert.match(html, /manualTarget: true \}\);/);
+});
+
+test("the preview and the writer share the closed-holding rule", () => {
+  assert.match(html, /import \{ casClosedRow, /);
+  assert.equal(/function casClosedRow\(/.test(html), false);
+  assert.match(html, /casClosedRow\(h, importDay\)/);
+  assert.match(html, /casClosedRow\(h, cardImportDay\)/);
+});
+
+test("an identity-only target contributes no rows to the write", () => {
+  assert.match(html, /casImportHoldings\(\{ parsed, targets \}\)/);
+  assert.match(html, /accounts: scoped\.accounts/);
 });
 
 test("a holdings file and a bond CSV keep the sold rows on file", () => {

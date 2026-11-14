@@ -1371,8 +1371,8 @@ import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
   reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
-import { casHoldingLabel, casReplacePlan, casSafety, linkedCostPortfolios,
-  planLinkedSales } from "./cas-apply.js";
+import { casClosedRow, casHoldingLabel, casImportHoldings, casReplacePlan,
+  casSafety, linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
 import { casSoldLines, soldHoldingsHtml, splitHoldings } from "./sold-view.js";
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
@@ -8760,17 +8760,11 @@ async function bpImportApplyCas(bundle, opts = {}) {
   }
   const parsed = bundle.base?.parsed;
   if (!parsed) throw new Error("The statement is no longer in memory. Choose it again.");
-  // A row the plan skipped (an older CAS cannot add a live row) is not written.
-  const importIsins = new Set();
-  for (const target of importTargets) {
-    for (const decision of target.plan?.decisions || []) {
-      if (decision.action === "skip") continue;
-      const isin = String(decision.isin || "").toUpperCase();
-      if (isin) importIsins.add(isin);
-    }
-  }
-  const holdings = (parsed.holdings || []).filter((holding) =>
-    importIsins.has(String(holding.isin || "").toUpperCase())).map((holding) => {
+  // A row the plan skipped (an older CAS cannot add a live row) is not written,
+  // and an identity-only account contributes no rows at all. The scoping is per
+  // target, not one global ISIN set.
+  const scoped = casImportHoldings({ parsed, targets });
+  const holdings = scoped.holdings.map((holding) => {
     if (holding.costPaise === null || holding.costPaise === undefined) return holding;
     const target = importTargets.find((item) => item.boId === (holding.account || ""));
     const decision = target?.plan?.decisions?.find((item) =>
@@ -8781,11 +8775,7 @@ async function bpImportApplyCas(bundle, opts = {}) {
   });
   const cas = {
     ...parsed,
-    accounts: (parsed.accounts || [])
-      .map((account) => ({ ...account,
-        holdings: (account.holdings || []).filter((holding) =>
-          importIsins.has(String(holding.isin || "").toUpperCase())) }))
-      .filter((account) => account.holdings.length),
+    accounts: scoped.accounts,
     holdings,
   };
   const accounts = await store.listAccounts();
@@ -9081,9 +9071,12 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     // One tick per account: a demat (BO ID) or a folio account (AMC). Rows are
     // never ticked on their own, so every imported account still equals the
     // total the statement printed for it.
+    // The writer drops a closed position (and keeps a matured one). The preview
+    // counts and plans the same rows so a zero row is never shown as written.
+    const cardImportDay = new Date().toISOString().slice(0, 10);
     const dematRowsOf = (bo) => cas.holdings
       .filter((h) => String(h.account || "") === String(bo || "")
-        && !(h.kind === "mf" && h.folio));
+        && !(h.kind === "mf" && h.folio) && !casClosedRow(h, cardImportDay));
     const units = (route.accounts || []).map((a) => {
       const mine = dematRowsOf(a.boId);
       return {
@@ -9156,7 +9149,8 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         const amc = String(group.amc || "").toLowerCase();
         if (cardState.picked && !cardState.picked.has(`mf:${amc}`)) continue;
         const holdings = cas.holdings.filter((holding) => holding.kind === "mf"
-          && holding.folio && String(holding.amc || "").toLowerCase() === amc);
+          && holding.folio && String(holding.amc || "").toLowerCase() === amc
+          && !casClosedRow(holding, cardImportDay));
         const plan = casReplacePlan({ parsed: cas,
           existing: group.assetId ? rowsOf(group.assetId) : [], holdings,
           events: cas.transactions, assetId: group.assetId || `mf:${amc}`,
@@ -9199,24 +9193,28 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const newAccounts = [...new Set(route.homeless
       .filter((g) => picked.has(unitKey(g)))
       .map((g) => unitKey(g)))];
-    const targets = assets.filter((a) => ["demat", "bonds"].includes(categoryOf(a)));
+    // A manual target takes quantity movements, so it must be a demat. A cost
+    // portfolio is only ever reached through planLinkedSales.
+    const manualTargets = assets.filter((a) => categoryOf(a) === "demat");
     const createHint = "";
     const routeHomed = (route.accounts || []).some((account) => account.assetId);
-    const manual = (!route.demat || !routeHomed) && targets.length
+    const manual = (!route.demat || !routeHomed) && manualTargets.length
       ? `<label class="field" style="margin-top:10px">${
         route.demat ? "No matching account on file." : "No account number in this PDF."} Write all
         of it into
-        <select id="cas-target-${hostId}">${targets.map((a) => `<option value="${esc(a.id)}">${
-          esc(a.label || a.id)}</option>`).join("")}</select></label>`
+        <select id="cas-target-${hostId}"
+          onchange="bpCasManualPreview('${hostId}', this.value)">${manualTargets.map((a) =>
+          `<option value="${esc(a.id)}">${esc(a.label || a.id)}</option>`).join("")}</select></label>`
       : "";
     const hasSales = salePlans.some((plan) => (plan.events || []).some((event) =>
       event.side === "debit" && event.status !== "already"))
       || linkedLines.length > 0 || movementLines.length > 0;
-    const hasTarget = units.some((u) => picked.has(u.key)) || !!route.demat
-      || (!!manual && targets.length > 0);
+    const hasTarget = units.some((u) => picked.has(u.key))
+      || (!!route.demat && routeHomed) || (!!manual && manualTargets.length > 0);
     const canImport = (units.some((u) => picked.has(u.key)) || hasSales)
       && hasTarget && !safety.blocked;
-    const noHome = movementLines.length > 0 && !units.length && !targets.length;
+    const noHome = !hasTarget
+      && (movementLines.length > 0 || (!!route.demat && !routeHomed));
     const nothing = !units.length && !saleLines.length;
     const shapeText = casShapeText(casShape(pdf, cas));
     // A statement that produced no value at all did not parse: say so and give a
@@ -9254,7 +9252,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         movements yet.</b><div class="muted">This statement has no holdings table and names no
         account on file. Add the demat account, then import it again.</div></div>` : ""}
       ${unitRows}
-      ${casSaleHtml(saleLines, saleConflicts, saleWarnings)}
+      <div id="cas-sold-${hostId}">${casSaleHtml(saleLines, saleConflicts, saleWarnings)}</div>
       ${missing && !canImport ? `<div class="muted" style="font-size:12px;margin-top:6px;${
         route.demat ? "" : "color:var(--red)"}">${route.demat
         ? (route.groups.length
@@ -10517,6 +10515,23 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
   }
 };
 window.bpConsolidateBonds = async () => { await window.bpConsolidate({ ask: true }); };
+// The manual target has no route entry, so its preview is planned when it is
+// chosen. The writer uses the same manualTarget flag, so both see the sale.
+window.bpCasManualPreview = async (hostId, assetId) => {
+  const card = (window.bpCasCards || {})[hostId];
+  const host = document.getElementById(`cas-sold-${hostId}`);
+  if (!card?.cas || !host || !assetId) return;
+  const store = await import("./db.js");
+  const existing = await store.listHoldings(assetId);
+  const importDay = new Date().toISOString().slice(0, 10);
+  const holdings = (card.cas.holdings || []).filter((holding) =>
+    !casClosedRow(holding, importDay));
+  const plan = casReplacePlan({ parsed: card.cas, existing, holdings,
+    events: card.cas.transactions, assetId, asOf: card.cas.asOf || "",
+    confirmed: false, accounts: [], route: true, manualTarget: true });
+  host.innerHTML = casSaleHtml(casEventLines(plan), plan.conflicts || [],
+    plan.warnings || []);
+};
 window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   const card = (window.bpCasCards || {})[key] || {};
   const cas = card.cas || window.bpCasParsed;
@@ -10628,9 +10643,11 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
       .map((event) => boId(event.account || "").boId).filter(Boolean));
     const manualTarget = document.getElementById(`cas-target-${key}`)?.value || "";
     for (const account of await store.listAccounts()) {
+      // Only a demat can take a movement record. A cost-only bond portfolio
+      // that happens to carry the same number must never become an event target.
+      if (String(account.category || "") !== "demat") continue;
       const accountBo = boId(account.number || account.bo_id || "").boId;
-      const named = String(account.category || "") === "demat"
-        && statementBos.has(accountBo);
+      const named = statementBos.has(accountBo);
       const movementHome = movementBos.has(accountBo);
       if (!named && !movementHome && account.id !== manualTarget) continue;
       if (card.picked && named && !card.picked.has(`bo:${accountBo}`)) {
@@ -10679,16 +10696,9 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
   // cost it. They are dropped, unless the label carries a maturity in the past:
   // that row is history and belongs in the page's "Matured bonds" group.
   const importDay = new Date().toISOString().slice(0, 10);
-  const closed = (h) => {
-    if (!(h.quantity !== null && h.quantity !== undefined
-      && Number.isFinite(Number(h.quantity)) && Number(h.quantity) <= 0
-      && !(Number(h.valuePaise) > 0))) return false;
-    const maturity = (parseBondLabel(casHoldingLabel(h)) || {}).maturity || "";
-    return !(maturity && maturity < importDay);
-  };
   if (route.groups.length) {
     for (const h of cas.holdings) {
-      if (closed(h)) continue;
+      if (casClosedRow(h, importDay)) continue;
       // Match the account as well as the class: two demats can both hold bonds,
       // and a folio belongs to the account named after its AMC.
       const group = route.groups.find((g) => g.kind === h.kind
@@ -10705,7 +10715,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     }
   } else {
     const id = document.getElementById(`cas-target-${key}`)?.value || "";
-    if (id) byAsset.set(id, cas.holdings.filter((h) => !closed(h)));
+    if (id) byAsset.set(id, cas.holdings.filter((h) => !casClosedRow(h, importDay)));
   }
   // An account whose only movement is a sale has no holdings group. Add the
   // accounts the statement names so the event pass can record the disposal there.
@@ -10733,13 +10743,25 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     }
     const rowsOf = (id) => holdingsOf.get(id) || [];
     // A statement can name several demats. Each target plans only the movements
-    // that belong to its own BO ID; the rest would be foreign sold rows.
+    // that belong to its own BO ID; the rest would be foreign sold rows. A demat
+    // absent from the holdings table is still a target when a movement names its
+    // BO ID, so the movement map covers every account, not just route.accounts.
     const boIdsOf = new Map();
     for (const account of route.accounts || []) {
       if (!account.assetId) continue;
       if (!boIdsOf.has(account.assetId)) boIdsOf.set(account.assetId, []);
       boIdsOf.get(account.assetId).push(account.boId);
     }
+    const movementBos = new Set((cas.transactions || [])
+      .map((event) => boId(event.account || "").boId).filter(Boolean));
+    for (const account of accounts) {
+      if (String(account.category || "") !== "demat") continue;
+      const accountBo = boId(account.number || account.bo_id || "").boId;
+      if (!accountBo || !movementBos.has(accountBo)) continue;
+      if (!boIdsOf.has(account.id)) boIdsOf.set(account.id, []);
+      if (!boIdsOf.get(account.id).includes(accountBo)) boIdsOf.get(account.id).push(accountBo);
+    }
+    const manualTargetId = document.getElementById(`cas-target-${key}`)?.value || "";
     const today = new Date().toISOString().slice(0, 10);
     const asOf = cas.asOf || today;
     // The preview and the writer call the same planner. A row the statement does
@@ -10754,7 +10776,8 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
       const preview = casReplacePlan({ parsed: cas, existing, holdings, asOf,
         events: cas.transactions, assetId, confirmed: !movementsOnly, merge: folioAccount,
-        accounts: boIdsOf.get(assetId) || [], route: true, safety });
+        accounts: boIdsOf.get(assetId) || [], route: true, safety,
+        manualTarget: !!manualTargetId && manualTargetId === assetId });
       replacing += existing.length;
       incoming += holdings.length;
       removing += preview.dropped.length;
@@ -10807,7 +10830,8 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       const plan = casReplacePlan({ parsed: cas, existing, holdings, asOf,
         events: cas.transactions, assetId,
         confirmed: allowAbsentRemoval && confirmed && !movementsOnly, merge: folioAccount,
-        accounts: boIdsOf.get(assetId) || [], route: true, safety });
+        accounts: boIdsOf.get(assetId) || [], route: true, safety,
+        manualTarget: !!manualTargetId && manualTargetId === assetId });
       if (!plan.ok) {
         if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
           <div class="muted">${esc(plan.safety.reasons.join(" "))}</div></div>`;

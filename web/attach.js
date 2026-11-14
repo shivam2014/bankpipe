@@ -340,6 +340,7 @@ export function planSnapshot({ positions = [], rows = [], fileAsOf = "",
       value_paise: row.value_paise === undefined || row.value_paise === null
         ? prev.value_paise : row.value_paise,
       purchase_date: prev.purchase_date || row.purchase_date || "",
+      source: prev.source || row.source || "",
     });
   }
   const removed = [...byIsin.keys()].filter((isin) => !seen.has(isin));

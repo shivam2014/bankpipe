@@ -5,7 +5,7 @@
 // does not name. Nothing here touches the DOM or the database.
 
 import { casTotals } from "./cas.js";
-import { bondHomeOf, carryBrokerFields, isLiveBondRow } from "./bonds.js";
+import { bondHomeOf, carryBrokerFields, isLiveBondRow, parseBondLabel } from "./bonds.js";
 import { boId } from "./bo-id.js";
 
 /**
@@ -75,6 +75,63 @@ export function casEventKey(event, scope = "") {
   const hash = fnv1a(tidyText(event?.description || event?.type || "").toLowerCase());
   const stem = [isin, date, type, quantity, opening, closing, hash].join("|");
   return scope ? `${String(scope)}|${stem}` : stem;
+}
+
+/**
+ * The event key used before the printed balances joined it. Rows imported by the
+ * earlier build carry this key, so a re-import must still recognise them.
+ * @param {object} event
+ * @param {string} [scope]
+ * @returns {string}
+ */
+export function casLegacyEventKey(event, scope = "") {
+  const isin = String(event?.isin || "").toUpperCase().replace(/\s+/g, "");
+  const date = String(event?.date || "").slice(0, 10);
+  const type = tidyText(event?.type || "").toLowerCase();
+  const quantity = Number(event?.quantity) || 0;
+  const hash = fnv1a(tidyText(event?.description || event?.type || "").toLowerCase());
+  const stem = [isin, date, type, quantity, hash].join("|");
+  return scope ? `${String(scope)}|${stem}` : stem;
+}
+
+/**
+ * Whether a parsed holding is a closed position the write should drop. A zero
+ * unit row with no value is closed, except a matured bond, which is history and
+ * stays on the account. The preview and the writer share this rule.
+ * @param {object} holding a parsed CAS holding
+ * @param {string} [importDay] ISO day of the import
+ * @returns {boolean}
+ */
+export function casClosedRow(holding, importDay = new Date().toISOString().slice(0, 10)) {
+  if (!(holding?.quantity !== null && holding?.quantity !== undefined
+    && Number.isFinite(Number(holding.quantity)) && Number(holding.quantity) <= 0
+    && !(Number(holding.valuePaise) > 0))) return false;
+  const maturity = (parseBondLabel(casHoldingLabel(holding)) || {}).maturity || "";
+  return !(maturity && maturity < importDay);
+}
+
+/**
+ * The movements this target may apply. A movement that names its account is
+ * only this target's when the target is that account. A movement with no
+ * account belongs to the account that holds the security. `route` turns the
+ * filter on; without it the caller gets every movement.
+ * @param {Array<object>} events
+ * @param {{accounts?: Array<string>, route?: boolean, rows?: Array<object>,
+ *   manualTarget?: boolean}} [opts]
+ * @returns {Array<object>}
+ */
+export function casMovementEvents(events, { accounts = [], route = false, rows = [],
+  manualTarget = false } = {}) {
+  const targetAccounts = (Array.isArray(accounts) ? accounts : [accounts])
+    .map((value) => boId(value).boId).filter(Boolean);
+  const held = new Set((rows || []).map(isinOf).filter(Boolean));
+  return (events || []).filter((event) => {
+    const isin = isinOf({ security_id: event?.isin });
+    if (!isin) return false;
+    const named = boId(event?.account || "").boId;
+    if (named && targetAccounts.length) return targetAccounts.includes(named);
+    return !route || manualTarget || held.has(isin);
+  });
 }
 
 const SALE_WORD = /\b(sale|sold|sell|selling|redemption|redeemed|switch\s*out|withdrawal|withdrawn)\b/i;
@@ -170,7 +227,8 @@ function rebuyRow(prior, event, { key, quantity, asOf }) {
     cost_paise: null,
     value_paise: null,
     value_source: "",
-    face_paise: scaledPaise(prior.face_paise, ratio),
+    // Face value is per unit, so a different lot size does not scale it.
+    face_paise: prior.face_paise ?? null,
     payout_paise: scaledPaise(prior.payout_paise, ratio),
     future_interest_paise: scaledPaise(prior.future_interest_paise, ratio),
     future_principal_paise: scaledPaise(prior.future_principal_paise, ratio),
@@ -215,7 +273,7 @@ function rebuyRow(prior, event, { key, quantity, asOf }) {
  *   skipped: Array<object>, warnings: Array<string>, conflicts: Array<object>}}
  */
 export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetId = "",
-  accounts = [], route = false, known = [] } = {}) {
+  accounts = [], route = false, known = [], manualTarget = false } = {}) {
   const out = (rows || []).map((row) => ({ ...row }));
   const applied = [];
   const sold = [];
@@ -223,27 +281,15 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
   const warnings = [];
   const conflicts = [];
   const seen = new Set(out.map((row) => row.txn_key).filter(Boolean));
-  // One statement can cover several demats. A movement that names its account
-  // belongs to that account only; every target receiving every movement put two
-  // foreign sold rows on each demat's plan.
-  const targetAccounts = (Array.isArray(accounts) ? accounts : [accounts])
-    .map((value) => boId(value).boId).filter(Boolean);
-  const held = new Set(out.map(isinOf).filter(Boolean));
   const parsedByIsin = new Map();
   for (const holding of known || []) {
     const isin = isinOf(holding);
     if (isin && !parsedByIsin.has(isin)) parsedByIsin.set(isin, holding);
   }
+  const allowed = new Set(casMovementEvents(events,
+    { accounts, route, rows: out, manualTarget }));
   const ordered = (events || []).map((event, index) => ({ event, index }))
-    .filter(({ event }) => isinOf({ security_id: event?.isin }))
-    .filter(({ event }) => {
-      const isin = isinOf({ security_id: event?.isin });
-      const named = boId(event?.account || "").boId;
-      if (named && targetAccounts.length) return targetAccounts.includes(named);
-      // A movement with no account of its own belongs to the account that holds
-      // the security.
-      return !route || held.has(isin);
-    })
+    .filter(({ event }) => allowed.has(event))
     .sort((a, b) => String(a.event.date || "").localeCompare(String(b.event.date || ""))
       || a.index - b.index);
   const groups = new Map();
@@ -284,15 +330,21 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
     for (const { event } of group) {
       const key = casEventKey(event, assetId);
       const legacyKey = casEventKey(event);
+      const priorKey = casLegacyEventKey(event, assetId);
+      const priorUnscoped = casLegacyEventKey(event);
       const cls = classifyCasEvent(event);
       const quantity = Number(event.quantity) || 0;
+      // The applied entry is what planLinkedSales keys back to the demat sold
+      // row, so it must carry the same balances the key was built from.
       const base = { txn_key: key, isin, date: event.date || "", type: event.type || "",
-        description: event.description || "", side: cls.side, kind: cls.kind, quantity };
+        description: event.description || "", side: cls.side, kind: cls.kind, quantity,
+        openingPaise: event.openingPaise ?? null, closingPaise: event.closingPaise ?? null };
       if (!cls.side || !(quantity > 0)) {
         skipped.push({ ...base, reason: "no movement to apply" });
         continue;
       }
-      if (seen.has(key) || (legacyKey !== key && seen.has(legacyKey))) {
+      if (seen.has(key) || (legacyKey !== key && seen.has(legacyKey))
+        || seen.has(priorKey) || seen.has(priorUnscoped)) {
         applied.push({ ...base, status: "already", from: current, to: current });
         continue;
       }
@@ -370,7 +422,8 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
       if (cls.side === "debit") {
         // A debit larger than one lot is sold across every lot the account
         // holds, largest first, so no lot is left live beside a sold record.
-        let remaining = Math.min(quantity, before);
+        const unitsSold = Math.min(quantity, before);
+        let remaining = unitsSold;
         const consumed = [];
         for (const lot of live) {
           if (remaining <= TOL) break;
@@ -387,9 +440,25 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
         const costKnown = consumed.every(({ takeCost }) => takeCost !== null);
         disposedCost = costKnown
           ? consumed.reduce((sum, { takeCost }) => sum + takeCost, 0) : null;
+        // A sold record cannot claim more units than the account held. The
+        // transaction still says what was printed; the record floors at the
+        // units actually consumed, and the difference is a named conflict.
+        if (quantity > before + TOL) {
+          conflicts.push({
+            isin,
+            txn_key: key,
+            date: event.date || "",
+            message: `The statement records ${quantity} ${cls.kind === "sale"
+              ? "sold" : cls.kind === "transfer-out" ? "transferred out"
+                : `disposed (${cls.reason || "no reason"})`} on ${event.date}, but this `
+              + `account held ${before} units; ${unitsSold} were recorded.`,
+            from: before,
+            expected: Math.max(0, before - quantity),
+          });
+        }
         const after = change ? Math.max(0, before - quantity) : before;
         const record = disposalRow(target, event, cls, { key, costPaise: disposedCost,
-          source, asOf, quantity });
+          source, asOf, quantity: unitsSold });
         out.push(record);
         sold.push(record);
         if (change) {
@@ -400,7 +469,6 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
             lot.quantity = left;
             lot.as_of = laterDate(lot.as_of, event.date || asOf);
             lot.value_paise = scaledPaise(lot.value_paise, ratio);
-            lot.face_paise = scaledPaise(lot.face_paise, ratio);
             if (takeCost !== null && lot.cost_paise !== null && lot.cost_paise !== undefined) {
               lot.cost_paise = Math.max(0, Number(lot.cost_paise) - takeCost);
             }
@@ -433,7 +501,6 @@ export function applyCasEvents(rows, events, { asOf = "", source = "CAS", assetI
           target.quantity = nextQty;
           target.as_of = laterDate(target.as_of, event.date || asOf);
           target.value_paise = scaledPaise(target.value_paise, ratio);
-          target.face_paise = scaledPaise(target.face_paise, ratio);
           Object.assign(target, terms);
         }
         current = after;
@@ -553,6 +620,7 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
       value_paise: h.valuePaise,
       value_source: "CAS",
       purchase_date: carriedCost && old ? old.purchase_date || "" : "",
+      source: oldRow?.source || "",
       ...carryBrokerFields(oldRow, h.quantity),
       as_of: asOf,
     });
@@ -609,12 +677,12 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
  * @param {{parsed?: object, existing?: Array<object>, holdings?: Array<object>,
  *   events?: Array<object>, assetId?: string, asOf?: string, confirmed?: boolean,
  *   merge?: boolean, safety?: object, accounts?: Array<string>,
- *   route?: boolean}} input
+ *   route?: boolean, manualTarget?: boolean}} input
  * @returns {object}
  */
 export function casReplacePlan({ parsed = {}, existing = [], holdings = [], events = null,
   assetId = "", asOf = parsed?.asOf || "", confirmed = false, merge = false,
-  safety = null, accounts = [], route = false } = {}) {
+  safety = null, accounts = [], route = false, manualTarget = false } = {}) {
   const verdict = safety || casSafety(parsed);
   if (verdict.blocked) {
     return { ok: false, blocked: true, safety: verdict, rows: existing, absent: [],
@@ -622,7 +690,11 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
       preserveAbsent: true, events: [], sold: [], conflicts: [], warnings: [] };
   }
   const movements = events === null ? (parsed?.transactions || []) : (events || []);
-  const eventIsins = new Set(movements.map((event) =>
+  // Only this target's movements can pin a row it does not name. A sale that
+  // belongs to another demat must not keep an absent row here.
+  const scoped = casMovementEvents(movements, { accounts, route, manualTarget,
+    rows: [...(existing || []), ...(holdings || [])] });
+  const eventIsins = new Set(scoped.map((event) =>
     String(event?.isin || "").toUpperCase()).filter(Boolean));
   // A statement that printed no holdings table is a movements-only statement,
   // not a complete zero-row snapshot. A confirmed replace must not drop every
@@ -637,9 +709,11 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
   // live rows on file for the ISINs whose events are already recorded.
   const priorKeys = new Set((existing || []).map((row) => row.txn_key).filter(Boolean));
   const priorIsins = new Set();
-  for (const event of movements) {
+  for (const event of scoped) {
     const key = casEventKey(event, assetId);
-    if (priorKeys.has(key) || priorKeys.has(casEventKey(event))) {
+    if (priorKeys.has(key) || priorKeys.has(casEventKey(event))
+      || priorKeys.has(casLegacyEventKey(event, assetId))
+      || priorKeys.has(casLegacyEventKey(event))) {
       priorIsins.add(String(event?.isin || "").toUpperCase());
     }
   }
@@ -650,7 +724,8 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
     for (const row of existing || []) {
       const isin = String(row.security_id || row.isin || "").toUpperCase();
       if (row.disposed_at || !priorIsins.has(isin)) continue;
-      if (!((Number(row.quantity) || 0) > 0)) continue;
+      // A zero-unit row is a matured or closed position, not a resurrected
+      // sale. Keep it so a re-import writes the same rows as the first import.
       baseRows.push({ ...row });
     }
   }
@@ -659,7 +734,7 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
       events: [], sold: [], conflicts: [], warnings: [] };
   }
   const result = applyCasEvents(baseRows, movements, { asOf, assetId, accounts, route,
-    known: parsed?.holdings || [] });
+    manualTarget, known: parsed?.holdings || [] });
   return {
     ok: true, blocked: false, safety: verdict, preserveAbsent, ...applied,
     rows: result.rows,
@@ -669,6 +744,50 @@ export function casReplacePlan({ parsed = {}, existing = [], holdings = [], even
     conflicts: result.conflicts,
     warnings: result.warnings,
   };
+}
+
+/**
+ * The parsed accounts and holdings the writer may write. A target the holding
+ * plan marked identity-only contributes no rows, and every other account keeps
+ * only the ISINs its own plan did not skip. Using one global ISIN set let an
+ * identity-only account write a security another target shares.
+ * @param {{parsed?: object, targets?: Array<object>}} input
+ * @returns {{accounts: Array<object>, holdings: Array<object>}}
+ */
+export function casImportHoldings({ parsed = {}, targets = [] } = {}) {
+  const byBo = new Map();
+  for (const target of targets || []) {
+    const bo = String(target?.boId || "");
+    if (!bo || bo.startsWith("mf:")) continue;
+    byBo.set(bo, target);
+  }
+  const keptOf = (target) => {
+    if (!Array.isArray(target?.plan?.decisions)) return null;
+    return new Set(target.plan.decisions
+      .filter((decision) => decision.action !== "skip")
+      .map((decision) => String(decision.isin || "").toUpperCase()).filter(Boolean));
+  };
+  const importTargets = (targets || []).filter((target) => !target.plan?.identityOnly);
+  const identityBos = new Set((targets || []).filter((target) => target.plan?.identityOnly)
+    .map((target) => String(target.boId || "")).filter(Boolean));
+  const keepAll = new Set();
+  for (const target of importTargets) {
+    for (const isin of keptOf(target) || []) keepAll.add(isin);
+  }
+  const accounts = (parsed.accounts || [])
+    .filter((account) => !identityBos.has(String(account.boId || "")))
+    .map((account) => {
+      const target = byBo.get(String(account.boId || ""));
+      const only = target ? keptOf(target) : null;
+      return { ...account, holdings: (account.holdings || []).filter((holding) => {
+        const isin = String(holding.isin || "").toUpperCase();
+        return keepAll.has(isin) && (!only || only.has(isin));
+      }) };
+    })
+    .filter((account) => account.holdings.length);
+  const holdings = (parsed.holdings || []).filter((holding) =>
+    keepAll.has(String(holding.isin || "").toUpperCase()));
+  return { accounts, holdings };
 }
 
 /**
@@ -726,9 +845,11 @@ export function applyCasEventsToPortfolio(rows, events, { asOf = "", assetId = "
   for (const { event } of ordered) {
     const isin = String(event.isin || "").toUpperCase();
     const key = casEventKey(event, assetId);
+    const priorKey = casLegacyEventKey(event, assetId);
     const base = { txn_key: key, event, isin, date: event.date || "",
-      kind: event.kind || "", quantity: Number(event.quantity) || 0 };
-    if (seen.has(key)) {
+      kind: event.kind || "", quantity: Number(event.quantity) || 0,
+      openingPaise: event.openingPaise ?? null, closingPaise: event.closingPaise ?? null };
+    if (seen.has(key) || seen.has(priorKey)) {
       applied.push({ ...base, status: "already", costPaise: null });
       continue;
     }
@@ -780,7 +901,6 @@ export function applyCasEventsToPortfolio(rows, events, { asOf = "", assetId = "
       const ratio = have > 0 ? left / have : 0;
       lot.quantity = left;
       lot.value_paise = scaledPaise(lot.value_paise, ratio);
-      lot.face_paise = scaledPaise(lot.face_paise, ratio);
       if (takeCost !== null && lot.cost_paise !== null && lot.cost_paise !== undefined) {
         lot.cost_paise = Math.max(0, Number(lot.cost_paise) - takeCost);
       }

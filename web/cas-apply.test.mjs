@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { casApplyRows, casHoldingLabel, casReplacePlan, casSafety } from "./cas-apply.js";
+import { casApplyRows, casClosedRow, casHoldingLabel, casImportHoldings,
+  casReplacePlan, casSafety } from "./cas-apply.js";
 
 const ISIN_A = "INE000000031";
 const ISIN_B = "INE000000032";
@@ -201,4 +202,49 @@ test("the plan takes its date from the parsed statement when asOf is omitted", (
     holdings: parsed.holdings, confirmed: true, assetId: "demat-a" });
   assert.equal(plan.conflicts.length, 1);
   assert.match(plan.conflicts[0].message, /still shows 100 units/);
+});
+
+// --- the second review round -------------------------------------------------
+
+test("a CAS holding keeps a manual row's source", () => {
+  const manual = { security_id: ISIN_A, label: "MANUAL BOND", category: "bond",
+    quantity: 100, cost_paise: 200000, source: "manual", as_of: "2026-07-31" };
+  const plan = casApplyRows({ existing: [manual],
+    holdings: [casHolding({ quantity: 100 })], asOf: "2026-08-31" });
+  const row = plan.rows.find((entry) => !entry.disposed_at);
+  assert.equal(row.source, "manual");
+});
+
+test("an identity-only target contributes no rows to the import", () => {
+  const holdingB = { isin: ISIN_B, label: "B BOND", kind: "bond", quantity: 40,
+    valuePaise: 400000, account: "1200000000000002" };
+  const parsed = {
+    holdings: [{ isin: ISIN_A, label: "A BOND", kind: "bond", quantity: 100,
+      valuePaise: 1000000, account: "1200000000000001" }, holdingB],
+    accounts: [
+      { boId: "1200000000000001", holdings: [parsedHoldingA()] },
+      { boId: "1200000000000002", holdings: [holdingB] },
+    ],
+  };
+  function parsedHoldingA() {
+    return { isin: ISIN_A, label: "A BOND", kind: "bond", quantity: 100,
+      valuePaise: 1000000, account: "1200000000000001" };
+  }
+  const targets = [
+    { boId: "1200000000000001", plan: { identityOnly: false,
+      decisions: [{ isin: ISIN_A, action: "create" }] } },
+    { boId: "1200000000000002", plan: { identityOnly: true,
+      decisions: [{ isin: ISIN_A, action: "create" }, { isin: ISIN_B, action: "create" }] } },
+  ];
+  const out = casImportHoldings({ parsed, targets });
+  assert.deepEqual(out.accounts.map((account) => account.boId),
+    ["1200000000000001"]);
+  assert.deepEqual(out.holdings.map((holding) => holding.isin), [ISIN_A]);
+});
+
+test("a closed row is dropped but a matured zero row is history", () => {
+  assert.equal(casClosedRow({ quantity: 0, valuePaise: 0, kind: "equity" }), true);
+  assert.equal(casClosedRow({ quantity: 0, valuePaise: 0, kind: "bond",
+    label: "9% TEST 01 Jan 2020", maturity: "2020-01-01" }), false);
+  assert.equal(casClosedRow({ quantity: 5, valuePaise: 0 }), false);
 });
