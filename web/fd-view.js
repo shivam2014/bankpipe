@@ -4,7 +4,9 @@
 // orderAccountsByFdTotal is the one exception: the FD-only view asks for that
 // order explicitly, and the Everything view keeps using the sort bar's.
 
-import { assetMetrics } from "./finance.js";
+import { assetMetrics, fdMatured } from "./finance.js";
+
+export { fdMatured } from "./finance.js";
 
 const isoDay = (v) => v instanceof Date
   ? v.toISOString().slice(0, 10)
@@ -15,18 +17,14 @@ const asOfDate = (today) => {
   return isNaN(d.getTime()) ? new Date() : d;
 };
 
-// A deposit is history once its maturity date is behind us, even though the
-// money was real; the active total must not count it.
-export function fdMatured(fd, today) {
-  const maturity = isoDay(fd?.maturity_date);
-  return !!(maturity && maturity < (isoDay(today) || new Date().toISOString().slice(0, 10)));
-}
-
 // A matured FD has no current value, so the page shows what it was worth at
 // maturity instead of a dash. Same fallback as the account page and demo view.
 export function fdHistoryValue(fd, today) {
   const m = assetMetrics(fd, "fd", asOfDate(today));
-  return m.expectedAtMaturity ?? m.value ?? m.invested ?? null;
+  // assetMetrics.value is capped at maturity once the date has passed, so it is
+  // the amount still owed. Prefer it over expectedAtMaturity so the separate
+  // section and the account total cannot differ by a rounding paisa.
+  return m.value ?? m.expectedAtMaturity ?? m.invested ?? null;
 }
 
 // The last four digits are enough to tell two accounts at one bank apart
@@ -48,21 +46,26 @@ const rowOf = (fd, matured, asOf) => ({
 const totalOf = (rows, key) =>
   rows.reduce((total, r) => total + (r[key] ?? 0), 0);
 
+// The one FD total the page should show. A matured group is not a subtraction:
+// its value remains owed, so it is part of this sum.
+export function fdGroupsTotal(groups = []) {
+  return (groups || []).reduce((total, group) => total + (group.totalPaise || 0), 0);
+}
+
 const linkOf = (fd, links) =>
   links instanceof Map ? links.get(fd.id) : links?.[fd.id];
 
 const accountLabel = (acc) => String(acc.label || acc.number || acc.id);
 
-// The FD-only view puts the account with the biggest active deposit book
-// first: the bar's Balance sort counts savings plus FDs, which is not the same
-// question. Matured deposits are history and never move an account up.
+// The FD-only view puts the account with the biggest deposit book first: the
+// bar's Balance sort counts savings plus FDs, which is not the same question.
+// A matured deposit is still owed, so it counts here until a credit is matched.
 export function orderAccountsByFdTotal(accounts, fds, links, today) {
   const asOf = asOfDate(today);
-  const todayIso = asOf.toISOString().slice(0, 10);
   const list = (accounts || []).filter((acc) => acc && acc.id);
   const totals = new Map(list.map((acc) => [acc.id, { paise: 0, count: 0 }]));
   for (const fd of (fds || [])) {
-    if (!fd || fdMatured(fd, todayIso)) continue;
+    if (!fd) continue;
     const linked = linkOf(fd, links);
     const slot = linked ? totals.get(linked) : null;
     // A link to an account outside this list is not in the FD-only view.
@@ -134,7 +137,7 @@ export function buildFdGroups({ accounts, fds, links, today } = {}) {
       key: "matured",
       kind: "matured",
       title: "Matured FDs",
-      subtitle: "History · not in the FD total",
+      subtitle: "Awaiting payment · included in the FD total",
       totalPaise: totalOf(rows, "paise"),
       rows,
     });

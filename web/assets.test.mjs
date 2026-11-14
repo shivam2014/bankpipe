@@ -33,6 +33,22 @@ test("a bank with no statement falls back to the manual value", () => {
   assert.equal(v.source, "manual");
 });
 
+test("a matured fixed deposit stays in net worth until a credit is matched", () => {
+  const fd = { category: "fd", principal_paise: 10000000, rate_bps: 700,
+    start_date: "2024-01-01", maturity_date: "2025-01-01" };
+  const v = assetValue(fd);
+  assert.ok(v.paise > 0);
+  assert.match(v.source, /matured/);
+  assert.match(v.source, /awaiting payment/);
+  assert.equal(totalAssets([fd]), v.paise);
+});
+
+test("a bond portfolio keeps a matured lot in the value it reports", () => {
+  const portfolio = { category: "bonds", holdings_count: 2,
+    holdings_cost: 60000000, holdings_value: 60000000 };
+  assert.equal(assetValue(portfolio).paise, 60000000);
+});
+
 test("no statement and no manual value is not zero", () => {
   assert.equal(assetValue({ facts: 0, balance: null }).paise, null);
   assert.equal(assetValue({}).source, "no value yet");

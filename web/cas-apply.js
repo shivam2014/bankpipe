@@ -5,7 +5,7 @@
 // does not name. Nothing here touches the DOM or the database.
 
 import { casTotals } from "./cas.js";
-import { bondHomeOf, carryBrokerFields, isLiveBondRow, parseBondLabel } from "./bonds.js";
+import { bondHomeOf, bondMaturity, carryBrokerFields, isLiveBondRow } from "./bonds.js";
 import { boId } from "./bo-id.js";
 import { folioKey, normalizeFolio } from "./folio.js";
 
@@ -107,7 +107,9 @@ export function casClosedRow(holding, importDay = new Date().toISOString().slice
   if (!(holding?.quantity !== null && holding?.quantity !== undefined
     && Number.isFinite(Number(holding.quantity)) && Number(holding.quantity) <= 0
     && !(Number(holding.valuePaise) > 0))) return false;
-  const maturity = (parseBondLabel(casHoldingLabel(holding)) || {}).maturity || "";
+  const maturity = bondMaturity({ ...holding,
+    category: holding.category || holding.kind || "",
+    label: casHoldingLabel(holding) }).maturity;
   return !(maturity && maturity < importDay);
 }
 

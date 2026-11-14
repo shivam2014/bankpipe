@@ -34,6 +34,23 @@ test("a bond portfolio is still a bond slice", () => {
   assert.equal(groups[0].total, 200000);
 });
 
+test("a demat's bond class total keeps the matured lot and the live one", () => {
+  const account = demat({ id: "d-mixed", class_bond_value: 60000000,
+    class_equity_value: 0, class_mf_value: 0, holdings_count: 2,
+    holdings_cost: 60000000, holdings_value: 60000000 });
+  const holdings = { "d-mixed": [
+    { id: 1, category: "bond", label: "9.50% TEST 15 MAY 2020",
+      quantity: 1, cost_paise: 50000000, value_paise: 50000000 },
+    { id: 2, category: "bond", label: "9.50% TEST 15 MAY 2030",
+      quantity: 1, cost_paise: 10000000, value_paise: 10000000 },
+  ] };
+  const page = classPage([account], holdings, "bond");
+  assert.equal(page.total, 60000000);
+  assert.equal(page.holdingsCount, 2);
+  const sections = assetSections([account]);
+  assert.equal(sections.find((s) => s.id === "bond").total, 60000000);
+});
+
 test("the slices add up to the value the account already shows", () => {
   const assets = [
     demat({ class_equity_value: 30000, class_mf_value: 10000,

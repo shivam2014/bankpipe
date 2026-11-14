@@ -14,6 +14,70 @@ const MONTHS = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
 export const isLiveBondRow = (row) => !row?.disposed_at
   && String(row?.category || "").toLowerCase() === "bond";
 
+const isoDay = (value) => {
+  const m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : "";
+};
+
+export const isDisposed = (row) => !!String(row?.disposed_at || "").trim();
+
+// One notion of maturity, shared by the value maths, the Matured section and
+// the account status line. A stored date is evidence. A date read out of the
+// name is a guess, allowed only for a bond row and reported as one; a share or
+// fund with a date in its name is never matured. The label parser takes the
+// latest date, because a series or issue date can sit earlier in the name.
+export function bondMaturity(row) {
+  const stored = isoDay(row?.maturity) || isoDay(row?.maturity_date);
+  if (stored) return { maturity: stored, source: "stored", guessed: false };
+  const category = String(row?.category || row?.kind || "").trim().toLowerCase();
+  if (category && category !== "bond") {
+    return { maturity: "", source: "", guessed: false };
+  }
+  const parsed = parseBondLabel(row?.label);
+  if (!parsed?.maturity) return { maturity: "", source: "", guessed: false };
+  return { maturity: parsed.maturity, source: "label", guessed: true };
+}
+
+// What a lot contributes to the account it sits in. A priced lot uses its
+// value; an unpriced one uses cost, the same fallback assetMetrics() uses, so
+// the "matured" line and the account total can never disagree.
+const lotValue = (row) => {
+  const value = row?.value_paise;
+  if (value !== null && value !== undefined && value !== "") return Number(value) || 0;
+  const cost = row?.cost_paise;
+  if (cost !== null && cost !== undefined && cost !== "") return Number(cost) || 0;
+  return 0;
+};
+
+/**
+ * Split bond lots into current, matured and disposed. Matured means live and
+ * past its maturity date; a disposal is a third state and never appears in the
+ * matured list or its amount. Pure, so the page, the import inbox and a test
+ * can all use the same rule.
+ * @param {Array<object>} rows
+ * @param {string} [today]
+ * @returns {{current: Array<object>, matured: Array<object>, disposed: Array<object>,
+ *   maturedValue: number, maturedGuessed: number}}
+ */
+export function splitMatured(rows = [], today = new Date().toISOString().slice(0, 10)) {
+  const current = [], matured = [], disposed = [];
+  for (const row of rows || []) {
+    if (isDisposed(row)) { disposed.push(row); continue; }
+    const terms = bondMaturity(row);
+    if (terms.maturity && terms.maturity < today) {
+      matured.push({ ...row, maturity: terms.maturity,
+        maturitySource: terms.source, maturityGuessed: terms.guessed });
+    } else {
+      current.push(row);
+    }
+  }
+  return {
+    current, matured, disposed,
+    maturedValue: matured.reduce((total, row) => total + lotValue(row), 0),
+    maturedGuessed: matured.filter((row) => row.maturityGuessed).length,
+  };
+}
+
 function assetMeta(asset) {
   try {
     return typeof asset?.meta === "string" ? JSON.parse(asset.meta) || {} : (asset?.meta || {});
@@ -72,18 +136,21 @@ const FACES = [1000, 5000, 10000, 25000, 50000, 100000, 200000, 500000, 1000000]
 export function parseBondLabel(label) {
   const text = String(label || "");
   const coupon = text.match(/(\d+(?:\.\d+)?)\s*%/);
-  const date = text.match(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{4})/);
+  // A name can carry a series, issue or record date as well as the maturity.
+  // The latest date is the redemption date; taking the first one turned a
+  // series date into a false maturity. "Sept", "September" and "Sep" are the
+  // same month; three letters are enough.
+  let maturity = "";
+  for (const match of text.matchAll(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{4})/g)) {
+    const month = MONTHS[match[2].toUpperCase().slice(0, 3)];
+    if (!month) continue;
+    const iso = `${match[3]}-${String(month).padStart(2, "0")}-${String(match[1]).padStart(2, "0")}`;
+    if (!maturity || iso > maturity) maturity = iso;
+  }
   // A coupon and a date are not always both present: a CAS can know the
   // maturity without the coupon. The date alone still belongs on the card.
-  if (!date) return null;
-  // "Sept", "September" and "Sep" are the same month; three letters are enough.
-  const month = MONTHS[date[2].toUpperCase().slice(0, 3)];
-  if (!month) return null;
-  return {
-    couponPct: coupon ? Number(coupon[1]) : null,
-    maturity: `${date[3]}-${String(month).padStart(2, "0")}-${String(date[1]).padStart(2, "0")}`,
-    name: text,
-  };
+  if (!maturity) return null;
+  return { couponPct: coupon ? Number(coupon[1]) : null, maturity, name: text };
 }
 
 export function inferFace(costPaise, quantity) {
@@ -145,8 +212,14 @@ function futureCouponCount(interestDate, frequency, maturity, today) {
 }
 
 export function bondAnalytics(h) {
-  const parsed = parseBondLabel(h?.label);
-  if (!parsed || parsed.couponPct === null || parsed.couponPct === undefined) return null;
+  const parsedLabel = parseBondLabel(h?.label);
+  const terms = bondMaturity(h);
+  const couponPct = parsedLabel?.couponPct
+    ?? (h?.couponPct === null || h?.couponPct === undefined ? null : Number(h.couponPct));
+  if (!terms.maturity || couponPct === null || couponPct === undefined
+    || !Number.isFinite(couponPct)) return null;
+  const parsed = { ...(parsedLabel || {}), couponPct, maturity: terms.maturity,
+    name: String(h?.label || "") };
   const qty = Number(h.quantity) || 0;
   const cost = Number(h.cost_paise);
   const storedFace = Number(h.face_paise) > 0 ? Number(h.face_paise) / 100 : 0;

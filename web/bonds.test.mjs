@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseBondLabel, inferFace, bondAnalytics, bondSummary, accruedInterest,
-  BOND_RATINGS, bondRatingRank, bondFillPlan, bondGrade, bondRatingChange,
-  carryBrokerFields, soldGain, bondHomeOf, isLiveBondRow } from "./bonds.js";
+import { parseBondLabel, bondMaturity, splitMatured, inferFace, bondAnalytics,
+  bondSummary, accruedInterest, BOND_RATINGS, bondRatingRank, bondFillPlan,
+  bondGrade, bondRatingChange, carryBrokerFields, soldGain, bondHomeOf,
+  isLiveBondRow } from "./bonds.js";
 
 test("parses the coupon and maturity from a bond label", () => {
   const p = parseBondLabel("10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026");
@@ -21,6 +22,59 @@ test("a label with a date but no coupon still gives the maturity", () => {
   assert.equal(p.maturity, "2028-11-27");
   assert.equal(bondAnalytics({ label: "B.N. TESTAGRI LIMITED 27 Nov 2028",
     quantity: 30, cost_paise: 22069928, purchase_date: "2025-02-12" }), null);
+});
+
+test("a label with a series date keeps the later maturity date", () => {
+  const p = parseBondLabel("9.50% TEST SERIES 15 JAN 2020 31 DEC 2028");
+  assert.equal(p.maturity, "2028-12-31");
+});
+
+test("a stored maturity is the source, not the first date in the name", () => {
+  const row = { category: "bond", label: "9.50% TEST SERIES 15 JAN 2020 31 DEC 2028",
+    maturity: "2032-05-15" };
+  assert.deepEqual(bondMaturity(row),
+    { maturity: "2032-05-15", source: "stored", guessed: false });
+});
+
+test("a label fallback is a named guess and ignores an earlier series date", () => {
+  const terms = bondMaturity({ category: "bond",
+    label: "9.50% TEST SERIES 15 JAN 2020 31 DEC 2028" });
+  assert.equal(terms.maturity, "2028-12-31");
+  assert.equal(terms.source, "label");
+  assert.equal(terms.guessed, true);
+});
+
+test("a share or fund name with a date is not a matured bond", () => {
+  assert.equal(bondMaturity({ category: "equity",
+    label: "TEST EQUITY 15 JAN 2020" }).maturity, "");
+});
+
+test("matured, live and disposed lots are three different states", () => {
+  const today = "2026-11-15";
+  const rows = [
+    { id: "matured", category: "bond", label: "9.50% TEST 15 MAY 2020",
+      maturity: "2020-05-15", quantity: 1, cost_paise: 50000000,
+      value_paise: 50000000 },
+    { id: "live", category: "bond", label: "9.50% TEST 15 MAY 2030",
+      maturity: "2030-05-15", quantity: 1, cost_paise: 10000000,
+      value_paise: 10000000 },
+    { id: "sold", category: "bond", label: "9.50% TEST 15 MAY 2020",
+      maturity: "2020-05-15", quantity: 0, cost_paise: 0, value_paise: 0,
+      disposed_at: "2026-06-01" },
+  ];
+  const split = splitMatured(rows, today);
+  assert.deepEqual(split.current.map((h) => h.id), ["live"]);
+  assert.deepEqual(split.matured.map((h) => h.id), ["matured"]);
+  assert.deepEqual(split.disposed.map((h) => h.id), ["sold"]);
+  assert.equal(split.maturedValue, 50000000);
+  assert.equal(split.maturedGuessed, 0);
+});
+
+test("a matured lot with no value is counted at cost", () => {
+  const split = splitMatured([{ id: "m", category: "bond",
+    label: "9.50% TEST 15 MAY 2020", quantity: 2, cost_paise: 7500000 }],
+  "2026-11-15");
+  assert.equal(split.maturedValue, 7500000);
 });
 
 test("infers the face value from the cost per unit", () => {

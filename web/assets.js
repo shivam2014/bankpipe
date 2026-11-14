@@ -3,7 +3,7 @@
 // The category is stable; the subtype is free enough to hold "savings",
 // "physical", "sgb" and similar without a migration each time.
 
-import { assetMetrics } from "./finance.js";
+import { assetMetrics, fdMatured } from "./finance.js";
 
 export const CATEGORIES = [
   { id: "bank", label: "Bank accounts", types: ["savings", "current"] },
@@ -105,14 +105,14 @@ export function assetValue(asset) {
     return { paise: part || null, source: "from the depository" };
   }
   const cat = categoryOf(asset);
-  // A matured FD is history, not a current holding. Its money has either been
-  // credited or is waiting to be reinvested; it must not inflate net worth.
-  if (cat === "fd" && asset?.maturity_date
-    && asset.maturity_date < new Date().toISOString().slice(0, 10)) {
-    return { paise: null, source: "matured · history" };
-  }
   const m = assetMetrics(asset, cat);
   if (m.excluded) return { paise: null, source: "cover, not net worth" };
+  // A matured FD is still a bank liability until a credit is matched. It stays
+  // in net worth and says so; the page labels it awaiting payment.
+  if (cat === "fd" && fdMatured(asset)) {
+    const note = m.note || "no value yet";
+    return { paise: m.value, source: `${note} · matured · awaiting payment` };
+  }
   return { paise: m.value, source: m.note || "no value yet" };
 }
 
