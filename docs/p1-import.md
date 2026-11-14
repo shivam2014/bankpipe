@@ -162,6 +162,20 @@ a Zerodha holdings file for one demat:
 The merged rows are field-for-field equal to the separate rows, and a second
 confirmation of the same set changes no field and runs no writer.
 
+A statement that records movements is the one exception. Folding a broker into
+that plan would write the statement first, so the broker's cost would arrive
+after the disposal and the realised cost would be lost. The statement and the
+broker stay separate cards, and the statement's card says to import the broker
+first. The same exception keeps an ask about a bond the statement sold on the
+broker's own card, where it is visible, instead of behind one plan-wide accept.
+
+The card's added and updated counts are the plan's net rows, not the sum of its
+files. A row one file adds and another fills cost on is one added holding, not
+an add plus an update. The per-file lines say what each file does, not how many
+additions it contributes. Every ask is on the card, so the plan-wide accept
+cannot cover an ask the person did not see, and the account line counts every
+account the plan will write, including a folio it creates.
+
 A file that resolved to nothing still creates its own account beside an
 existing demat that only a later CAS can relabel. Grouping leaves that
 unchanged: there is no account id to join on, and inventing one is the stored

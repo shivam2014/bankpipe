@@ -1074,7 +1074,9 @@ test("a broker-only account has no CAS to reconcile against", () => {
 
 // --- one plan per resolved account ------------------------------------------
 
-const resolvedBundle = (key, family, accounts) => ({ key, family, accounts });
+const resolvedBundle = (key, family, accounts, over = {}) => ({
+  key, family, accounts, ...over,
+});
 const DEMAT_BO = "IN99990001344321";
 const FOLIO = "91062983856";
 
@@ -1309,4 +1311,142 @@ test("a broker receipt only moves the cost date when it changed a cost", () => {
     decisions: [{ changes: [{ group: "cost", field: "cost" }] }],
   }, { family: "zerodha", asOf: "2026-11-12", accountKey: "TEST500" });
   assert.deepEqual(withCost.cost, { source: "zerodha", asOf: "2026-11-12", manual: false });
+});
+
+// --- a statement with movements is not folded into a broker plan ------------
+
+test("a statement with movements keeps a broker for the same account separate", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 2);
+  assert.deepEqual(plans[0].members, ["cas:moved"]);
+  assert.deepEqual(plans[0].accounts, ["demat-1"]);
+  assert.deepEqual(plans[1].accounts, ["demat-1"]);
+});
+
+test("a locked statement does not claim its account from an earlier plan", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+  ]);
+  assert.equal(plans.length, 2);
+  assert.deepEqual(plans[1].members, ["cas:moved"]);
+});
+
+test("a locked statement does not stop two broker files grouping", () => {
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+    resolvedBundle("motilal:m", "motilal", ["demat-1"]),
+    resolvedBundle("zerodha:z", "zerodha", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 2);
+  assert.deepEqual(plans[1].members, ["motilal:m", "zerodha:z"]);
+});
+
+const SOLD_ISIN = other(2);
+const soldLabel = "8.00% SOLD BOND 31 Dec 2028";
+const saleParsed = {
+  asOf: "2026-10-31", counts: { quarantined: 0 }, printedTotalPaise: null,
+  holdings: [], accounts: [{ boId: DEMAT_BO, dpName: "Test DP", holdings: [] }],
+  transactions: [{ isin: SOLD_ISIN, security: "SOLD BOND", date: "2026-10-10",
+    type: "SALE", description: "SALE", quantity: 10, openingPaise: 100000,
+    creditPaise: 0, debitPaise: 100000, closingPaise: 0 }],
+};
+const soldAccount = (over = {}) => ({ id: "demat-1", label: "Demat", category: "demat",
+  subtype: "equity", number: DEMAT_BO, meta: JSON.stringify({ ucid: "TEST0001" }), ...over });
+
+test("a broker that names a bond the statement sold asks, so it cannot ride that plan's accept", () => {
+  const parsed = saleParsed;
+  const written = casReplacePlan({ parsed, existing: [{ security_id: SOLD_ISIN,
+    label: soldLabel, category: "bond", quantity: 10, cost_paise: null,
+    value_paise: 100000, as_of: "2026-09-30" }], holdings: parsed.holdings,
+    asOf: parsed.asOf, events: parsed.transactions, assetId: "demat-1",
+    accounts: [DEMAT_BO], route: true });
+  const sold = written.rows.find((row) => row.disposed_at);
+  assert.equal(sold.disposed_cost_paise, null);
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    identity_source: "cas", identity_as_of: "2026-10-31",
+    holdings_source: "cas", holdings_as_of: "2026-10-31" }) });
+  const broker = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, written.rows), holdings: written.rows },
+    today: "2026-11-15" });
+  assert.equal(broker.summary.ask, 1, "the broker names a bond the statement sold");
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 2, "the ask stays on its own card");
+});
+
+test("a broker imported before a full sale gives the disposal its cost", () => {
+  const parsed = saleParsed;
+  const withCost = casReplacePlan({ parsed, existing: [{ security_id: SOLD_ISIN,
+    label: soldLabel, category: "bond", quantity: 10, cost_paise: 200000,
+    value_paise: 100000, as_of: "2026-09-30" }], holdings: parsed.holdings,
+    asOf: parsed.asOf, events: parsed.transactions, assetId: "demat-1",
+    accounts: [DEMAT_BO], route: true });
+  const withoutCost = casReplacePlan({ parsed, existing: [{ security_id: SOLD_ISIN,
+    label: soldLabel, category: "bond", quantity: 10, cost_paise: null,
+    value_paise: 100000, as_of: "2026-09-30" }], holdings: parsed.holdings,
+    asOf: parsed.asOf, events: parsed.transactions, assetId: "demat-1",
+    accounts: [DEMAT_BO], route: true });
+  assert.equal(withCost.rows.find((row) => row.disposed_at).disposed_cost_paise, 200000);
+  assert.equal(withoutCost.rows.find((row) => row.disposed_at).disposed_cost_paise, null);
+});
+
+// --- the plan's net count, not the sum of its files ------------------------
+
+test("the plan's net count says one added holding, not an add and an update", () => {
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account: planAccount(), holdings: [],
+      contributions: [casContribution(), brokerContribution()] }],
+    today: "2026-11-15",
+  });
+  assert.equal(composed.net.added, 1);
+  assert.equal(composed.net.updated, 0);
+  assert.equal(composed.net.kept, 0);
+  assert.equal(composed.summary.added, 1, "the receipts still say what each file did");
+});
+
+test("a holding both files change counts once as updated", () => {
+  const account = planAccount({ meta: JSON.stringify({
+    ucid: "TEST0001", holdings_source: "broker", holdings_as_of: "2026-11-12",
+    cost_source: "motilal", cost_as_of: "2026-10-01",
+  }) });
+  const holdings = [{ security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026",
+    category: "bond", quantity: 8, cost_paise: 150000, value_paise: null,
+    purchase_date: "", value_source: "Motilal Oswal holdings report",
+    as_of: "2026-11-12" }];
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account, holdings,
+      contributions: [casContribution({ rows: [{ isin: isin(1),
+        label: "9.00% TEST BOND 31 Dec 2026", category: "bond", quantity: 10,
+        valuePaise: 120000, costPaise: null }] }), brokerContribution()] }],
+    today: "2026-11-15",
+  });
+  assert.equal(composed.net.added, 0);
+  assert.equal(composed.net.updated, 1);
+  assert.equal(composed.net.kept, 0);
+});
+
+test("a matured row moved to history is not also counted as updated", () => {
+  const account = planAccount({ meta: JSON.stringify({
+    ucid: "TEST0001", holdings_source: "broker", holdings_as_of: "2026-09-30",
+  }) });
+  const holdings = [{ security_id: other(7), label: "7.00% MATURE BOND 31 Aug 2026",
+    category: "bond", quantity: 5, cost_paise: 50000, value_paise: 50000,
+    as_of: "2026-09-30" }];
+  const composed = planImportChains({
+    chains: [{ accountId: "demat-1", account, holdings,
+      contributions: [brokerContribution({ rows: [] })] }],
+    today: "2026-11-15",
+  });
+  assert.equal(composed.net.history, 1);
+  assert.equal(composed.net.updated, 0);
 });

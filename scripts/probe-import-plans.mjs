@@ -135,8 +135,8 @@ function writeBroker(store, bundle) {
 
 // --- resolve, then group ----------------------------------------------------
 
-function resolveBundles(account = baseAccount, holdings = []) {
-  const replies = [casFile, motilalFile, zerodhaFile];
+function resolveBundles(account = baseAccount, holdings = [],
+  replies = [casFile, motilalFile, zerodhaFile]) {
   const bundles = groupBundles(replies.map((file) => ({ ...file })));
   const pool = [{ ...account, holdings }];
   const state = { ...accountFieldState(account, holdings), holdings };
@@ -258,7 +258,7 @@ const mergedCalls = applyMerged(mergedStore, bundles, plans[0]);
 assert.deepEqual(stored(mergedStore.holdings()), stored(separateStore.holdings()),
   "the merged plan writes the same rows as the separate plans");
 assert.equal(mergedCalls.length, separateCalls.length, "one writer call per file");
-assert.equal(mergedStore.holdings().length, 8, "eight equities");
+assert.equal(mergedStore.holdings().length, 8, "four bonds and four equities");
 
 // The merged preview is composed in the order the writers run: the CAS target
 // first, then each broker against the rows the CAS leaves.
@@ -274,14 +274,18 @@ const chains = head.casTargets.map((target) => ({
   ],
 }));
 const preview = planImportChains({ chains, today: TODAY });
-assert.equal(preview.summary.added, 8, "the preview adds eight rows");
+assert.equal(preview.summary.added, 8, "the receipts add eight rows");
 assert.equal(preview.summary.updated, 4, "four of them have their cost filled");
 assert.equal(preview.summary.ask, 0, "the merged plan asks nothing");
+assert.equal(preview.net.added, 8, "the plan adds eight holdings");
+assert.equal(preview.net.updated, 0, "a cost fill on a new row is not a second change");
 assert.equal(preview.chains[0].receipts.length, 3);
 console.log(`rows     merged == separate · ${mergedStore.holdings().length} rows`
   + ` · write calls ${mergedCalls.length}`);
-console.log(`preview  added ${preview.summary.added} · updated ${preview.summary.updated}`
-  + ` · ask ${preview.summary.ask}`);
+console.log(`preview  receipts added ${preview.summary.added}`
+  + ` · updated ${preview.summary.updated} · ask ${preview.summary.ask}`);
+console.log(`net      added ${preview.net.added} · updated ${preview.net.updated}`
+  + ` · history ${preview.net.history}`);
 for (const receipt of preview.chains[0].receipts) {
   console.log(`  ${receipt.label}: added ${receipt.plan.summary.added}`
     + ` · updated ${receipt.plan.summary.updated}`);
@@ -328,3 +332,35 @@ assert.equal(motilalContributions[0].accountKey, "TEST0001");
 console.log(`folio    plan records ${folioContributions.length}`
   + ` (demat + folio) · broker attaches to the demat only`);
 console.log(`accounts ${folioAccount.id} exists, untouched by the broker`);
+
+// A statement that records a disposal stays its own card. The broker-first
+// order is the only one that puts the broker's cost into the disposal basis,
+// and a single plan would apply the statement first.
+const movedFile = { ...casFile, name: "cas-moved.pdf", entryId: "cas-moved", rows: [],
+  accounts: [{ boId: BO, dpName: "Test DP", rows: [] }],
+  parsed: { ...casFile.parsed, holdings: [],
+    accounts: [{ boId: BO, dpName: "Test DP", holdings: [] }],
+    transactions: [{ isin: isin(1), security: "TESTSTOCK1", date: "2026-10-10",
+      type: "SALE", description: "SALE", quantity: 10, openingPaise: 100000,
+      creditPaise: 0, debitPaise: 100000, closingPaise: 0 }] } };
+const movedBundles = resolveBundles(baseAccount, [], [movedFile, motilalFile]);
+const movedPlans = groupResolvedPlans(movedBundles.map((bundle) => ({
+  key: bundle.key, family: bundle.family, accounts: bundle.accounts || [],
+  locked: bundle.family === "cas"
+    && (bundle.base?.parsed?.transactions || []).length > 0,
+})));
+assert.equal(movedBundles.length, 2);
+assert.equal(movedPlans.length, 2, "the movement statement keeps the broker separate");
+const soldRow = { security_id: isin(1), label: "TESTSTOCK1", category: "equity",
+  quantity: 10, cost_paise: 200000, value_paise: 100000, as_of: "2026-09-30" };
+const withCost = casReplacePlan({ parsed: movedFile.parsed, existing: [soldRow],
+  holdings: [], asOf: movedFile.asOf, events: movedFile.parsed.transactions,
+  assetId: "demat-1", accounts: [BO], route: true });
+const withoutCost = casReplacePlan({ parsed: movedFile.parsed,
+  existing: [{ ...soldRow, cost_paise: null }], holdings: [], asOf: movedFile.asOf,
+  events: movedFile.parsed.transactions, assetId: "demat-1", accounts: [BO], route: true });
+assert.equal(withCost.rows.find((row) => row.disposed_at).disposed_cost_paise, 200000);
+assert.equal(withoutCost.rows.find((row) => row.disposed_at).disposed_cost_paise, null);
+console.log(`moved    CAS with a sale + Motilal · bundles ${movedBundles.length}`
+  + ` → plans ${movedPlans.length} (locked)`);
+console.log(`cost     broker before the sale 200000 · statement first null`);

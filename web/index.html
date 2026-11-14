@@ -7340,6 +7340,9 @@ function bpImportPlanForBundles(group, bundles) {
   const extraBundles = bundles.slice(1);
   const acceptAsk = bundles.some((bundle) => bundle.acceptAsk);
   const chains = [];
+  const movements = head.family === "cas"
+    ? (head.base?.parsed?.transactions || []).length : 0;
+  const accountCount = head.family === "cas" ? (head.casTargets || []).length : 1;
   if (head.family === "cas") {
     for (const target of head.casTargets || []) {
       const attached = extraBundles.filter((bundle) =>
@@ -7387,10 +7390,15 @@ function bpImportPlanForBundles(group, bundles) {
     bundles,
     extraBundles,
     accounts: group.accounts,
+    accountCount,
     files: bpImportPlanFiles(bundles),
     acceptAsk,
     summary: composed.summary,
+    net: composed.net,
     warnings: [...new Set([...(head.plan?.warnings || []), ...composed.warnings,
+      ...(movements ? ["This statement records disposals. A broker report for the "
+        + "same account stays its own card; import it first to keep its cost on the disposal."]
+        : []),
       ...(splitCas ? ["Two depository statements name the same account. "
         + "Import one, then the other."] : [])])],
     extras,
@@ -7403,6 +7411,8 @@ function bpImportPlanForBundles(group, bundles) {
 function bpImportPlans(bundles = []) {
   const grouped = groupResolvedPlans(bundles.map((bundle) => ({
     key: bundle.key, family: bundle.family, accounts: bundle.accounts || [],
+    locked: bundle.family === "cas"
+      && (bundle.base?.parsed?.transactions || []).length > 0,
   })));
   const byKey = new Map((bundles || []).map((bundle) => [bundle.key, bundle]));
   return grouped.map((group) => bpImportPlanForBundles(group,
@@ -7596,7 +7606,7 @@ function bpImportAskLines(bundle) {
   const decisions = bundle.family === "cas"
     ? (bundle.casTargets || []).flatMap((target) => target.plan?.decisions || [])
     : (bundle.plan?.decisions || []);
-  return decisions.filter((decision) => decision.action === "ask").slice(0, 5)
+  return decisions.filter((decision) => decision.action === "ask")
     .map(bpImportDecisionLine);
 }
 
@@ -7604,46 +7614,46 @@ function bpImportPlanAskLines(plan) {
   const lines = bpImportAskLines(plan.head);
   for (const receipt of plan.extras || []) {
     const asks = (receipt.plan?.decisions || []).filter((decision) =>
-      decision.action === "ask").slice(0, 2);
+      decision.action === "ask");
     for (const decision of asks) lines.push(`${receipt.label}: ${bpImportDecisionLine(decision)}`);
   }
-  return lines.slice(0, 6);
+  return lines;
 }
 
-function bpImportReceiptWords(receipt) {
+function bpImportReceiptRole(receipt) {
   const summary = receipt.plan?.summary || {};
   const changes = (receipt.plan?.decisions || []).flatMap((decision) => decision.changes || []);
-  const costFields = changes.filter((change) => change.group === "cost").length;
   const parts = [];
-  if (summary.added) parts.push(`adds ${summary.added} holding${summary.added === 1 ? "" : "s"}`);
-  if (summary.updated) parts.push(`updates ${summary.updated} holding${summary.updated === 1 ? "" : "s"}`);
-  if (summary.history) parts.push(`moves ${summary.history} matured bond${summary.history === 1 ? "" : "s"} to history`);
-  if (summary.ask) parts.push(`asks about ${summary.ask}`);
-  if (!parts.length) {
-    parts.push(costFields
-      ? `fills ${costFields} cost or term field${costFields === 1 ? "" : "s"}`
-      : "nothing to change");
+  if (summary.added) parts.push("adds the holdings it names");
+  if (summary.updated && changes.some((change) => change.group === "cost")) {
+    parts.push("fills cost and terms");
+  } else if (summary.updated) {
+    parts.push("confirms the rows it names");
   }
-  return parts.join(", ");
+  if (summary.history) parts.push("moves the matured rows it names to history");
+  if (summary.ask) parts.push(`asks about ${summary.ask} difference${summary.ask === 1 ? "" : "s"}`);
+  if (!parts.length) parts.push("nothing to change");
+  return parts.join(" and ");
 }
 
 function bpImportPlanItems(plan) {
   const bundle = plan.head;
+  const net = plan.net || {};
   const summary = plan.summary || {};
   const change = [];
-  if (summary.added) change.push(`Add ${summary.added} holding${summary.added === 1 ? "" : "s"}`);
-  if (summary.updated) change.push(`Update ${summary.updated} holding${summary.updated === 1 ? "" : "s"}`);
+  if (net.added) change.push(`Add ${net.added} holding${net.added === 1 ? "" : "s"}`);
+  if (net.updated) change.push(`Update ${net.updated} holding${net.updated === 1 ? "" : "s"}`);
   if (bundle.saleEvents?.length) change.push(`Record ${bundle.saleEvents.length} sale${
     bundle.saleEvents.length === 1 ? "" : "s"} or transfer${
     bundle.saleEvents.length === 1 ? "" : "s"} as sold`);
-  if (summary.history) change.push(`Move ${summary.history} matured bond${summary.history === 1 ? "" : "s"} to history`);
+  if (net.history) change.push(`Move ${net.history} matured bond${net.history === 1 ? "" : "s"} to history`);
   const adoptedFolios = (bundle.casTargets || []).filter((target) =>
     target.folio && target.offer && target.targetId
     && (target.offer.choosable || []).some((candidate) => candidate.id === target.targetId));
   if (adoptedFolios.length) change.push(`Adopt ${adoptedFolios.length} folio${
     adoptedFolios.length === 1 ? "" : "s"} into the existing account`);
   for (const receipt of plan.extras || []) {
-    change.push(`${receipt.label}: ${bpImportReceiptWords(receipt)}`);
+    change.push(`${receipt.label}: ${bpImportReceiptRole(receipt)}`);
   }
   const identityChanging = bundle.family === "cas"
     ? (bundle.casTargets || []).some((target) =>
@@ -7679,7 +7689,7 @@ function bpImportReceiptsHtml(plan) {
     <div class="import-section-title">Also in this plan</div>
     ${extras.map((receipt) => `<div class="import-file">
       <span class="import-file-name">${esc(receipt.label)}</span>
-      <span class="import-file-meta">${esc(bpImportReceiptWords(receipt))}</span>
+      <span class="import-file-meta">${esc(bpImportReceiptRole(receipt))}</span>
     </div>`).join("")}
   </div>`;
 }
@@ -7711,7 +7721,7 @@ function bpImportPlanHtml(plan) {
   const countText = bpImportCategoryText(bundle.rows);
   const sub = [countText, bundle.asOf ? `as on ${dateLabel(bundle.asOf)}` : "No date on the file",
     `${plan.files.length} file${plan.files.length === 1 ? "" : "s"}`,
-    plan.accounts.length > 1 ? `${plan.accounts.length} accounts` : ""]
+    plan.accountCount > 1 ? `${plan.accountCount} accounts` : ""]
     .filter(Boolean).join(" · ");
   const askLines = bpImportPlanAskLines(plan);
   const ask = summary.ask && !plan.acceptAsk
@@ -7727,7 +7737,8 @@ function bpImportPlanHtml(plan) {
       </div></div>` : "";
   const warning = (plan.warnings || []).length
     ? `<div class="muted import-note">${esc(plan.warnings.join(" "))}</div>` : "";
-  const planned = summary.added + summary.updated + summary.history;
+  const net = plan.net || {};
+  const planned = (net.added || 0) + (net.updated || 0) + (net.history || 0);
   const sales = bundle.saleEvents?.length || 0;
   const primary = bundle.family === "cas"
     ? (bundle.plan?.identityOnly
@@ -8580,7 +8591,7 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
       sold === 1 ? "" : "s"} recorded as sold`);
     if (linkedSold) parts.push(`${linkedSold} also reduced in the linked cost portfolio`);
     if (conflicts.length) parts.push(conflicts.join(" "));
-    const label = plan.accounts.length > 1 ? `${plan.accounts.length} accounts`
+    const label = plan.accountCount > 1 ? `${plan.accountCount} accounts`
       : (plan.accounts[0]
         ? bpImportAccountRow(plan.accounts[0])?.account?.label || "the account"
         : results.map((result) => result.label).find(Boolean) || "the account");

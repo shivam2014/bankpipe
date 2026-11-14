@@ -461,7 +461,13 @@ export function groupBundles(files = []) {
  * CAS bundles first: one CAS can name several accounts, and it has to claim them
  * before a broker file is grouped.
  *
- * @param {Array<{key: string, family?: string, accounts?: Array<string>}>} bundles
+ * A locked bundle never joins another plan and never claims its accounts for a
+ * later bundle. The page locks a statement that records movements, because the
+ * order that keeps a disposal's cost is the broker report first and the
+ * statement second, and one card would hide that order behind a single accept.
+ *
+ * @param {Array<{key: string, family?: string, accounts?: Array<string>,
+ *   locked?: boolean}>} bundles
  * @returns {Array<{key: string, family: string, members: Array<string>,
  *   accounts: Array<string>}>}
  */
@@ -471,7 +477,9 @@ export function groupResolvedPlans(bundles = []) {
   for (const bundle of bundles || []) {
     if (!bundle?.key) continue;
     const accounts = [...new Set((bundle.accounts || []).filter(Boolean))];
-    const homes = [...new Set(accounts.map((id) => byAccount.get(id)).filter(Boolean))];
+    const locked = !!bundle.locked;
+    const homes = locked ? []
+      : [...new Set(accounts.map((id) => byAccount.get(id)).filter(Boolean))];
     if (homes.length === 1) {
       const plan = homes[0];
       plan.members.push(bundle.key);
@@ -485,6 +493,7 @@ export function groupResolvedPlans(bundles = []) {
     const plan = { key: bundle.key, family: bundle.family || "",
       members: [bundle.key], accounts };
     plans.push(plan);
+    if (locked) continue;
     for (const id of accounts) if (!byAccount.has(id)) byAccount.set(id, plan);
   }
   return plans;
@@ -1381,6 +1390,47 @@ function aggregateReceipts(receipts) {
   return { summary, warnings: [...new Set(warnings)], blocking };
 }
 
+const NET_FIELDS = ["label", "category", "quantity", "cost_paise", "value_paise",
+  "face_paise", "purchase_date", "interest_date", "frequency", "yield_bps",
+  "payout_paise", "future_interest_paise", "future_principal_paise", "value_source",
+  "as_of", "disposed_at", "disposed_quantity", "disposed_type", "disposed_source",
+  "disposed_reason", "disposed_cost_paise", "txn_key"];
+
+const holdingKey = (row) => String(row?.security_id || row?.isin || "").toUpperCase()
+  || `label:${norm(row?.label || "")}`;
+
+/**
+ * What one plan changes in one account, read from the rows before and after.
+ * The receipts say what each file did, and a row that one file adds and another
+ * fills cost on is one added holding, not an add plus an update. A matured row
+ * moved to zero is history, not an update.
+ */
+function netChange(before = [], after = []) {
+  const old = new Map((before || []).map((row) => [holdingKey(row), row]));
+  const seen = new Set();
+  const net = { added: 0, updated: 0, kept: 0, history: 0, removed: 0 };
+  for (const row of after || []) {
+    const key = holdingKey(row);
+    seen.add(key);
+    const prior = old.get(key);
+    const matured = Number(row.quantity) === 0 && !row.disposed_at
+      && (!prior || Number(prior.quantity) > 0);
+    if (!prior) {
+      if (matured) net.history += 1;
+      else net.added += 1;
+      continue;
+    }
+    if (matured) {
+      net.history += 1;
+      continue;
+    }
+    if (fieldsWouldChange(prior, row, NET_FIELDS).length) net.updated += 1;
+    else net.kept += 1;
+  }
+  for (const key of old.keys()) if (!seen.has(key)) net.removed += 1;
+  return net;
+}
+
 /**
  * One account's files, planned in the order they will be written. Each receipt
  * is planned against the state the previous receipt leaves, so a broker that
@@ -1391,8 +1441,8 @@ function aggregateReceipts(receipts) {
  * @param {{chains?: Array<{accountId?: string, account?: object|null,
  *   holdings?: Array<object>, contributions?: Array<object>}>,
  *   today?: string, acceptAsk?: boolean}} input
- * @returns {{chains: Array<object>, summary: object, warnings: Array<string>,
- *   blocking: boolean}}
+ * @returns {{chains: Array<object>, net: object, summary: object,
+ *   warnings: Array<string>, blocking: boolean}}
  */
 export function planImportChains({ chains = [], today = isoToday(), acceptAsk = false } = {}) {
   const out = (chains || []).map((chain) => {
@@ -1421,7 +1471,13 @@ export function planImportChains({ chains = [], today = isoToday(), acceptAsk = 
       state = planStateAfter({ ...state, holdings: rows }, plan, contribution);
     }
     return { accountId: chain.accountId || "", account: chain.account || null,
-      receipts, rows: state.holdings || [], ...aggregateReceipts(receipts) };
+      receipts, rows: state.holdings || [], net: netChange(chain.holdings || [], state.holdings || []),
+      ...aggregateReceipts(receipts) };
   });
-  return { chains: out, ...aggregateReceipts(out.flatMap((chain) => chain.receipts)) };
+  const net = out.reduce((total, chain) => {
+    for (const key of Object.keys(total)) total[key] += chain.net[key] || 0;
+    return total;
+  }, { added: 0, updated: 0, kept: 0, history: 0, removed: 0 });
+  return { chains: out, net,
+    ...aggregateReceipts(out.flatMap((chain) => chain.receipts)) };
 }

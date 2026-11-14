@@ -394,3 +394,40 @@ test("a plan's extra receipt is planned after the head file's rows", () => {
   assert.match(plans, /planImportChains\(\{/);
   assert.match(plans, /extras/);
 });
+
+// --- a statement with movements stays its own card --------------------------
+
+test("the inbox locks a statement that records movements", () => {
+  const plans = between("function bpImportPlans", "async function bpImportInboxPrepare");
+  assert.match(plans, /locked:/,
+    "a statement with movements is locked out of a broker's plan");
+  assert.match(plans, /base\?\.parsed\?\.transactions/);
+  assert.match(html, /import it first to keep its cost on the disposal/);
+});
+
+test("the card shows every ask it can accept", () => {
+  const asks = between("function bpImportAskLines", "function bpImportPlanAskLines");
+  assert.doesNotMatch(asks, /\.slice\(/, "the head's ask list is not truncated");
+  const planAsks = between("function bpImportPlanAskLines", "function bpImportReceiptRole");
+  assert.doesNotMatch(planAsks, /\.slice\(/, "the extras' ask list is not truncated");
+});
+
+test("the card counts the net plan change, not the sum of its files", () => {
+  const items = between("function bpImportPlanItems", "function bpImportReceiptsHtml");
+  assert.match(items, /const net = plan\.net \|\| \{\}/);
+  assert.match(items, /net\.added/);
+  assert.match(items, /net\.updated/);
+  assert.match(items, /net\.history/);
+  assert.doesNotMatch(items, /summary\.added|summary\.updated|summary\.history/,
+    "the headline is the net, not the summed receipts");
+  assert.equal(/adds \$\{summary\.added\}|updates \$\{summary\.updated\}/.test(items), false,
+    "per-file lines do not repeat additive counts");
+});
+
+test("the card and the receipt count every account the plan writes", () => {
+  const plans = between("function bpImportPlanForBundles", "function bpImportPlans");
+  assert.match(plans, /accountCount = head\.family === "cas"\s*\n?\s*\? \(head\.casTargets \|\| \[\]\)\.length/);
+  assert.match(html, /plan\.accountCount > 1/);
+  const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
+  assert.match(apply, /plan\.accountCount > 1/);
+});
