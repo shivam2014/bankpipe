@@ -12884,11 +12884,11 @@ function renderBondHoldingForm() {
       <div class="card pad"><div class="form">
         <label class="field wide">Bond name
           <input id="bh-name" value="${esc(parts.name)}" autocomplete="off"
-            placeholder="NAVI FINSERV PRIVATE LIMITED" oninput="bpBondLabelPreview()"></label>
+            placeholder="TEST ISSUER PRIVATE LIMITED" oninput="bpBondLabelPreview()"></label>
         <div class="wide">
           <label class="field">ISIN
             <input id="bh-isin" value="${esc(val("security_id"))}" autocomplete="off"
-              placeholder="INE999900017" style="text-transform:uppercase"></label>
+              placeholder="INE000000001" style="text-transform:uppercase"></label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
             <button class="btn" onclick="bpBondFetch(${jsArg(assetId)}, ${jsArg(holdingId)})">Fetch online</button>
             <button class="btn" id="bh-apply" style="display:none"
@@ -12975,7 +12975,7 @@ window.bpBondFetch = async (assetId, holdingId, overwrite = false) => {
   const isin = (document.getElementById("bh-isin")?.value || "").trim().toUpperCase();
   if (!/^IN[A-Z0-9]{10}$/.test(isin)) {
     if (applyBtn) applyBtn.style.display = "none";
-    msg("An ISIN has 12 characters, like INE999900017.", true);
+    msg("An ISIN has 12 characters, like INE000000001.", true);
     return;
   }
   msg("Looking up the bond…");
