@@ -1384,6 +1384,47 @@ test("a broker that names a bond the statement sold asks, so it cannot ride that
   assert.equal(plans.length, 2, "the ask stays on its own card");
 });
 
+test("the card's ask about a sold row cannot carry the broker's ask about another", () => {
+  const recorded = other(1);
+  const alreadySold = { security_id: recorded,
+    label: "7.00% ALREADY SOLD BOND 31 Dec 2027", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 10, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", as_of: "2026-08-12" };
+  const liveB = { security_id: SOLD_ISIN, label: soldLabel, category: "bond",
+    quantity: 10, cost_paise: null, value_paise: 100000, as_of: "2026-09-30" };
+  const account = soldAccount({ meta: JSON.stringify({ ucid: "TEST0001",
+    holdings_source: "cas", holdings_as_of: "2026-08-12" }) });
+  const cas = planMerge({ incoming: { kind: "cas", label: "CDSL CAS",
+    asOf: "2026-10-31", identity: { kind: "bo", value: DEMAT_BO },
+    categories: ["bond"], rows: [{ isin: recorded,
+      label: "7.00% ALREADY SOLD BOND 31 Dec 2027", category: "bond",
+      quantity: 10, valuePaise: 100000, costPaise: null }] },
+    existing: { ...accountFieldState(account, [alreadySold, liveB]),
+      holdings: [alreadySold, liveB] },
+    today: "2026-11-15" });
+  assert.equal(cas.summary.ask, 1, "the statement contradicts the recorded sale");
+  const written = casReplacePlan({ parsed: saleParsed,
+    existing: [alreadySold, liveB], holdings: [], asOf: saleParsed.asOf,
+    events: saleParsed.transactions, assetId: "demat-1", accounts: [DEMAT_BO],
+    route: true });
+  const broker = planMerge({ incoming: { kind: "motilal",
+    label: "Motilal Oswal holdings report", asOf: "2026-11-05",
+    identity: { kind: "ucid", value: "TEST0001" }, categories: ["bond"],
+    rows: [{ isin: SOLD_ISIN, label: soldLabel, category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06" }] },
+    existing: { ...accountFieldState(account, written.rows), holdings: written.rows },
+    today: "2026-11-15" });
+  assert.equal(broker.summary.ask, 1, "the broker names the bond the statement sold");
+  const plans = groupResolvedPlans([
+    resolvedBundle("cas:moved", "cas", ["demat-1"], { locked: true }),
+    resolvedBundle("motilal:9990001", "motilal", ["demat-1"]),
+  ]);
+  assert.equal(plans.length, 2, "neither ask can be accepted from the other's card");
+  assert.deepEqual(plans[0].members, ["cas:moved"]);
+  assert.deepEqual(plans[1].members, ["motilal:9990001"]);
+});
+
 test("a broker imported before a full sale gives the disposal its cost", () => {
   const parsed = saleParsed;
   const withCost = casReplacePlan({ parsed, existing: [{ security_id: SOLD_ISIN,
