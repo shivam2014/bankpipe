@@ -341,3 +341,29 @@ test("an unscoped legacy sold row is reconciled when it is the only candidate", 
   assert.equal(liveRow.cost_paise, 54000);
   assert.equal(linked.reconciliations.length, 1);
 });
+
+test("two disposed rows with one unscoped legacy key are left alone", () => {
+  const event = sale();
+  const key = casLegacyEventKey(event);
+  const sold = (cost) => ({ security_id: ISIN, label: "TEST BOND", category: "bond",
+    quantity: 0, cost_paise: 0, value_paise: 0, disposed_at: "2026-08-12",
+    disposed_quantity: 60, disposed_type: "sale", disposed_source: "CAS",
+    disposed_reason: "SALE", disposed_cost_paise: cost, txn_key: key });
+  const check = (first, second) => {
+    const soldA = sold(first);
+    const soldB = sold(second);
+    const live = { security_id: ISIN, label: "TEST BOND", category: "bond",
+      quantity: 40, cost_paise: 48000, value_paise: 400000, as_of: "2026-08-31" };
+    const dematPlan = { events: [{ ...event, txn_key: casEventKey(event, "demat-a") }],
+      sold: [soldA, soldB], rows: [live, soldA, soldB] };
+    const rows = [lot({ quantity: 100, cost_paise: 110000 })];
+    const linked = planLinkedSales({ dematPlan, dematAssetId: "demat-a",
+      asOf: "2026-08-31", portfolios: [{ account: costA, rows }] });
+    assert.equal(linked.reconciliations.length, 0);
+    assert.equal(soldA.disposed_cost_paise, first);
+    assert.equal(soldB.disposed_cost_paise, second);
+    assert.equal(live.cost_paise, 48000);
+  };
+  check(72000, 50000);
+  check(50000, 72000);
+});

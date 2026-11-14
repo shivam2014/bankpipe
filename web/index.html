@@ -1371,9 +1371,10 @@ import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
   reconHiddenHtml } from "./recon-card.js";
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
-import { casClosedRow, casFolioHoldings, casHoldingLabel, casImportHoldings,
-  casImportUnits, casMovementAccountBos, casPreviewAccounts, casReplacePlan,
-  casSafety, casWritableHoldings, linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
+import { casClosedRow, casFolioHoldings, casGroupByAsset, casHoldingLabel,
+  casImportHoldings, casImportUnits, casMovementAccountBos, casPreviewAccounts,
+  casReplacePlan, casSafety, casWritableHoldings, linkedCostPortfolios,
+  planLinkedSales } from "./cas-apply.js";
 import { casSoldLines, soldHoldingsHtml, splitHoldings } from "./sold-view.js";
 import { boId } from "./bo-id.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
@@ -10769,25 +10770,17 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
   // that row is history and belongs in the page's "Matured bonds" group.
   const importDay = new Date().toISOString().slice(0, 10);
   if (route.groups.length) {
-    for (const h of cas.holdings) {
-      if (casClosedRow(h, importDay)) continue;
-      // Match the account as well as the class: two demats can both hold bonds,
-      // and a folio belongs to the account named after its AMC.
-      const group = route.groups.find((g) => g.kind === h.kind
-        && (h.kind === "mf" && h.folio
-          ? String(g.amc || "").toLowerCase() === String(h.amc || "").toLowerCase()
-          : (!h.account || !g.boId || String(g.boId) === String(h.account))));
-      if (!group) continue;
-      // An account the person unticked is left exactly as it was.
-      const pickedKey = (group.kind === "mf" && group.folio)
-        ? `mf:${String(group.amc || "").toLowerCase()}` : `bo:${String(group.boId || "")}`;
-      if (card.picked && !card.picked.has(pickedKey)) continue;
-      if (!byAsset.has(group.assetId)) byAsset.set(group.assetId, []);
-      byAsset.get(group.assetId).push(h);
+    for (const [groupAssetId, rows] of casGroupByAsset({ holdings: cas.holdings,
+      groups: route.groups, importDay, picked: card.picked || null })) {
+      if (!byAsset.has(groupAssetId)) byAsset.set(groupAssetId, []);
+      byAsset.get(groupAssetId).push(...rows);
     }
   } else {
     const id = document.getElementById(`cas-target-${key}`)?.value || "";
-    if (id) byAsset.set(id, cas.holdings.filter((h) => !casClosedRow(h, importDay)));
+    if (id) {
+      byAsset.set(id, cas.holdings.filter((h) => !casClosedRow(h, importDay)
+        && !(h.kind === "mf" && h.folio && !(Number(h.quantity) > 0))));
+    }
   }
   // An account whose only movement is a sale has no holdings group. Add the
   // accounts the statement names so the event pass can record the disposal there.

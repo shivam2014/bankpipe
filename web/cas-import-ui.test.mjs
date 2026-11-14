@@ -51,6 +51,11 @@ test("a zero-unit fund is not shown as a folio unit", () => {
   assert.match(html, /for \(const holding of casFolioHoldings\(writableHoldings\)\)/);
 });
 
+test("the writer groups rows through the shared folio rule", () => {
+  assert.match(html, /casGroupByAsset\(\{ holdings: cas\.holdings/);
+  assert.match(html, /picked: card\.picked \|\| null/);
+});
+
 test("unticking a seeded movement-only demat stops its sale", () => {
   assert.match(html, /card\.picked && \(named \|\| movementHome\)/);
 });

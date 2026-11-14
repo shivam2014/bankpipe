@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { casFolioHoldings, casImportUnits, casMovementAccountBos, casPreviewAccounts,
-  casWritableHoldings } from "./cas-apply.js";
+import { casFolioHoldings, casGroupByAsset, casImportUnits, casMovementAccountBos,
+  casPreviewAccounts, casWritableHoldings } from "./cas-apply.js";
 
 // Regression guards for helpers added after dca90b3. They cannot run on that
 // commit because the helpers did not exist there. The planner behavior that the
@@ -61,11 +61,31 @@ test("the inbox picks a movement-only demat so its sale is written", () => {
   const units = casImportUnits({
     accounts,
     routeAccounts: [{ boId: "1200000000000001", assetId: "demat-a" }],
-    groups: [],
+    groups: [{ kind: "mf", folio: true, amc: "Test AMC", assetId: "mf-test" }],
     movements: [{ account: "1200000000000002" }],
   });
   assert.deepEqual([...units],
-    ["bo:1200000000000001", "bo:1200000000000002"]);
+    ["bo:1200000000000001", "mf:test amc", "bo:1200000000000002"]);
+});
+
+test("the card unit and the writer group agree on a zero-unit fund", () => {
+  const zero = { kind: "mf", folio: "aaa", amc: "Test AMC", quantity: 0,
+    valuePaise: 5000, isin: "INF000000001" };
+  const positive = { kind: "mf", folio: "bbb", amc: "Test AMC", quantity: 10,
+    valuePaise: 15000, isin: "INF999900287" };
+  const groups = [{ kind: "mf", folio: true, amc: "Test AMC", assetId: "mf-test",
+    boId: "" }];
+  const importDay = "2026-11-14";
+  const card = casFolioHoldings(casWritableHoldings([zero, positive], importDay));
+  const writer = casGroupByAsset({ holdings: [zero, positive], groups, importDay });
+  assert.deepEqual(card.map((holding) => holding.isin), ["INF999900287"]);
+  assert.deepEqual(writer.get("mf-test").map((holding) => holding.isin),
+    ["INF999900287"]);
+  const cardValue = card.reduce((sum, holding) => sum + holding.valuePaise, 0);
+  const writerValue = writer.get("mf-test")
+    .reduce((sum, holding) => sum + holding.valuePaise, 0);
+  assert.equal(cardValue, 15000);
+  assert.equal(writerValue, cardValue);
 });
 
 test("a zero-unit fund is not shown as a folio unit", () => {

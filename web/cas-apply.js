@@ -221,6 +221,36 @@ export function casFolioHoldings(holdings = []) {
 }
 
 /**
+ * The rows the writer replaces per asset. The same closed and zero-unit folio
+ * rules the card uses decide what goes in, so the ticked unit and the write
+ * cannot disagree.
+ * @param {{holdings?: Array<object>, groups?: Array<object>, importDay?: string,
+ *   picked?: Set<string>|null}} input
+ * @returns {Map<string, Array<object>>}
+ */
+export function casGroupByAsset({ holdings = [], groups = [],
+  importDay = new Date().toISOString().slice(0, 10), picked = null } = {}) {
+  const out = new Map();
+  for (const holding of holdings || []) {
+    if (casClosedRow(holding, importDay)) continue;
+    // A zero-unit fund is not a folio the card or the route can place.
+    if (holding.kind === "mf" && holding.folio && !(Number(holding.quantity) > 0)) continue;
+    const group = (groups || []).find((item) => item.kind === holding.kind
+      && (holding.kind === "mf" && holding.folio
+        ? String(item.amc || "").toLowerCase() === String(holding.amc || "").toLowerCase()
+        : (!holding.account || !item.boId
+          || String(item.boId) === String(holding.account))));
+    if (!group) continue;
+    const key = group.kind === "mf" && group.folio
+      ? `mf:${String(group.amc || "").toLowerCase()}` : `bo:${String(group.boId || "")}`;
+    if (picked && !picked.has(key)) continue;
+    if (!out.has(group.assetId)) out.set(group.assetId, []);
+    out.get(group.assetId).push(holding);
+  }
+  return out;
+}
+
+/**
  * The parsed holdings a write would keep. A closed position is dropped, except
  * a matured bond. The inbox count and the writer use the same list.
  * @param {Array<object>} holdings
@@ -1077,8 +1107,9 @@ export function planLinkedSales({ dematPlan = {}, dematAssetId = "", asOf = "",
       if (!dematSold) {
         const unscoped = disposed.filter((row) =>
           row.txn_key === casLegacyEventKey(event) || row.txn_key === casEventKey(event));
-        const unique = new Map(unscoped.map((row) => [row.txn_key, row]));
-        if (unique.size === 1) dematSold = [...unique.values()][0];
+        // `disposed` is a Set of row references, so two distinct rows that
+        // share one unscoped key are ambiguous. Never pick one at random.
+        if (unscoped.length === 1) dematSold = unscoped[0];
       }
       if (!dematSold) continue;
       const before = dematSold.disposed_cost_paise;
