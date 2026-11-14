@@ -264,3 +264,47 @@ suite. `buildBondSync` remains in `digifinn-reports.js` with direct tests; it is
 a library planner, not a handler, so the planner count does not move until that
 library surface is retired.
 
+## What each account is missing
+
+The securities-accounts card names, per account, the gaps a report or an edit
+can fill, and carries one closed `Which report?` disclosure for the card.
+
+Computed in `web/import-flow.js` (`importAccountGaps`) from provenance the
+ledger already stores: `holdings_source`, `holdings_as_of`, `cost_source`,
+`cost_as_of`, and each row's `cost_paise`, `yield_bps`, label and `as_of`. No
+new stored field, no score, no dismissal flag.
+
+| Line | When it appears | What clears it |
+| --- | --- | --- |
+| `No cost on N holdings` | an active row with no cost | a broker holdings report, or an edit |
+| `Cost from <date>, older than the <date> holdings` | `cost_as_of` behind the snapshot date | a newer broker holdings report |
+| `No coupon or maturity on N bonds` | a bond with no coupon in the field or the label, and no maturity anywhere | a broker report, or an edit |
+
+A typed account has no source on its meta and none on its rows. Its lines read
+`Could add cost for N holdings` and `Could add coupon and maturity for N bonds`,
+muted rather than amber, and never name a report. Matured and disposed rows are
+history, not gaps; an account with nothing missing renders no line at all.
+
+Two absences are deliberately not lines:
+
+- **A month with no new statement.** A long-held bond's quantities do not
+  change, so a calendar rule would nag every month for a file that says nothing
+  new. The meta line already dates the snapshot (`CAS 31 Oct 2026`), and
+  `Newer broker data` already flags the one case where a stored cost is newer
+  than the statement.
+- **A row whose `source` is empty.** `cas-apply.js:831` writes every CAS row
+  that way; the account-level `holdings_source` is the same fact, so flagging
+  the row would call every healthy CAS account unsourced. `Broker-only` already
+  says when no depository statement has named the account.
+
+`Broker-only` now reads the stored `holdings_source` rather than the row-date
+fallback in `accountFieldState`, so an account typed by hand is not labelled
+broker-only. The disclosure renders only when a file can fill something, and its
+last line is the claim that holds: "Nothing updates on its own: month-end
+quantities, daily prices and terms where a source exists, on your schedule."
+
+Counts, before → after: screens 1 → 1, stored fields 0 → 0, user decisions
+0 → 0 (a disclosure is not a decision), disclosures on the import screen 3 → 4,
+lines per account on the card 2 → 3 at most, tests 1152 → 1163.
+
+

@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { isSecuritiesAccount, isImportAccount, isDepositoryAccount } from "./assets.js";
-import { accountMatches, groupBundles, importAccountSummary,
-  normalizeAccount } from "./import-flow.js";
+import { accountMatches, groupBundles, importAccountGaps, importAccountSummary,
+  normalizeAccount, IMPORT_REPORT_GUIDE } from "./import-flow.js";
 
 // Synthetic identifiers only. The real files are never committed.
 const isin = (n) => `INE${String(n).padStart(9, "0")}`;
@@ -356,6 +356,151 @@ test("the list says what it holds and refreshes when Import opens", () => {
   assert.match(html, /<h2>Securities accounts<\/h2>/);
   assert.match(html, /No securities accounts yet/);
   assert.match(html, /bpImportAccountsLoad\?\.\(true\)/);
+});
+
+// --- what one account is missing --------------------------------------------
+// The gap list is computed from provenance already stored: holdings_source,
+// holdings_as_of, cost_source, cost_as_of, plus each row's own fields. No new
+// field remembers a gap and no score ranks the account.
+
+const gapText = (value) => value.gaps.map((gap) => gap.text);
+
+test("an account with current quantities, cost and terms names no gap", () => {
+  const gaps = importAccountGaps(account({ meta: meta({
+    holdings_source: "cas", holdings_as_of: "2026-10-31",
+    cost_source: "motilal", cost_as_of: "2026-10-31",
+  }) }), [
+    { ...row(1), quantity: 5, cost_paise: 500000, source: "motilal" },
+    { security_id: isin(2), label: "7.15% TEST BOND 15 May 2032", category: "bond",
+      quantity: 10, cost_paise: 1000000, yield_bps: 715, as_of: "2026-10-31",
+      source: "motilal" },
+  ], (value) => value, "2026-11-14");
+  assert.deepEqual(gaps, { manual: false, gaps: [] });
+});
+
+test("no cost is named on the holdings that lack it", () => {
+  const gaps = importAccountGaps(account({ meta: meta({ holdings_source: "cas",
+    holdings_as_of: "2026-10-31", cost_source: "motilal", cost_as_of: "2026-10-31" }) }),
+    [{ ...row(1), cost_paise: 100 }, row(2)], (value) => value, "2026-11-14");
+  assert.deepEqual(gapText(gaps), ["No cost on 1 holding"]);
+  const both = importAccountGaps(account({ meta: meta({ holdings_source: "cas",
+    holdings_as_of: "2026-10-31", cost_source: "motilal", cost_as_of: "2026-10-31" }) }),
+    [row(1), row(2)], (value) => value, "2026-11-14");
+  assert.deepEqual(gapText(both), ["No cost on 2 holdings"]);
+});
+
+test("cost behind the quantities names both dates", () => {
+  const fmt = (value) => ({ "2026-11-05": "5 Nov 2026", "2026-11-12": "12 Nov 2026" }[value] || value);
+  const stale = importAccountGaps(account({ meta: meta({ holdings_source: "cas",
+    holdings_as_of: "2026-11-12", cost_source: "motilal", cost_as_of: "2026-11-05" }) }),
+    [{ ...row(1), cost_paise: 100 }], fmt, "2026-11-14");
+  assert.deepEqual(gapText(stale),
+    ["Cost from 5 Nov 2026, older than the 12 Nov 2026 holdings"]);
+  const even = importAccountGaps(account({ meta: meta({ holdings_source: "cas",
+    holdings_as_of: "2026-11-12", cost_source: "motilal", cost_as_of: "2026-11-12" }) }),
+    [{ ...row(1), cost_paise: 100 }], fmt, "2026-11-14");
+  assert.deepEqual(even.gaps, []);
+});
+
+test("a bond with no coupon and no maturity is named once", () => {
+  const gaps = importAccountGaps(account({ meta: meta({ holdings_source: "cas",
+    holdings_as_of: "2026-10-31" }) }), [
+    { security_id: isin(2), label: "TEST BOND", category: "bond", quantity: 10,
+      cost_paise: 100, as_of: "2026-10-31" },
+    { security_id: isin(3), label: "TEST BOND TWO", category: "bond", quantity: 5,
+      cost_paise: 100, as_of: "2026-10-31" },
+  ], (value) => value, "2026-11-14");
+  assert.deepEqual(gapText(gaps), ["No coupon or maturity on 2 bonds"]);
+});
+
+test("a coupon or a maturity in the label is terms enough", () => {
+  const gaps = importAccountGaps(account({ meta: meta({ holdings_source: "cas",
+    holdings_as_of: "2026-10-31" }) }), [
+    { security_id: isin(2), label: "7.15% TEST BOND", category: "bond", quantity: 1,
+      cost_paise: 1, as_of: "2026-10-31" },
+    { security_id: isin(3), label: "TEST BOND 15 May 2032", category: "bond", quantity: 1,
+      cost_paise: 1, as_of: "2026-10-31" },
+  ], (value) => value, "2026-11-14");
+  assert.deepEqual(gaps.gaps, []);
+});
+
+test("a matured or disposed row is history, not a gap", () => {
+  const matured = { security_id: isin(2), label: "TEST BOND 15 May 2020", category: "bond",
+    quantity: 10, as_of: "2026-10-31" };
+  const sold = { ...matured, security_id: isin(3), quantity: 0, disposed_at: "2026-06-01" };
+  const gaps = importAccountGaps(account({ meta: meta({ holdings_source: "cas",
+    holdings_as_of: "2026-10-31" }) }), [matured, sold], (value) => value, "2026-11-14");
+  assert.deepEqual(gaps.gaps, []);
+});
+
+test("a typed account is offered what it could add, not told what is missing", () => {
+  const gaps = importAccountGaps(account({ meta: "" }), [
+    { security_id: isin(1), label: "TEST EQUITY", category: "equity", quantity: 5,
+      as_of: "2026-10-01" },
+    { security_id: isin(2), label: "TEST BOND", category: "bond", quantity: 10,
+      as_of: "2026-10-01" },
+  ], (value) => value, "2026-11-14");
+  assert.equal(gaps.manual, true);
+  assert.deepEqual(gapText(gaps),
+    ["Could add cost for 2 holdings", "Could add coupon and maturity for 1 bond"]);
+  for (const gap of gaps.gaps) assert.doesNotMatch(gap.text, /^No /);
+});
+
+test("a typed account with dated rows is not called broker-only", () => {
+  // A row date must not turn "no report yet" into a broker's name. The broker
+  // pill and its warning are for an account a file actually named.
+  const typed = importAccountSummary(account({ meta: "" }),
+    [{ security_id: isin(1), quantity: 5, as_of: "2026-10-01" }],
+    (value) => value, "2026-11-14");
+  assert.equal(typed.label, "Holdings");
+  assert.equal(typed.brokerOnly, false);
+  const filed = importAccountSummary(account({ meta: meta({ holdings_source: "zerodha",
+    holdings_as_of: "2026-10-01" }) }),
+    [{ security_id: isin(1), quantity: 5, as_of: "2026-10-01" }], (value) => value,
+    "2026-11-14");
+  assert.equal(filed.label, "Broker-only", "a broker file still names its account");
+});
+
+test("a row a statement named is not a typed account", () => {
+  // cas-apply stamps value_source and leaves the row source empty. That is
+  // provenance, so the account is not hand-typed just because its meta is thin.
+  const gaps = importAccountGaps(account({ meta: "" }),
+    [{ ...row(1), cost_paise: 100, value_source: "CAS" }], (value) => value, "2026-11-14");
+  assert.equal(gaps.manual, false);
+  assert.deepEqual(gaps.gaps, []);
+});
+
+test("a CAS row with an empty source is not called unsourced", () => {
+  // cas-apply writes every CAS row with an empty row source; the statement is
+  // the account's source and the meta line already carries its date.
+  const gaps = importAccountGaps(account({ meta: meta({ holdings_source: "cas",
+    holdings_as_of: "2026-10-31", identity_source: "cas" }) }),
+    [{ ...row(1), cost_paise: 100, value_source: "CAS", source: "" }],
+    (value) => value, "2026-11-14");
+  assert.deepEqual(gaps.gaps, []);
+});
+
+test("the guide names three reports and claims nothing live", () => {
+  assert.equal(IMPORT_REPORT_GUIDE.sources.length, 3);
+  const names = IMPORT_REPORT_GUIDE.sources.map((source) => source.source).join("|");
+  assert.match(names, /CAS/);
+  assert.match(names, /Broker holdings report/);
+  assert.match(names, /Transaction statement/);
+  assert.match(IMPORT_REPORT_GUIDE.note, /month-end quantities/);
+  assert.match(IMPORT_REPORT_GUIDE.note, /on your schedule/);
+  assert.doesNotMatch(IMPORT_REPORT_GUIDE.note, /live|real-time|automatic/i);
+});
+
+test("the accounts card names gaps and holds one closed guide", () => {
+  const render = between("function bpImportAccountsHtml", "function bpImportAccountsRender");
+  assert.match(render, /importAccountGaps\(row\.account, row\.holdings, dateLabel\)/);
+  assert.match(render, /import-account-gap/);
+  assert.match(render, /<summary>Which report\?<\/summary>/);
+  assert.match(render, /IMPORT_REPORT_GUIDE\.sources/);
+  assert.match(render, /!gap\.manual && gap\.gaps\.length/,
+    "the guide appears only when a file can fill a gap");
+  assert.equal((html.match(/Which report\?/g) || []).length, 1,
+    "one disclosure on the card, not one per account");
 });
 
 // --- one plan per resolved account ------------------------------------------

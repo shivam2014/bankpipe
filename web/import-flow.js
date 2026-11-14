@@ -709,6 +709,20 @@ function holdingMaturity(row) {
   return bondMaturity(row).maturity;
 }
 
+// What each row is to the account right now: a current position, a matured lot
+// still owed, or sold history. One rule for the status line and the gap list, so
+// a card cannot count a holding it calls missing.
+function holdingPositions(rows, today) {
+  return (rows || []).map((row) => {
+    const quantity = asNumber(row?.quantity);
+    const disposed = isDisposed(row);
+    const maturity = holdingMaturity(row);
+    const matured = !disposed && !!(maturity && maturity < today);
+    return { row, matured, disposed,
+      active: !disposed && !matured && quantity !== null && quantity > 0 };
+  });
+}
+
 /**
  * One account's status line: the label, the active holding count and the
  * newest statement dates. Pure, so the page can render it and a test can read
@@ -724,19 +738,15 @@ export function importAccountSummary(account, holdings = [],
   const meta = safeMeta(account);
   const rows = holdings || [];
   const state = accountFieldState(account, rows);
+  // Broker-only means a stored file named the account, not that a row carries a
+  // date: a row date alone falls back to "report", and an account typed by hand
+  // must not inherit that name.
   const brokerOnly = meta.broker_only === "1" || meta.broker_only === true
-    || (!state.identity.source && !!state.snapshot.source);
+    || (!state.identity.source && !!text(meta.holdings_source));
   const brokerAsOf = state.cost.asOf || String(meta.broker_as_of || "").slice(0, 10)
     || (state.identity.source && state.identity.source !== "cas" ? state.identity.asOf : "");
   const casAsOf = state.identity.source === "cas" ? state.identity.asOf : "";
-  const positions = rows.map((row) => {
-    const quantity = asNumber(row?.quantity);
-    const disposed = isDisposed(row);
-    const maturity = holdingMaturity(row);
-    const matured = !disposed && !!(maturity && maturity < today);
-    return { matured, disposed,
-      active: !disposed && !matured && quantity !== null && quantity > 0 };
-  });
+  const positions = holdingPositions(rows, today);
   const count = positions.filter((position) => position.active).length;
   const matured = positions.filter((position) => position.matured).length;
   // "No holdings yet" means the account has no rows at all. An account holding
@@ -751,6 +761,91 @@ export function importAccountSummary(account, holdings = [],
   return { label, kind, brokerOnly, brokerAsOf, casAsOf, count, matured, countText,
     dates: [casAsOf ? `CAS ${formatDate(casAsOf)}` : "",
       brokerAsOf ? `Broker ${formatDate(brokerAsOf)}` : ""].filter(Boolean).join(" · ") };
+}
+
+// A bond's terms are its coupon and its maturity. The coupon may be a rate on
+// the row or a percentage in the name the depository printed; the maturity may
+// be stored or sit in that name. Either one is enough to leave the row alone.
+function bondWithoutTerms(row) {
+  const category = String(row?.category || row?.kind || "").trim().toLowerCase();
+  if (category !== "bond") return false;
+  const coupon = asNumber(row?.yield_bps ?? row?.couponPct ?? row?.coupon_pct);
+  if (coupon !== null && coupon > 0) return false;
+  if (/\d+(?:\.\d+)?\s*%/.test(String(row?.label || ""))) return false;
+  return !holdingMaturity(row);
+}
+
+/**
+ * Which reports a person can fetch, when to fetch it and what it adds. Copy,
+ * not state: the card renders it behind one closed disclosure so the guide is
+ * on demand and never a paragraph above the accounts.
+ */
+export const IMPORT_REPORT_GUIDE = {
+  sources: [
+    { source: "CAS, CDSL or NSDL", when: "After month end",
+      adds: "names every demat, the quantities in it and the account number" },
+    { source: "Broker holdings report", when: "Whenever it arrives",
+      adds: "fills cost, purchase dates and bond terms" },
+    { source: "Transaction statement", when: "Only when a sale needs proving",
+      adds: "gives the sale date and price, so the realised cost is right" },
+  ],
+  note: "Nothing updates on its own: month-end quantities, daily prices and terms "
+    + "where a source exists, on your schedule.",
+};
+
+/**
+ * What one account is missing, as plain sentences, from provenance already
+ * stored. There is no score and no new field: a line appears only when the
+ * ledger can name the absent or stale fact, and a line disappears as soon as a
+ * file fills it. A typed account has no report to fetch, so its lines say what
+ * could be added instead of reading like breakage.
+ *
+ * Two absences are deliberately not lines here. A month with no new statement
+ * is not a gap: a long-held bond's quantities do not change, and the meta line
+ * already dates the snapshot. A row whose `source` is empty is not a gap either,
+ * because cas-apply writes every CAS row that way; the account-level
+ * `holdings_source` is the same fact, and the status pill already says
+ * "Broker-only" when no depository statement has named the account.
+ */
+export function importAccountGaps(account, holdings = [],
+  formatDate = (value) => String(value || ""),
+  today = new Date().toISOString().slice(0, 10)) {
+  const rows = holdings || [];
+  const meta = safeMeta(account);
+  const state = accountFieldState(account, rows);
+  // Nothing on this account names a source, so a file is not what it is missing.
+  // Read the stored meta, not the derived state: a row date alone falls back to
+  // "report", and a typed account must not inherit that name. A row can carry
+  // the source too: cas-apply leaves the row's own `source` empty and stamps
+  // `value_source` instead, which is still a statement naming the account.
+  const filed = rows.some((row) => text(row?.valueSource ?? row?.value_source))
+    || rows.some((row) => text(row?.source) && text(row?.source) !== "manual");
+  const manual = !filed && !text(meta.holdings_source) && !text(meta.identity_source)
+    && !text(meta.cost_source || meta.broker_source);
+  const live = holdingPositions(rows, today)
+    .filter((position) => position.active).map((position) => position.row);
+  if (!live.length) return { manual, gaps: [] };
+  const gaps = [];
+  const uncosted = live.filter((row) =>
+    asMoney(row?.costPaise ?? row?.cost_paise) === null).length;
+  const plural = (count) => (count === 1 ? "" : "s");
+  if (uncosted) {
+    gaps.push({ kind: "cost", text: manual
+      ? `Could add cost for ${uncosted} holding${plural(uncosted)}`
+      : `No cost on ${uncosted} holding${plural(uncosted)}` });
+  }
+  if (!manual && state.cost.asOf && state.snapshot.asOf
+    && state.cost.asOf < state.snapshot.asOf) {
+    gaps.push({ kind: "cost-older", text: `Cost from ${formatDate(state.cost.asOf)}, `
+      + `older than the ${formatDate(state.snapshot.asOf)} holdings` });
+  }
+  const termless = live.filter(bondWithoutTerms).length;
+  if (termless) {
+    gaps.push({ kind: "terms", text: manual
+      ? `Could add coupon and maturity for ${termless} bond${plural(termless)}`
+      : `No coupon or maturity on ${termless} bond${plural(termless)}` });
+  }
+  return { manual, gaps };
 }
 
 // --- the merge plan ---------------------------------------------------------
