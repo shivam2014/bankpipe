@@ -200,11 +200,11 @@ export function parseBondLabel(label) {
 // the dashed terms would come back with them twice.
 export function bondLabelName(label) {
   return String(label || "")
-    .replace(/^\s*\d+(?:\.\d+)?\s*%\s*/, "")
-    .replace(/\s*\d{1,2}\s+[A-Za-z]{3}[A-Za-z]*\s+\d{4}\s*$/, "")
     .replace(/[-\s]*\d+(?:\.\d+)?\s*%\s*-\s*\d{1,2}\s*-\s*\d{1,2}\s*-\s*(?:\d{4}|\d{2})[-\s]*/g, "-")
     // A dashed name can carry the rate with no date yet.
     .replace(/([A-Za-z0-9])\s*-\s*\d+(?:\.\d+)?\s*%(?=\s*-\s*[A-Za-z])/g, "$1")
+    .replace(/^\s*\d+(?:\.\d+)?\s*%\s*/, "")
+    .replace(/\s*\d{1,2}\s+[A-Za-z]{3}[A-Za-z]*\s+\d{4}\s*$/, "")
     .replace(/^-+|-+$/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();

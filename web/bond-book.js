@@ -186,10 +186,11 @@ export function bondFacts(v, {
   const perUnit = v.marketPerUnit;
   const progress = v.couponProgress === null || v.couponProgress === undefined
     ? null : Math.max(0, Math.min(100, v.couponProgress));
-  // The early-repayment note is a claim that a redemption reduced the estimate.
-  // Only a past redemption date does that; a rounding gap between the period
-  // count and the year count leaves a few rupees in couponLost either way.
-  const policyNote = v.couponLost && v.ba?.firstPast
+  // The early-repayment note is a claim that a redemption shrank the estimate.
+  // That needs both facts the estimate itself uses: a past redemption date and
+  // money already back. A rounding gap leaves a few rupees in couponLost either
+  // way, and a redemption date alone proves nothing was repaid.
+  const policyNote = v.couponLost && v.returned > 0 && v.ba?.firstPast
     ? `${money(v.couponLost)} less after the early repayment`
     : "original schedule";
   const rawSource = v.h.value_source || (v.h.source === "manual" ? "Manual" : "CAS");
