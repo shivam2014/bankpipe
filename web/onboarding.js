@@ -87,11 +87,22 @@ const CSS = `
 .bp-note { padding: 9px 12px; border-radius: 8px; background: rgba(26,107,79,.12);
   color: #1a6b4f; font-size: 0.92rem; margin: 0 0 12px; }
 @media (prefers-color-scheme: dark) { .bp-note { color: #6fd3a8; } }
-.bp-help { position: fixed; right: 14px; bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-  z-index: 9998; width: 34px; height: 34px; border-radius: 50%;
-  border: 1px solid rgba(128,128,128,.35); background: #fff; color: #16181d;
-  font: 600 15px/1 -apple-system, sans-serif; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.15);
+/* The circle stays 34px; the button is 44px so the hit area meets the touch
+   rule. The 5px inset keeps the visual at its old size while the box grows
+   around it. */
+.bp-help { position: fixed; right: 9px; bottom: calc(59px + env(safe-area-inset-bottom, 0px));
+  z-index: 9998; width: 44px; height: 44px; padding: 0; border: 0; background: none;
+  color: #16181d; font: 600 15px/1 -apple-system, sans-serif; cursor: pointer;
   transition: opacity .18s ease; }
+.bp-help::before { content: ""; position: absolute; inset: 5px; z-index: -1;
+  border-radius: 50%; border: 1px solid rgba(128,128,128,.35); background: #fff;
+  box-shadow: 0 2px 10px rgba(0,0,0,.15); }
+.bp-help:focus-visible { outline: 2px solid #1a6b4f; outline-offset: 2px; }
+@media (min-width: 641px) {
+  /* The privacy toggle owns this corner on desktop. Start the help hit box
+     where the toggle ends, so the two targets never overlap. */
+  .bp-help { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+}
 .bp-onboard-card { position: relative; }
 .bp-onboard .bp-close { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px;
   padding: 0; margin: 0; border-radius: 8px; border: 0; background: transparent;
@@ -99,9 +110,14 @@ const CSS = `
   text-align: center; display: grid; place-items: center; }
 .bp-onboard .bp-close:hover { opacity: 1; background: rgba(128,128,128,.14); }
 .bp-help.is-idle { opacity: 0; pointer-events: none; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bp-help { background: #16181d; color: #e8eaee; } }
-:root[data-theme="dark"] .bp-help { background: #16181d; color: #e8eaee; }
-:root[data-theme="light"] .bp-help { background: #fff; color: #16181d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bp-help { color: #e8eaee; }
+  :root:not([data-theme="light"]) .bp-help::before { background: #16181d; }
+  :root:not([data-theme="light"]) .bp-help:focus-visible { outline-color: #6fd3a8; } }
+:root[data-theme="dark"] .bp-help { color: #e8eaee; }
+:root[data-theme="dark"] .bp-help::before { background: #16181d; }
+:root[data-theme="dark"] .bp-help:focus-visible { outline-color: #6fd3a8; }
+:root[data-theme="light"] .bp-help { color: #16181d; }
+:root[data-theme="light"] .bp-help::before { background: #fff; }
 `;
 
 const WELCOME = `

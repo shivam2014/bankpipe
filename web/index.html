@@ -809,6 +809,10 @@ textarea.inline-input{resize:vertical;min-height:48px}
   .stats{grid-template-columns:1fr 1fr}
   nav button{padding:7px 9px;font-size:13px}
 }
+/* The bank queue is a fluid table; at 721px and up the six columns sit side
+   by side, and at 720 and below they become file cards. 720 is the import
+   grid's own breakpoint; the table's measured min-content is 612px, so 721
+   leaves it 685px with no forced width. */
 @media (max-width:720px){
   table[data-table="bank-batch"]{display:block;min-width:0!important}
   table[data-table="bank-batch"] tr:first-child{display:none}
@@ -988,6 +992,7 @@ td.neg{color:#a32b22}td.pos{color:#0b6b4f}
  font-size:18px;line-height:1;box-shadow:0 8px 22px rgba(15,18,22,.18);cursor:pointer;
  display:grid;place-items:center}
 .privacy-toggle:hover{border-color:var(--green)}
+.privacy-toggle:focus-visible{outline:2px solid var(--green);outline-offset:2px}
 .bp-money{transition:filter .15s ease}
 body.bp-privacy .bp-money{filter:blur(8px);opacity:.6;cursor:default;user-select:none}
 body.bp-privacy .hero .num .bp-money{filter:blur(10px);opacity:.5}
@@ -999,7 +1004,7 @@ body.bp-privacy input[inputmode="decimal"]:focus,
 body.bp-privacy #s-number:focus,
 body.bp-privacy #s-ifsc:focus{filter:none}
 @media(min-width:641px){.privacy-toggle{bottom:20px;right:20px}}
-@media(max-width:640px){.privacy-toggle{top:10px;right:12px;bottom:auto;width:36px;height:36px;font-size:16px}}
+@media(max-width:640px){.privacy-toggle{top:10px;right:12px;bottom:auto;width:44px;height:44px;font-size:15px}}
 @media print{.privacy-toggle{display:none}body.bp-privacy .bp-money,body.bp-privacy input{filter:none!important}}
 dialog{padding:0;border:1px solid var(--line);border-radius:16px;background:var(--card);
  color:var(--ink);width:min(420px,calc(100vw - 28px));box-shadow:0 24px 70px rgba(0,0,0,.35)}
@@ -1678,7 +1683,7 @@ function bpBatchRender() {
   const ready = state.entries.filter((entry) =>
     entry.status === "ready" && !entry.duplicateOf).length;
   host.innerHTML = `<div style="overflow-x:auto">
-    <table style="width:100%;min-width:760px" data-table="bank-batch">
+    <table style="width:100%" data-table="bank-batch">
       <tr><th>File</th><th>Destination</th><th>Detected</th><th class="n">Rows</th>
         <th>Status</th><th></th></tr>
       ${state.entries.map((entry) => bpBatchRowHtml(entry, state.accounts || [])).join("")}

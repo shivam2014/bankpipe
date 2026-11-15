@@ -50,6 +50,7 @@ so every "automated" path needs a manual equivalent that lands in the same table
 |----|-------|-----|--------|
 | E1 | At 690px the top nav clips `Settings` with no cue that it scrolls. | Scroll the nav with a fade mask and small edge arrows that appear only when there is overflow; keep the back arrow untouched. | done |
 | E2 | The Transactions filter card takes the top of the page even when no filter is set. | Collapse it to a one-line `Filters` bar, expanded only when a filter is active or the user opens it. | done |
+| E3 | The help control was 34px and the phone privacy toggle 36px, under the 44px touch rule. The bank queue forced a 760px table while its cards began at 720px, so the 721–760 band scrolled sideways. | The help keeps its 34px circle inside a 44px hit area, the phone toggle is 44px, and the bank table is fluid from 721px while the cards keep the 720px import breakpoint. The table's measured min-content is 612px, so the 685px it gets at 721 is enough. | done |
 
 ## F. Closed this session
 
