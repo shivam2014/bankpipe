@@ -308,6 +308,7 @@ export function bondFacts(v, {
   });
   facts.push({
     key: "purchase-date", label: "Purchase date", value: v.bought ? dateLabel(v.bought) : "—",
+    sub: v.bought ? "" : "not in the statement",
     section: "Purchase", kind: "fact",
   });
   facts.push({
