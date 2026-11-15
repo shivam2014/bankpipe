@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseBondLabel, bondMaturity, splitMatured, inferFace, bondAnalytics,
-  storedCoupon, termSourceKind, termSourceRank,
+  storedCoupon, termSourceKind, termSourceRank, bondWriteRow,
   bondLabelName, bondSummary, accruedInterest, BOND_RATINGS, bondRatingRank, bondFillPlan,
   bondGrade, bondRatingChange, carryBrokerFields, soldGain, bondHomeOf,
   isLiveBondRow } from "./bonds.js";
@@ -226,6 +226,28 @@ test("matured, live and disposed lots are three different states", () => {
   assert.deepEqual(split.disposed.map((h) => h.id), ["sold"]);
   assert.equal(split.maturedValue, 50000000);
   assert.equal(split.maturedGuessed, 0);
+});
+
+test("a label date attached for display is not written back as a stored term", () => {
+  const split = splitMatured([{ id: "label", category: "bond",
+    label: "9.50% TEST 15 MAY 2020", quantity: 1, cost_paise: 10000000 }],
+  "2026-11-15");
+  const displayed = split.matured[0];
+  assert.equal(displayed.maturity, "2020-05-15");
+  assert.equal(displayed.maturitySource, "label");
+
+  const written = bondWriteRow(displayed, { rating: "AA" });
+  assert.equal("maturity" in written, false, "the label guess is not promoted");
+  assert.equal(written.rating, "AA");
+  assert.equal(written.maturitySource, "label", "the view still knows its source");
+
+  // A real stored maturity is copied through, and a fetched one replaces it.
+  const stored = bondWriteRow({ category: "bond", label: "TEST",
+    maturity: "2030-05-15", maturity_source: "SMEST" }, { rating: "AA" });
+  assert.equal(stored.maturity, "2030-05-15");
+  const fetched = bondWriteRow(displayed, { maturity: "2031-01-01",
+    maturity_source: "SMEST" });
+  assert.equal(fetched.maturity, "2031-01-01");
 });
 
 test("a matured lot with no value is counted at cost", () => {

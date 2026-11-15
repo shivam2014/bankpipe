@@ -125,6 +125,16 @@ export function splitMatured(rows = [], today = new Date().toISOString().slice(0
   };
 }
 
+// The row a market fetch writes back. splitMatured() attaches the label's
+// maturity for display; that date is a guess and must not become a stored fact
+// just because another field on the lot was filled. A real stored maturity
+// keeps its own column and is copied through.
+export function bondWriteRow(row, patch = {}) {
+  const out = { ...row };
+  if (!row?.maturity_source && row?.maturitySource === "label") delete out.maturity;
+  return { ...out, ...patch };
+}
+
 function assetMeta(asset) {
   try {
     return typeof asset?.meta === "string" ? JSON.parse(asset.meta) || {} : (asset?.meta || {});

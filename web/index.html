@@ -1332,7 +1332,8 @@ import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { bondAnalytics, bondSummary, bondMaturity, splitMatured, parseBondLabel,
-  bondLabelName, inferFace, bondFillPlan, bondRatingChange, termSourceRank } from "./bonds.js";
+  bondLabelName, inferFace, bondFillPlan, bondRatingChange, termSourceRank,
+  bondWriteRow } from "./bonds.js";
 import { bondCardHtml, bondBookSummary, bondRowView, bondSortValue, bondRatingOf,
   bondFrequency } from "./bond-book.js";
 import { bondLabelText, bondHoldingPatch, bondKeptLine } from "./bond-holding.js";
@@ -12390,7 +12391,7 @@ async function applyMarketData(store, assetId, lots, got, { termsOnly = false } 
       delete plan.patch.value_source;
     }
     if (plan.terms || priced) {
-      await store.upsertHolding(assetId, { ...h, ...plan.patch });
+      await store.upsertHolding(assetId, bondWriteRow(h, plan.patch));
     }
     if (data?.details?.source === "BSE") c.bse++;
     if (!data || (data.status && data.status !== 404)) c.unread++;
