@@ -40,6 +40,11 @@ layer: a CAS that sells `INE000000002` and the broker summary that funds it.
 `node scripts/render-gate-fixture.mjs` drops them through the real inbox. No test
 parses them, so they stay out of `samples.mjs`.
 
+`node scripts/render-import-password.mjs` drops `pdf/locked-synthetic.pdf` and
+guesses a wrong password four times. It fails unless the fifth attempt is still
+offered as `Try the password again` beside `Remove`, then unlocks once to prove
+the same entry is re-read rather than duplicated.
+
 ## Manifest
 
 `import-manifest.json` is optional. It pins the expected kind and a lower bound
