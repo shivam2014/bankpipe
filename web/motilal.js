@@ -260,7 +260,10 @@ export function motilalHoldingPatch(row, holding) {
   let label = current || String(row.label || "").trim();
   if (!parsed?.couponPct && row.coupon_pct) label = `${row.coupon_pct}% ${label}`.trim();
   const maturity = labelDate(row.maturity_date);
-  if (!parsed && maturity) label = `${label} ${maturity}`.trim();
+  // A parsed coupon does not mean the label already has a date: dashed names
+  // can carry NAME-<rate>%- only. Fill the maturity the report states whenever
+  // the label does not already carry one.
+  if (!parsed?.maturity && maturity) label = `${label} ${maturity}`.trim();
   if (label && label !== current) patch.label = label;
   return patch;
 }

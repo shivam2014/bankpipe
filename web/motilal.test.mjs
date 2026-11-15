@@ -245,6 +245,18 @@ test("fills an incomplete bond label from the report", () => {
   assert.equal(patch.label, "11.9% TESTD 03 Dec 2026");
 });
 
+test("a coupon-only label still receives the report's maturity", () => {
+  // The dashed family can print the rate without a date. A parsed coupon must
+  // not be mistaken for a parsed maturity, or the broker's date is dropped.
+  for (const label of ["TESTD-11.90%-PVT", "11.9% TESTD"]) {
+    const patch = motilalHoldingPatch({
+      ...bondRow, label, coupon_pct: 11.9, maturity_date: "2026-12-03",
+    }, { label, quantity: 2, cost_paise: 20000000,
+      purchase_date: "2024-06-06", frequency: "monthly", face_paise: 10000000 });
+    assert.equal(patch.label, `${label} 03 Dec 2026`, label);
+  }
+});
+
 test("fills only cost and date on an equity", () => {
   const patch = motilalHoldingPatch({
     isin: "INE000000015", section: "equity", label: "TESTMOTORS",
