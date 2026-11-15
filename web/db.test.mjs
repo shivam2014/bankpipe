@@ -630,15 +630,16 @@ test("editing a bond keeps the principal already returned and its schedule", asy
     category: "bond", issuer: "Test Issuer", rating: "AA", frequency: "Quarterly",
     quantity: 10, cost_paise: 1000000, face_paise: 100000,
     purchase_date: "2024-01-01", interest_date: "2026-12-31", payout_paise: 25000,
-    yield_bps: 1050, value_paise: 1020000, value_source: "Manual",
+    yield_bps: 1050, value_paise: 1020000, value_source: "BSE",
     as_of: "2026-11-01", future_interest_paise: 75000,
     future_principal_paise: 500000, principal_dates: "2027-06-30,2027-12-31",
     returned_paise: 400000, returned_at: "2026-04-10",
     returned_record_date: "2026-04-12", returned_source: "bank",
   });
 
-  // The payload bpBondHoldingSave writes: the coupon changed and every control
-  // the form has is present. A field with no control is absent on purpose.
+  // The payload bpBondHoldingSave writes when the coupon changed and the market
+  // value was left alone: every control the form has is present, the untouched
+  // mark is not. A field with no control is absent on purpose.
   store.upsertHolding("bonds-edit", {
     id,
     ...bondHoldingPatch({
@@ -647,7 +648,8 @@ test("editing a bond keeps the principal already returned and its schedule", asy
       issuer: "Test Issuer",
       redemptions: "2027-06-30,2027-12-31",
       units: 10, cost: 1000000, face: 100000,
-      value: 1020000, asOf: "2026-11-05", purchaseDate: "2024-01-01",
+      value: 1020000, valueTouched: false, asOf: "2026-11-01",
+      purchaseDate: "2024-01-01",
       rating: "AA", frequency: "Quarterly", payout: 25000,
       interestDate: "2026-12-31",
     }),
@@ -664,7 +666,20 @@ test("editing a bond keeps the principal already returned and its schedule", asy
   assert.equal(row.future_interest_paise, 75000);
   assert.equal(row.category, "bond");
   assert.equal(row.yield_bps, 1050);
-  assert.equal(row.as_of, "2026-11-05", "a named value date is written");
+  assert.equal(row.value_paise, 1020000, "an untouched mark keeps its number");
+  assert.equal(row.value_source, "BSE", "and its source");
+  assert.equal(row.as_of, "2026-11-01", "and its date");
+
+  // A mark the person does change is written as manual, with the new date.
+  store.upsertHolding("bonds-edit", {
+    id, ...bondHoldingPatch({ label: "10.50% TEST 31 DEC 2030",
+      value: 1030000, valueTouched: true, asOf: "2026-11-05" }),
+  });
+  const remarked = store.listHoldings("bonds-edit")[0];
+  assert.equal(remarked.value_paise, 1030000);
+  assert.equal(remarked.value_source, "Manual");
+  assert.equal(remarked.as_of, "2026-11-05");
+  assert.equal(remarked.returned_paise, 400000);
 
   // A field the caller does name with null is cleared on purpose; the ones it
   // still does not name stay.

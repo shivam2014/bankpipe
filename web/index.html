@@ -13141,9 +13141,11 @@ function renderBondHoldingForm() {
           <input id="bh-rating" value="${esc(val("rating"))}" placeholder="AA" autocomplete="off"></label>
         <label class="field">Current value (${currency()}) <span class="muted"
           style="font-weight:400">optional</span>
-          <input id="bh-value" value="${moneyIn(h?.value_paise)}" inputmode="decimal"></label>
+          <input id="bh-value" value="${moneyIn(h?.value_paise)}" inputmode="decimal"
+            data-prior="${esc(String(h?.value_paise ?? ""))}"></label>
         <label class="field">Value as of
-          <input id="bh-value-date" type="date" value="${esc(String(h?.as_of || "").slice(0, 10))}"></label>
+          <input id="bh-value-date" type="date" value="${esc(String(h?.as_of || "").slice(0, 10))}"
+            data-prior="${esc(String(h?.as_of || "").slice(0, 10))}"></label>
         <label class="field">Next interest (${currency()})
           <input id="bh-payout" value="${moneyIn(h?.payout_paise)}" inputmode="decimal"></label>
         <label class="field">Next interest date
@@ -13300,6 +13302,14 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
     const text = val(id);
     return text ? parseMoney(text) : null;
   };
+  // The value field carries what the row already held. An untouched mark stays
+  // untouched, so its source (BSE, CAS) and date survive a coupon or rating edit.
+  const valueText = val("bh-value");
+  const value = valueText ? parseMoney(valueText) : null;
+  const valuePrior = document.getElementById("bh-value")?.dataset.prior ?? "";
+  const asOfPrior = document.getElementById("bh-value-date")?.dataset.prior ?? "";
+  const valueTouched = valueText === "" ? valuePrior !== ""
+    : String(value) !== String(valuePrior) || val("bh-value-date") !== asOfPrior;
   try {
     await store.upsertHolding(assetId, {
       id: holdingId ? Number(holdingId) : null,
@@ -13308,7 +13318,7 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
         isin: val("bh-isin"),
         units, cost,
         face: raw("bh-face"),
-        value: raw("bh-value"),
+        value, valueTouched,
         asOf: val("bh-value-date"),
         purchaseDate: val("bh-bought"),
         rating: val("bh-rating"),

@@ -23,6 +23,8 @@ export function bondLabelText(name, coupon, iso) {
  * `face` is null when the field is blank: the store then keeps the stored face,
  * which is how the form has always treated an empty face field. The other money
  * fields use null to clear, because clearing them is a thing the person can do.
+ * An untouched market value is not written at all (`valueTouched: false`), so a
+ * price from BSE keeps its source and date through an edit of another field.
  * @param {object} input
  * @returns {object} a partial holding row for store.upsertHolding
  */
@@ -34,9 +36,6 @@ export function bondHoldingPatch(input) {
     redemption_dates: String(input.redemptions || ""),
     quantity: input.units,
     cost_paise: input.cost,
-    value_paise: input.value,
-    value_source: input.value === null ? "" : "Manual",
-    as_of: String(input.asOf || ""),
     purchase_date: String(input.purchaseDate || ""),
     rating: String(input.rating || ""),
     frequency: String(input.frequency || ""),
@@ -44,6 +43,11 @@ export function bondHoldingPatch(input) {
     interest_date: String(input.interestDate || ""),
   };
   if (input.face !== null && input.face !== undefined) patch.face_paise = input.face;
+  if (input.valueTouched !== false) {
+    patch.value_paise = input.value;
+    patch.value_source = input.value === null ? "" : "Manual";
+    patch.as_of = String(input.asOf || "");
+  }
   return patch;
 }
 

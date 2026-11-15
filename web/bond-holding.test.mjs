@@ -57,6 +57,14 @@ test("clearing a money or date control is written, not skipped", () => {
   assert.equal(patch.as_of, "");
 });
 
+test("an untouched market value keeps its stored source and date", () => {
+  const patch = bondHoldingPatch({ ...fields, valueTouched: false });
+  for (const key of ["value_paise", "value_source", "as_of"]) {
+    assert.equal(key in patch, false, `${key} is not written back`);
+  }
+  assert.equal(patch.label, fields.label, "the rest of the form still saves");
+});
+
 test("the kept line names the principal returned and the schedule", () => {
   const both = bondKeptLine({
     returned_paise: 4000000, returned_at: "2026-04-10", returned_source: "bank",
@@ -81,10 +89,13 @@ test("the kept line names the principal returned and the schedule", () => {
 test("the edit form saves through the shared patch and shows the kept line", () => {
   const save = between("window.bpBondHoldingSave", "window.bpBondHoldingDelete");
   assert.match(save, /\.\.\.bondHoldingPatch\(/);
+  assert.match(save, /valueTouched/);
   assert.doesNotMatch(save, /returned_paise|principal_dates|future_|yield_bps/);
   const form = between("function renderBondHoldingForm()", "window.bpBondLabelPreview");
   assert.match(form, /bondKeptLine\(h, currency\(\)\)/);
   assert.match(form, /id="bh-kept"/);
+  assert.match(form, /id="bh-value"[\s\S]{0,120}data-prior=/);
+  assert.match(form, /id="bh-value-date"[\s\S]{0,120}data-prior=/);
   assert.doesNotMatch(form, /id="bh-returned"/, "returned principal has no input");
 });
 
