@@ -1331,7 +1331,7 @@ import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { bondAnalytics, bondSummary, bondMaturity, splitMatured, parseBondLabel,
-  inferFace, bondFillPlan, bondRatingChange } from "./bonds.js";
+  bondLabelName, inferFace, bondFillPlan, bondRatingChange } from "./bonds.js";
 import { bondCardHtml, bondBookSummary, bondRowView, bondSortValue, bondRatingOf,
   bondFrequency } from "./bond-book.js";
 import { bondPrefill } from "./bond-source.js";
@@ -12991,9 +12991,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
 function bondLabelParts(h) {
   const p = parseBondLabel(h?.label);
   if (!p) return { name: h?.label || "", coupon: "", maturity: "" };
-  const name = String(h.label).replace(/^\s*\d+(?:\.\d+)?\s*%\s*/, "")
-    .replace(/\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s*$/, "").trim();
-  return { name, coupon: p.couponPct, maturity: p.maturity };
+  return { name: bondLabelName(h.label), coupon: p.couponPct, maturity: p.maturity };
 }
 const BOND_MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
   "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];

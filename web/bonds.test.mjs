@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseBondLabel, bondMaturity, splitMatured, inferFace, bondAnalytics,
-  bondSummary, accruedInterest, BOND_RATINGS, bondRatingRank, bondFillPlan,
+  bondLabelName, bondSummary, accruedInterest, BOND_RATINGS, bondRatingRank, bondFillPlan,
   bondGrade, bondRatingChange, carryBrokerFields, soldGain, bondHomeOf,
   isLiveBondRow } from "./bonds.js";
 
@@ -78,6 +78,16 @@ test("a coupon with no maturity still reaches the card", () => {
   assert.equal(p.dateUnread, false);
   assert.equal(bondMaturity({ category: "bond",
     label: "TESTF-11.90%-PVT" }).maturity, "");
+});
+
+test("the issuer name keeps no terms when the label is rebuilt", () => {
+  // The edit form writes `coupon% name date`, so a name that still held the
+  // dashed terms would come back with them twice.
+  assert.equal(bondLabelName("TESTD-11.90%-3-12-26-PVT"), "TESTD-PVT");
+  assert.equal(bondLabelName("TESTE-11.4%-13-6-27-"), "TESTE");
+  assert.equal(bondLabelName("TESTF-11.90%-PVT"), "TESTF-PVT");
+  assert.equal(bondLabelName("11.9% TESTD 03 Dec 2026"), "TESTD");
+  assert.equal(bondLabelName("TEST SERIES-3-12-26"), "TEST SERIES-3-12-26");
 });
 
 test("a stored maturity is the source, not the first date in the name", () => {
