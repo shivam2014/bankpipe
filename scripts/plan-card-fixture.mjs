@@ -71,8 +71,9 @@ const review = '<span class="import-pill warn">Review the differences</span>';
 const askBox = (count, lines) => `<div class="import-wrong">
   <b>${count} difference${count === 1 ? "" : "s"} need${count === 1 ? "s" : ""} your decision.</b>
   <div class="muted">The report and the data on file carry the same date, or the difference
-    would replace a cost you entered by hand, or a newer broker disagrees with a quantity
-    or value a CAS set. Choose what to keep.</div>
+    would replace a cost you entered by hand, or a newer report disagrees with a quantity
+    or value a CAS set, or it names a bond the statement recorded as sold. Using the file
+    prices that sale and keeps it; it does not put the units back. Choose what to keep.</div>
   <ul class="muted import-ask-list">${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>
   <div class="import-actions">${action("Use the file's values")}</div>
 </div>`;
@@ -162,17 +163,46 @@ const movementBroker = card({
       ${account("CDSL · …4321", "UCID match · 1 holding in the report", "1 of 1")}
     </div>
   </div>`,
-  change: ["Update 1 holding", "Attach the account identity"],
+  change: ["Record the sold cost basis on 1 disposal", "Update 1 holding",
+    "Attach the account identity"],
   still: [
     "Nothing is written until you press Import",
     "Other accounts with overlapping ISINs are untouched",
     "Quantity and value come from the newest safe statement; the latest broker keeps cost and terms",
   ],
   ask: askBox(1, [
-    "8.00% SOLD BOND 31 Dec 2028: the CAS records 10 sold on 2026-10-10; this report still shows 10",
+    "8.00% SOLD BOND 31 Dec 2028: sold cost empty → ₹ 2,000.00 "
+      + "(Motilal Oswal holdings report 2026-11-05) · the CAS records 10 units sold on "
+      + "2026-10-10; the sale stays and this report fills its cost basis",
   ]),
-  primary: "Import 1 holding",
+  primary: "Record the sold cost basis",
   primaryDisabled: true,
+});
+
+// A disposal that already carries a basis keeps it. Nothing is asked, and the
+// card names both numbers instead of leaving the person to compare them.
+const keptBasis = card({
+  kicker: "Broker holdings report",
+  title: "Motilal Oswal holdings report",
+  sub: "1 bond · as on 5 Nov 2026 · 1 file",
+  pill: ready,
+  files: file("motilal-holdings.pdf", "Motilal Oswal holdings report · 5 Nov 2026"),
+  where: `<div class="import-section">
+    <div class="import-section-title">Account</div>
+    <div class="import-account-list">
+      ${account("CDSL · …4321", "UCID match · 1 holding in the report", "1 of 1")}
+    </div>
+  </div>`,
+  change: ["Nothing to change"],
+  still: [
+    "Nothing is written until you press Import",
+    "Other accounts with overlapping ISINs are untouched",
+    "Quantity and value come from the newest safe statement; the latest broker keeps cost and terms",
+  ],
+  warning: `<div class="muted import-note">INE000000201: the recorded sale already carries
+    1,900.00; Motilal Oswal holdings report prices the same units at 2,000.00. The recorded
+    cost is kept.</div>`,
+  primary: "Nothing to change",
 });
 
 const fixture = (theme, cards) => `<!doctype html>
@@ -203,6 +233,6 @@ for (const theme of ["light", "dark"]) {
   writeFileSync(path, fixture(theme, merged));
   console.log(path);
   const movedPath = join(tmpdir(), `bankpipe-plan-card-moved-${theme}.html`);
-  writeFileSync(movedPath, fixture(theme, `${movementCas}${movementBroker}`));
+  writeFileSync(movedPath, fixture(theme, `${movementCas}${movementBroker}${keptBasis}`));
   console.log(movedPath);
 }

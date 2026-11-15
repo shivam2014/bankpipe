@@ -1370,6 +1370,7 @@ import { folioAdoptionPlan, folioHome, folioKey, folioTail, isFolioAccount,
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, mergeRowsFromPlan, planImportChains, movementGate, statementAccounts,
+  planHasWork, planNetChange,
   importAccountSummary, importAccountGaps, importPlanPrimary, IMPORT_REPORT_GUIDE,
   normalizeAccount, parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
@@ -7703,18 +7704,32 @@ function bpImportFieldLabel(field) {
     maturity: "maturity", label: "label", yieldPct: "yield",
     interestDate: "next interest date", payoutPaise: "payout",
     futureInterestPaise: "future interest", futurePrincipalPaise: "future principal",
-    valueSource: "value source" })[field] || field;
+    soldCost: "sold cost", valueSource: "value source" })[field] || field;
+}
+
+// The fields a decision line reads as money, so a cost is never printed as raw
+// paise: "200000" reads as two lakh when the report means two thousand.
+const IMPORT_MONEY_FIELDS = new Set(["cost", "soldCost", "value", "facePaise",
+  "payoutPaise", "futureInterestPaise", "futurePrincipalPaise"]);
+
+function bpImportChangeValue(change, value) {
+  if (value === null || value === undefined) return "empty";
+  return IMPORT_MONEY_FIELDS.has(change.field) ? money(value) : String(value);
 }
 
 function bpImportDecisionLine(decision) {
   const changes = (decision.changes || []).map((change) => {
-    const from = `${change.from ?? "empty"}${change.fromSource
+    const from = `${bpImportChangeValue(change, change.from)}${change.fromSource
       ? ` (${change.fromSource}${change.fromAsOf ? ` ${change.fromAsOf}` : ""})` : ""}`;
-    const to = `${change.to ?? "empty"}${change.source
+    const to = `${bpImportChangeValue(change, change.to)}${change.source
       ? ` (${change.source}${change.asOf ? ` ${change.asOf}` : ""})` : ""}`;
     return `${bpImportFieldLabel(change.field)} ${from} → ${to}`;
   }).join(", ");
-  return `${decision.label || decision.isin}: ${changes}`;
+  // A sold conflict is the one ask the numbers alone do not explain: the line
+  // must say that the sale stays and what the file would be used for.
+  const why = (decision.flags || []).includes("sold-conflict") && decision.reason
+    ? ` · ${decision.reason}` : "";
+  return `${decision.label || decision.isin}: ${changes}${why}`;
 }
 
 function bpImportAskLines(bundle) {
@@ -7740,7 +7755,8 @@ function bpImportReceiptRole(receipt) {
   const changes = (receipt.plan?.decisions || []).flatMap((decision) => decision.changes || []);
   const parts = [];
   if (summary.added) parts.push("adds the holdings it names");
-  if (summary.updated && changes.some((change) => change.group === "cost")) {
+  if (summary.updated && changes.some((change) => change.group === "cost"
+    || change.group === "disposal")) {
     parts.push("fills cost and terms");
   } else if (summary.updated) {
     parts.push("confirms the rows it names");
@@ -7758,6 +7774,8 @@ function bpImportPlanItems(plan) {
   const change = [];
   if (net.added) change.push(`Add ${net.added} holding${net.added === 1 ? "" : "s"}`);
   if (net.updated) change.push(`Update ${net.updated} holding${net.updated === 1 ? "" : "s"}`);
+  if (net.soldCost) change.push(`Record the sold cost basis on ${net.soldCost} `
+    + `disposal${net.soldCost === 1 ? "" : "s"}`);
   if (bundle.saleEvents?.length) change.push(`Record ${bundle.saleEvents.length} sale${
     bundle.saleEvents.length === 1 ? "" : "s"} or transfer${
     bundle.saleEvents.length === 1 ? "" : "s"} as sold`);
@@ -7845,8 +7863,9 @@ function bpImportPlanHtml(plan) {
     ? `<div class="import-wrong"><b>${summary.ask} difference${summary.ask === 1 ? "" : "s"}
         need${summary.ask === 1 ? "s" : ""} your decision.</b>
       <div class="muted">The report and the data on file carry the same date, or the difference
-        would replace a cost you entered by hand, or a newer broker disagrees with a quantity
-        or value a CAS set. Choose what to keep.</div>
+        would replace a cost you entered by hand, or a newer report disagrees with a quantity
+        or value a CAS set, or it names a bond the statement recorded as sold. Using the file
+        prices that sale and keeps it; it does not put the units back. Choose what to keep.</div>
       ${askLines.length ? `<ul class="muted import-ask-list">${askLines
         .map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
       <div class="import-actions">
@@ -7862,6 +7881,8 @@ function bpImportPlanHtml(plan) {
     identityOnly: !!bundle.plan?.identityOnly,
     planned,
     sales,
+    soldCost: net.soldCost || 0,
+    attachIdentity: !!bundle.plan?.identityChange,
     create: bundle.create && !bundle.targetId,
   });
   return `<div class="card pad import-bundle" data-plan="${esc(plan.key)}">
@@ -8424,24 +8445,28 @@ async function bpImportApplyBroker(bundle, opts = {}) {
     bpImportInboxStatus("Review the differences and choose what to keep first.", "bad");
     return { ok: false };
   }
-  const total = plan.summary.added + plan.summary.updated + plan.summary.history;
   const meta = metaOf(account);
   const aliasMissing = !!bundle.accountKey && (
     bundle.family === "motilal" ? String(meta.ucid || "") !== bundle.accountKey
       : bundle.family === "zerodha" ? String(meta.client_id || "") !== bundle.accountKey
         : bundle.family === "digifinn" ? String(meta.demat || "") !== bundle.accountKey
           : false);
-  if (!total && !plan.identityChange && !aliasMissing) {
+  // The rows are projected before the guard so the guard asks the same question
+  // the card does: does this file change any row? An accepted recovery changes a
+  // disposal's cost basis and nothing else, and it is still work.
+  const rows = bpImportPlanRows(holdings, plan, bundle);
+  const net = planNetChange(holdings, rows);
+  const writes = net.added + net.updated + net.history + net.soldCost;
+  if (!writes && !plan.identityChange && !aliasMissing) {
     bpImportInboxStatus("Nothing to change: every fact in this file is already on the account.");
     return { ok: false };
   }
   try { await store.snapshotDb("Before broker import"); } catch (e) {}
-  const rows = bpImportPlanRows(holdings, plan, bundle);
   await store.replaceHoldings(targetId, rows, bundle.asOf || "");
   await bpImportUpdateAccountMeta(targetId, bundle, plan, account);
-  return { ok: true, accountId: targetId, total,
-    added: plan.summary.added, updated: plan.summary.updated, history: plan.summary.history,
-    filled: 0, accounts: 1,
+  return { ok: true, accountId: targetId, total: writes,
+    added: net.added, updated: net.updated, history: net.history,
+    soldCost: net.soldCost, filled: 0, accounts: 1,
     label: account.label || bpImportBrokerOnlyLabel(bundle) };
 }
 
@@ -8648,14 +8673,13 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
   state.applying = true;
   bpImportInboxStatus(`Importing ${bpImportBundleLabel(plan.head)}…`);
   try {
-    const pendingOf = (receipt) => (receipt?.plan?.summary.added || 0)
-      + (receipt?.plan?.summary.updated || 0) + (receipt?.plan?.summary.history || 0);
     // A broker first in a merged plan may have nothing to change while another
     // file does. Skipping it is not a failure; the plan still writes the rest.
+    // A pending ask counts as work: accepting it is what releases the write.
     const headNoop = plan.head.family !== "cas"
-      && !pendingOf(plan.head.plan) && !plan.head.plan?.identityChange;
+      && !planHasWork(plan.head.plan) && !plan.head.plan?.identityChange;
     const allNoop = headNoop && plan.extras.every((extra) =>
-      !pendingOf(extra.plan) && !extra.plan?.identityChange);
+      !planHasWork(extra.plan) && !extra.plan?.identityChange);
     if (allNoop) {
       bpImportInboxStatus("Nothing to change: every fact in these files is already on the account.");
       return;
@@ -8674,7 +8698,7 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
       // A receipt with nothing to change is not a failure. The broker writer
       // would refuse it as "nothing to change"; the plan skips it and keeps the
       // same rows.
-      if (!pendingOf(extra.plan) && !extra.plan?.identityChange) continue;
+      if (!planHasWork(extra.plan) && !extra.plan?.identityChange) continue;
       const result = bundle.family === "cas"
         ? await bpImportApplyCas({ ...bundle, acceptAsk: plan.acceptAsk }, opts)
         : await bpImportApplyBroker({ ...bundle, acceptAsk: plan.acceptAsk }, opts);
@@ -8700,13 +8724,15 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
       out.linkedSold += Number(result.linkedSold || 0);
       out.added += Number(result.added || 0);
       out.updated += Number(result.updated || 0);
+      out.soldCost += Number(result.soldCost || 0);
       out.conflicts.push(...(result.conflicts || []));
       return out;
     }, { added: 0, updated: 0, filled: 0, history: 0, sold: 0,
-      linkedSold: 0, conflicts: [] });
+      linkedSold: 0, soldCost: 0, conflicts: [] });
     const extraFacts = [];
     if (combined.filled) extraFacts.push(`${combined.filled} empty value${combined.filled === 1 ? "" : "s"} filled`);
     if (combined.history) extraFacts.push(`${combined.history} matured bond${combined.history === 1 ? "" : "s"} moved to history`);
+    if (combined.soldCost) extraFacts.push(`${combined.soldCost} sold cost basis${combined.soldCost === 1 ? "" : "es"} recorded`);
     const extraText = extraFacts.length ? `, ${extraFacts.join(" and ")}` : "";
     const live = combined.added + Math.max(0, combined.updated - combined.filled);
     const conflicts = combined.conflicts
@@ -8717,7 +8743,9 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
     const parts = [];
     parts.push(identityOnly
       ? `Identity attached${extraText}`
-      : `${live} holding${live === 1 ? "" : "s"} imported${extraText}`);
+      : live
+        ? `${live} holding${live === 1 ? "" : "s"} imported${extraText}`
+        : `Nothing added${extraText}`);
     if (sold) parts.push(`${sold} sale${sold === 1 ? "" : "s"} or transfer${
       sold === 1 ? "" : "s"} recorded as sold`);
     if (linkedSold) parts.push(`${linkedSold} also reduced in the linked cost portfolio`);
