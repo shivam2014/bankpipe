@@ -6,6 +6,7 @@ import { makeStore, showDeleteAll, verifySealedDb } from "./db.js";
 import { sealBytes } from "./dbatrest.js";
 import { applyCasEvents, casApplyRows, casEventKey } from "./cas-apply.js";
 import { bondHoldingPatch } from "./bond-holding.js";
+import { bondAnalytics, bondMaturity } from "./bonds.js";
 
 const require = createRequire(import.meta.url);
 const initSqlJs = require("./vendor/sql-wasm.js");
@@ -169,6 +170,113 @@ test("an older database gains the import receipt columns on open", async () => {
   });
   assert.ok(res.runId);
   assert.equal(store.latestReceipt().rows[0].sheet, 4);
+});
+
+// The holding table before terms had columns: the probe below builds exactly
+// this shape, migrates it, and compares the numbers the old row produced.
+const OLD_HOLDING_SCHEMA = "CREATE TABLE holding("
+  + "id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL,"
+  + " security_id TEXT, label TEXT, issuer TEXT, category TEXT, rating TEXT,"
+  + " frequency TEXT, yield_bps INTEGER, payout_paise INTEGER, quantity REAL,"
+  + " cost_paise INTEGER, value_paise INTEGER, face_paise INTEGER,"
+  + " purchase_date TEXT, interest_date TEXT, source_row INTEGER, as_of TEXT,"
+  + " value_source TEXT, redemption_dates TEXT, returned_at TEXT,"
+  + " returned_record_date TEXT, returned_source TEXT, disposed_at TEXT,"
+  + " disposed_quantity REAL, disposed_type TEXT, disposed_source TEXT,"
+  + " disposed_reason TEXT, disposed_cost_paise INTEGER, txn_key TEXT UNIQUE)";
+
+test("an older database gains the bond term columns and lands on the same numbers", async () => {
+  const old = new SQL.Database();
+  old.run(OLD_HOLDING_SCHEMA);
+  old.run("INSERT INTO holding(asset_id,security_id,label,issuer,category,quantity,"
+    + "cost_paise,value_paise,face_paise,purchase_date,frequency,value_source,as_of)"
+    + " VALUES('bonds','INE000000124','TESTD-11.90%-3-12-26-PVT','TEST DASHED ISSUER',"
+    + "'bond',2,20000000,21000000,500000,'2024-06-06','Monthly','CAS','2026-10-31')");
+  const plain = {
+    label: "TESTD-11.90%-3-12-26-PVT", category: "bond", quantity: 2,
+    cost_paise: 20000000, value_paise: 21000000, face_paise: 500000,
+    purchase_date: "2024-06-06", frequency: "Monthly",
+  };
+  const before = bondAnalytics(plain);
+  const store = makeStore(SQL, null);
+  await store.open(old.export());
+
+  const columns = store.query("PRAGMA table_info(holding)").map((r) => r.name);
+  for (const name of ["coupon_pct", "coupon_source", "coupon_as_of",
+    "maturity", "maturity_source", "maturity_as_of", "face_source", "face_as_of"]) {
+    assert.ok(columns.includes(name), name);
+  }
+  const rows = store.listHoldings("bonds");
+  assert.equal(rows.length, 1, "the old row is kept");
+  const kept = rows[0];
+  assert.equal(kept.label, plain.label);
+  assert.equal(kept.quantity, 2);
+  assert.equal(kept.cost_paise, 20000000);
+  assert.equal(kept.value_paise, 21000000);
+  assert.equal(kept.face_paise, 500000, "the stored face is untouched");
+  assert.equal(kept.coupon_pct, null);
+  assert.equal(kept.maturity, null);
+
+  const after = bondAnalytics(kept);
+  for (const key of ["couponPct", "maturity", "couponIncome", "lifetimeTotal",
+    "lifetimeGain", "ytm", "capitalGain"]) {
+    assert.deepEqual(after[key], before[key], key);
+  }
+  assert.equal(after.couponSource, "label", "the old row still reads its name");
+  assert.equal(after.maturityGuessed, true);
+
+  // The columns are writable in place, with provenance.
+  store.upsertHolding("bonds", { ...kept, coupon_pct: 9.5, coupon_source: "SMEST",
+    coupon_as_of: "2026-11-16", maturity: "2029-10-07", maturity_source: "SMEST",
+    maturity_as_of: "2026-11-16" });
+  const stored = store.listHoldings("bonds")[0];
+  assert.equal(stored.coupon_pct, 9.5);
+  assert.equal(stored.coupon_source, "SMEST");
+  assert.equal(stored.maturity, "2029-10-07");
+  assert.equal(stored.maturity_source, "SMEST");
+  assert.deepEqual(bondMaturity(stored),
+    { maturity: "2029-10-07", source: "SMEST", guessed: false });
+  const terms = bondAnalytics(stored);
+  assert.equal(terms.couponPct, 9.5);
+  assert.equal(terms.couponSource, "SMEST");
+  assert.equal(terms.couponGuessed, false);
+  assert.equal(terms.maturityGuessed, false);
+});
+
+test("a report write keeps the terms and their provenance", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.replaceHoldings("bonds", [{
+    security_id: "INE000000124", label: "9.50% TESTD 07 Oct 2029", category: "bond",
+    quantity: 2, cost_paise: 20000000, face_paise: 1000000,
+    coupon_pct: 9.5, coupon_source: "Motilal Oswal holdings report",
+    coupon_as_of: "2026-11-05", maturity: "2029-10-07",
+    maturity_source: "Motilal Oswal holdings report", maturity_as_of: "2026-11-05",
+    face_source: "Motilal Oswal holdings report", face_as_of: "2026-11-05",
+  }], "2026-11-05");
+  const row = store.listHoldings("bonds")[0];
+  assert.equal(row.coupon_pct, 9.5);
+  assert.equal(row.coupon_source, "Motilal Oswal holdings report");
+  assert.equal(row.coupon_as_of, "2026-11-05");
+  assert.equal(row.maturity, "2029-10-07");
+  assert.equal(row.maturity_source, "Motilal Oswal holdings report");
+  assert.equal(row.face_source, "Motilal Oswal holdings report");
+  assert.equal(bondAnalytics(row).couponSource, "Motilal Oswal holdings report");
+
+  // A later snapshot that does not carry the terms must not erase them.
+  store.replaceHoldings("bonds", [{
+    security_id: "INE000000124", label: "TESTD", category: "bond",
+    quantity: 3, cost_paise: 30000000,
+  }], "2026-11-16");
+  const kept = store.listHoldings("bonds")[0];
+  assert.equal(kept.quantity, 3, "the new snapshot is written");
+  assert.equal(kept.coupon_pct, 9.5);
+  assert.equal(kept.coupon_source, "Motilal Oswal holdings report");
+  assert.equal(kept.coupon_as_of, "2026-11-05");
+  assert.equal(kept.maturity, "2029-10-07");
+  assert.equal(kept.maturity_source, "Motilal Oswal holdings report");
+  assert.equal(kept.face_paise, 1000000);
+  assert.equal(kept.face_source, "Motilal Oswal holdings report");
 });
 
 test("an asset can carry a category, a manual value and notes", async () => {

@@ -78,6 +78,9 @@ CREATE TABLE IF NOT EXISTS holding(
   returned_at TEXT, returned_record_date TEXT, returned_source TEXT,
   disposed_at TEXT, disposed_quantity REAL, disposed_type TEXT,
   disposed_source TEXT, disposed_reason TEXT, disposed_cost_paise INTEGER,
+  coupon_pct REAL, coupon_source TEXT, coupon_as_of TEXT,
+  maturity TEXT, maturity_source TEXT, maturity_as_of TEXT,
+  face_source TEXT, face_as_of TEXT,
   txn_key TEXT UNIQUE);
 CREATE INDEX IF NOT EXISTS holding_asset ON holding(asset_id);
 CREATE TABLE IF NOT EXISTS import_run(
@@ -149,7 +152,14 @@ function migrate(conn) {
     ["returned_source", "TEXT"],
     ["disposed_at", "TEXT"], ["disposed_quantity", "REAL"],
     ["disposed_type", "TEXT"], ["disposed_source", "TEXT"],
-    ["disposed_reason", "TEXT"], ["disposed_cost_paise", "INTEGER"]]) {
+    ["disposed_reason", "TEXT"], ["disposed_cost_paise", "INTEGER"],
+    // A bond's terms are facts, not a name to re-read. Each keeps the source
+    // that supplied it and the day it was supplied, so a lookup can be replaced
+    // by a report but never the other way round. Older rows gain the columns
+    // empty: they keep reading the label exactly as before.
+    ["coupon_pct", "REAL"], ["coupon_source", "TEXT"], ["coupon_as_of", "TEXT"],
+    ["maturity", "TEXT"], ["maturity_source", "TEXT"], ["maturity_as_of", "TEXT"],
+    ["face_source", "TEXT"], ["face_as_of", "TEXT"]]) {
     if (!hhave.has(name)) conn.run(`ALTER TABLE holding ADD COLUMN ${name} ${type}`);
   }
   // The workbook put the credit rating in category. Move it to rating once;
@@ -528,13 +538,54 @@ export function makeStore(SQLlib, save) {
     const priorRating = new Map(all("SELECT security_id, rating_at_purchase FROM holding"
       + " WHERE asset_id=?", [assetId]).map((r) => [String(r.security_id || "").toUpperCase(),
         r.rating_at_purchase || ""]));
+    // A report that does not carry a term does not erase one. Terms and their
+    // provenance follow the ISIN from the row already held into the new row.
+    const priorTerms = new Map(all("SELECT security_id, coupon_pct, coupon_source,"
+      + " coupon_as_of, maturity, maturity_source, maturity_as_of, face_paise,"
+      + " face_source, face_as_of FROM holding WHERE asset_id=? AND security_id IS NOT NULL"
+      + " AND security_id<>''", [assetId])
+      .map((r) => [String(r.security_id).toUpperCase(), r]));
+    const carryTerm = (row, prior, key, sourceKey, asOfKey) => {
+      const value = row[key];
+      const empty = value === null || value === undefined || value === "";
+      if (!empty) {
+        if ((row[sourceKey] === null || row[sourceKey] === undefined || row[sourceKey] === "")
+          && prior && String(prior[key]) === String(value)) {
+          return { ...row, [sourceKey]: prior[sourceKey] || "",
+            [asOfKey]: prior[asOfKey] || "" };
+        }
+        return row;
+      }
+      if (!prior) return row;
+      return { ...row, [key]: prior[key], [sourceKey]: prior[sourceKey] || "",
+        [asOfKey]: prior[asOfKey] || "" };
+    };
     const superseded = manual.filter((m) => m.security_id
       && reportIsins.has(String(m.security_id).toUpperCase()));
     for (const m of superseded) conn.run("DELETE FROM holding WHERE id=?", [m.id]);
     conn.run("DELETE FROM holding WHERE asset_id=? AND (source IS NULL OR source<>'manual')",
       [assetId]);
     let inserted = 0;
-    for (const r of rows || []) {
+    for (const raw of rows || []) {
+      const prior = priorTerms.get(String(raw.security_id || "").toUpperCase()) || null;
+      let r = {
+        ...raw,
+        coupon_pct: raw.coupon_pct ?? raw.couponPct ?? null,
+        coupon_source: raw.coupon_source ?? raw.couponSource ?? "",
+        coupon_as_of: raw.coupon_as_of ?? raw.couponAsOf ?? "",
+        maturity: raw.maturity || raw.maturity_date || "",
+        maturity_source: raw.maturity_source ?? raw.maturitySource ?? "",
+        maturity_as_of: raw.maturity_as_of ?? raw.maturityAsOf ?? "",
+        face_source: raw.face_source ?? raw.faceSource ?? "",
+        face_as_of: raw.face_as_of ?? raw.faceAsOf ?? "",
+      };
+      for (const [key, sourceKey, asOfKey] of [
+        ["coupon_pct", "coupon_source", "coupon_as_of"],
+        ["maturity", "maturity_source", "maturity_as_of"],
+        ["face_paise", "face_source", "face_as_of"],
+      ]) {
+        r = carryTerm(r, prior, key, sourceKey, asOfKey);
+      }
       const key = r.txn_key || [assetId, r.security_id, r.label, r.category, r.rating,
         r.frequency, r.yield_bps, r.payout_paise, r.quantity, r.cost_paise, r.value_paise,
         r.source_row].join("|");
@@ -544,7 +595,10 @@ export function makeStore(SQLlib, save) {
         + "future_principal_paise,principal_dates,redemption_dates,value_source,returned_paise,"
         + "returned_at,returned_record_date,returned_source,disposed_at,disposed_quantity,"
         + "disposed_type,disposed_source,disposed_reason,disposed_cost_paise,"
-        + "source_row,as_of,txn_key,source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        + "coupon_pct,coupon_source,coupon_as_of,maturity,maturity_source,maturity_as_of,"
+        + "face_source,face_as_of,"
+        + "source_row,as_of,txn_key,source) VALUES("
+        + Array(43).fill("?").join(",") + ")",
         [assetId, r.security_id || "", r.label || "", r.issuer || "", r.category || "",
          r.rating || "", r.frequency || "",
          r.yield_bps === undefined ? null : r.yield_bps,
@@ -562,6 +616,13 @@ export function makeStore(SQLlib, save) {
          r.returned_at || "", r.returned_record_date || "", r.returned_source || "",
          r.disposed_at || "", r.disposed_quantity ?? null, r.disposed_type || "",
          r.disposed_source || "", r.disposed_reason || "", r.disposed_cost_paise ?? null,
+         r.coupon_pct ?? r.couponPct ?? null,
+         r.coupon_source ?? r.couponSource ?? "",
+         r.coupon_as_of ?? r.couponAsOf ?? "",
+         r.maturity || r.maturity_date || "",
+         r.maturity_source ?? r.maturitySource ?? "",
+         r.maturity_as_of ?? r.maturityAsOf ?? "",
+         r.face_source ?? r.faceSource ?? "", r.face_as_of ?? r.faceAsOf ?? "",
          r.source_row || 0,
          r.as_of || asOf || "", key, r.source || "report"]);
       inserted++;
@@ -769,6 +830,9 @@ export function makeStore(SQLlib, save) {
     + " disposed_at, disposed_quantity, disposed_type, disposed_source, disposed_reason,"
     + " disposed_cost_paise, txn_key,"
     + " as_of, value_source, redemption_dates,"
+    + " coupon_pct, coupon_source, coupon_as_of,"
+    + " maturity, maturity_source, maturity_as_of,"
+    + " face_source, face_as_of,"
     + " source_row, source FROM holding WHERE asset_id=? ORDER BY label", [assetId]);
   // The columns a holding write may set, in insert order. An update writes only
   // the ones the caller names: a column absent from the object keeps its stored
@@ -779,10 +843,13 @@ export function makeStore(SQLlib, save) {
     "face_paise", "purchase_date", "interest_date", "rating_at_purchase",
     "future_interest_paise", "future_principal_paise", "principal_dates",
     "redemption_dates", "value_source", "as_of", "returned_paise", "returned_at",
-    "returned_record_date", "returned_source"];
+    "returned_record_date", "returned_source",
+    "coupon_pct", "coupon_source", "coupon_as_of",
+    "maturity", "maturity_source", "maturity_as_of",
+    "face_source", "face_as_of"];
   const HOLDING_NUMBERS = new Set(["yield_bps", "payout_paise", "quantity",
     "cost_paise", "value_paise", "face_paise", "future_interest_paise",
-    "future_principal_paise", "returned_paise"]);
+    "future_principal_paise", "returned_paise", "coupon_pct"]);
   const holdingValue = (key, value) =>
     HOLDING_NUMBERS.has(key) ? (value ?? null) : (value || "");
   store.upsertHolding = (assetId, h) => {

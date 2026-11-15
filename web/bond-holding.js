@@ -43,6 +43,25 @@ export function bondHoldingPatch(input) {
     interest_date: String(input.interestDate || ""),
   };
   if (input.face !== null && input.face !== undefined) patch.face_paise = input.face;
+  if (input.faceSource) {
+    patch.face_source = input.faceSource;
+    patch.face_as_of = String(input.faceAsOf || "");
+  }
+  // A term is only written when the caller says so: the form shows a parsed
+  // coupon and date too, and saving another field must not turn that guess into
+  // a fact. A value the person changed comes with its source and date.
+  if (input.coupon !== undefined && input.coupon !== null && input.coupon !== "") {
+    patch.coupon_pct = input.coupon;
+  }
+  if (input.couponSource) {
+    patch.coupon_source = input.couponSource;
+    patch.coupon_as_of = String(input.couponAsOf || "");
+  }
+  if (input.maturity) patch.maturity = String(input.maturity);
+  if (input.maturitySource) {
+    patch.maturity_source = input.maturitySource;
+    patch.maturity_as_of = String(input.maturityAsOf || "");
+  }
   if (input.valueTouched !== false) {
     patch.value_paise = input.value;
     patch.value_source = input.value === null ? "" : "Manual";

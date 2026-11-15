@@ -251,6 +251,47 @@ test("a stated maturity loses the guess note", () => {
   assert.equal(maturity.subTone, "");
 });
 
+test("terms stored from a lookup render plain with their source and date", () => {
+  const view = bondRowView({ ...dashedRow, coupon_pct: 9.5,
+    coupon_source: "SMEST", coupon_as_of: "2026-11-16",
+    maturity: "2029-10-07", maturity_source: "SMEST",
+    maturity_as_of: "2026-11-16" });
+  assert.equal(view.coupon, 9.5);
+  assert.equal(view.couponGuessed, false);
+  assert.equal(view.maturity, "2029-10-07");
+  assert.equal(view.maturityGuessed, false);
+  const facts = bondFacts(view);
+  const coupon = facts.find((fact) => fact.key === "coupon");
+  const maturity = facts.find((fact) => fact.key === "maturity");
+  assert.equal(coupon.sub, "from SMEST · 16 Nov 2026");
+  assert.equal(coupon.subTone, "");
+  assert.equal(maturity.sub, "from SMEST · 16 Nov 2026");
+  assert.equal(maturity.subTone, "");
+  assert.doesNotMatch(sectionOf(bondCardHtml(view, "acct-1"), "Purchase"),
+    /read from the bond name/);
+});
+
+test("a hand-entered term says so and a report keeps its name", () => {
+  const manual = bondFacts(bondRowView({ ...dashedRow, coupon_pct: 9.5,
+    coupon_source: "Manual", coupon_as_of: "2026-11-16" }))
+    .find((fact) => fact.key === "coupon");
+  assert.equal(manual.sub, "entered by hand · 16 Nov 2026");
+  assert.equal(manual.subTone, "");
+
+  const report = bondFacts(bondRowView({ ...dashedRow,
+    maturity: "2029-10-07", maturity_source: "DigiFInn investment report",
+    maturity_as_of: "2026-10-31" })).find((fact) => fact.key === "maturity");
+  assert.equal(report.sub, "from DigiFInn investment report · 31 Oct 2026");
+  assert.equal(report.subTone, "");
+});
+
+test("a stored value with no provenance stays plain rather than invented", () => {
+  const coupon = bondFacts(bondRowView({ ...dashedRow, couponPct: 9.5 }))
+    .find((fact) => fact.key === "coupon");
+  assert.equal(coupon.sub, "");
+  assert.equal(coupon.subTone, "");
+});
+
 test("the name's terms make Total if held and Next interest compute", () => {
   const view = bondRowView(dashedRow);
   const facts = bondFacts(view);

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseBondLabel, bondMaturity, splitMatured, inferFace, bondAnalytics,
+  storedCoupon, termSourceKind, termSourceRank, bondWriteRow,
   bondLabelName, bondSummary, accruedInterest, BOND_RATINGS, bondRatingRank, bondFillPlan,
   bondGrade, bondRatingChange, carryBrokerFields, soldGain, bondHomeOf,
   isLiveBondRow } from "./bonds.js";
@@ -135,6 +136,44 @@ test("a stated maturity beats the date in the name and is not a guess", () => {
   assert.equal(a.maturityGuessed, false);
 });
 
+test("a stored term carries its own source and date", () => {
+  const a = bondAnalytics({
+    label: "TESTD-11.90%-3-12-26-PVT",
+    coupon_pct: 9.5, coupon_source: "SMEST", coupon_as_of: "2026-11-16",
+    maturity: "2031-01-01", maturity_source: "SMEST", maturity_as_of: "2026-11-16",
+    quantity: 2, cost_paise: 20000000, purchase_date: "2024-06-06",
+    frequency: "Monthly",
+  });
+  assert.equal(a.couponPct, 9.5);
+  assert.equal(a.couponSource, "SMEST");
+  assert.equal(a.couponAsOf, "2026-11-16");
+  assert.equal(a.couponGuessed, false);
+  assert.equal(a.maturitySource, "SMEST");
+  assert.equal(a.maturityAsOf, "2026-11-16");
+  assert.equal(a.maturityGuessed, false);
+});
+
+test("a value stored as a label guess stays marked as one", () => {
+  const terms = bondMaturity({ category: "bond", label: "9.00% TEST BOND",
+    maturity: "2028-12-31", maturity_source: "label" });
+  assert.equal(terms.maturity, "2028-12-31");
+  assert.equal(terms.source, "label");
+  assert.equal(terms.guessed, true);
+  const coupon = storedCoupon({ coupon_pct: 9, coupon_source: "label" });
+  assert.equal(coupon.value, 9);
+  assert.equal(coupon.source, "label");
+  assert.equal(termSourceKind(coupon.source), "label");
+});
+
+test("term sources rank a statement above a lookup above the name", () => {
+  assert.equal(termSourceRank("label"), 1);
+  assert.equal(termSourceRank("SMEST"), 2);
+  assert.equal(termSourceRank("BSE"), 2);
+  assert.equal(termSourceRank("DigiFInn investment report"), 3);
+  assert.equal(termSourceRank("Manual"), 3);
+  assert.equal(termSourceRank(""), 0);
+});
+
 test("terms read from a dashed name feed the money maths", () => {
   const a = bondAnalytics({
     label: "TESTD-11.90%-3-12-26-PVT",
@@ -187,6 +226,28 @@ test("matured, live and disposed lots are three different states", () => {
   assert.deepEqual(split.disposed.map((h) => h.id), ["sold"]);
   assert.equal(split.maturedValue, 50000000);
   assert.equal(split.maturedGuessed, 0);
+});
+
+test("a label date attached for display is not written back as a stored term", () => {
+  const split = splitMatured([{ id: "label", category: "bond",
+    label: "9.50% TEST 15 MAY 2020", quantity: 1, cost_paise: 10000000 }],
+  "2026-11-15");
+  const displayed = split.matured[0];
+  assert.equal(displayed.maturity, "2020-05-15");
+  assert.equal(displayed.maturitySource, "label");
+
+  const written = bondWriteRow(displayed, { rating: "AA" });
+  assert.equal("maturity" in written, false, "the label guess is not promoted");
+  assert.equal(written.rating, "AA");
+  assert.equal(written.maturitySource, "label", "the view still knows its source");
+
+  // A real stored maturity is copied through, and a fetched one replaces it.
+  const stored = bondWriteRow({ category: "bond", label: "TEST",
+    maturity: "2030-05-15", maturity_source: "SMEST" }, { rating: "AA" });
+  assert.equal(stored.maturity, "2030-05-15");
+  const fetched = bondWriteRow(displayed, { maturity: "2031-01-01",
+    maturity_source: "SMEST" });
+  assert.equal(fetched.maturity, "2031-01-01");
 });
 
 test("a matured lot with no value is counted at cost", () => {
@@ -384,6 +445,49 @@ test("a lookup stores the face value SMEST prints", () => {
     { details: { face: 10000 }, market: null });
   assert.equal(plan.patch.face_paise, 1000000);
   assert.equal(plan.terms, true);
+});
+
+test("a lookup fills a missing coupon and maturity with its source and date", () => {
+  const plan = bondFillPlan({ quantity: 2, cost_paise: 20000000 },
+    { details: { coupon: 9.5, maturity: "2029-10-07", source: "SMEST" },
+      market: null }, "2026-11-16");
+  assert.equal(plan.patch.coupon_pct, 9.5);
+  assert.equal(plan.patch.coupon_source, "SMEST");
+  assert.equal(plan.patch.coupon_as_of, "2026-11-16");
+  assert.equal(plan.patch.maturity, "2029-10-07");
+  assert.equal(plan.patch.maturity_source, "SMEST");
+  assert.equal(plan.patch.maturity_as_of, "2026-11-16");
+  assert.equal(plan.terms, true);
+});
+
+test("a lookup replaces a name guess but not a report or a person", () => {
+  const fetched = { details: { coupon: 9.5, maturity: "2029-10-07" }, market: null };
+  const fromName = bondFillPlan({ quantity: 1, cost_paise: 10000000,
+    label: "11.9% TEST 03 Dec 2026" }, fetched, "2026-11-16");
+  assert.equal(fromName.patch.coupon_pct, 9.5);
+  assert.equal(fromName.patch.maturity, "2029-10-07");
+
+  const fromLookup = bondFillPlan({ quantity: 1, cost_paise: 10000000,
+    coupon_pct: 9.5, coupon_source: "BSE", maturity: "2029-10-07",
+    maturity_source: "BSE" }, fetched, "2026-11-16");
+  assert.equal(fromLookup.patch.coupon_source, "SMEST");
+  assert.equal(fromLookup.patch.maturity_source, "SMEST");
+
+  for (const source of ["Manual", "DigiFInn investment report", "CAS"]) {
+    const stated = bondFillPlan({ quantity: 1, cost_paise: 10000000,
+      coupon_pct: 8, coupon_source: source, maturity: "2030-01-01",
+      maturity_source: source }, fetched, "2026-11-16");
+    assert.deepEqual(stated.patch, {}, source);
+    assert.equal(stated.terms, false, source);
+  }
+});
+
+test("a lookup records the face it filled", () => {
+  const plan = bondFillPlan({ quantity: 10, cost_paise: 7356643 },
+    { details: { face: 10000, source: "SMEST" }, market: null }, "2026-11-16");
+  assert.equal(plan.patch.face_paise, 1000000);
+  assert.equal(plan.patch.face_source, "SMEST");
+  assert.equal(plan.patch.face_as_of, "2026-11-16");
 });
 
 test("lifetime gain includes the coupons already received", () => {
