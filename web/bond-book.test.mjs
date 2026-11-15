@@ -31,6 +31,16 @@ const maturedRow = {
   future_interest_paise: null, as_of: "2020-02-10",
 };
 
+// Terms live only in the dashed name: no couponPct and no maturity field.
+const dashedRow = {
+  id: "lot-dashed", category: "bond", label: "TESTD-11.90%-3-12-26-PVT",
+  issuer: "TEST DASHED ISSUER", security_id: "INE000000124",
+  quantity: 2, cost_paise: 20000000, value_paise: 21000000,
+  value_source: "CAS", as_of: "2026-10-31", purchase_date: "2024-06-06",
+  frequency: "Monthly", rating: "ICRA BBB / Stable",
+  rating_at_purchase: "ICRA BBB / Stable", source: "report",
+};
+
 const LIVE_KEYS = [
   "total-if-held", "principal-returned", "principal-left", "next-interest",
   "gain-if-sold", "interest-progress",
@@ -198,6 +208,138 @@ test("a missing figure says why instead of a bare dash", () => {
   const noDate = { ...bondRowView({ ...row, purchase_date: "" }), matured: false };
   assert.match(sectionOf(bondCardHtml(noDate, "acct-1"), "Purchase"),
     /<span class="k">Purchase date<\/span><span class="v ">—<span class="sub ">not in the statement<\/span>/);
+});
+
+test("a coupon and maturity read from the name are both marked guesses", () => {
+  const view = bondRowView(dashedRow);
+  assert.equal(view.coupon, 11.9);
+  assert.equal(view.couponSource, "label");
+  assert.equal(view.couponGuessed, true);
+  assert.equal(view.maturity, "2026-12-03");
+  assert.equal(view.maturityGuessed, true);
+  const facts = bondFacts(view);
+  const coupon = facts.find((fact) => fact.key === "coupon");
+  const maturity = facts.find((fact) => fact.key === "maturity");
+  assert.equal(coupon.value, "11.9%");
+  assert.equal(coupon.sub, "read from the bond name — check it");
+  assert.equal(coupon.subTone, "amber");
+  assert.equal(maturity.value, "03 Dec 2026");
+  assert.equal(maturity.sub, "read from the bond name — check it");
+  assert.equal(maturity.subTone, "amber");
+  assert.match(sectionOf(bondCardHtml(view, "acct-1"), "Purchase"),
+    /data-fact="coupon"[\s\S]*?read from the bond name — check it/);
+});
+
+test("a stated coupon keeps its value and loses the guess note", () => {
+  const view = bondRowView({ ...dashedRow, couponPct: 9.5 });
+  assert.equal(view.coupon, 9.5);
+  assert.equal(view.couponSource, "stored");
+  assert.equal(view.couponGuessed, false);
+  const coupon = bondFacts(view).find((fact) => fact.key === "coupon");
+  assert.equal(coupon.value, "9.5%");
+  assert.equal(coupon.sub, "");
+  assert.equal(coupon.subTone, "");
+});
+
+test("a stated maturity loses the guess note", () => {
+  const view = bondRowView({ ...dashedRow, maturity: "2031-01-01" });
+  assert.equal(view.maturity, "2031-01-01");
+  assert.equal(view.maturityGuessed, false);
+  const maturity = bondFacts(view).find((fact) => fact.key === "maturity");
+  assert.equal(maturity.value, "01 Jan 2031");
+  assert.equal(maturity.sub, "");
+  assert.equal(maturity.subTone, "");
+});
+
+test("the name's terms make Total if held and Next interest compute", () => {
+  const view = bondRowView(dashedRow);
+  const facts = bondFacts(view);
+  const total = facts.find((fact) => fact.key === "total-if-held");
+  const next = facts.find((fact) => fact.key === "next-interest");
+  const gain = facts.find((fact) => fact.key === "gain-if-sold");
+  assert.notEqual(total.value, "—");
+  assert.match(total.sub, /gain/);
+  assert.notEqual(next.value, "—");
+  assert.match(next.sub, /estimated/);
+  assert.notEqual(gain.value, "—");
+});
+
+test("a rounding gap in the coupon estimate is not called a repayment", () => {
+  const view = bondRowView(dashedRow);
+  assert.equal(view.returned, 0);
+  const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
+  assert.equal(progress.progress.note, "original schedule · estimated");
+});
+
+test("a real repayment still carries the early-repayment note", () => {
+  const view = bondRowView(row);
+  assert.ok(view.returned > 0);
+  const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
+  assert.match(progress.progress.note, /less after the early repayment/);
+});
+
+test("a returned amount with no date is not called an early repayment", () => {
+  // A face below the cost-implied one is money already back, but nothing says
+  // when. The estimate is not reduced by a date, so the gap is rounding.
+  const view = bondRowView({ ...dashedRow, face_paise: 8000, returned_paise: 4000000 });
+  assert.ok(view.returned > 0);
+  assert.equal(view.returnedAt, "");
+  const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
+  assert.equal(progress.progress.note, "original schedule · estimated");
+});
+
+test("a redemption date with nothing returned is not an early repayment", () => {
+  const view = bondRowView({ ...dashedRow, redemption_dates: "2025-01-15" });
+  assert.equal(view.returned, 0);
+  assert.ok(view.ba.firstPast);
+  assert.ok(view.couponLost > 0, "the rounding gap is what the old gate fired on");
+  const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
+  assert.equal(progress.progress.note, "original schedule · estimated");
+});
+
+test("principal dates alone are not called an early repayment", () => {
+  // The estimate only shrinks on a past redemption date. A principal schedule
+  // that is now in the past does not shrink it, so the gap stays rounding.
+  const view = bondRowView({
+    ...dashedRow, face_paise: 1000000, returned_paise: 2000000,
+    future_principal_paise: 8000000, interest_date: "2026-12-01",
+    principal_dates: "2026-01-15,2027-01-15,2028-01-15",
+  });
+  assert.ok(view.returned > 0);
+  assert.equal(view.ba.firstPast, "");
+  const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
+  assert.equal(progress.progress.note, "original schedule · estimated");
+});
+
+test("a cumulative bond is not told its frequency is missing", () => {
+  const view = bondRowView({ ...dashedRow, frequency: "Cumulative" });
+  assert.equal(bondFacts(view).find((fact) => fact.key === "frequency").value,
+    "Cumulative");
+  const next = bondFacts(view).find((fact) => fact.key === "next-interest");
+  assert.equal(next.value, "—");
+  assert.equal(next.sub, "no periodic payment");
+});
+
+test("without a frequency Next interest names the missing input", () => {
+  const view = bondRowView({ ...dashedRow, frequency: "" });
+  const facts = bondFacts(view);
+  const next = facts.find((fact) => fact.key === "next-interest");
+  const total = facts.find((fact) => fact.key === "total-if-held");
+  assert.equal(next.value, "—");
+  assert.equal(next.sub, "needs the payment frequency");
+  assert.notEqual(total.value, "—", "the lifetime total does not need a frequency");
+  assert.match(total.sub, /gain/);
+});
+
+test("an unreadable date in the name stays a dash and says so", () => {
+  const view = bondRowView({ ...dashedRow, label: "TESTD-11.90%-31-02-27-PVT" });
+  assert.equal(view.coupon, 11.9);
+  assert.equal(view.maturity, "");
+  assert.equal(view.maturityUnread, true);
+  const maturity = bondFacts(view).find((fact) => fact.key === "maturity");
+  assert.equal(maturity.value, "—");
+  assert.equal(maturity.sub, "the date in the name could not be read — check it");
+  assert.equal(maturity.subTone, "amber");
 });
 
 test("a matured lot leads with Value in net worth and carries no future facts", () => {

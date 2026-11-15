@@ -72,6 +72,9 @@ export function bondRowView(h) {
       guessed: !!h.maturityGuessed }
     : bondMaturity(h);
   const parsed = parseBondLabel(h.label);
+  const storedCoupon = h.couponPct === null || h.couponPct === undefined
+    || String(h.couponPct).trim() === "" ? null : Number(h.couponPct);
+  const hasStoredCoupon = storedCoupon !== null && Number.isFinite(storedCoupon);
   const hasPrice = ba ? ba.hasMarket : (h.value_paise !== null && h.cost_paise !== null
     && Math.abs(h.value_paise - h.cost_paise) >= 1);
   const periods = bondPeriods(h.frequency);
@@ -86,10 +89,18 @@ export function bondRowView(h) {
     h, ba,
     rating: bondRatingOf(h),
     change: bondRatingChange(h.rating_at_purchase, h.rating),
-    coupon: ba ? ba.couponPct : (parsed ? parsed.couponPct : (h.couponPct ?? null)),
+    coupon: ba ? ba.couponPct : (hasStoredCoupon ? storedCoupon
+      : (parsed ? parsed.couponPct : null)),
+    couponSource: ba ? ba.couponSource
+      : (hasStoredCoupon ? "stored" : (parsed?.couponPct !== null
+        && parsed?.couponPct !== undefined ? "label" : "")),
+    couponGuessed: ba ? !!ba.couponGuessed
+      : (!hasStoredCoupon && parsed?.couponPct !== null
+        && parsed?.couponPct !== undefined),
     maturity: terms.maturity || (ba ? ba.maturity : ""),
     maturitySource: terms.source,
     maturityGuessed: terms.guessed,
+    maturityUnread: !terms.maturity && !!(parsed?.dateUnread),
     yieldPct: h.yield_bps !== null && h.yield_bps !== undefined
       ? h.yield_bps / 100 : (ba ? ba.ytm : null),
     frequency: bondFrequency(h.frequency),
@@ -175,7 +186,11 @@ export function bondFacts(v, {
   const perUnit = v.marketPerUnit;
   const progress = v.couponProgress === null || v.couponProgress === undefined
     ? null : Math.max(0, Math.min(100, v.couponProgress));
-  const policyNote = v.couponLost
+  // The early-repayment note is a claim that a redemption shrank the estimate.
+  // That needs both facts the estimate itself uses: a past redemption date and
+  // money already back. A rounding gap leaves a few rupees in couponLost either
+  // way, and a redemption date alone proves nothing was repaid.
+  const policyNote = v.couponLost && v.returned > 0 && v.ba?.firstPast
     ? `${money(v.couponLost)} less after the early repayment`
     : "original schedule";
   const rawSource = v.h.value_source || (v.h.source === "manual" ? "Manual" : "CAS");
@@ -238,7 +253,10 @@ export function bondFacts(v, {
     facts.push({
       key: "next-interest", label: "Next interest",
       value: v.payout === null ? "—" : money(v.payout),
-      sub: [v.payout === null ? "amount not recorded" : "",
+      sub: [v.payout === null
+        ? (v.periods === null
+          ? (v.h.frequency ? "no periodic payment" : "needs the payment frequency")
+          : "amount not recorded") : "",
         v.interestDate ? dateLabel(v.interestDate) : "",
         v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · "),
       section: "Returns", kind: "fact",
@@ -323,15 +341,18 @@ export function bondFacts(v, {
   facts.push({
     key: "coupon", label: "Interest rate",
     value: v.coupon === null ? "—" : `${v.coupon}%`,
-    sub: v.coupon === null ? "not in the statement" : "",
+    sub: v.coupon === null ? "not in the statement"
+      : (v.couponGuessed ? "read from the bond name — check it" : ""),
+    subTone: v.couponGuessed ? "amber" : "",
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "maturity", label: "Maturity date",
     value: v.maturity ? dateLabel(v.maturity) : "—",
     sub: v.maturity ? (v.maturityGuessed ? "read from the bond name — check it" : "")
-      : "not in the statement",
-    subTone: v.maturityGuessed ? "amber" : "",
+      : (v.maturityUnread ? "the date in the name could not be read — check it"
+        : "not in the statement"),
+    subTone: v.maturityGuessed || v.maturityUnread ? "amber" : "",
     section: "Purchase", kind: "fact",
   });
   facts.push({

@@ -6,6 +6,8 @@
 // server does the fetching, the browser does the formatting, and the tests run
 // against a saved blob.
 
+import { bondLabelName } from "./bonds.js";
+
 const NEXT_DATA = /<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/;
 
 // Rupee amounts arrive as "100000 RUPEES" or "1,000 RUPEES".
@@ -91,11 +93,10 @@ export function parseSmest(html) {
 }
 
 // "10.85% Satin Creditcare Network Limited 10 Jul 2026" -> "Satin Creditcare…"
+// The dashed broker shape goes through the same strip, so a fetched name never
+// carries its terms back into the form beside the coupon and date fields.
 export function bondNameOnly(label) {
-  return String(label || "")
-    .replace(/^\s*\d+(?:\.\d+)?\s*%\s*/, "")
-    .replace(/\s*\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s*$/, "")
-    .trim();
+  return bondLabelName(label);
 }
 
 // What the holding form would become. The value needs units (from the row or
