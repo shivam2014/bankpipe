@@ -1842,8 +1842,21 @@ test("the writer creates the account from the statement's rows before the dispos
 
 // --- the card's warning wall ----------------------------------------------
 
-const creditWarning = (n) => `${isin(n)}: a credit with no purchase or transfer-in `
-  + `wording is not added (PAYOUT-CR CM ${n}).`;
+const creditRefusal = (id, wording = "") => `${id}: a credit with no purchase or `
+  + `transfer-in wording is not added${wording ? ` (${wording})` : ""}.`;
+const creditWarning = (n) => creditRefusal(isin(n), `PAYOUT-CR CM ${n}`);
+
+// One settlement wording on every credit, the way a statement prints it, and a
+// report of what the owner read: nineteen refused credits over ten securities.
+const SETTLED = "PAYOUT-CR CM M51766 TM/CP SETT";
+const REPEATS = [4, 3, 2, 2, 2, 1, 1, 1, 1, 2];
+function repeatedCredits() {
+  const warnings = [];
+  REPEATS.forEach((count, at) => {
+    for (let n = 0; n < count; n += 1) warnings.push(creditRefusal(isin(700 + at), SETTLED));
+  });
+  return warnings;
+}
 
 test("repeated credit warnings collapse into one line and a disclosure", () => {
   const warnings = Array.from({ length: 17 }, (_, at) => creditWarning(100 + at));
@@ -1853,7 +1866,52 @@ test("repeated credit warnings collapse into one line and a disclosure", () => {
   assert.equal(digest.groups[0].count, 17);
   assert.equal(digest.groups[0].summary,
     "17 credits were not added because they name no purchase or transfer-in.");
-  assert.deepEqual(digest.groups[0].detail, warnings);
+  // Seventeen securities with seventeen printed wordings: nothing repeats, so
+  // every refusal keeps its own line.
+  assert.deepEqual(digest.groups[0].detail,
+    warnings.map((_, at) => `${isin(100 + at)} · PAYOUT-CR CM ${100 + at}`));
+});
+
+test("one ISIN's repeated credits become one line with their count", () => {
+  const warnings = repeatedCredits();
+  assert.equal(warnings.length, 19);
+  const digest = importWarningDigest(warnings);
+  const detail = digest.groups[0].detail;
+  assert.equal(detail.length, 10);
+  assert.equal(detail[0], `${isin(700)} · 4 credits · ${SETTLED}`);
+  assert.equal(detail[1], `${isin(701)} · 3 credits · ${SETTLED}`);
+  assert.equal(detail[2], `${isin(702)} · 2 credits · ${SETTLED}`);
+  // A security refused once names no count; the wording still stands on its line.
+  assert.equal(detail[5], `${isin(705)} · ${SETTLED}`);
+  // The count line still counts credits, not lines.
+  assert.equal(digest.groups[0].count, 19);
+  assert.equal(digest.groups[0].summary,
+    "19 credits were not added because they name no purchase or transfer-in.");
+});
+
+test("the reason is stated once, above the detail", () => {
+  const digest = importWarningDigest(repeatedCredits());
+  const group = digest.groups[0];
+  assert.match(group.summary, /no purchase or transfer-in/);
+  for (const line of group.detail) {
+    assert.equal(/no purchase or transfer-in/.test(line), false, line);
+  }
+});
+
+test("one ISIN with two printed wordings keeps two lines", () => {
+  const settled = creditRefusal(isin(9), SETTLED);
+  const interest = creditRefusal(isin(9), "INT-CR CM 40121 TRF");
+  const digest = importWarningDigest([settled, interest, settled]);
+  assert.deepEqual(digest.groups[0].detail, [
+    `${isin(9)} · 2 credits · ${SETTLED}`,
+    `${isin(9)} · INT-CR CM 40121 TRF`,
+  ]);
+  assert.equal(digest.groups[0].count, 3);
+});
+
+test("a credit refused without printed wording is named by its ISIN alone", () => {
+  const digest = importWarningDigest([creditRefusal(isin(11))]);
+  assert.deepEqual(digest.groups[0].detail, [isin(11)]);
 });
 
 test("one credit warning reads as one credit", () => {
@@ -1875,9 +1933,10 @@ test("the writer's own credit warnings are the ones the digest collapses", () =>
   const parsed = {
     asOf: "2026-09-30", counts: { rows: 0, quarantined: 0 }, printedTotalPaise: null,
     holdings: [],
+    // Fourteen payouts over four securities, all printed the same way.
     transactions: Array.from({ length: 14 }, (_, at) => ({
-      isin: isin(200 + at), security: `TEST BOND ${at}`, date: "2026-09-14",
-      type: "PAYOUT-CR", description: `PAYOUT-CR CM ${1000 + at}`, quantity: 5,
+      isin: isin(200 + (at % 4)), security: `TEST BOND ${at % 4}`, date: "2026-09-14",
+      type: "PAYOUT-CR", description: SETTLED, quantity: 5,
       creditPaise: 1234, debitPaise: 0, openingPaise: 0, closingPaise: 0,
       account: BO_MOVED,
     })),
@@ -1891,4 +1950,10 @@ test("the writer's own credit warnings are the ones the digest collapses", () =>
   assert.equal(digest.groups[0].count, 14);
   assert.equal(digest.groups[0].summary,
     "14 credits were not added because they name no purchase or transfer-in.");
+  assert.deepEqual(digest.groups[0].detail, [
+    `${isin(200)} · 4 credits · ${SETTLED}`,
+    `${isin(201)} · 4 credits · ${SETTLED}`,
+    `${isin(202)} · 3 credits · ${SETTLED}`,
+    `${isin(203)} · 3 credits · ${SETTLED}`,
+  ]);
 });

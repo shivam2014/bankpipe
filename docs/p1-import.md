@@ -293,11 +293,19 @@ Seventeen per-ISIN credit refusals (**`ISIN: a credit with no purchase or
 transfer-in wording is not added (PAYOUT-CR CM …)`**) used to run as one wall that
 pushed `Add 31 holdings`, `Record 4 sales` and `Move 2 matured to history` below
 the fold. `importWarningDigest` folds that one class into
-`14 credits were not added because they name no purchase or transfer-in.` with
-the per-ISIN sentences behind a disclosure. Every other warning keeps its own
-line, and the refusal itself is unchanged.
+`17 credits were not added because they name no purchase or transfer-in.` with
+the refusals behind a disclosure. Every other warning keeps its own line, and the
+refusal itself is unchanged.
 
-Counts: tests 1230 → 1234, screens 1 → 2, stored fields 0 → 0, refusals removed 1.
+The disclosure names each security once, with the count when it repeats:
+`INE000000405 · 3 credits · PAYOUT-CR CM M51766 TM/CP SETT`. The reason is the
+count line's to state, so a detail line carries only the ISIN and the statement's
+own printed wording. One security printed two ways keeps two lines, so no line
+stands for a refusal it does not describe. `scripts/render-import-demat.mjs`
+opens the disclosure in its shot and fails if a detail line repeats the reason or
+names a security twice.
+
+Counts: tests 1230 → 1238, screens 1 → 2, stored fields 0 → 0, refusals removed 1.
 
 ## Phase 3: one gate and one write per plan
 

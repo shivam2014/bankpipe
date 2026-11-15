@@ -92,16 +92,19 @@ const sales = [
   sale(HELD_BO, bondRows[2], "SALE - TEST BOND 3"),
   sale(HELD_BO, bondRows[3], "SALE - TEST BOND 4"),
 ];
-// Seventeen payout credits. Each prints a wording the writer cannot read as a
-// purchase or a transfer in, so each is refused one by one. The units do not
-// move, so the printed closing balance is the holding's own.
-const credits = Array.from({ length: 17 }, (_, at) => ({
-  isin: bonds[4 + (at % (bonds.length - 4))].isin,
-  security: `TEST BOND ${5 + (at % (bonds.length - 4))}`,
-  account: HELD_BO, date: "2026-09-18", type: "PAYOUT-CR",
-  description: `PAYOUT-CR CM ${1000 + at}`, quantity: 5, creditPaise: 1234,
-  debitPaise: 0, openingPaise: 1000, closingPaise: 1000,
-}));
+// Seventeen payout credits over ten securities. Each settles on its own day and
+// prints the same settlement wording, so the writer refuses all seventeen for one
+// reason and the card has to name ten securities rather than seventeen payouts.
+const CREDIT_REPEATS = [3, 2, 2, 2, 2, 1, 1, 1, 1, 2];
+const CREDIT_WORDING = "PAYOUT-CR CM M51766 TM/CP SETT";
+const credits = CREDIT_REPEATS
+  .flatMap((count, at) => Array.from({ length: count }, () => at))
+  .map((at, index) => ({
+    isin: bonds[4 + at].isin, security: bonds[4 + at].label,
+    account: HELD_BO, date: `2026-09-${String(index + 1).padStart(2, "0")}`,
+    type: "PAYOUT-CR", description: CREDIT_WORDING, quantity: 5, creditPaise: 1234,
+    debitPaise: 0, openingPaise: 1000, closingPaise: 1000,
+  }));
 
 function statement({ includeMoved }) {
   const accounts = [];
@@ -192,6 +195,9 @@ function pageScript(includeMoved, { write = false } = {}) {
     ? (creditNote.childNodes[0].textContent || "").replace(/\\s+/g, " ").trim() : "";
   const salesLists = [...(salesBlock?.querySelectorAll("ul") || [])];
   const disclosure = salesBlock?.querySelector("details");
+  // The shot is the expanded detail: the owner opened the list, and the one line
+  // per security is what they read there.
+  if (disclosure) disclosure.open = true;
   const changeLines = [...card.querySelectorAll(".import-change ul li")].map(text);
   const warnings = [...card.querySelectorAll(".import-note")].map(text);
   const plan = (state.plans || [])[0] || {};
@@ -297,8 +303,20 @@ const SCENARIOS = [
       if (state.creditLine !== credit) {
         wrong.push(`credit line: ${JSON.stringify(state.creditLine)}`);
       }
-      if (!state.disclosure || state.disclosure.detail.length !== 17) {
-        wrong.push("the credit detail is not behind one disclosure of 17 lines");
+      // The count still counts credits; the detail names one security each.
+      const detail = state.disclosure?.detail || [];
+      if (detail.length !== CREDIT_REPEATS.length) {
+        wrong.push(`the credit detail is not one line per security: ${JSON.stringify(detail)}`);
+      }
+      const first = `${bonds[4].isin} · ${CREDIT_REPEATS[0]} credits · ${CREDIT_WORDING}`;
+      if (!detail.includes(first)) {
+        wrong.push(`the repeated security is not one counted line: ${JSON.stringify(detail)}`);
+      }
+      if (!state.disclosure?.open) {
+        wrong.push("the credit detail is not expanded for the shot");
+      }
+      if (detail.some((line) => /no purchase or transfer-in/.test(line))) {
+        wrong.push(`the reason is repeated on a detail line: ${JSON.stringify(detail)}`);
       }
       const sold = state.eventLines.filter((line) => /^Sold/.test(line));
       if (sold.length !== 4) {
@@ -458,10 +476,10 @@ try {
       + `${writeWrong.join("\n  ")}\n  full state: ${JSON.stringify(writeState)}`);
   }
   console.log(writeOut);
-  console.log("import demat: created card offers the new demat, is ready and folds 17 credit "
-    + "warnings into one line · blocked card still refuses, names the account and opens the "
-    + "add-account form with its BO ID · write checked in the store · "
-    + "390/1280 light and dark");
+  console.log("import demat: created card offers the new demat, is ready, folds 17 credit "
+    + "warnings into one line and one line per security behind it · blocked card still "
+    + "refuses, names the account and opens the add-account form with its BO ID · write "
+    + "checked in the store · 390/1280 light and dark");
 } finally {
   server.child.kill();
   rmSync(dir, { recursive: true, force: true });
