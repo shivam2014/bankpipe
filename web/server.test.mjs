@@ -2,10 +2,26 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import http from "node:http";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
 
-const PORT = 8899;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
+
+// A fixed port collides with any other test run or a stray dev server, and the
+// failure reads as "server did not start". Ask the OS for a free one instead.
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+const PORT = await freePort();
+
 
 function request(path, headers = {}) {
   return new Promise((resolve, reject) => {
