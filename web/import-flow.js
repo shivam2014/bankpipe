@@ -519,6 +519,11 @@ export function statementAccounts(targets = []) {
 
 const shortBo = (bo) => `…${String(bo).slice(-4)}`;
 
+const FUND_KIND = /^(mf|mutual\s*fund|fund)$/i;
+const FUND_ISIN = /^INF[A-Z0-9]{9}$/;
+const cleanIsin = (value) => String(value || "").toUpperCase().replace(/\s+/g, "");
+const isFundRow = (row) => FUND_KIND.test(String(row?.kind || row?.category || "").trim());
+
 /**
  * Whether every movement a depository statement records has an account that will
  * exist when the writer runs.
@@ -535,15 +540,18 @@ const shortBo = (bo) => `…${String(bo).slice(-4)}`;
  *   accounts. That is a choice, and the card already asks for it.
  *
  * A movement account with no holdings row in the statement has nothing to build
- * an account from, so it stays blocked. A movement that names no account cannot
- * be routed to a new one at all, and needs an account on file; that is the old
- * rule, kept whole.
+ * an account from, so it stays blocked. A movement that names no account is a
+ * folio movement when it names a fund ISIN or its ISIN is a folio row in the
+ * statement: the folio owns it, and the folio's own plan applies it. Any other
+ * account-less movement cannot be routed to a new account at all and needs an
+ * account on file; that is the old rule, kept whole.
  *
  * @param {{movements?: Array<object>, accounts?: Array<object>,
  *   targets?: Array<{boId?: string, targetId?: string, rows?: Array<object>,
- *   tie?: boolean, createChoice?: boolean}>}} input
+ *   tie?: boolean, createChoice?: boolean, folio?: boolean}>}} input
  * @returns {{missing: Array<string>, pending: boolean, blocked: boolean,
- *   reason: string}}
+ *   reason: string, folio: number}} `folio` counts the account-less movements
+ *   that belong to a fund folio, so they are not a movement-account gap.
  */
 export function movementAccountGap({ movements = [], accounts = [], targets = [] } = {}) {
   const onFile = new Map();
@@ -551,12 +559,26 @@ export function movementAccountGap({ movements = [], accounts = [], targets = []
     const key = boId(account?.number || account?.bo_id || "").boId;
     if (key && !onFile.has(key)) onFile.set(key, account);
   }
+  const fundRows = new Set();
+  for (const target of targets || []) {
+    for (const row of target?.rows || []) {
+      const isin = cleanIsin(row?.isin || row?.security_id || "");
+      if (isin && (row?.folio || (target?.folio && isFundRow(row)))) fundRows.add(isin);
+    }
+  }
   const named = new Set();
   let anonymous = 0;
+  let folio = 0;
   for (const movement of movements || []) {
     const key = boId(movement?.account || "").boId;
-    if (key) named.add(key);
-    else anonymous += 1;
+    if (key) { named.add(key); continue; }
+    const isin = cleanIsin(movement?.isin);
+    if (movement?.folio || isFundRow(movement)
+      || (isin && (FUND_ISIN.test(isin) || fundRows.has(isin)))) {
+      folio += 1;
+      continue;
+    }
+    anonymous += 1;
   }
   const byBo = new Map();
   for (const target of targets || []) {
@@ -584,6 +606,7 @@ export function movementAccountGap({ movements = [], accounts = [], targets = []
   }
   // A movement that names no account is only found through an account on file.
   // Nothing this import creates can be chosen for it, so the old refusal stands.
+  // A folio movement was removed from the count above: the folio is its home.
   const unowned = anonymous > 0 && !(accounts || []).length
     && !(targets || []).some((target) => target?.targetId);
   const reason = missing.length === 1
@@ -597,7 +620,7 @@ export function movementAccountGap({ movements = [], accounts = [], targets = []
         ? "No account on file can take this statement's movements. Add the demat "
           + "account the statement names, then import again."
         : "";
-  return { missing, pending, blocked: missing.length > 0 || unowned, reason };
+  return { missing, pending, blocked: missing.length > 0 || unowned, reason, folio };
 }
 
 // The writer's sentence for a credit it refuses. It is built in cas-apply.js as

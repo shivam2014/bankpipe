@@ -205,6 +205,8 @@ Chrome on macOS clamps `--window-size` to 500px, so a 390 window is a cropped de
 `node scripts/render-gate-fixture.mjs` drops the synthetic pair in
 `web/fixtures/import/pdf` through the real inbox and writes the gated movement card to
 `build/renders/`.
+`node scripts/render-import-demat.mjs` and `node scripts/render-import-folio.mjs` render
+the CAS import cards and press Import to check the rows the writer stores.
 
 ## Limits
 

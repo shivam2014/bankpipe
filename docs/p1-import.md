@@ -273,13 +273,21 @@ card's account line, pill, footer and primary button all read it:
   movement's home.
 - **An undecided choice is not a gap.** Two matching accounts still ask on the
   card, and the movement lands wherever the person chooses.
-- **A movement that names no account needs one on file.** That is the old rule,
-  kept whole: nothing the import creates can be chosen for it.
+- **A fund movement with no account belongs to its folio.** A CAS prints a SIP
+  with no BO ID because the folio owns it. An account-less movement that names a
+  fund ISIN, or whose ISIN is a folio row in the statement, is a folio movement,
+  not a demat gap; the folio's own plan applies it.
+- **Any other account-less movement needs an account on file.** An equity or bond
+  disposal with no account and no resolved demat keeps the old refusal and its
+  exact sentence. Nothing the import creates can be chosen for it.
 
 The writer was already able to do this; only the card refused. The two are now
 checked together: `scripts/render-import-demat.mjs` presses Import on the created
 card and reads the store back, and the same script renders the blocked card so the
-pair cannot drift.
+pair cannot drift. `scripts/render-import-folio.mjs` is the fund-movement shape:
+it renders the card Ready with the SIP beside the folio's movements, then presses
+Import and checks that two demats and the folio were created, the fund stayed at
+the statement's units and no demat claimed the fund row.
 
 Seventeen per-ISIN credit refusals (**`ISIN: a credit with no purchase or
 transfer-in wording is not added (PAYOUT-CR CM …)`**) used to run as one wall that
@@ -289,7 +297,7 @@ the fold. `importWarningDigest` folds that one class into
 the per-ISIN sentences behind a disclosure. Every other warning keeps its own
 line, and the refusal itself is unchanged.
 
-Counts: tests 1214 → 1230, screens 1 → 1, stored fields 0 → 0, refusals removed 0.
+Counts: tests 1230 → 1234, screens 1 → 2, stored fields 0 → 0, refusals removed 1.
 
 ## Phase 3: one gate and one write per plan
 
