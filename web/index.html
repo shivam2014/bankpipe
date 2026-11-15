@@ -331,92 +331,14 @@ label.field textarea{resize:vertical;min-height:58px}
 tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
   padding:7px 10px 9px;line-height:1.5}
 .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-/* The bond ledger: one comparison row per bond and one open band under it.
-   The row carries the card's body facts (anchor, six, interest progress); the
-   band carries the disclosure facts. The phone keeps the card below 1000. */
-.bond-ledger{display:none}
-.bl-table{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
-.bl-table + .bl-table{margin-top:12px}
-.bl-head,.bl-row{display:grid;grid-template-columns:minmax(210px,2.6fr) minmax(0,1.25fr) minmax(0,1.2fr) minmax(0,1.1fr) minmax(0,.7fr) minmax(0,1.05fr) minmax(0,.95fr);
- gap:12px;align-items:center;padding:0 16px}
-.bl-head{min-height:38px;border-bottom:1px solid var(--line);background:var(--hair)}
-.bl-head span{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);
- font-weight:500;line-height:1.25}
-.bl-head .num{text-align:right}
-.bl-row{width:100%;border:0;border-top:1px solid var(--hair);background:var(--card);
- color:var(--ink);font:inherit;text-align:left;cursor:pointer;padding:10px 16px;row-gap:6px;
- grid-template-rows:auto auto}
-.bl-row:first-of-type{border-top:0}
-@media (hover:hover){.bl-row:hover{background:var(--hair)}}
-.bl-row:focus-visible{outline:2px solid var(--green);outline-offset:-2px}
-.bl-row[aria-expanded="true"]{background:color-mix(in srgb,var(--green) 7%,var(--card));
- box-shadow:inset 3px 0 0 var(--green)}
-.bl-matured .bl-row[aria-expanded="true"]{background:color-mix(in srgb,var(--amber) 8%,var(--card));
- box-shadow:inset 3px 0 0 var(--amber)}
-.bl-id{min-width:0;padding-right:4px}
-.bl-name{display:block;font-size:15px;font-weight:600;line-height:1.3;white-space:nowrap;
- overflow:hidden;text-overflow:ellipsis}
-.bl-sub{display:block;font-size:11px;color:var(--muted);margin-top:1px;white-space:nowrap;
- overflow:hidden;text-overflow:ellipsis}
-.bl-coupon{display:inline-block;padding:1px 6px;border-radius:99px;background:var(--hair);
- font-size:11px;font-weight:600;color:var(--muted)}
-.bl-num{font-size:12px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;min-width:0}
-.bl-num .bl-sub{font-size:11px;font-weight:400;white-space:normal;overflow:visible;
- text-overflow:clip;overflow-wrap:anywhere;line-height:1.35}
-.bl-anchor{font-size:17px;font-weight:650;letter-spacing:-.01em}
-.bl-sub.pos{color:var(--green)}.bl-sub.neg{color:var(--red)}.bl-sub.amber{color:var(--amber)}
-.bl-progress{grid-column:1/-1;display:flex;align-items:center;gap:8px;min-width:0;
- font-size:11px;color:var(--muted)}
-.bl-progress-label{flex:0 0 auto;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
-.bl-bar{flex:0 0 96px;height:4px;border-radius:99px;background:var(--line);overflow:hidden}
-.bl-bar i{display:block;height:100%;background:var(--green);border-radius:99px}
-.bl-progress-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bl-progress-text b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
-.bl-band{grid-column:1/-1;background:var(--hair);border-top:1px solid var(--line);padding:16px}
-.bl-band[hidden]{display:none}
-.bl-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:22px}
-.bl-col{min-width:0}
-.bl-col h3{margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:.05em;
- text-transform:uppercase;color:var(--muted)}
-.bl-col dl{margin:0}
-.bl-kv{display:flex;justify-content:space-between;gap:16px;padding:4px 0;font-size:13.5px}
-.bl-kv dt{color:var(--muted);min-width:0}
-.bl-kv dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;min-width:0}
-.bl-kv dd small{display:block;font-size:11px;color:var(--muted);font-weight:400}
-.bl-kv dd.pos{color:var(--green)}.bl-kv dd.neg{color:var(--red)}
-.bl-kv dd small.pos{color:var(--green)}.bl-kv dd small.neg{color:var(--red)}
-.bl-kv dd small.amber{color:var(--amber)}
-.bl-missing{margin-top:8px;font-size:11px;color:var(--muted)}
-.bl-foot{display:flex;justify-content:space-between;align-items:center;gap:16px;
- margin-top:16px;padding-top:12px;border-top:1px solid var(--line);flex-wrap:wrap}
-.bl-src{font-size:11px;color:var(--muted);min-width:0}
-.bl-actions{display:flex;gap:6px;flex-wrap:wrap}
-.bl-divider{padding:8px 16px;border-bottom:1px solid var(--line);background:var(--hair);
- font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--amber);font-weight:600}
-.bl-note{padding:9px 16px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);
- line-height:1.45}
 .bond-matured-badge{display:inline-block;padding:2px 7px;border-radius:99px;
  background:color-mix(in srgb,var(--amber) 14%,var(--card));color:var(--amber);
  font-size:11px;font-weight:600;white-space:nowrap}
-.bond-anchor{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--hair);
- display:flex;flex-direction:column;gap:1px}
-.bond-anchor .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
-.bond-anchor .v{font-size:24px;font-weight:640;letter-spacing:-.02em;line-height:1.15;
- font-variant-numeric:tabular-nums}
-.bond-anchor .sub{font-size:12px;color:var(--muted)}
-.bond-anchor .sub.neg{color:var(--red)}
-.bond-anchor .sub.pos{color:var(--green)}
-.bond-facts{margin-top:10px}
 .bond-card .bond-matured-badge{margin-right:2px}
 .needs-details{margin-top:8px;font-size:11px;color:var(--muted)}
 .needs-details summary{cursor:pointer}
 .needs-list{display:grid;gap:4px;margin-top:6px}
 .needs-list b{color:var(--ink);font-weight:600}
-@media (min-width:1000px){
-  .bond-ledger{display:block;margin-top:10px}
-  .bond-cards{display:none}
-  .matured-bonds{display:none}
-}
 .bond-rating{display:inline-block;padding:2px 7px;border-radius:99px;background:var(--hair);font-size:10.5px;font-weight:600;white-space:nowrap}
 .bond-rating.down{background:color-mix(in srgb,var(--red) 16%,var(--card));color:var(--red)}
 .bond-rating.up{background:color-mix(in srgb,var(--green) 16%,var(--card));color:var(--green)}
@@ -441,16 +363,6 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .how-values[open] summary{margin-bottom:6px}
 .how-values .muted{font-size:12px;line-height:1.55}
 .bond-market{font-size:11.5px;color:var(--muted);border-top:1px solid var(--hair);margin-top:8px;padding-top:7px}
-.bond-breakdown{border-top:1px solid var(--hair);margin-top:8px;padding-top:6px}
-.bond-breakdown summary{cursor:pointer;font-size:11.5px;color:var(--muted)}
-.bond-breakdown .bond-money{border-top:0;margin-top:6px;padding-top:0}
-.bond-money{border-top:1px solid var(--hair);margin-top:8px;padding-top:7px;display:flex;flex-direction:column;gap:5px}
-.bm-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font-size:12px}
-.bm-row .k{flex:0 0 128px;color:var(--muted)}
-.bm-row .v{font-weight:600;color:var(--ink)}
-.bm-row .sub{flex:1 1 100%;margin-left:128px;font-size:11px;color:var(--muted)}
-.bm-row .sub.pos{color:var(--green)}.bm-row .sub.neg{color:var(--red)}
-.bm-note{margin-left:128px;font-size:10.5px;color:var(--muted);line-height:1.45}
 .bond-market b{color:var(--ink);font-weight:600}
 .bond-market .sep{margin:0 6px;color:var(--line)}
 .bond-market .muted{margin-left:8px}
@@ -460,8 +372,12 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .info-pop{display:none;position:absolute;z-index:30;top:calc(100% + 6px);left:0;width:230px;max-width:min(240px,calc(100vw - 48px));background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:11.5px;font-weight:400;line-height:1.5;color:var(--ink);box-shadow:0 10px 26px -14px rgba(15,18,22,.35);text-transform:none;letter-spacing:0}
 .info-pop.open{display:block}
 .info-pop b{font-weight:650}
-.bond-cards{display:none;flex-direction:column;gap:8px;margin-top:10px;max-width:720px}
-.matured-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.bond-cards{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:10px;max-width:720px}
+.bond-cards .bond-card{padding:12px}
+.bond-matured-divider{grid-column:1/-1;display:flex;justify-content:space-between;align-items:baseline;
+ gap:12px;flex-wrap:wrap;margin-top:6px;padding-top:12px;border-top:1px solid var(--line);font-size:11px;
+ font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--amber)}
+.bond-matured-divider span:last-child{white-space:nowrap;margin-left:auto}
 .matured-note{font-size:12px;margin:6px 0}
 .fd-maturity-tag{font-size:11px}
 .fd-note{font-size:12px}
@@ -489,7 +405,7 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .class-ring-note{font-size:11px;margin-top:8px}
 .class-ring-title{margin:0 0 8px}
 .class-actions{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
-.bond-card{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card)}
+.bond-card{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card);container-type:inline-size}
 .bond-card-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:nowrap}
 .bond-card-title{min-width:0;flex:1 1 auto}
 .bond-card-actions{display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:auto;flex-wrap:wrap}
@@ -523,21 +439,43 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .bond-sources{font-size:11px;color:var(--muted);margin-top:9px;padding-top:7px;
  border-top:1px solid var(--hair)}
 .bond-card .bond-name{font-size:13px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
-.bond-card .sub{font-size:10.5px;color:var(--muted);margin-top:2px}
+.bond-card .sub{font-size:11px;color:var(--muted);margin-top:2px}
 .bond-card .sub.pos{color:var(--green)}
 .bond-card .sub.neg{color:var(--red)}
 .bond-card .sub.amber{color:var(--amber)}
 .bond-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;margin-top:10px}
+.bond-fact{min-width:0}
+.bond-fact .sub{display:block;font-size:11px;font-weight:400;line-height:1.35;margin-top:1px}
+.bond-fact-anchor{grid-column:1/-1}
+.bond-fact-anchor .k{font-size:11px;letter-spacing:.05em}
+.bond-fact-anchor .v{font-size:24px;font-weight:640;letter-spacing:-.02em;line-height:1.15;margin-top:2px}
+.bond-fact-anchor .v .sub{font-size:12px;font-weight:400;letter-spacing:0}
 .bond-section{margin-top:12px;padding-top:10px;border-top:1px solid var(--hair)}
 .bond-card-head + .bond-section{margin-top:10px;padding-top:0;border-top:0}
 .bond-section-title{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
  color:var(--muted);margin:0 0 7px}
 .bond-section .bond-grid{margin-top:7px}
 .bond-grid .k{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.bond-card .bond-grid .k{font-size:11px;letter-spacing:.04em}
 .bond-grid .v{display:block;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:1px}
 .bond-grid .v.neg{color:var(--red)}
 .bond-grid .v.pos{color:var(--green)}
-@media (max-width:999px){.bond-cards{display:flex}}
+.bond-summary{display:none}
+@media (min-width:1000px){
+  .bond-cards{grid-template-columns:repeat(2,minmax(0,1fr));max-width:none}
+  .bond-card .bond-grid-purchase{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .bond-summary{display:flex;align-items:flex-start;gap:16px;position:sticky;top:56px;z-index:4;
+    background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;
+    margin-top:10px}
+  .bond-summary .bs-fig{display:flex;align-items:baseline;gap:6px;min-width:0;white-space:nowrap}
+  .bond-summary .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .bond-summary .v{font-size:12px;font-weight:620;font-variant-numeric:tabular-nums}
+  .bond-summary .sortbar{margin-top:0;margin-left:auto;flex-wrap:nowrap}
+  .bond-summary .sortbtn{padding:4px 6px;white-space:nowrap;flex:0 0 auto}
+  .bond-sortbar{display:none}
+}
+@container (max-width:560px){.bond-card-head{flex-wrap:wrap}
+  .bond-card-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (max-width:520px){.bond-card-head{flex-wrap:wrap}.bond-card-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (pointer:coarse){.bond-card-actions .mini-btn,.holding-head-actions .btn{min-height:44px}}
 @media (max-width:620px){.donut{width:160px;height:160px}.donut-hole{width:104px;height:104px}.legend-row .amt{font-size:11.5px}}
@@ -561,6 +499,8 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .icon-btn{border:0;background:none;padding:1px 4px;color:var(--muted);cursor:pointer;font-size:13px;line-height:1.2;border-radius:6px;white-space:nowrap}
 .icon-btn:hover{background:var(--hair);color:var(--ink)}
 .mini-btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:4px 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.mini-btn:focus-visible,.vupdate:focus-visible,.sortbtn:focus-visible{
+ outline:2px solid var(--green);outline-offset:2px}
 a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .linkish{background:none;border:0;padding:0;font:inherit;font-size:11px;color:var(--green);text-decoration:underline;cursor:pointer}
 .broker-tile{display:inline-flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
@@ -1392,7 +1332,7 @@ import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { bondAnalytics, bondSummary, bondMaturity, splitMatured, parseBondLabel,
   inferFace, bondFillPlan, bondRatingChange } from "./bonds.js";
-import { bondCardHtml, bondLedgerHtml, bondRowView, bondSortValue, bondRatingOf,
+import { bondCardHtml, bondBookSummary, bondRowView, bondSortValue, bondRatingOf,
   bondFrequency } from "./bond-book.js";
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
@@ -12023,7 +11963,7 @@ window.bpBondFetchDismiss = () => {
   }
 };
 function holdingsCard(allRows, assetId) {
-  const { current: rows, matured, maturedValue, maturedGuessed } = splitMatured(allRows);
+  const { current: rows, matured, maturedValue } = splitMatured(allRows);
   const state = window.bpBondSortState || { key: "maturity", dir: 1 };
   const s = summarizeHoldings(rows);
   const moneyOrDash = (v) => v === null || v === undefined ? "—" : money(v);
@@ -12046,17 +11986,34 @@ function holdingsCard(allRows, assetId) {
   const maturedViews = matured.map(bondRowView)
     .sort((a, b) => String(b.maturity || "").localeCompare(String(a.maturity || "")))
     .map((v) => ({ ...v, matured: true }));
-  const bookViews = [...views.map((v) => ({ ...v, matured: false })), ...maturedViews];
-  const selected = (window.bpBondSelected || {})[assetId] || "";
+  const summary = bondBookSummary(views.map((v) => ({ ...v, matured: false })));
   const sortBtn = (key, label) => `<button class="sortbtn ${state.key === key ? "on" : ""}"
     onclick="bpBondSort('${key}')">${label}${state.key === key
       ? ` <span class="ar">${state.dir > 0 ? "▲" : "▼"}</span>` : ""}</button>`;
-  const sortBar = `<div class="sortbar"><span class="lbl">Sort</span>
-    ${sortBtn("maturity", "Maturity")}${sortBtn("payout", "Next interest")}
-    ${sortBtn("current-yield", "Current yield")}${sortBtn("value", "Market value")}</div>`;
+  const sortButtons = `${sortBtn("maturity", "Maturity")}${sortBtn("payout", "Next interest")}
+    ${sortBtn("current-yield", "Current yield")}${sortBtn("value", "Market value")}`;
+  // Below 1000 the sort sits above the cards; at desktop the summary bar owns it.
+  const sortBar = `<div class="sortbar bond-sortbar"><span class="lbl">Sort</span>
+    ${sortButtons}</div>`;
+  const summaryBar = summary ? `<div class="bond-summary" role="group"
+      aria-label="Bond book summary">
+    <span class="bs-fig"><span class="k">Total if held</span><span class="v">${
+      summary.totalIfHeld === null ? "—" : money(summary.totalIfHeld)}</span></span>
+    <span class="bs-fig"><span class="k">Principal left</span><span class="v">${
+      summary.principalLeft === null ? "—" : money(summary.principalLeft)}</span></span>
+    <span class="bs-fig"><span class="k">Interest received</span><span class="v">${
+      summary.interestPct === null ? "—" : `${Math.round(summary.interestPct)}%`}</span></span>
+    <div class="sortbar">${sortButtons}</div></div>` : "";
   const cards = views.map((v) => bondCardHtml(v, assetId, {
-    currency: currency(), open: selected === String(v.h.id),
+    currency: currency(),
   })).join("");
+  const maturedCards = maturedViews.map((v) => bondCardHtml(v, assetId, {
+    matured: true, currency: currency(),
+  })).join("");
+  const maturedDivider = matured.length ? `<div class="bond-matured-divider">
+    <span>Matured · awaiting payment</span>
+    <span>${matured.length} lot${matured.length === 1 ? "" : "s"}${
+      maturedValue ? ` · ${money(maturedValue)}` : ""}</span></div>` : "";
   const valueDates = [...new Set(rows
     .map((h) => String(h.as_of || "").slice(0, 10)).filter(Boolean))];
   const valueAsOf = valueDates.length === 1 ? valueDates[0] : "";
@@ -12133,23 +12090,10 @@ function holdingsCard(allRows, assetId) {
       class="fetch-panel${fetchState?.done ? " done" : fetchState?.bad ? " bad" : ""}"
       style="${fetchState ? "" : "display:none"}">${
         fetchState ? bondFetchPanelBody(fetchState) : ""}</div>
+    ${summaryBar}
     ${sortBar}
     <div id="bond-csv-preview"></div>
-    ${bondLedgerHtml(bookViews, assetId, { selectedId: selected, currency: currency(),
-      maturedValue, maturedGuessed })}
-    <div class="bond-cards">${cards}</div>
-    ${matured.length ? `<details class="matured-bonds"><summary>Matured bonds (${matured.length})
-      · ${maturedValue ? `${money(maturedValue)} ` : ""}awaiting payment</summary>
-      <div class="muted matured-note">Past their maturity date and not confirmed paid. They stay
-      in the account value and the bonds total${maturedValue ? ` at ${money(maturedValue)}` : ""}
-      until a bank credit is matched.${maturedGuessed ? ` For ${maturedGuessed} lot${
-        maturedGuessed === 1 ? "" : "s"}, the date was read from the bond name; check it against
-        the statement.` : ""} Delete a lot only if you know it was paid.</div>
-      <div class="matured-cards">${maturedViews
-        .map((v) => bondCardHtml(v, assetId, {
-          matured: true, currency: currency(), open: selected === String(v.h.id),
-        })).join("")}</div>
-    </details>` : ""}</div>`;
+    <div class="bond-cards">${cards}${maturedDivider}${maturedCards}</div></div>`;
 }
 // A demat account's holdings arrive as one list, but the statement groups them:
 // bonds, shares, fund units. Grouping here keeps the page and the paper telling
@@ -12323,98 +12267,8 @@ window.bpBondSort = (key) => {
   const host = document.getElementById("bond-holdings");
   if (host && window.bpBondRows) {
     host.innerHTML = holdingsCard(window.bpBondRows, window.bpBondAsset);
-    const on = host.querySelector('.bl-row[aria-expanded="true"]');
-    if (on) bpBondRemember(window.bpBondAsset, on.dataset.bondId);
   }
 };
-// One selection for both surfaces. The desktop row opens the band under it;
-// the phone card opens the same facts in its Full breakdown. The selection is
-// never a toggle: pressing the open row leaves it open.
-const bpBondMedia = window.matchMedia("(min-width:1000px)");
-
-function bpBondRowFor(id) {
-  return [...document.querySelectorAll(".bl-row")]
-    .find((row) => row.dataset.bondId === String(id)) || null;
-}
-function bpBondCardFor(id) {
-  return [...document.querySelectorAll(".bond-cards .bond-card, .matured-cards .bond-card")]
-    .find((card) => card.dataset.bondCard === String(id)) || null;
-}
-function bpBondViewportElement(id) {
-  const el = bpBondMedia.matches ? bpBondRowFor(id) : bpBondCardFor(id);
-  return el && (el.offsetWidth || el.offsetHeight) ? el : null;
-}
-function bpBondRemember(assetId, id) {
-  const el = bpBondViewportElement(id);
-  window.bpBondAnchor = el
-    ? { id: String(id), top: el.getBoundingClientRect().top } : null;
-}
-function bpBondSyncSelection(assetId, id) {
-  const key = String(id);
-  window.bpBondSelected = { ...(window.bpBondSelected || {}), [assetId]: key };
-  for (const row of document.querySelectorAll(".bl-row")) {
-    row.setAttribute("aria-expanded", row.dataset.bondId === key ? "true" : "false");
-  }
-  for (const band of document.querySelectorAll(".bl-band")) {
-    band.hidden = band.dataset.bandId !== key;
-  }
-  const card = bpBondCardFor(key);
-  const panel = card?.closest("details.matured-bonds");
-  if (panel) panel.open = true;
-  for (const details of document.querySelectorAll(
-    ".bond-cards .bond-breakdown, .matured-cards .bond-breakdown")) {
-    details.open = details.closest(".bond-card") === card;
-  }
-  return card;
-}
-window.bpBondSelect = (assetId, holdingId) => {
-  const id = String(holdingId);
-  bpBondSyncSelection(assetId, id);
-  bpBondRemember(assetId, id);
-};
-// The phone disclosure is the same selection. Opening one card closes the
-// others; closing it keeps the selection so a resize still opens that band.
-window.bpBondCardToggle = (assetId, holdingId, open) => {
-  if (!open) return;
-  bpBondSyncSelection(assetId, holdingId);
-  bpBondRemember(assetId, holdingId);
-};
-// Keep the selected object's viewport position current. The resize handoff
-// uses it to put the same bond back where the eye left it.
-let bpBondScrollFrame = 0;
-window.addEventListener("scroll", () => {
-  if (bpBondScrollFrame) return;
-  bpBondScrollFrame = requestAnimationFrame(() => {
-    bpBondScrollFrame = 0;
-    const saved = window.bpBondAnchor;
-    if (!saved) return;
-    const el = bpBondViewportElement(saved.id);
-    if (el) saved.top = el.getBoundingClientRect().top;
-  });
-}, { passive: true });
-bpBondMedia.addEventListener("change", (event) => {
-  requestAnimationFrame(() => {
-    const saved = window.bpBondAnchor ? { ...window.bpBondAnchor } : null;
-    if (!saved) return;
-    const wide = event.matches;
-    const card = bpBondCardFor(saved.id);
-    if (!wide && card) {
-      const panel = card.closest("details.matured-bonds");
-      if (panel) panel.open = true;
-      const details = card.querySelector(".bond-breakdown");
-      if (details) details.open = true;
-      for (const other of document.querySelectorAll(
-        ".bond-cards .bond-breakdown, .matured-cards .bond-breakdown")) {
-        if (other !== details) other.open = false;
-      }
-    }
-    const el = wide ? bpBondRowFor(saved.id) : card;
-    if (!el) return;
-    const delta = el.getBoundingClientRect().top - saved.top;
-    if (Math.abs(delta) > 1) window.scrollBy(0, delta);
-    window.bpBondAnchor = { id: saved.id, top: el.getBoundingClientRect().top };
-  });
-});
 // One press for the whole portfolio: SMEST gives each lot the rating, payment
 // frequency and next interest date it is missing, BSE gives it a price. Nothing
 // already on a row is rewritten, so it is safe to press again next week.

@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import * as book from "./bond-book.js";
 import {
-  BOND_CARD_FACTS, BOND_MATURED_FACTS, BOND_BAND_SECTIONS,
-  bondFacts, bondRowView, bondCardHtml, bondLedgerHtml, moneyText,
+  BOND_SECTIONS, bondFacts, bondRowView, bondCardHtml, bondBookSummary,
+  moneyText, bondDateLabel,
 } from "./bond-book.js";
 
 // A fully specified live lot: coupon, maturity, a BSE mark, a part repayment
@@ -29,10 +31,26 @@ const maturedRow = {
   future_interest_paise: null, as_of: "2020-02-10",
 };
 
+const LIVE_KEYS = [
+  "total-if-held", "principal-returned", "principal-left", "next-interest",
+  "gain-if-sold", "interest-progress",
+  "market-value", "per-unit", "current-yield", "current-rating",
+  "invested", "units", "purchase-date", "face-at-issue", "coupon",
+  "maturity", "frequency", "purchase-yield", "purchase-rating",
+  "sources",
+];
+
+const MATURED_KEYS = [
+  "value-in-net-worth", "principal-returned", "principal-left",
+  "invested", "units", "purchase-date", "face-value", "coupon",
+  "maturity", "frequency", "purchase-yield", "purchase-rating",
+  "sources",
+];
+
 const sorted = (values) => [...values].sort();
 
-// Every opening tag, so the surface split is read from the DOM the renderer
-// actually emitted rather than from a second hand-written list.
+// Every opening tag, so a fact's section is read from the DOM the renderer
+// emitted rather than from a second hand-written list.
 function tags(html) {
   return [...html.matchAll(/<[^>]*>/g)].map((match) => match[0]);
 }
@@ -42,11 +60,28 @@ function attr(tag, name) {
   return match ? match[1] : "";
 }
 
-function keysOn(html, surface, keyAttr) {
-  return tags(html)
-    .filter((tag) => attr(tag, "data-surface") === surface)
-    .map((tag) => attr(tag, keyAttr))
-    .filter(Boolean);
+function factKeys(html) {
+  return tags(html).map((tag) => attr(tag, "data-fact")).filter(Boolean);
+}
+
+function sectionBlocks(html) {
+  const starts = [...html.matchAll(/<div class="bond-section" data-section="([^"]+)">/g)]
+    .map((match) => ({ section: match[1], at: match.index }));
+  return starts.map((start, index) => ({
+    section: start.section,
+    html: html.slice(start.at, index + 1 < starts.length ? starts[index + 1].at : html.length),
+  }));
+}
+
+function sectionTitles(html) {
+  return [...html.matchAll(/<h3 class="bond-section-title">([^<]+)<\/h3>/g)]
+    .map((match) => match[1]);
+}
+
+function sectionOf(html, section) {
+  const block = sectionBlocks(html).find((item) => item.section === section);
+  assert.ok(block, `the card has a ${section} section`);
+  return block.html;
 }
 
 function actionLabels(html) {
@@ -55,82 +90,84 @@ function actionLabels(html) {
     .filter(Boolean);
 }
 
-// The visible grid is the six-fact budget. The progress block sits after it in
-// the card body, so the grid stops at the progress or the disclosure.
-function visibleFacts(html) {
-  const at = html.indexOf('<div class="bond-grid bond-facts">');
-  assert.ok(at > -1, "the card has a visible facts grid");
-  const stops = ['<div class="bond-progress', '<details class="bond-breakdown"']
-    .map((marker) => html.indexOf(marker, at)).filter((index) => index > -1);
-  assert.ok(stops.length, "the visible facts grid closes");
-  const end = Math.min(...stops);
-  assert.ok(end > at, "the visible facts grid closes after it opens");
-  return html.slice(at, end);
-}
+test("bondFacts is one ordered list with unique keys and one anchor", () => {
+  const facts = bondFacts(bondRowView(row), { assetId: "acct-1" });
+  const keys = facts.map((fact) => fact.key);
+  assert.equal(new Set(keys).size, keys.length, "a key appears once");
+  assert.deepEqual(keys, LIVE_KEYS);
+  assert.equal(facts.filter((fact) => fact.kind === "anchor").length, 1,
+    "exactly one anchor");
+  assert.equal(facts[0].kind, "anchor", "the anchor leads");
+  assert.equal(facts[0].key, "total-if-held");
+  assert.ok(facts.some((fact) => fact.kind === "progress"), "the progress ranks inline");
+  assert.ok(facts.some((fact) => fact.kind === "sources"), "the sources are the foot");
+});
 
-function visibleKeys(html) {
-  return [...visibleFacts(html).matchAll(/data-fact="([^"]+)"/g)].map((m) => m[1]);
-}
+test("the fact list follows Returns, Market value, Purchase", () => {
+  const facts = bondFacts(bondRowView(row), { assetId: "acct-1" });
+  assert.deepEqual([...new Set(facts.map((fact) => fact.section))], BOND_SECTIONS);
+  assert.deepEqual(BOND_SECTIONS, ["Returns", "Market value", "Purchase"]);
+  const returns = facts.filter((fact) => fact.section === "Returns").map((fact) => fact.key);
+  assert.deepEqual(returns, ["total-if-held", "principal-returned", "principal-left",
+    "next-interest", "gain-if-sold", "interest-progress"]);
+});
 
-function openBands(ledger) {
-  return [...ledger.matchAll(/<div class="bl-band"[^>]*>/g)]
-    .map((match) => match[0]).filter((tag) => !tag.includes("hidden"));
-}
-
-test("the live card shows exactly six facts, all in the declared order", () => {
+test("the live card renders every fact key exactly once, in its own section", () => {
   const card = bondCardHtml(bondRowView(row), "acct-1");
-  assert.deepEqual(visibleKeys(card), BOND_CARD_FACTS.map((fact) => fact.key));
-  assert.equal(visibleKeys(card).length, 6, "a seventh visible fact breaks the budget");
-  for (const fact of BOND_CARD_FACTS) {
-    assert.match(visibleFacts(card), new RegExp(
-      `data-fact="${fact.key}"[\\s\\S]*?<span class="k">${fact.label}</span>`),
-    `${fact.label} is visible on the card`);
+  assert.deepEqual(factKeys(card), LIVE_KEYS);
+  assert.equal(new Set(factKeys(card)).size, factKeys(card).length,
+    "no fact renders twice");
+
+  const declared = bondFacts(bondRowView(row), { assetId: "acct-1" })
+    .map((fact) => `${fact.section}:${fact.key}`);
+  const rendered = sectionBlocks(card).flatMap((block) => [...block.html
+    .matchAll(/data-fact="([^"]+)"/g)].map((match) => `${block.section}:${match[1]}`));
+  assert.deepEqual(rendered, declared, "each fact sits in its declared section");
+
+  assert.deepEqual(sectionTitles(card), BOND_SECTIONS);
+});
+
+test("the pull request keeps production's Purchase, Market and Returns facts inline", () => {
+  const card = bondCardHtml(bondRowView(row), "acct-1");
+  for (const key of ["principal-returned", "principal-left", "gain-if-sold",
+    "current-rating", "per-unit", "frequency", "purchase-yield",
+    "purchase-rating", "face-at-issue"]) {
+    assert.equal(factKeys(card).filter((seen) => seen === key).length, 1,
+      `${key} survives inline`);
   }
+  assert.match(sectionOf(card, "Returns"),
+    /data-fact="principal-returned"[^>]*><span class="k">Principal returned<\/span><span class="v ">₹ 80,000\.00/);
+  assert.match(sectionOf(card, "Returns"),
+    /data-fact="principal-left"[^>]*><span class="k">Principal left<\/span><span class="v ">₹ 7,20,000\.00/);
 });
 
-test("the live card carries each fact's number, not a bare label", () => {
-  const grid = visibleFacts(bondCardHtml(bondRowView(row), "acct-1"));
-  assert.match(grid, /<span class="k">Interest rate<\/span><span class="v ">7\.4%<\/span>/);
-  assert.match(grid, /<span class="k">Maturity date<\/span><span class="v ">10 Feb 2030<\/span>/);
-  assert.match(grid, /<span class="k">Next interest<\/span><span class="v ">₹ 26,640\.00/);
-  assert.match(grid, /<span class="k">Invested<\/span><span class="v ">₹ 8,00,000\.00<\/span>/);
-  assert.match(grid, /<span class="k">Market value<\/span><span class="v ">₹ 8,14,400\.00/);
-  assert.match(grid, /<span class="k">Current yield<\/span><span class="v ">6\.54%<\/span>/);
-});
-
-test("the card anchors on total if held, with the gain beneath it", () => {
+test("Total if held leads Returns as the one 24px figure, not a tinted block", () => {
   const card = bondCardHtml(bondRowView(row), "acct-1");
-  assert.match(card, /<div class="bond-anchor"[^>]*>[\s\S]*?<span class="k">Total if held<\/span>/);
-  assert.match(card, /<span class="k">Total if held<\/span>\s*<span class="v">₹ [\d,]+\.\d{2}<\/span>/);
+  const facts = bondFacts(bondRowView(row), { assetId: "acct-1" });
+  assert.equal(facts[0].key, "total-if-held");
+  assert.equal(facts[0].section, "Returns");
+  assert.match(card, /<div class="bond-fact bond-fact-anchor" data-fact="total-if-held" data-section="Returns">/);
+  assert.match(card, /<span class="k">Total if held<\/span><span class="v ">₹ [\d,]+\.\d{2}/);
   assert.match(card, /<span class="sub pos">\+₹ [\d,]+\.\d{2} gain<\/span>/);
+  assert.doesNotMatch(card, /class="bond-anchor"/);
+  assert.doesNotMatch(card, /<div class="bond-anchor"/);
 });
 
-test("the interest progress is in the card body, above the disclosure", () => {
+test("the interest progress is the one tinted block and sits in Returns", () => {
   const card = bondCardHtml(bondRowView(row), "acct-1");
-  const detailsAt = card.indexOf('<details class="bond-breakdown"');
-  assert.ok(detailsAt > -1, "the card has one Full breakdown");
-  const body = card.slice(0, detailsAt);
-  const disclosure = card.slice(detailsAt);
-  assert.match(body, /class="bond-progress"[^>]*data-fact="interest-progress"/);
-  assert.match(body, /data-fact="interest-progress"[^>]*data-surface="row"/);
-  assert.doesNotMatch(disclosure, /data-fact="interest-progress"/,
-    "the progress is not a disclosure fact");
+  assert.equal((card.match(/class="bond-progress"/g) || []).length, 1);
+  assert.match(sectionOf(card, "Returns"),
+    /class="bond-progress" data-fact="interest-progress" data-section="Returns"/);
+  assert.doesNotMatch(sectionOf(card, "Market value"), /bond-progress/);
+  assert.doesNotMatch(card, /bond-progress-empty/);
 });
 
-test("record facts stay on the card behind one Full breakdown", () => {
+test("the card has no disclosure and no ledger remnant", () => {
   const card = bondCardHtml(bondRowView(row), "acct-1");
-  assert.match(card, /<details class="bond-breakdown"[^>]*><summary>Full breakdown<\/summary>/);
-  const breakdown = card.slice(card.indexOf('<details class="bond-breakdown"'));
-  for (const label of ["Purchase date", "Units", "Face at issue", "Payment frequency",
-    "Purchase yield", "Purchase rating", "Per unit", "Current rating",
-    "Principal returned", "Principal left", "Gain if sold now"]) {
-    assert.match(breakdown, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
-      `${label} is still on the card`);
-  }
-  assert.match(breakdown, /Principal returned<\/span><span class="v ">₹ 80,000\.00/);
-  assert.match(breakdown, /Principal left<\/span><span class="v ">₹ 7,20,000\.00/);
-  assert.doesNotMatch(breakdown, /Maturity value/,
-    "the anchor already carries the maturity total");
+  assert.doesNotMatch(card, /<details/);
+  assert.doesNotMatch(card, /<summary/);
+  assert.doesNotMatch(card, /bond-breakdown/);
+  assert.doesNotMatch(card, /class="bl-/);
 });
 
 test("the card names all four actions and no glyph-only edit", () => {
@@ -139,126 +176,43 @@ test("the card names all four actions and no glyph-only edit", () => {
   assert.doesNotMatch(card, /✎/, "no icon-only action survives");
 });
 
-test("bondFacts is one ordered list with unique keys and one anchor", () => {
-  const facts = bondFacts(bondRowView(row), { assetId: "acct-1" });
-  const keys = facts.map((fact) => fact.key);
-  assert.equal(new Set(keys).size, keys.length, "a key appears once");
-  assert.equal(facts[0].kind, "anchor", "the anchor leads");
-  assert.ok(facts.some((fact) => fact.kind === "progress"), "the progress ranks with the row");
-  assert.ok(facts.some((fact) => fact.kind === "sources"), "the sources are a band fact");
-});
-
-test("the ledger row and band partition the card's own fact keys", () => {
-  const view = { ...bondRowView(row), matured: false };
-  const card = bondCardHtml(view, "acct-1");
-  const ledger = bondLedgerHtml([view], "acct-1", { selectedId: "lot-1" });
-  const cardRow = keysOn(card, "row", "data-fact");
-  const cardBand = keysOn(card, "band", "data-fact");
-  const rowKeys = keysOn(ledger, "row", "data-row-fact");
-  const bandKeys = keysOn(ledger, "band", "data-fact");
-  assert.deepEqual(sorted(rowKeys), sorted(cardRow), "the row is the card's row-ranked set");
-  assert.deepEqual(sorted(bandKeys), sorted(cardBand), "the band is the card's band-ranked set");
-  assert.deepEqual(rowKeys.filter((key) => bandKeys.includes(key)), [], "no fact is in both");
-  assert.deepEqual(sorted([...rowKeys, ...bandKeys]), sorted([...cardRow, ...cardBand]),
-    "the union is every card fact");
-  assert.equal(rowKeys.filter((key) => key === "interest-progress").length, 1,
-    "the interest progress ranks with the row");
-  assert.equal(bandKeys.filter((key) => key === "sources").length, 1,
-    "the sources rank with the band");
-});
-
-test("the band follows the card's sections in the card's order", () => {
-  const view = { ...bondRowView(row), matured: false };
-  const card = bondCardHtml(view, "acct-1");
-  const ledger = bondLedgerHtml([view], "acct-1", { selectedId: "lot-1" });
-  const cardSections = [...card.matchAll(/<h3 class="bond-section-title">([^<]+)<\/h3>/g)]
-    .map((match) => match[1]);
-  const bandSections = [...ledger.matchAll(/<div class="bl-col" data-section="([^"]+)"/g)]
-    .map((match) => match[1]);
-  assert.deepEqual(cardSections, BOND_BAND_SECTIONS);
-  assert.deepEqual(bandSections, BOND_BAND_SECTIONS);
-});
-
-test("the first row opens on load and selecting another moves the band", () => {
-  const first = { ...bondRowView(row), matured: false };
-  const second = { ...bondRowView({ ...row, id: "lot-2",
-    label: "8.10% TEST BOND 2 20 Nov 2028", couponPct: 8.1,
-    maturity: "2028-11-20" }), matured: false };
-  const initial = bondLedgerHtml([first, second], "acct-1");
-  assert.match(initial, /data-bond-id="lot-1"[^>]*aria-expanded="true"/);
-  assert.equal(openBands(initial).length, 1);
-  assert.match(openBands(initial)[0], /data-band-id="lot-1"/);
-
-  const switched = bondLedgerHtml([first, second], "acct-1", { selectedId: "lot-2" });
-  assert.match(switched, /data-bond-id="lot-2"[^>]*aria-expanded="true"/);
-  assert.match(switched, /data-bond-id="lot-1"[^>]*aria-expanded="false"/);
-  assert.equal(openBands(switched).length, 1, "one band is open, never two");
-  assert.match(openBands(switched)[0], /data-band-id="lot-2"/);
-});
-
-test("the coupon stays in the row identifier, added only when the name lacks it", () => {
-  const named = { ...bondRowView(row), matured: false };
-  const namedLedger = bondLedgerHtml([named], "acct-1", { selectedId: "lot-1" });
-  assert.doesNotMatch(namedLedger.slice(namedLedger.indexOf('class="bl-id"')),
-    /class="bl-coupon"/, "the name already carries 7.40%");
-
-  const unnamed = { ...bondRowView({ ...row, label: "TEST BOND WITHOUT A RATE",
-    couponPct: 7.4 }), matured: false };
-  const unnamedLedger = bondLedgerHtml([unnamed], "acct-1", { selectedId: "lot-1" });
-  assert.match(unnamedLedger, /class="bl-coupon">7\.4%<\/span>/);
-  assert.match(unnamedLedger, /data-row-fact="coupon"/);
-});
-
-test("every card action exists in the band and the band invents none", () => {
-  const view = { ...bondRowView(row), matured: false };
-  const card = bondCardHtml(view, "acct-1");
-  const ledger = bondLedgerHtml([view], "acct-1", { selectedId: "lot-1" });
-  assert.deepEqual(sorted(actionLabels(card)), sorted(actionLabels(ledger)));
-});
-
-test("a missing market value keeps the Enter it action on both surfaces", () => {
+test("a missing market value keeps Enter it inline", () => {
   const view = { ...bondRowView({ ...row, value_paise: null, as_of: null }),
     matured: false };
   const card = bondCardHtml(view, "acct-1");
-  const ledger = bondLedgerHtml([view], "acct-1", { selectedId: "lot-1" });
-  assert.ok(actionLabels(card).includes("Enter it"));
-  assert.ok(actionLabels(ledger).includes("Enter it"));
-  assert.deepEqual(sorted(actionLabels(card)), sorted(actionLabels(ledger)));
+  assert.equal(actionLabels(card).filter((label) => label === "Enter it").length, 1);
+  assert.match(sectionOf(card, "Market value"), /data-fact="market-value"/);
+  assert.match(sectionOf(card, "Market value"), /not recorded · <button class="vupdate"/);
+  assert.match(sectionOf(card, "Market value"),
+    /data-fact="per-unit"[^>]*>[\s\S]*?needs a market value/);
+  assert.match(sectionOf(card, "Returns"),
+    /data-fact="gain-if-sold"[^>]*>[\s\S]*?needs a market value/);
 });
 
-test("a matured lot keeps its own anchor, table and carried note", () => {
+test("a missing figure says why instead of a bare dash", () => {
+  const view = { ...bondRowView({ ...row, returned_paise: 0, returned_at: "",
+    redemption_dates: "" }), matured: false };
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(sectionOf(card, "Returns"),
+    /<span class="k">Principal returned<\/span><span class="v ">—<span class="sub ">none yet<\/span>/);
+});
+
+test("a matured lot leads with Value in net worth and carries no future facts", () => {
   const view = { ...bondRowView(maturedRow), matured: true };
   const card = bondCardHtml(view, "acct-1", { matured: true });
-  const ledger = bondLedgerHtml([view], "acct-1", { maturedValue: 50000000 });
-  const cardRow = keysOn(card, "row", "data-fact");
-  const cardBand = keysOn(card, "band", "data-fact");
-  assert.deepEqual(sorted(keysOn(ledger, "row", "data-row-fact")), sorted(cardRow));
-  assert.deepEqual(sorted(keysOn(ledger, "band", "data-fact")), sorted(cardBand));
-  assert.deepEqual(keysOn(ledger, "row", "data-row-fact")
-    .filter((key) => keysOn(ledger, "band", "data-fact").includes(key)), []);
-  assert.match(ledger, /Value in net worth/);
-  assert.match(ledger, /carried until matched/);
-  assert.match(ledger, /Matured · awaiting payment/);
-  assert.doesNotMatch(ledger, /Total if held/,
-    "the matured table does not borrow the live anchor");
-  assert.doesNotMatch(ledger, /data-fact="next-interest"/);
-  assert.doesNotMatch(ledger, /data-fact="market-value"/);
+  assert.deepEqual(factKeys(card), MATURED_KEYS);
+  assert.deepEqual(sectionTitles(card), ["Returns", "Purchase"],
+    "a matured lot has no market section");
   assert.match(card, /<span class="bond-matured-badge">Matured · awaiting payment<\/span>/);
+  assert.match(card, /<div class="bond-fact bond-fact-anchor" data-fact="value-in-net-worth" data-section="Returns">/);
   assert.match(card, /<span class="k">Value in net worth<\/span>/);
-  assert.doesNotMatch(card, /data-fact="interest-progress"/,
-    "a matured lot has no future interest progress");
-  assert.deepEqual(visibleKeys(card), BOND_MATURED_FACTS.map((fact) => fact.key));
-  assert.deepEqual(sorted(actionLabels(card)), sorted(actionLabels(ledger)));
-});
-
-test("selecting a matured row opens the matured band, not the live one", () => {
-  const live = { ...bondRowView(row), matured: false };
-  const matured = { ...bondRowView(maturedRow), matured: true };
-  const ledger = bondLedgerHtml([live, matured], "acct-1", { selectedId: "lot-2" });
-  assert.match(ledger, /data-bond-id="lot-1"[^>]*aria-expanded="false"/);
-  assert.match(ledger, /data-bond-id="lot-2"[^>]*aria-expanded="true"/);
-  assert.equal(openBands(ledger).length, 1);
-  assert.match(openBands(ledger)[0], /data-band-id="lot-2"/);
+  assert.match(card, /<span class="sub ">stays in net worth until a bank credit is matched<\/span>/);
+  assert.doesNotMatch(card, /Total if held/);
+  assert.doesNotMatch(card, /data-fact="interest-progress"/);
+  assert.doesNotMatch(card, /class="bond-progress"/);
+  assert.doesNotMatch(card, /data-fact="next-interest"/);
+  assert.doesNotMatch(card, /data-fact="market-value"/);
+  assert.match(sectionOf(card, "Purchase"), /data-fact="face-value"[^>]*><span class="k">Face value<\/span>/);
 });
 
 test("a manual lot names manual as its source", () => {
@@ -272,9 +226,76 @@ test("a manual lot names manual as its source", () => {
     /data-fact="sources"[^>]*>Terms entered by hand/);
 });
 
+test("bondBookSummary adds the live book and weights interest by coupon", () => {
+  const summary = bondBookSummary([
+    { matured: false, ba: { lifetimeTotal: 100000 }, principalLeft: 40000,
+      pastCoupon: 2500, originalCoupon: 10000 },
+    { matured: false, ba: { lifetimeTotal: 50000 }, principalLeft: 10000,
+      pastCoupon: 500, originalCoupon: 5000 },
+    { matured: true, ba: { lifetimeTotal: 999999 }, principalLeft: 999,
+      pastCoupon: 9, originalCoupon: 10 },
+  ]);
+  assert.deepEqual(summary, {
+    count: 2, totalIfHeld: 150000, principalLeft: 50000, interestPct: 20,
+  });
+  assert.equal(bondBookSummary([]), null);
+  assert.equal(bondBookSummary([{ matured: true, ba: { lifetimeTotal: 1 } }]), null);
+});
+
+test("bondBookSummary reads the same total the card anchor shows", () => {
+  const view = { ...bondRowView(row), matured: false };
+  const anchor = bondFacts(view, { assetId: "acct-1" })
+    .find((fact) => fact.key === "total-if-held");
+  const summary = bondBookSummary([view]);
+  assert.equal(summary.count, 1);
+  assert.equal(moneyText(summary.totalIfHeld), anchor.value);
+  assert.equal(summary.principalLeft, 72000000);
+  assert.ok(summary.interestPct > 0 && summary.interestPct <= 100);
+});
+
+test("the module no longer exports the ledger", () => {
+  assert.equal(book.bondLedgerHtml, undefined);
+  for (const name of ["ledgerRow", "ledgerBand", "bandKv", "rowProgress",
+    "bandIdOf", "maturedNote"]) {
+    assert.equal(book[name], undefined, `${name} is gone`);
+  }
+});
+
+test("index.html and the card module carry no ledger or disclosure remnant", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const source = readFileSync(new URL("./bond-book.js", import.meta.url), "utf8");
+  for (const marker of [".bond-ledger", ".bl-", ".bond-anchor", ".bond-breakdown",
+    "bpBondSelected", "bpBondSelect", "bpBondCardToggle", "matured-bonds"]) {
+    assert.equal(html.includes(marker), false, `${marker} is gone from index.html`);
+  }
+  for (const marker of ["bondLedgerHtml", "ledgerRow", "ledgerBand", "bandKv",
+    "rowProgress", "bandIdOf", "maturedNote"]) {
+    assert.equal(source.includes(marker), false, `${marker} is gone from bond-book.js`);
+  }
+  assert.doesNotMatch(html, /\.bond-fact-anchor\{[^}]*background/,
+    "the anchor carries no tint");
+});
+
+test("the card grid is two equal columns at desktop and one below", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.match(html,
+    /\.bond-cards\{display:grid;grid-template-columns:minmax\(0,1fr\);gap:16px;margin-top:10px;max-width:720px\}/);
+  assert.match(html,
+    /@media \(min-width:1000px\)\{\s*\.bond-cards\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\);max-width:none\}/);
+  assert.match(html,
+    /\.bond-card \.bond-grid-purchase\{grid-template-columns:repeat\(3,minmax\(0,1fr\)\)\}/);
+  assert.match(html, /\.mini-btn:focus-visible,\.vupdate:focus-visible,\.sortbtn:focus-visible\{\s*outline:2px solid var\(--green\);outline-offset:2px\}/,
+    "bond actions and sort controls show a focus ring");
+});
+
 test("money keeps Indian grouping and two paise digits", () => {
   assert.equal(moneyText(81440000), "₹ 8,14,400.00");
   assert.equal(moneyText(100000000), "₹ 10,00,000.00");
   assert.equal(moneyText(0), "₹ 0.00");
   assert.equal(moneyText(null), "—");
+});
+
+test("dates keep the day, short month and year", () => {
+  assert.equal(bondDateLabel("2030-02-10"), "10 Feb 2030");
+  assert.equal(bondDateLabel(""), "");
 });
