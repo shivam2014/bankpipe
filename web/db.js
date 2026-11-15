@@ -770,45 +770,53 @@ export function makeStore(SQLlib, save) {
     + " disposed_cost_paise, txn_key,"
     + " as_of, value_source, redemption_dates,"
     + " source_row, source FROM holding WHERE asset_id=? ORDER BY label", [assetId]);
+  // The columns a holding write may set, in insert order. An update writes only
+  // the ones the caller names: a column absent from the object keeps its stored
+  // value, so an edit form with no control for a field cannot wipe it. A caller
+  // that means to clear a field says so with null or "".
+  const HOLDING_WRITE = ["security_id", "label", "issuer", "category", "rating",
+    "frequency", "yield_bps", "payout_paise", "quantity", "cost_paise", "value_paise",
+    "face_paise", "purchase_date", "interest_date", "rating_at_purchase",
+    "future_interest_paise", "future_principal_paise", "principal_dates",
+    "redemption_dates", "value_source", "as_of", "returned_paise", "returned_at",
+    "returned_record_date", "returned_source"];
+  const HOLDING_NUMBERS = new Set(["yield_bps", "payout_paise", "quantity",
+    "cost_paise", "value_paise", "face_paise", "future_interest_paise",
+    "future_principal_paise", "returned_paise"]);
+  const holdingValue = (key, value) =>
+    HOLDING_NUMBERS.has(key) ? (value ?? null) : (value || "");
   store.upsertHolding = (assetId, h) => {
     // The rating at purchase is what a later upgrade or downgrade is measured
     // against, so an edit keeps the stored one and a new lot starts at today's.
-    let baseline = h.rating_at_purchase;
-    if (baseline === undefined) {
+    const baseline = () => {
+      if (h.rating_at_purchase !== undefined) return h.rating_at_purchase;
       const prior = h.id
         ? all("SELECT rating_at_purchase FROM holding WHERE id=?", [h.id])[0] : null;
-      baseline = String(prior?.rating_at_purchase || "").trim() || String(h.rating || "").trim();
-    }
-    const fields = [h.security_id || "", h.label || "", h.issuer || "", h.category || "bond",
-      h.rating || "", h.frequency || "", h.yield_bps ?? null, h.payout_paise ?? null,
-      h.quantity ?? null, h.cost_paise ?? null, h.value_paise ?? null,
-      h.face_paise ?? null,
-      h.purchase_date || "", h.interest_date || "", baseline || "",
-      h.future_interest_paise ?? null, h.future_principal_paise ?? null,
-      h.principal_dates || "", h.redemption_dates || "", h.value_source || "",
-      h.returned_paise ?? null, h.returned_at || "",
-      h.returned_record_date || "", h.returned_source || ""];
+      return String(prior?.rating_at_purchase || "").trim() || String(h.rating || "").trim();
+    };
     if (h.id) {
-      // An edit that does not mention as_of keeps the stored value date; a date
-      // field the user cleared is written as empty on purpose.
-      const asOf = h.as_of === undefined ? null : String(h.as_of || "");
-      conn.run("UPDATE holding SET security_id=?,label=?,issuer=?,category=?,rating=?,frequency=?,"
-        + "yield_bps=?,payout_paise=?,quantity=?,cost_paise=?,value_paise=?,face_paise=?,purchase_date=?,"
-        + "interest_date=?,rating_at_purchase=?,future_interest_paise=?,"
-        + "future_principal_paise=?,principal_dates=?,redemption_dates=?,value_source=?,returned_paise=?,"
-        + "returned_at=?,returned_record_date=?,returned_source=?,"
-        + "as_of=CASE WHEN ? IS NULL THEN as_of ELSE ? END WHERE id=?",
-        [...fields, asOf, asOf, h.id]);
+      const writes = {};
+      for (const key of HOLDING_WRITE) {
+        if (h[key] !== undefined) writes[key] = h[key];
+      }
+      // A row with no baseline is measured against the rating it carries now,
+      // the same fallback an insert uses. This column is never left orphaned.
+      if (writes.rating_at_purchase === undefined) writes.rating_at_purchase = baseline();
+      const keys = Object.keys(writes);
+      conn.run(`UPDATE holding SET ${keys.map((k) => `${k}=?`).join(",")} WHERE id=?`,
+        [...keys.map((k) => holdingValue(k, writes[k])), h.id]);
       return h.id;
     }
     const key = ["manual", assetId, Date.now(), Math.random().toString(36).slice(2)].join("|");
-    conn.run("INSERT INTO holding(asset_id,security_id,label,issuer,category,rating,frequency,"
-      + "yield_bps,payout_paise,quantity,cost_paise,value_paise,face_paise,purchase_date,interest_date,"
-      + "rating_at_purchase,future_interest_paise,future_principal_paise,principal_dates,"
-      + "redemption_dates,value_source,returned_paise,returned_at,returned_record_date,"
-      + "returned_source,source_row,as_of,txn_key,source)"
-      + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      [assetId, ...fields, 0, String(h.as_of || ""), key, "manual"]);
+    const values = HOLDING_WRITE.map((k) => {
+      if (k === "category") return h.category || "bond";
+      if (k === "rating_at_purchase") return baseline();
+      return holdingValue(k, h[k]);
+    });
+    conn.run("INSERT INTO holding(asset_id," + HOLDING_WRITE.join(",")
+      + ",source_row,txn_key,source) VALUES("
+      + Array(HOLDING_WRITE.length + 4).fill("?").join(",") + ")",
+      [assetId, ...values, 0, key, "manual"]);
     return all("SELECT last_insert_rowid() AS id")[0].id;
   };
   // The same transaction can arrive twice from two sources (a workbook and the

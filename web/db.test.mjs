@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { makeStore, showDeleteAll, verifySealedDb } from "./db.js";
 import { sealBytes } from "./dbatrest.js";
 import { applyCasEvents, casApplyRows, casEventKey } from "./cas-apply.js";
+import { bondHoldingPatch } from "./bond-holding.js";
 
 const require = createRequire(import.meta.url);
 const initSqlJs = require("./vendor/sql-wasm.js");
@@ -618,6 +619,61 @@ test("a mark keeps its date until a new value is entered", async () => {
       cost_paise: 100000, value_paise: 102000, as_of: "2026-11-09", source_row: 1 },
   ], "2026-10-26");
   assert.equal(store.listHoldings("bonds-vd")[0].as_of, "2026-11-09");
+});
+
+test("editing a bond keeps the principal already returned and its schedule", async () => {
+  const store = makeStore(SQL, null);
+  await store.open();
+  store.createAccount({ id: "bonds-edit", label: "Bonds", category: "bonds" });
+  const id = store.upsertHolding("bonds-edit", {
+    security_id: "INE000000001", label: "10.00% TEST 31 DEC 2030",
+    category: "bond", issuer: "Test Issuer", rating: "AA", frequency: "Quarterly",
+    quantity: 10, cost_paise: 1000000, face_paise: 100000,
+    purchase_date: "2024-01-01", interest_date: "2026-12-31", payout_paise: 25000,
+    yield_bps: 1050, value_paise: 1020000, value_source: "Manual",
+    as_of: "2026-11-01", future_interest_paise: 75000,
+    future_principal_paise: 500000, principal_dates: "2027-06-30,2027-12-31",
+    returned_paise: 400000, returned_at: "2026-04-10",
+    returned_record_date: "2026-04-12", returned_source: "bank",
+  });
+
+  // The payload bpBondHoldingSave writes: the coupon changed and every control
+  // the form has is present. A field with no control is absent on purpose.
+  store.upsertHolding("bonds-edit", {
+    id,
+    ...bondHoldingPatch({
+      label: "10.50% TEST 31 DEC 2030",
+      isin: "INE000000001",
+      issuer: "Test Issuer",
+      redemptions: "2027-06-30,2027-12-31",
+      units: 10, cost: 1000000, face: 100000,
+      value: 1020000, asOf: "2026-11-05", purchaseDate: "2024-01-01",
+      rating: "AA", frequency: "Quarterly", payout: 25000,
+      interestDate: "2026-12-31",
+    }),
+  });
+
+  const row = store.listHoldings("bonds-edit")[0];
+  assert.match(row.label, /10\.50%/);
+  assert.equal(row.returned_paise, 400000, "principal already returned survives");
+  assert.equal(row.returned_at, "2026-04-10");
+  assert.equal(row.returned_record_date, "2026-04-12");
+  assert.equal(row.returned_source, "bank");
+  assert.equal(row.future_principal_paise, 500000, "the schedule survives");
+  assert.equal(row.principal_dates, "2027-06-30,2027-12-31");
+  assert.equal(row.future_interest_paise, 75000);
+  assert.equal(row.category, "bond");
+  assert.equal(row.yield_bps, 1050);
+  assert.equal(row.as_of, "2026-11-05", "a named value date is written");
+
+  // A field the caller does name with null is cleared on purpose; the ones it
+  // still does not name stay.
+  store.upsertHolding("bonds-edit", { id, payout_paise: null, interest_date: "" });
+  const cleared = store.listHoldings("bonds-edit")[0];
+  assert.equal(cleared.payout_paise, null);
+  assert.equal(cleared.interest_date, "");
+  assert.equal(cleared.returned_paise, 400000);
+  assert.equal(cleared.future_principal_paise, 500000);
 });
 
 test("searchFacts can sort by amount ascending and descending", async () => {
