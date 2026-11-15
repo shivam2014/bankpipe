@@ -292,6 +292,7 @@ test("a redemption date with nothing returned is not an early repayment", () => 
   const view = bondRowView({ ...dashedRow, redemption_dates: "2025-01-15" });
   assert.equal(view.returned, 0);
   assert.ok(view.ba.firstPast);
+  assert.ok(view.couponLost > 0, "the rounding gap is what the old gate fired on");
   const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
   assert.equal(progress.progress.note, "original schedule · estimated");
 });
