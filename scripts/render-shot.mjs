@@ -23,16 +23,18 @@ import { pathToFileURL } from "node:url";
 
 const HELP = `usage: node scripts/render-shot.mjs --page <url|file> --width <px> --out <png>
        [--theme light|dark] [--height 900] [--wait 800] [--script <file>]
-       [--scale 2]
+       [--then-width <px>] [--then-script <file>] [--scale 2]
 
-  --page     URL, or a path to an HTML file
-  --width    CSS pixels; the run fails if the page is not exactly this wide
-  --theme    sets data-theme on <html> before the shot
-  --out      PNG path
-  --script   JS file run in the page after load; print what it returns
-  --height   CSS pixels, default 900
-  --wait     ms to settle after load, default 800
-  --scale    device pixel ratio, default 2
+  --page         URL, or a path to an HTML file
+  --width        CSS pixels; the run fails if the page is not exactly this wide
+  --theme        sets data-theme on <html> before the shot
+  --out          PNG path
+  --script       JS file run in the page after load; print what it returns
+  --then-width   second CSS width applied after the first shot, for a resize check
+  --then-script  JS file run after --then-width; print what it returns
+  --height       CSS pixels, default 900
+  --wait         ms to settle after load, default 800
+  --scale        device pixel ratio, default 2
 `;
 
 const CHROME_PATHS = [
@@ -110,12 +112,16 @@ const pageUrl = (page) => (isUrl(page) ? page : pathToFileURL(resolve(page)).hre
 /**
  * Screenshot one page at one exact CSS width.
  * @param {{page: string, width: number|string, out: string, height?: number,
- *   theme?: string, wait?: number, script?: string, scale?: number}} options
+ *   theme?: string, wait?: number, script?: string, scale?: number,
+ *   thenWidth?: number|string, thenScript?: string}} options
  *   `script` is a path to a JS file evaluated in the page after load.
+ *   `thenWidth` applies a second width after the first shot and `thenScript`
+ *   runs there, so a resize handoff can be asserted in the same page.
  */
 export async function capture(options = {}) {
-  const { page, out, theme = "", script = "" } = options;
+  const { page, out, theme = "", script = "", thenScript = "" } = options;
   const width = Number(options.width);
+  const thenWidth = options.thenWidth ? Number(options.thenWidth) : 0;
   const height = Number(options.height ?? 900);
   const wait = Number(options.wait ?? 800);
   const scale = Number(options.scale ?? 2);
@@ -126,6 +132,12 @@ export async function capture(options = {}) {
   if (!out) throw new Error("render-shot: --out is required.");
   if (!Number.isFinite(width) || width < 200) {
     throw new Error(`render-shot: --width must be at least 200, got ${options.width}.`);
+  }
+  if (thenWidth && (!Number.isFinite(thenWidth) || thenWidth < 200)) {
+    throw new Error(`render-shot: --then-width must be at least 200, got ${options.thenWidth}.`);
+  }
+  if (thenScript && !thenWidth) {
+    throw new Error("render-shot: --then-script needs --then-width.");
   }
   if (!Number.isFinite(height) || height < 200) {
     throw new Error(`render-shot: --height must be at least 200, got ${options.height}.`);
@@ -153,35 +165,52 @@ export async function capture(options = {}) {
       await send("Runtime.evaluate",
         { expression: `document.documentElement.dataset.theme = ${JSON.stringify(theme)}` });
     }
-    let value = "";
-    if (script) {
+    const evaluate = async (source) => {
       const result = await send("Runtime.evaluate", {
-        expression: readFileSync(script, "utf8"), awaitPromise: true, returnByValue: true,
+        expression: source, awaitPromise: true, returnByValue: true,
       });
       if (result.exceptionDetails) {
         const detail = result.exceptionDetails.exception?.description
           || result.exceptionDetails.text || "unknown error";
-        throw new Error(`render-shot: --script threw: ${detail}`);
+        throw new Error(`render-shot: script threw: ${detail}`);
       }
-      value = String(result.result?.value ?? "");
-    }
+      return String(result.result?.value ?? "");
+    };
+    const measure = async () => {
+      const measured = await send("Runtime.evaluate", {
+        expression: "[document.documentElement.clientWidth, window.innerWidth]",
+        returnByValue: true,
+      });
+      const [clientWidth, innerWidth] = measured.result?.value || [];
+      return { clientWidth, innerWidth };
+    };
+    const value = script ? await evaluate(readFileSync(script, "utf8")) : "";
     // The clamp is the reason this script exists: never hand back a cropped
     // desktop as if it were a phone.
-    const measured = await send("Runtime.evaluate", {
-      expression: "[document.documentElement.clientWidth, window.innerWidth]",
-      returnByValue: true,
-    });
-    const [clientWidth, innerWidth] = measured.result?.value || [];
-    if (clientWidth !== width || innerWidth !== width) {
+    const first = await measure();
+    if (first.clientWidth !== width || first.innerWidth !== width) {
       throw new Error(`render-shot: asked for ${width}px, the page is `
-        + `${clientWidth}px (inner ${innerWidth}px). The window was clamped; width `
+        + `${first.clientWidth}px (inner ${first.innerWidth}px). The window was clamped; width `
         + "must come from Emulation.setDeviceMetricsOverride.");
     }
     const shot = await send("Page.captureScreenshot",
       { format: "png", captureBeyondViewport: false });
     mkdirSync(dirname(resolve(out)), { recursive: true });
     writeFileSync(out, Buffer.from(shot.data, "base64"));
-    return { out, width, height, theme, value };
+    let thenValue = "";
+    if (thenWidth) {
+      await send("Emulation.setDeviceMetricsOverride", {
+        width: thenWidth, height, deviceScaleFactor: scale, mobile: false,
+      });
+      await sleep(wait);
+      if (thenScript) thenValue = await evaluate(readFileSync(thenScript, "utf8"));
+      const after = await measure();
+      if (after.clientWidth !== thenWidth || after.innerWidth !== thenWidth) {
+        throw new Error(`render-shot: asked for ${thenWidth}px after the resize, the page is `
+          + `${after.clientWidth}px (inner ${after.innerWidth}px).`);
+      }
+    }
+    return { out, width, height, theme, value, thenWidth: thenWidth || null, thenValue };
   } finally {
     try { link?.close(); } catch { /* the socket may already be gone */ }
     child.kill();
@@ -192,18 +221,22 @@ export async function capture(options = {}) {
 }
 
 function parseArgs(argv) {
-  const args = { width: "", height: 900, wait: 800, scale: 2, theme: "", script: "" };
+  const args = { width: "", height: 900, wait: 800, scale: 2, theme: "",
+    script: "", thenWidth: "", thenScript: "" };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === "--help" || flag === "-h") return { help: true };
     if (!flag.startsWith("--")) throw new Error(`render-shot: unexpected argument ${flag}`);
     const key = flag.slice(2);
-    if (!["page", "width", "out", "height", "wait", "scale", "theme", "script"].includes(key)) {
+    if (!["page", "width", "out", "height", "wait", "scale", "theme", "script",
+      "then-width", "then-script"].includes(key)) {
       throw new Error(`render-shot: unknown flag ${flag}`);
     }
     const value = argv[index + 1];
     if (value === undefined) throw new Error(`render-shot: ${flag} needs a value`);
-    args[key] = value;
+    const name = key === "then-width" ? "thenWidth"
+      : key === "then-script" ? "thenScript" : key;
+    args[name] = value;
     index += 1;
   }
   return args;
@@ -225,6 +258,7 @@ if (invoked) {
   try {
     const result = await capture(args);
     if (result.value) console.log(result.value);
+    if (result.thenValue) console.log(result.thenValue);
     console.log(result.out);
   } catch (error) {
     console.error(error.message);
