@@ -47,6 +47,18 @@ test("bond CSV round-trips through the holdings importer", () => {
   assert.equal(h.interest_date, "2026-10-18");
 });
 
+test("a coupon-only dashed label keeps its coupon in the CSV", () => {
+  // parseBondLabel now returns the rate even when the name carries no date.
+  // The exporter can use it; the label column still preserves the source.
+  const csv = bondHoldingsCsv([{ ...row, label: "TESTD-11.90%-PVT",
+    cost_paise: null, quantity: 2 }]);
+  const matrix = parseCsv(csv);
+  assert.equal(matrix[1][1], "TESTD-11.90%-PVT");
+  assert.equal(matrix[1][3], "11.9");
+  const parsed = parseHoldingsMatrix(matrix);
+  assert.equal(parsed.rows[0].label, "TESTD-11.90%-PVT");
+});
+
 test("bond CSV quotes labels with commas and keeps a real market value", () => {
   const priced = { ...row, label: "13.00% TESTB, SERIES II 19 DEC 2028",
     value_paise: 31000000 };

@@ -89,6 +89,17 @@ test("maturity is read from the bond label when the file omits it", () => {
   assert.equal(line.state, "not_settled");
 });
 
+test("a dashed broker label closes a matured position", () => {
+  const [line] = reconPositions({
+    lots: [{ security_id: "INE000000024", quantity: 2, cost_paise: 20000000,
+      label: "TESTD-11.90%-3-12-26-PVT", purchase_date: "2024-06-06" }],
+    positions: [],
+    today: "2026-12-04", asOf: AS_OF,
+  });
+  assert.equal(line.maturity, "2026-12-03");
+  assert.equal(line.state, "closed");
+});
+
 test("rows with no ISIN are skipped rather than matched by name", () => {
   const lines = reconPositions({
     lots: [{ security_id: "", label: "Some bond", quantity: 5, cost_paise: 1 }],
