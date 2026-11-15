@@ -624,18 +624,20 @@ export function movementAccountGap({ movements = [], accounts = [], targets = []
 }
 
 // The writer's sentence for a credit it refuses. It is built in cas-apply.js as
-// `<ISIN>: <reason> (<printed wording>).` and this is the only class of warning
-// the card repeats once per movement, so it is the only one collapsed.
-const CREDIT_NOT_ADDED = /^[A-Z0-9]{12}: a credit with no purchase or transfer-in wording is not added(?: \(.*\))?\.$/;
+// `<ISIN>: <reason> (<printed wording>).` Every movement of this class is refused
+// for that same reason, so the reason can be stated once above a list; the other
+// warnings carry a balance, a lot or a count and keep their own line.
+const CREDIT_NOT_ADDED = /^([A-Z0-9]{12}): a credit with no purchase or transfer-in wording is not added(?: \((.*)\))?\.$/;
 
 /**
- * The card's warnings, with the one per-movement class folded into a count.
+ * The card's warnings, with the one per-movement class folded into a count and
+ * its detail folded into one line per security.
  *
  * A statement can print a credit for every payout it received. The writer
  * refuses each one for the same reason and names the ISIN and the printed
- * wording, so fourteen of them read as a wall that pushes the plan's summary off
+ * wording, so nineteen of them read as a wall that pushes the plan's summary off
  * the screen. The refusal is unchanged; it becomes one line with the detail
- * behind a disclosure.
+ * behind a disclosure, and that detail names each security once.
  *
  * @param {Array<string>} warnings
  * @returns {{lines: Array<string>, groups: Array<{key: string, count: number,
@@ -647,7 +649,8 @@ export function importWarningDigest(warnings = []) {
   for (const raw of warnings || []) {
     const text = String(raw ?? "").trim();
     if (!text) continue;
-    if (CREDIT_NOT_ADDED.test(text)) credit.push(text);
+    const refusal = CREDIT_NOT_ADDED.exec(text);
+    if (refusal) credit.push({ isin: refusal[1], wording: refusal[2] || "" });
     else lines.push(text);
   }
   const groups = [];
@@ -658,10 +661,34 @@ export function importWarningDigest(warnings = []) {
       summary: `${credit.length} credit${credit.length === 1 ? " was" : "s were"} `
         + `not added because ${credit.length === 1 ? "it names" : "they name"} `
         + "no purchase or transfer-in.",
-      detail: credit,
+      detail: creditDetail(credit),
     });
   }
   return { lines, groups, count: credit.length };
+}
+
+/**
+ * One line per security and printed wording, carrying the count when a security
+ * repeats.
+ *
+ * The reason is the summary's to state, so a line carries only what tells two
+ * refusals apart: the ISIN and the statement's own wording. Two movements of one
+ * security printed differently stay apart, because a line must not stand for a
+ * refusal it does not describe.
+ *
+ * @param {Array<{isin: string, wording: string}>} credit
+ * @returns {Array<string>}
+ */
+function creditDetail(credit) {
+  const seen = new Map();
+  for (const { isin, wording } of credit) {
+    const key = `${isin}\u0000${wording}`;
+    const line = seen.get(key);
+    if (line) line.count += 1;
+    else seen.set(key, { isin, wording, count: 1 });
+  }
+  return [...seen.values()].map(({ isin, wording, count }) =>
+    [isin, count > 1 ? `${count} credits` : "", wording].filter(Boolean).join(" · "));
 }
 
 /**
