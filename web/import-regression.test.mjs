@@ -161,6 +161,7 @@ const ALLOWED_BINARY = new Set([
   "banks/icici-savings-2026-10.xlsx",
   "banks/sbi-savings-2026-07.xlsx",
   "import/pdf/cas-sold.pdf",
+  "import/pdf/locked-synthetic.pdf",
   "import/pdf/motilal-sold.pdf",
 ]);
 

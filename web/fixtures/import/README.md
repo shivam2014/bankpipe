@@ -8,6 +8,9 @@ holdings and amounts, and git history makes a leaked file expensive to remove.
 The private harness reads them from a directory outside the repo and never
 copies them in.
 
+`pdf/locked-synthetic.pdf` is a one-page PDF with no statement in it, locked
+with the password `Synthetic1`. It exists to exercise the import password gate.
+
 ## Public suite
 
 Run the synthetic tests from the repository root:

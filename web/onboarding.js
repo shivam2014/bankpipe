@@ -89,8 +89,9 @@ const CSS = `
 @media (prefers-color-scheme: dark) { .bp-note { color: #6fd3a8; } }
 /* The circle stays 34px; the button is 44px so the hit area meets the touch
    rule. The 5px inset keeps the visual at its old size while the box grows
-   around it. */
-.bp-help { position: fixed; right: 9px; bottom: calc(59px + env(safe-area-inset-bottom, 0px));
+   around it. The page reserves the same band, so content stops above it. */
+.bp-help { position: fixed; right: 9px;
+  bottom: calc(var(--tabbar-h, 0px) + 12px + env(safe-area-inset-bottom, 0px));
   z-index: 9998; width: 44px; height: 44px; padding: 0; border: 0; background: none;
   color: #16181d; font: 600 15px/1 -apple-system, sans-serif; cursor: pointer;
   transition: opacity .18s ease; }
@@ -98,11 +99,9 @@ const CSS = `
   border-radius: 50%; border: 1px solid rgba(128,128,128,.35); background: #fff;
   box-shadow: 0 2px 10px rgba(0,0,0,.15); }
 .bp-help:focus-visible { outline: 2px solid #1a6b4f; outline-offset: 2px; }
-@media (min-width: 641px) {
-  /* The privacy toggle owns this corner on desktop. Start the help hit box
-     where the toggle ends, so the two targets never overlap. */
-  .bp-help { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
-}
+/* Above 641px the tab bar is gone and the privacy toggle holds this corner.
+   The page raises --tabbar-h to the toggle's stack, so the help starts 12px
+   above it and the two targets never overlap. */
 .bp-onboard-card { position: relative; }
 .bp-onboard .bp-close { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px;
   padding: 0; margin: 0; border-radius: 8px; border: 0; background: transparent;

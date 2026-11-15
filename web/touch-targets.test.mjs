@@ -18,10 +18,22 @@ test("the help button keeps a 44px hit area around its 34px circle", () => {
   assert.match(circle[1], /border-radius: 50%/);
 });
 
-test("the desktop help target starts where the privacy toggle ends", () => {
-  const desktop = onboarding.match(/@media \(min-width: 641px\) \{([\s\S]*?)\n\}/);
-  assert.ok(desktop, "desktop placement for the help target");
-  assert.match(desktop[1], /\.bp-help \{ bottom: calc\(64px/);
+test("the help control sits one band above the tab bar and the page reserves it", () => {
+  const base = onboarding.match(/\.bp-help \{([^}]*)\}/);
+  assert.ok(base, ".bp-help rule is in onboarding.js");
+  assert.match(
+    base[1],
+    /bottom: calc\(var\(--tabbar-h, 0px\) \+ 12px \+ env\(safe-area-inset-bottom, 0px\)\)/,
+    "one formula places the help on every screen",
+  );
+  assert.doesNotMatch(onboarding, /@media \(min-width: 641px\) \{\s*\/\*[^]*?\.bp-help \{/,
+    "no desktop-only offset for the help");
+
+  const root = html.match(/:root\{([^}]*)\}/);
+  assert.ok(root);
+  assert.match(root[1], /--fab-safe:calc\(var\(--tabbar-h\) \+ 44px \+ 12px \+ env\(safe-area-inset-bottom\)\)/);
+  assert.match(html, /@media \(max-width:640px\)\{\s*:root\{--tabbar-h:40px\}/);
+  assert.match(html, /@media\(min-width:641px\)\{:root\{--tabbar-h:64px\}/);
 });
 
 test("the privacy toggle is 44px on phones, not 36px", () => {
