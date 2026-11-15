@@ -264,6 +264,20 @@ test("the name's terms make Total if held and Next interest compute", () => {
   assert.notEqual(gain.value, "—");
 });
 
+test("a rounding gap in the coupon estimate is not called a repayment", () => {
+  const view = bondRowView(dashedRow);
+  assert.equal(view.returned, 0);
+  const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
+  assert.equal(progress.progress.note, "original schedule · estimated");
+});
+
+test("a real repayment still carries the early-repayment note", () => {
+  const view = bondRowView(row);
+  assert.ok(view.returned > 0);
+  const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
+  assert.match(progress.progress.note, /less after the early repayment/);
+});
+
 test("without a frequency Next interest names the missing input", () => {
   const view = bondRowView({ ...dashedRow, frequency: "" });
   const facts = bondFacts(view);

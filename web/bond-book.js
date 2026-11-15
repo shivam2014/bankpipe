@@ -186,7 +186,10 @@ export function bondFacts(v, {
   const perUnit = v.marketPerUnit;
   const progress = v.couponProgress === null || v.couponProgress === undefined
     ? null : Math.max(0, Math.min(100, v.couponProgress));
-  const policyNote = v.couponLost
+  // The early-repayment note is a claim that money came back. A rounding gap
+  // between the period count and the year count also leaves a few rupees in
+  // couponLost, and that is not a repayment.
+  const policyNote = v.couponLost && v.returned
     ? `${money(v.couponLost)} less after the early repayment`
     : "original schedule";
   const rawSource = v.h.value_source || (v.h.source === "manual" ? "Manual" : "CAS");
