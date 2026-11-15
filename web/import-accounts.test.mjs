@@ -629,6 +629,17 @@ test("a plan of one holding says holding, not holdings", () => {
   assert.equal(importPlanPrimary({ family: "cas", identityOnly: true }),
     "Attach identity and fill empty values");
   assert.equal(importPlanPrimary({ family: "cas" }), "Attach identity");
+  // A cost basis on a recorded disposal is not a holding, and a plan with
+  // nothing to write says so instead of importing zero of them.
+  assert.equal(importPlanPrimary({ family: "motilal", soldCost: 1 }),
+    "Record the sold cost basis");
+  assert.equal(importPlanPrimary({ family: "motilal", soldCost: 2 }),
+    "Record the sold cost basis on 2 disposals");
+  assert.equal(importPlanPrimary({ family: "motilal", planned: 1, soldCost: 1 }),
+    "Import 1 holding");
+  assert.equal(importPlanPrimary({ family: "motilal" }), "Nothing to change");
+  assert.equal(importPlanPrimary({ family: "motilal", attachIdentity: true }),
+    "Attach the account identity");
 });
 
 test("a buy-only movement card says movements, not disposals", () => {

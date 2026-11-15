@@ -372,7 +372,7 @@ function applyPlan(holdings, plan) {
   return [...out.values()];
 }
 
-test("a newer broker that shows the pre-sale quantity asks before overwriting the sale", () => {
+test("a newer broker that shows the pre-sale quantity asks before pricing the sale", () => {
   const sold = holding({ quantity: 0, cost_paise: 0, value_paise: 0,
     disposed_at: "2026-08-12", disposed_quantity: 4, disposed_type: "sale",
     disposed_source: "CAS", disposed_reason: "SALE", as_of: "2026-08-12" });
@@ -389,13 +389,18 @@ test("a newer broker that shows the pre-sale quantity asks before overwriting th
   assert.equal(plan.summary.ask, 1);
   const decision = plan.decisions.find((item) => item.action === "ask");
   assert.equal(decision.flags.includes("sold-conflict"), true);
-  const change = decision.changes.find((item) => item.field === "quantity");
+  assert.equal(decision.flags.includes("sold-recovery"), true);
+  const change = decision.changes.find((item) => item.group === "disposal");
   assert.equal(change.requiresConfirm, true);
-  assert.equal(change.soldConflict, true);
-  assert.match(decision.reason, /recorded sale/i);
-  assert.equal(decision.next.quantity, 10);
-  assert.equal(change.from, 6);
-  assert.equal(change.to, 10);
+  assert.equal(change.from, null);
+  assert.equal(change.to, 80000, "the 4 sold units' share of the report's 10");
+  assert.match(decision.reason, /sold on 2026-08-12/);
+  assert.equal(decision.next.quantity, 6, "the live row keeps the units the sale left");
+  assert.equal(plan.decisions.some((item) => item.action === "add"), false,
+    "a pre-sale report does not add a live row");
+  assert.equal(plan.decisions.some((item) => (item.changes || [])
+    .some((entry) => entry.group === "snapshot" && entry.field === "quantity")), false,
+  "the report's pre-sale quantity is not taken onto the live row");
 });
 
 test("a report that names a fully sold bond is a question, not a revival", () => {
