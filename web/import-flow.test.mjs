@@ -1719,6 +1719,97 @@ test("two movement accounts the statement omits are both named", () => {
   assert.match(out.reason, /movement accounts …4321 and …7777/);
 });
 
+// --- a fund movement belongs to its folio, not to a demat -------------------
+// A CDSL CAS prints a mutual-fund SIP with no BO ID because the folio owns it.
+// The demat movements beside it name their BO. Counting the fund movement as an
+// account-less demat movement blocked the whole statement: the card said "No
+// account on file can take this statement's movements" and disabled Import.
+
+const BO_SECOND = "1200000098765432";
+const FUND_ISIN = "INF000000901";
+const FUND_FOLIO = "91062983856/0";
+const folioTarget = (over = {}) => ({
+  boId: "mf:test amc:91062983856", folio: true, targetId: "", tie: false,
+  createChoice: false,
+  rows: [{ isin: FUND_ISIN, label: "TEST FUND GROWTH", kind: "mf",
+    quantity: 103.394, valuePaise: 500000, folio: FUND_FOLIO, amc: "TEST AMC" }],
+  ...over,
+});
+const fundMovement = (over = {}) => ({
+  isin: FUND_ISIN, security: "TEST FUND GROWTH", date: "2026-09-16",
+  type: "Systematic Investment", description: "Systematic Investment",
+  side: "credit", quantity: 3.394, account: "", ...over,
+});
+const statementTargets = () => [
+  casTarget(),
+  casTarget({ boId: BO_SECOND, rows: [{ isin: isin(2), label: "TEST BOND",
+    kind: "bond", quantity: 5, valuePaise: 50000 }] }),
+  folioTarget(),
+];
+
+test("a fund movement with no demat account is a folio movement, not a gap", () => {
+  const out = gap({
+    movements: [casMovement(), fundMovement()],
+    accounts: [],
+    targets: statementTargets(),
+  });
+  assert.equal(out.blocked, false);
+  assert.equal(out.reason, "");
+  assert.deepEqual(out.missing, []);
+  assert.equal(out.folio, 1);
+});
+
+test("an account-less equity movement still blocks beside a folio movement", () => {
+  const out = gap({
+    movements: [casMovement(), fundMovement(), casMovement("", { isin: isin(8) })],
+    accounts: [],
+    targets: statementTargets(),
+  });
+  assert.equal(out.blocked, true);
+  assert.deepEqual(out.missing, []);
+  assert.equal(out.folio, 1);
+  assert.equal(out.reason, "No account on file can take this statement's movements. "
+    + "Add the demat account the statement names, then import again.");
+});
+
+test("an account-less movement whose ISIN is a folio row is not a demat gap", () => {
+  const out = gap({
+    movements: [casMovement(), fundMovement({ isin: isin(7) })],
+    accounts: [],
+    targets: [
+      casTarget(),
+      folioTarget({ rows: [{ isin: isin(7), label: "TEST FUND", kind: "mf",
+        quantity: 10, valuePaise: 50000, folio: FUND_FOLIO, amc: "TEST AMC" }] }),
+    ],
+  });
+  assert.equal(out.blocked, false);
+  assert.equal(out.folio, 1);
+});
+
+test("the folio's own plan applies the fund movement, not the demat's", () => {
+  const fundRow = { isin: FUND_ISIN, label: "TEST FUND GROWTH", kind: "mf",
+    quantity: 103.394, valuePaise: 500000, folio: FUND_FOLIO, amc: "TEST AMC",
+    account: BO_SECOND };
+  const equityRow = { isin: isin(1), label: "TEST EQUITY", kind: "equity",
+    quantity: 10, valuePaise: 100000, account: BO_MOVED };
+  const parsed = {
+    asOf: "2026-09-30", transactions: [casMovement(), fundMovement()],
+    holdings: [equityRow, fundRow], counts: { rows: 2, quarantined: 0 },
+    printedTotalPaise: null,
+  };
+  const folio = casReplacePlan({ parsed, existing: [], holdings: [fundRow],
+    events: parsed.transactions, assetId: "folio-1", accounts: [], route: true,
+    asOf: parsed.asOf });
+  const demat = casReplacePlan({ parsed, existing: [], holdings: [equityRow],
+    events: parsed.transactions, assetId: "demat-1", accounts: [BO_MOVED],
+    route: true, asOf: parsed.asOf });
+  assert.deepEqual(folio.events.map((event) => event.isin), [FUND_ISIN]);
+  assert.equal(folio.events[0].kind, "purchase");
+  assert.equal(demat.events.some((event) => event.isin === FUND_ISIN), false);
+  assert.equal(folio.rows.find((row) => row.security_id === FUND_ISIN).quantity,
+    103.394);
+});
+
 test("the writer creates the account from the statement's rows before the disposal", () => {
   const rows = [
     { isin: isin(1), label: "TEST EQUITY ONE", kind: "equity", quantity: 10,
