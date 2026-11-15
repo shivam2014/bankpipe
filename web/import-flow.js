@@ -517,6 +517,130 @@ export function statementAccounts(targets = []) {
   return { resolved, unresolved, count: resolved.length + unresolved };
 }
 
+const shortBo = (bo) => `…${String(bo).slice(-4)}`;
+
+/**
+ * Whether every movement a depository statement records has an account that will
+ * exist when the writer runs.
+ *
+ * The account a movement names is placed by, in order:
+ *
+ * - an account on file whose number is that BO ID;
+ * - the statement's own target for that BO ID, when the import will create it
+ *   from the rows the statement lists for it. The writer creates accounts before
+ *   it writes events, so creating is enough;
+ * - the statement's target when it attaches to an account that has no number
+ *   yet, because the writer fills that number from the statement;
+ * - the statement's target while the person still has to choose between two
+ *   accounts. That is a choice, and the card already asks for it.
+ *
+ * A movement account with no holdings row in the statement has nothing to build
+ * an account from, so it stays blocked. A movement that names no account cannot
+ * be routed to a new one at all, and needs an account on file; that is the old
+ * rule, kept whole.
+ *
+ * @param {{movements?: Array<object>, accounts?: Array<object>,
+ *   targets?: Array<{boId?: string, targetId?: string, rows?: Array<object>,
+ *   tie?: boolean, createChoice?: boolean}>}} input
+ * @returns {{missing: Array<string>, pending: boolean, blocked: boolean,
+ *   reason: string}}
+ */
+export function movementAccountGap({ movements = [], accounts = [], targets = [] } = {}) {
+  const onFile = new Map();
+  for (const account of accounts || []) {
+    const key = boId(account?.number || account?.bo_id || "").boId;
+    if (key && !onFile.has(key)) onFile.set(key, account);
+  }
+  const named = new Set();
+  let anonymous = 0;
+  for (const movement of movements || []) {
+    const key = boId(movement?.account || "").boId;
+    if (key) named.add(key);
+    else anonymous += 1;
+  }
+  const byBo = new Map();
+  for (const target of targets || []) {
+    const key = boId(target?.boId || "").boId;
+    if (key && !byBo.has(key)) byBo.set(key, target);
+  }
+  const missing = [];
+  let pending = false;
+  for (const bo of named) {
+    if (onFile.has(bo)) continue;
+    const target = byBo.get(bo);
+    if (!target) { missing.push(bo); continue; }
+    if (!target.targetId) {
+      // A tie is answered on the card before Import is offered. Creating is the
+      // default only when the statement's rows can build the account.
+      if (target.tie && !target.createChoice) { pending = true; continue; }
+      if (!(target.rows || []).length) missing.push(bo);
+      continue;
+    }
+    const home = (accounts || []).find((account) => account?.id === target.targetId);
+    const number = String(home?.number || home?.bo_id || "").trim();
+    // A blank number is written from the statement. A different number is
+    // another account, and this movement has nowhere to land.
+    if (number && boId(number).boId !== bo) missing.push(bo);
+  }
+  // A movement that names no account is only found through an account on file.
+  // Nothing this import creates can be chosen for it, so the old refusal stands.
+  const unowned = anonymous > 0 && !(accounts || []).length
+    && !(targets || []).some((target) => target?.targetId);
+  const reason = missing.length === 1
+    ? `No demat on file for the movement account ${shortBo(missing[0])}. `
+      + "Add that account, then import again."
+    : missing.length > 1
+      ? `No demat on file for the movement accounts ${missing.slice(0, -1)
+        .map(shortBo).join(", ")} and ${shortBo(missing[missing.length - 1])}. `
+        + "Add those accounts, then import again."
+      : unowned
+        ? "No account on file can take this statement's movements. Add the demat "
+          + "account the statement names, then import again."
+        : "";
+  return { missing, pending, blocked: missing.length > 0 || unowned, reason };
+}
+
+// The writer's sentence for a credit it refuses. It is built in cas-apply.js as
+// `<ISIN>: <reason> (<printed wording>).` and this is the only class of warning
+// the card repeats once per movement, so it is the only one collapsed.
+const CREDIT_NOT_ADDED = /^[A-Z0-9]{12}: a credit with no purchase or transfer-in wording is not added(?: \(.*\))?\.$/;
+
+/**
+ * The card's warnings, with the one per-movement class folded into a count.
+ *
+ * A statement can print a credit for every payout it received. The writer
+ * refuses each one for the same reason and names the ISIN and the printed
+ * wording, so fourteen of them read as a wall that pushes the plan's summary off
+ * the screen. The refusal is unchanged; it becomes one line with the detail
+ * behind a disclosure.
+ *
+ * @param {Array<string>} warnings
+ * @returns {{lines: Array<string>, groups: Array<{key: string, count: number,
+ *   summary: string, detail: Array<string>}>, count: number}}
+ */
+export function importWarningDigest(warnings = []) {
+  const credit = [];
+  const lines = [];
+  for (const raw of warnings || []) {
+    const text = String(raw ?? "").trim();
+    if (!text) continue;
+    if (CREDIT_NOT_ADDED.test(text)) credit.push(text);
+    else lines.push(text);
+  }
+  const groups = [];
+  if (credit.length) {
+    groups.push({
+      key: "credit-not-added",
+      count: credit.length,
+      summary: `${credit.length} credit${credit.length === 1 ? " was" : "s were"} `
+        + `not added because ${credit.length === 1 ? "it names" : "they name"} `
+        + "no purchase or transfer-in.",
+      detail: credit,
+    });
+  }
+  return { lines, groups, count: credit.length };
+}
+
 /**
  * The broker-first gate for a statement that disposes a security. It returns the
  * staged broker plan that would put a cost on one of the disposed ISINs, or null

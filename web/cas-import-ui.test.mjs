@@ -14,6 +14,24 @@ test("a movements-only statement never offers the replace dialog", () => {
   assert.match(html, /confirmed: allowAbsentRemoval && confirmed && !movementsOnly/);
 });
 
+test("the card lets a statement create the demat it also moves", () => {
+  // The decision lives in one pure function so the card, the button and the
+  // footer cannot disagree: a movement account is placed by an account on file,
+  // by a target this import will create from the statement's own rows, or by a
+  // target whose empty number the writer fills. The page only reads the verdict.
+  assert.match(html, /const gap = movementAccountGap\(\{/);
+  assert.match(html, /targets: bundle\.casTargets/);
+  assert.match(html, /bundle\.movementBlocked = gap\.blocked/);
+  assert.match(html, /gap\.reason/);
+  assert.match(html, /!safety\.blocked && !bundle\.movementBlocked/);
+});
+
+test("the credit warnings collapse to one line with the detail behind a disclosure", () => {
+  assert.match(html, /const digest = importWarningDigest\(warnings\)/);
+  assert.match(html, /digest\.groups\.map/);
+  assert.match(html, /<details class="import-change-more"><summary>Which/);
+});
+
 test("a movement named by its own account receives the disposal without holdings", () => {
   assert.match(html, /const movementBos = new Set/);
   assert.match(html, /const movementHome = movementBos\.has\(accountBo\)/);
