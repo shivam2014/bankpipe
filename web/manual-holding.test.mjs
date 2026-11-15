@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+const bondBook = readFileSync(new URL("./bond-book.js", import.meta.url), "utf8");
 
 const between = (start, end) => {
   const from = html.indexOf(start);
@@ -47,7 +48,7 @@ test("fund and equity cards carry edit and remove actions", () => {
 });
 
 test("bond and holding cards share one action layout", () => {
-  const bond = between("function bondCardHtml", "function holdingCardHtml");
+  const bond = bondBook;
   const holding = between("function holdingCardHtml", "function holdingCards");
   for (const card of [bond, holding]) {
     assert.match(card, /class="bond-card-title"/);
