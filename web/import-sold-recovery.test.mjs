@@ -168,6 +168,13 @@ test("a partial sale: accepting the ask prices the sold units and keeps the live
   assert.equal(net.added, 0);
   assert.equal(net.soldCost, 1);
   assert.equal(net.updated, 1, "the live row's cost is the plan's only update");
+
+  // The same report again. Both rows now carry their share, so the report adds
+  // nothing and the second import writes the same rows.
+  const again = planFor(after, report());
+  assert.equal(again.summary.ask, 0, "a priced sale is not a question any more");
+  assert.deepEqual(write(after, again, true), after, "the second import changes nothing");
+  assert.equal(planNetChange(after, write(after, again, true)).soldCost, 0);
 });
 
 // --- a re-purchase ----------------------------------------------------------
@@ -220,6 +227,16 @@ test("a disposal that already carries a cost keeps it and the difference is name
   assert.match(plan.warnings.join(" "), /kept/i);
   const after = only(write(holdings, plan, true));
   assert.equal(after.disposed_cost_paise, 190000, "the recorded basis wins");
+});
+
+test("a stored basis that matches the report is not a difference", () => {
+  const holdings = [disposal({ disposed_cost_paise: 200000 })];
+  const plan = planFor(holdings, report());
+  assert.equal(plan.summary.ask, 0);
+  assert.equal(plan.decisions[0].action, "keep");
+  assert.equal(plan.decisions[0].flags.includes("sold-cost-differs"), false);
+  assert.equal(plan.warnings.length, 0, "an agreeing report says nothing");
+  assert.deepEqual(write(holdings, plan, true), holdings);
 });
 
 test("a report with no cost cannot price the sale and writes nothing", () => {
