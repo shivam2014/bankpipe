@@ -195,6 +195,9 @@ test("a missing figure says why instead of a bare dash", () => {
   const card = bondCardHtml(view, "acct-1");
   assert.match(sectionOf(card, "Returns"),
     /<span class="k">Principal returned<\/span><span class="v ">—<span class="sub ">none yet<\/span>/);
+  const noDate = { ...bondRowView({ ...row, purchase_date: "" }), matured: false };
+  assert.match(sectionOf(bondCardHtml(noDate, "acct-1"), "Purchase"),
+    /<span class="k">Purchase date<\/span><span class="v ">—<span class="sub ">not in the statement<\/span>/);
 });
 
 test("a matured lot leads with Value in net worth and carries no future facts", () => {
