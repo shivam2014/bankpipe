@@ -224,13 +224,13 @@ export function bondFacts(v, {
       ? [v.returnedAt ? `on ${dateLabel(v.returnedAt)}` : "",
         v.returnedRecordDate ? `face reduced ${dateLabel(v.returnedRecordDate)}` : ""]
         .filter(Boolean).join(" · ")
-      : "",
+      : "none yet",
     section: "Returns", kind: "fact",
   });
   facts.push({
     key: "principal-left", label: "Principal left",
     value: v.principalLeft ? money(v.principalLeft) : "—",
-    sub: v.principalLeft && v.maturity ? `due ${dateLabel(v.maturity)}` : "",
+    sub: v.principalLeft ? (v.maturity ? `due ${dateLabel(v.maturity)}` : "") : "not recorded",
     section: "Returns", kind: "fact",
   });
 
@@ -238,7 +238,8 @@ export function bondFacts(v, {
     facts.push({
       key: "next-interest", label: "Next interest",
       value: v.payout === null ? "—" : money(v.payout),
-      sub: [v.interestDate ? dateLabel(v.interestDate) : "",
+      sub: [v.payout === null ? "amount not recorded" : "",
+        v.interestDate ? dateLabel(v.interestDate) : "",
         v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · "),
       section: "Returns", kind: "fact",
     });
@@ -246,6 +247,7 @@ export function bondFacts(v, {
       key: "gain-if-sold", label: "Gain if sold now",
       value: v.gain === null || v.gain === undefined ? "—"
         : `${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain))}`,
+      sub: v.gain === null || v.gain === undefined ? "needs a market value" : "",
       tone: v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "",
       section: "Returns", kind: "fact",
     });
@@ -270,12 +272,15 @@ export function bondFacts(v, {
     });
     facts.push({
       key: "per-unit", label: "Per unit", value: perUnit === null ? "—" : money(perUnit),
+      sub: perUnit === null ? "needs a market value" : "",
       section: "Market value", kind: "fact",
     });
     facts.push({
       key: "current-yield", label: "Current yield",
       value: v.currentYield === null || v.currentYield === undefined
         ? "—" : `${v.currentYield.toFixed(2)}%`,
+      sub: v.currentYield === null || v.currentYield === undefined
+        ? "needs a market value" : "",
       section: "Market value", kind: "fact",
     });
     facts.push({
@@ -293,10 +298,12 @@ export function bondFacts(v, {
   facts.push({
     key: "invested", label: "Invested",
     value: money(v.h.cost_paise),
+    sub: v.h.cost_paise === null || v.h.cost_paise === undefined ? "not recorded" : "",
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "units", label: "Units", value: qty || "—",
+    sub: qty ? "" : "not recorded",
     section: "Purchase", kind: "fact",
   });
   facts.push({
@@ -307,29 +314,34 @@ export function bondFacts(v, {
     key: matured ? "face-value" : "face-at-issue",
     label: matured ? "Face value" : "Face at issue",
     value: v.faceAtIssue ? money(v.faceAtIssue) : "—",
-    sub: !matured && v.faceAtIssue && !(Number(v.h.face_paise) > 0)
-      ? "inferred from invested" : "",
+    sub: v.faceAtIssue
+      ? (!matured && !(Number(v.h.face_paise) > 0) ? "inferred from invested" : "")
+      : "not in the statement",
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "coupon", label: "Interest rate",
     value: v.coupon === null ? "—" : `${v.coupon}%`,
+    sub: v.coupon === null ? "not in the statement" : "",
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "maturity", label: "Maturity date",
     value: v.maturity ? dateLabel(v.maturity) : "—",
-    sub: v.maturityGuessed ? "read from the bond name — check it" : "",
+    sub: v.maturity ? (v.maturityGuessed ? "read from the bond name — check it" : "")
+      : "not in the statement",
     subTone: v.maturityGuessed ? "amber" : "",
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "frequency", label: "Payment frequency", value: esc(v.frequency),
+    sub: v.h.frequency ? "" : "not in the statement",
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "purchase-yield", label: "Purchase yield",
     value: v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`,
+    sub: v.yieldPct === null ? "not in the statement" : "",
     section: "Purchase", kind: "fact",
   });
   facts.push({

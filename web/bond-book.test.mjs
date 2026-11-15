@@ -183,6 +183,18 @@ test("a missing market value keeps Enter it inline", () => {
   assert.equal(actionLabels(card).filter((label) => label === "Enter it").length, 1);
   assert.match(sectionOf(card, "Market value"), /data-fact="market-value"/);
   assert.match(sectionOf(card, "Market value"), /not recorded · <button class="vupdate"/);
+  assert.match(sectionOf(card, "Market value"),
+    /data-fact="per-unit"[^>]*>[\s\S]*?needs a market value/);
+  assert.match(sectionOf(card, "Returns"),
+    /data-fact="gain-if-sold"[^>]*>[\s\S]*?needs a market value/);
+});
+
+test("a missing figure says why instead of a bare dash", () => {
+  const view = { ...bondRowView({ ...row, returned_paise: 0, returned_at: "",
+    redemption_dates: "" }), matured: false };
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(sectionOf(card, "Returns"),
+    /<span class="k">Principal returned<\/span><span class="v ">—<span class="sub ">none yet<\/span>/);
 });
 
 test("a matured lot leads with Value in net worth and carries no future facts", () => {
