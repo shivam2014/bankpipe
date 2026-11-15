@@ -165,6 +165,7 @@ label.field textarea{resize:vertical;min-height:58px}
 .form{display:grid;gap:12px;max-width:460px}
 @media (min-width:720px){.form{grid-template-columns:1fr 1fr;max-width:760px}}
 .form .wide{grid-column:1/-1}
+.form-kept{font-size:12px;line-height:1.55}
 .subform{display:grid;gap:12px}
 @media (min-width:720px){.subform{grid-template-columns:1fr 1fr}}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px}
@@ -1334,6 +1335,7 @@ import { bondAnalytics, bondSummary, bondMaturity, splitMatured, parseBondLabel,
   bondLabelName, inferFace, bondFillPlan, bondRatingChange } from "./bonds.js";
 import { bondCardHtml, bondBookSummary, bondRowView, bondSortValue, bondRatingOf,
   bondFrequency } from "./bond-book.js";
+import { bondLabelText, bondHoldingPatch, bondKeptLine } from "./bond-holding.js";
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
@@ -13042,14 +13044,6 @@ function bondLabelParts(h) {
   if (!p) return { name: h?.label || "", coupon: "", maturity: "" };
   return { name: bondLabelName(h.label), coupon: p.couponPct, maturity: p.maturity };
 }
-const BOND_MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-function bondLabelText(name, coupon, iso) {
-  const [y, m, d] = String(iso || "").split("-").map(Number);
-  const mon = BOND_MONTHS[(m || 1) - 1] || "";
-  return `${Number(coupon)}% ${String(name || "").trim()} ${String(d || "")
-    .padStart(2, "0")} ${mon} ${y || ""}`.trim();
-}
 window.bpBondHoldingNew = (assetId) => {
   window.bpState = { ...(window.bpState || {}), bondHoldingAsset: assetId, bondHoldingId: "" };
   go("bondHolding");
@@ -13098,6 +13092,7 @@ function renderBondHoldingForm() {
     const val = (n) => (h && h[n] !== null && h[n] !== undefined ? h[n] : "");
     const freq = h && h.frequency ? bondFrequency(h.frequency) : "Quarterly";
     const moneyIn = (p) => (p === null || p === undefined || p === "") ? "" : inr(p);
+    const kept = bondKeptLine(h, currency());
     host.innerHTML = `<h1>${holdingId ? "Edit holding" : "Add holding"}</h1>
       <p class="muted" style="margin:-6px 0 14px;font-size:13px">${h && h.source === "manual"
         ? "Added by hand, so a DigiFInn sync leaves it alone."
@@ -13146,13 +13141,16 @@ function renderBondHoldingForm() {
           <input id="bh-rating" value="${esc(val("rating"))}" placeholder="AA" autocomplete="off"></label>
         <label class="field">Current value (${currency()}) <span class="muted"
           style="font-weight:400">optional</span>
-          <input id="bh-value" value="${moneyIn(h?.value_paise)}" inputmode="decimal"></label>
+          <input id="bh-value" value="${moneyIn(h?.value_paise)}" inputmode="decimal"
+            data-prior="${esc(String(h?.value_paise ?? ""))}"></label>
         <label class="field">Value as of
-          <input id="bh-value-date" type="date" value="${esc(String(h?.as_of || "").slice(0, 10))}"></label>
+          <input id="bh-value-date" type="date" value="${esc(String(h?.as_of || "").slice(0, 10))}"
+            data-prior="${esc(String(h?.as_of || "").slice(0, 10))}"></label>
         <label class="field">Next interest (${currency()})
           <input id="bh-payout" value="${moneyIn(h?.payout_paise)}" inputmode="decimal"></label>
         <label class="field">Next interest date
           <input id="bh-payout-date" type="date" value="${esc(val("interest_date"))}"></label>
+        ${kept ? `<div class="wide muted form-kept" id="bh-kept">${esc(kept)}</div>` : ""}
       </div>
       <div class="muted" style="font-size:11.5px;margin-top:8px">Saved as
         <b id="bh-preview"></b>. The rate and maturity in that name drive the maturity value and
@@ -13300,25 +13298,36 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
   if (!Number.isFinite(units) || units <= 0) return fail("Enter the units.");
   if (cost === null || cost <= 0) return fail("Enter what you invested.");
   const store = await import("./db.js");
-  const prior = holdingId
-    ? (await store.listHoldings(assetId)).find((r) => String(r.id) === String(holdingId))
-    : null;
+  const raw = (id) => {
+    const text = val(id);
+    return text ? parseMoney(text) : null;
+  };
+  // The value field carries what the row already held. An untouched mark stays
+  // untouched, so its source (BSE, CAS) and date survive a coupon or rating edit.
+  const valueText = val("bh-value");
+  const value = valueText ? parseMoney(valueText) : null;
+  const valuePrior = document.getElementById("bh-value")?.dataset.prior ?? "";
+  const asOfPrior = document.getElementById("bh-value-date")?.dataset.prior ?? "";
+  const valueTouched = valueText === "" ? valuePrior !== ""
+    : String(value) !== String(valuePrior) || val("bh-value-date") !== asOfPrior;
   try {
     await store.upsertHolding(assetId, {
       id: holdingId ? Number(holdingId) : null,
-      label: bondLabelText(name, coupon, maturity),
-      security_id: val("bh-isin").toUpperCase(),
-      issuer: window.bpHoldingIssuer || "",
-      redemption_dates: window.bpHoldingRedemptions || "",
-      quantity: units, cost_paise: cost,
-      face_paise: val("bh-face") ? parseMoney(val("bh-face")) : (prior?.face_paise ?? null),
-      value_paise: val("bh-value") ? parseMoney(val("bh-value")) : null,
-      value_source: val("bh-value") ? "Manual" : "",
-      as_of: val("bh-value-date"),
-      purchase_date: val("bh-bought"), rating: val("bh-rating"),
-      frequency: val("bh-freq"), yield_bps: prior?.yield_bps ?? null,
-      payout_paise: val("bh-payout") ? parseMoney(val("bh-payout")) : null,
-      interest_date: val("bh-payout-date"),
+      ...bondHoldingPatch({
+        label: bondLabelText(name, coupon, maturity),
+        isin: val("bh-isin"),
+        units, cost,
+        face: raw("bh-face"),
+        value, valueTouched,
+        asOf: val("bh-value-date"),
+        purchaseDate: val("bh-bought"),
+        rating: val("bh-rating"),
+        frequency: val("bh-freq"),
+        payout: raw("bh-payout"),
+        interestDate: val("bh-payout-date"),
+        issuer: window.bpHoldingIssuer || "",
+        redemptions: window.bpHoldingRedemptions || "",
+      }),
     });
     window.bpAsset(assetId);
   } catch (e) {
