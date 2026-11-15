@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { accountFieldState, accountMatches, groupBundles, groupResolvedPlans,
-  mergeRowsFromPlan, planImportChains, planMerge } from "../web/import-flow.js";
+  mergeRowsFromPlan, planImportChains, planMerge, planNetChange } from "../web/import-flow.js";
 import { casReplacePlan } from "../web/cas-apply.js";
 
 const BO = "IN99990001344321";
@@ -364,3 +364,61 @@ assert.equal(withoutCost.rows.find((row) => row.disposed_at).disposed_cost_paise
 console.log(`moved    CAS with a sale + Motilal · bundles ${movedBundles.length}`
   + ` → plans ${movedPlans.length} (locked)`);
 console.log(`cost     broker before the sale 200000 · statement first null`);
+
+// The wrong order, then recovered. The statement is imported first, so its
+// disposal has no cost. The broker report that follows names the same units,
+// and accepting its ask now fills the disposal's basis instead of writing the
+// report's row beside it. Measured on the rows, not on the plan's words.
+const saleOnly = casReplacePlan({ parsed: movedFile.parsed,
+  existing: [{ ...soldRow, cost_paise: null }], holdings: [], asOf: movedFile.asOf,
+  events: movedFile.parsed.transactions, assetId: "demat-1", accounts: [BO], route: true });
+const soldThen = saleOnly.rows.map((row) => ({ ...row }));
+assert.equal(soldThen.filter((row) => row.disposed_at).length, 1,
+  "the statement records the sale");
+const casState = { identity: { source: "cas", asOf: movedFile.asOf },
+  snapshot: { source: "cas", asOf: movedFile.asOf },
+  cost: { source: "", asOf: "", manual: false }, manualAsOf: "", holdings: soldThen };
+const recoverPlan = planMerge({
+  incoming: { kind: "motilal", label: "Motilal Oswal holdings report",
+    asOf: MOTILAL_AS_OF, identity: { kind: "ucid", value: "TEST0001" },
+    categories: ["equity"], rows: [motilalRows[0]] },
+  existing: casState, today: TODAY,
+});
+const askOf = (plan) => plan.decisions.find((decision) => decision.action === "ask");
+const recovered = mergeRowsFromPlan(soldThen, recoverPlan,
+  { family: "motilal", label: "Motilal Oswal holdings report", asOf: MOTILAL_AS_OF }, true);
+const kept = mergeRowsFromPlan(soldThen, recoverPlan,
+  { family: "motilal", label: "Motilal Oswal holdings report", asOf: MOTILAL_AS_OF }, false);
+const disposalOf = (rows) => rows.filter((row) => row.disposed_at);
+const before = disposalOf(soldThen);
+const after = disposalOf(recovered);
+const net = planNetChange(soldThen, recovered);
+assert.equal(askOf(recoverPlan).flags.includes("sold-recovery"), true,
+  "a broker that names the sold units asks about the cost, not the row");
+assert.equal(recovered.length, 1, "one row: the disposal, priced");
+assert.equal(disposalOf(kept)[0].disposed_cost_paise, null, "an unaccepted ask writes nothing");
+assert.equal(after[0].disposed_cost_paise, 200000, "10 of the report's 10 units");
+assert.equal(after[0].disposed_quantity, 10, "the CAS quantity is what was sold");
+assert.equal(net.soldCost, 1);
+assert.equal(net.added, 0, "the report's row is not written beside the disposal");
+console.log(`recover  wrong order · rows ${soldThen.length} → ${recovered.length}`
+  + ` · sold cost ${before[0].disposed_cost_paise} → ${after[0].disposed_cost_paise}`
+  + ` · added ${net.added} · soldCost ${net.soldCost}`);
+
+// A disposal that already carries a basis keeps it, and the report's number is
+// named instead of overwritten. This is the case the linked cost portfolio
+// leaves behind: the FIFO lots already priced the sale.
+const priced = [{ ...soldThen[0], disposed_cost_paise: 200000 }];
+const keepPlan = planMerge({
+  incoming: { kind: "motilal", label: "Motilal Oswal holdings report",
+    asOf: MOTILAL_AS_OF, identity: { kind: "ucid", value: "TEST0001" },
+    categories: ["equity"], rows: [{ ...motilalRows[0], costPaise: 240000 }] },
+  existing: { ...casState, holdings: priced }, today: TODAY,
+});
+const keptRows = mergeRowsFromPlan(priced, keepPlan,
+  { family: "motilal", label: "Motilal Oswal holdings report", asOf: MOTILAL_AS_OF }, true);
+assert.equal(keepPlan.summary.ask, 0, "two claims are not a reason to rewrite one");
+assert.equal(keptRows[0].disposed_cost_paise, 200000);
+assert.match(keepPlan.warnings.join(" "), /2,400\.00/);
+console.log(`held     disposal cost 200000 · report 240000 · kept 200000`
+  + ` · ask ${keepPlan.summary.ask} · ${keepPlan.decisions[0].flags.join(",")}`);

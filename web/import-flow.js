@@ -851,10 +851,12 @@ export function importAccountGaps(account, holdings = [],
 /**
  * The primary action's label for one plan card. A plan that changes one holding
  * is the common case for a single bond account, so a count of one never prints
- * as "1 holdings". Pure, so the copy is testable without a DOM.
+ * as "1 holdings". A plan whose only change is a cost basis on a recorded
+ * disposal says that, instead of counting a holding it does not hold.
+ * Pure, so the copy is testable without a DOM.
  */
 export function importPlanPrimary({ family = "", identityOnly = false, planned = 0,
-  sales = 0, create = false } = {}) {
+  sales = 0, create = false, soldCost = 0, attachIdentity = false } = {}) {
   if (family === "cas") {
     if (identityOnly) return "Attach identity and fill empty values";
     if (planned) return `Import ${planned} ${planned === 1 ? "holding" : "holdings"}`;
@@ -864,6 +866,12 @@ export function importPlanPrimary({ family = "", identityOnly = false, planned =
   const noun = family === "zerodha"
     ? (planned === 1 ? "equity" : "equities")
     : (planned === 1 ? "holding" : "holdings");
+  if (!planned && soldCost) {
+    return soldCost === 1 ? "Record the sold cost basis"
+      : `Record the sold cost basis on ${soldCost} disposals`;
+  }
+  if (!planned && attachIdentity && !create) return "Attach the account identity";
+  if (!planned && !create) return "Nothing to change";
   return `${create ? "Create account and import " : "Import "}${planned} ${noun}`;
 }
 
@@ -934,6 +942,138 @@ function snapshotDecision({ relation, incomingState, existing }) {
   if (relation === "newer") return { take: true };
   if (relation === "same") return { take: false, ask: true };
   return { take: false, fillEmpty: true };
+}
+
+/**
+ * Whether a report that names a security with a recorded disposal describes the
+ * units the sale accounts for, or units acquired after it.
+ *
+ * The quantity alone cannot answer this: a full sale of ten units and a
+ * re-purchase of ten units look identical. The report's own acquisition date
+ * can, so a purchase dated after the sale is a new holding. With no such date,
+ * the sale is the only evidence the app has, and a report that names exactly
+ * the units on file is read as the position that was sold: a report must not
+ * resurrect a holding it never dates. A quantity the sale does not account for
+ * stays a question and is never absorbed into the disposal.
+ * @param {{quantity?: number|null, purchaseDate?: string, disposed?: object,
+ *   live?: number}} input
+ * @returns {{kind: "recovery"|"new-position"|"unexplained", reason: string,
+ *   reported: number|null, soldOn: string, acquiredOn: string}}
+ */
+export function soldReportVerdict({ quantity = null, purchaseDate = "",
+  disposed = null, live = 0 } = {}) {
+  const reported = asNumber(quantity);
+  const sold = asNumber(disposed?.disposed_quantity) ?? 0;
+  const held = asNumber(live) ?? 0;
+  const soldOn = String(disposed?.disposed_at || "").slice(0, 10);
+  const acquiredOn = parseDate(purchaseDate) || "";
+  const out = { reported, soldOn, acquiredOn };
+  if (acquiredOn && soldOn && acquiredOn > soldOn) {
+    return { ...out, kind: "new-position",
+      reason: `the report dates the purchase on ${acquiredOn}, after the sale on ${soldOn}` };
+  }
+  if (reported === null) {
+    return { ...out, kind: "unexplained", reason: "the report names no quantity" };
+  }
+  if (Math.abs(reported - (sold + held)) <= 1e-9) {
+    return { ...out, kind: "recovery",
+      reason: `the report names the ${reported} units the sale on ${soldOn} accounts for` };
+  }
+  return { ...out, kind: "unexplained",
+    reason: `the report shows ${reported} units; the sale and the live row `
+      + `account for ${sold + held}` };
+}
+
+/**
+ * What part of a report's total cost belongs to the units a disposal accounts
+ * for. The report's cost covers exactly the units it names, so its own unit
+ * price is applied to the sold units; nothing is averaged and nothing is
+ * extrapolated past the units the report names. When the report names every
+ * unit on file, the rest is the live rows' share; otherwise the live share is
+ * not invented and stays null. Returns null when the report cannot price the
+ * sale at all.
+ * @param {{totalPaise?: number|null, reported?: number|null,
+ *   disposed?: number, live?: number}} input
+ * @returns {{disposedPaise: number, livePaise: number|null, totalPaise: number,
+ *   units: number, sold: number, clean: boolean}|null}
+ */
+export function soldCostAttribution({ totalPaise = null, reported = null,
+  disposed = 0, live = 0 } = {}) {
+  const total = asMoney(totalPaise);
+  const units = asNumber(reported);
+  const sold = asNumber(disposed);
+  const held = asNumber(live) ?? 0;
+  if (total === null || total <= 0) return null;
+  if (units === null || units <= 0) return null;
+  if (sold === null || sold <= 0) return null;
+  if (sold > units + 1e-9) return null;
+  const disposedPaise = sold >= units - 1e-9 ? total : Math.round(total * sold / units);
+  const clean = Math.abs(held + sold - units) <= 1e-9;
+  return { disposedPaise, livePaise: clean ? total - disposedPaise : null,
+    totalPaise: total, units, sold, clean };
+}
+
+/**
+ * Whether a plan will write anything. A pending ask counts: accepting it is the
+ * decision that releases its field change, and an unaccepted ask blocks the
+ * plan before any writer runs. Reading the receipt's plan, not the receipt's
+ * plan's plan, is the whole point of this function.
+ * @param {object} plan a planMerge result or a receipt carrying one
+ * @returns {boolean}
+ */
+export function planHasWork(plan) {
+  const summary = (plan?.plan || plan)?.summary || {};
+  return (summary.added || 0) + (summary.updated || 0) + (summary.history || 0)
+    + (summary.ask || 0) > 0;
+}
+
+// Money in a warning is a number a person compares with another number, so it
+// carries the grouping the rest of the app uses and never raw paise.
+const moneyText = (paise) => (Number(paise) / 100)
+  .toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * What one report's cost does to one recorded disposal. An empty basis is
+ * filled from the report's own unit price; a recorded basis is never rewritten
+ * by a report that disagrees with it, and the difference is named. When the
+ * report cannot price the units the sale accounts for, nothing is guessed: the
+ * basis stays unknown and the card says so.
+ * @param {{sold: object, row: object, live?: number, source?: string}} input
+ * @returns {{attribution: object|null, stored: number|null,
+ *   disposalPaise: number|null, livePaise: number|null, differs: boolean,
+ *   flags: Array<string>, warnings: Array<string>, reason: string}}
+ */
+function soldCostFor({ sold, row, live = 0, source = "" } = {}) {
+  const label = source || "the report";
+  const disposed = asNumber(sold?.disposed_quantity) ?? 0;
+  const soldOn = String(sold?.disposed_at || "").slice(0, 10);
+  const attribution = soldCostAttribution({ totalPaise: row.costPaise,
+    reported: row.quantity, disposed, live });
+  const stored = asMoney(sold?.disposed_cost_paise);
+  const out = { attribution: null, stored, disposalPaise: null, livePaise: null,
+    differs: false, flags: [], warnings: [], reason: "" };
+  if (attribution === null) {
+    out.flags.push("sold-cost-unknown");
+    out.warnings.push(asMoney(row.costPaise) === null
+      ? `${row.isin}: ${label} carries no cost for the ${disposed} units the sale `
+        + "accounts for; the cost basis is still unknown."
+      : `${row.isin}: ${label} shows ${row.quantity} units, but the sale accounts for `
+        + `${disposed}; the report cannot price them. The cost basis is still unknown.`);
+    return out;
+  }
+  out.attribution = attribution;
+  out.differs = stored !== null && Math.abs(stored - attribution.disposedPaise) > 1;
+  if (out.differs) {
+    out.flags.push("sold-cost-differs");
+    out.warnings.push(`${row.isin}: the recorded sale already carries `
+      + `${moneyText(stored)}; ${label} prices the same units at `
+      + `${moneyText(attribution.disposedPaise)}. The recorded cost is kept.`);
+  }
+  out.disposalPaise = stored === null ? attribution.disposedPaise : null;
+  out.livePaise = attribution.livePaise;
+  out.reason = `the CAS records ${disposed} units sold on ${soldOn}; the sale stays and `
+    + "this report fills its cost basis";
+  return out;
 }
 
 /**
@@ -1092,17 +1232,72 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
               : "older than the recorded sale" });
           continue;
         }
+        // The report names units after a recorded sale. It is either the
+        // position the sale already accounts for (a stale pre-sale view, which
+        // is what a wrong import order leaves behind) or units acquired after
+        // it. Only the second is a live row; the first is a cost basis the
+        // disposal is missing, and writing it as a row would hold the bond and
+        // sell it at the same time.
+        //
+        // A depository statement is the custody record, not an enrichment. One
+        // that still names a sold bond contradicts the sale, so it stays the
+        // person's question and never becomes a cost on the disposal.
+        const depository = incoming?.kind === "cas";
+        const verdict = depository
+          ? { kind: "unexplained", reason: "the statement still names it" }
+          : soldReportVerdict({ quantity: row.quantity,
+            purchaseDate: row.purchaseDate, disposed: sold });
+        if (verdict.kind === "new-position") {
+          added += 1;
+          const next = { ...row };
+          if (!next.asOf) next.asOf = incomingState.date || "";
+          decisions.push({ isin: row.isin, label: row.label, action: "add", existing: null,
+            next, changes: [], flags: ["sold-rebuy"], reason: "new holding" });
+          continue;
+        }
+        if (verdict.kind === "unexplained") {
+          ask += 1;
+          const next = { ...row };
+          if (!next.asOf) next.asOf = incomingState.date || "";
+          decisions.push({
+            isin: row.isin, label: row.label, action: "ask", existing: sold, next,
+            changes: [{ ...fieldChange("snapshot", "quantity", 0, row.quantity,
+              incoming?.label || incoming?.kind, incomingState.date), requiresConfirm: true,
+            soldConflict: true }],
+            flags: ["sold-conflict", "sold-live-row"],
+            reason: `the CAS records ${sold.disposed_quantity ?? 0} sold on ${soldDate}; `
+              + (depository ? "the statement still names it and shows "
+                + `${row.quantity} units` : verdict.reason),
+          });
+          continue;
+        }
+        const cost = soldCostFor({ sold, row, live: 0,
+          source: incoming?.label || incoming?.kind });
+        warnings.push(...cost.warnings);
+        if (cost.attribution === null) {
+          skipped += 1;
+          decisions.push({ isin: row.isin, label: row.label, action: "skip",
+            existing: sold, next: null, changes: [], flags: ["sold-conflict", ...cost.flags],
+            reason: "the report cannot price the units the sale accounts for" });
+          continue;
+        }
+        if (cost.disposalPaise === null) {
+          kept += 1;
+          decisions.push({ isin: row.isin, label: row.label, action: "keep",
+            existing: sold, next: sold, changes: [], flags: ["sold-conflict", ...cost.flags],
+            reason: "the recorded sale keeps the cost basis it has" });
+          continue;
+        }
         ask += 1;
-        const next = { ...row };
-        if (!next.asOf) next.asOf = incomingState.date || "";
         decisions.push({
-          isin: row.isin, label: row.label, action: "ask", existing: sold, next,
-          changes: [{ ...fieldChange("snapshot", "quantity", 0, row.quantity,
-            incoming?.label || incoming?.kind, incomingState.date), requiresConfirm: true,
-          soldConflict: true }],
-          flags: ["sold-conflict"],
-          reason: `the CAS records ${sold.disposed_quantity ?? 0} sold on ${soldDate}; `
-            + `this report still shows ${row.quantity}`,
+          isin: row.isin, label: row.label, action: "ask", existing: sold, next: null,
+          changes: [{ group: "disposal", field: "soldCost", from: cost.stored,
+            to: cost.disposalPaise, source: incoming?.label || incoming?.kind,
+            asOf: incomingState.date, requiresConfirm: true }],
+          flags: ["sold-conflict", "sold-recovery"],
+          recovery: { txnKey: String(sold.txn_key || ""),
+            disposedAt: soldDate, costPaise: cost.disposalPaise },
+          reason: cost.reason,
         });
         continue;
       }
@@ -1147,6 +1342,36 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       && row.quantity !== null && old.quantity !== null
       && Number(row.quantity) > Number(old.quantity) + 1e-9;
     const incomingName = incoming?.kind === "cas" ? "CAS" : (incoming?.label || incoming?.kind);
+    // The units a report shows beyond the live row are the units the sale took,
+    // unless the report dates its purchase after the sale. Taking that quantity
+    // would hold the sold units twice; reading a dated acquisition as a
+    // recovery would hide a real holding. The verdict decides, and only a
+    // recovery is read for a cost. A depository statement is never a recovery:
+    // its snapshot is the custody record, so it stays a question.
+    const liveLots = oldRows.filter((item) => !item.disposed_at && item.isin
+      && item.isin === row.isin);
+    // One report prices one position. Across several lots of the same bond the
+    // remainder belongs to no single row, and this writer decides per ISIN, so
+    // nothing is written rather than a lot being priced twice or collapsed.
+    if (soldConflict && liveLots.length > 1) {
+      warnings.push(`${row.isin}: the account holds this bond in ${liveLots.length} lots, `
+        + "so a report cannot price the sale across them. Nothing is changed.");
+      kept += 1;
+      decisions.push({ isin: row.isin || old.isin, label: row.label || old.label,
+        action: "keep", existing: old, next: old, changes: [],
+        flags: ["sold-conflict", "sold-multi-lot"],
+        reason: "the account holds this bond in more than one lot" });
+      continue;
+    }
+    const liveUnits = liveLots.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+    const soldVerdict = soldConflict && incoming?.kind !== "cas"
+      ? soldReportVerdict({ quantity: row.quantity, purchaseDate: row.purchaseDate,
+        disposed: sold, live: liveUnits })
+      : null;
+    const recovery = soldVerdict?.kind === "recovery"
+      ? soldCostFor({ sold, row, live: asNumber(old.quantity) ?? 0, source: incomingName })
+      : null;
+    if (recovery) warnings.push(...recovery.warnings);
     // A broker report newer than the last CAS disagrees with the depository for
     // quantity or value. That is a question, not a silent overwrite. A cost-only
     // difference is still the broker's to take.
@@ -1154,7 +1379,11 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       && existingSource === "cas" && relation === "newer" && !unsafeDate;
     const quantityConflict = brokerAfterCas && quantityDiffers;
     const valueConflict = brokerAfterCas && valueDiffers;
-    if (casQuantityTake) {
+    if (recovery) {
+      // The report describes the position before the sale, so its quantity and
+      // value are not this account's. Only its cost is used, below, and only
+      // for the units it names.
+    } else if (casQuantityTake) {
       if (quantityDiffers) {
         next.quantity = row.quantity;
         changes.push(fieldChange("snapshot", "quantity", old.quantity, row.quantity,
@@ -1244,10 +1473,17 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
         }
       }
     }
+    if (recovery) {
+      rowFlags.push(...recovery.flags);
+      if (recovery.disposalPaise !== null) rowFlags.push("sold-recovery");
+    }
 
     if (costMode !== "keep") {
       const immutableManual = costMode === "fill-empty" && manualExisting && old.costPaise !== null;
       const fill = (field, oldValue, newValue) => {
+        // A recovery splits the report's cost by unit below. Taking the total
+        // here would put the sold units' cost on the live row as well.
+        if (recovery && field === "cost") return;
         if (newValue === null || newValue === undefined || newValue === "") return;
         if (costMode === "ask") {
           if (moneyDifferent(oldValue, newValue) || (typeof oldValue === "string" && oldValue !== newValue)) {
@@ -1277,6 +1513,26 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       fill("payoutPaise", old.payoutPaise, row.payoutPaise);
       fill("futureInterestPaise", old.futureInterestPaise, row.futureInterestPaise);
       fill("futurePrincipalPaise", old.futurePrincipalPaise, row.futurePrincipalPaise);
+    }
+
+    // A recovery prices the sold units, and the live units too when the report
+    // names exactly the position on file. One report carries one cost: the same
+    // money never lands on both rows.
+    let recoveryPatch = null;
+    if (recovery) {
+      if (recovery.disposalPaise !== null) {
+        recoveryPatch = { txnKey: String(sold.txn_key || ""),
+          disposedAt: String(sold.disposed_at || "").slice(0, 10),
+          costPaise: recovery.disposalPaise };
+        changes.push({ group: "disposal", field: "soldCost", from: recovery.stored,
+          to: recovery.disposalPaise, source: incomingName, asOf: incomingState.date,
+          requiresConfirm: true });
+      }
+      if (recovery.livePaise !== null && recovery.livePaise > 0 && old.costPaise === null) {
+        next.costPaise = recovery.livePaise;
+        changes.push(fieldChange("cost", "cost", old.costPaise, recovery.livePaise,
+          incomingName, incomingState.date));
+      }
     }
 
     // A CAS label carries the coupon and the maturity; a broker label can add
@@ -1312,7 +1568,9 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
     if (needsConfirm) {
       ask += 1;
       decisions.push({ isin: row.isin || old.isin, label: row.label || old.label, action: "ask",
-        existing: old, next, changes, flags: rowFlags, reason: soldConflict
+        existing: old, next, changes, flags: rowFlags,
+        ...(recoveryPatch ? { recovery: recoveryPatch } : {}),
+        reason: recovery ? recovery.reason : soldConflict
           ? "the report shows more units than a recorded sale left"
           : "same date or manual cost" });
     } else if (changedFields.length || changes.length) {
@@ -1450,7 +1708,9 @@ function importHoldingRow(next, source = {}, manual) {
  * answers both "what will the page show" and "what will it store".
  *
  * A row with no decision is kept. A disposal record is history and always
- * survives. An ask the person has not accepted keeps the row already on file.
+ * survives; an accepted recovery fills its cost basis instead of adding the
+ * report's row beside it, because the sale is the fact and the report is the
+ * stale view. An ask the person has not accepted keeps the row already on file.
  * @param {Array<object>} holdings
  * @param {object} plan a planMerge result
  * @param {{family?: string, label?: string, asOf?: string}} source
@@ -1471,9 +1731,25 @@ export function mergeRowsFromPlan(holdings, plan, source = {}, acceptAsk = false
     seen.add(key);
     out.push(row);
   };
+  // An accepted recovery names the disposal it prices: the latest sale for that
+  // ISIN, matched by its transaction key, or by its date on a legacy row.
+  const recoveryOf = (holding) => {
+    if (!acceptAsk) return null;
+    const decision = decisions.get(String(holding.security_id || "").toUpperCase());
+    if (decision?.action !== "ask" || !decision.recovery) return null;
+    const marker = decision.recovery;
+    const key = String(holding.txn_key || "");
+    if (marker.txnKey && key) return key === marker.txnKey ? marker : null;
+    return String(holding.disposed_at || "").slice(0, 10) === marker.disposedAt
+      ? marker : null;
+  };
   for (const holding of holdings || []) {
     if (holding.source === "manual") continue;
-    if (holding.disposed_at) { push(holding); continue; }
+    if (holding.disposed_at) {
+      const recovery = recoveryOf(holding);
+      push(recovery ? { ...holding, disposed_cost_paise: recovery.costPaise } : holding);
+      continue;
+    }
     const key = String(holding.security_id || "").toUpperCase();
     const decision = decisions.get(key);
     if (!decision || decision.action === "keep" || decision.action === "skip"
@@ -1485,9 +1761,11 @@ export function mergeRowsFromPlan(holdings, plan, source = {}, acceptAsk = false
     push(importHoldingRow(decision.next, source, manual.get(key)));
   }
   for (const decision of plan?.decisions || []) {
+    // A quantity the sale does not explain is an accepted live row. A recovery
+    // is a cost basis on the disposal, and an unaccepted ask writes nothing.
     if (decision.action === "add"
       || (decision.action === "ask" && acceptAsk
-        && (decision.flags || []).includes("sold-conflict"))) {
+        && (decision.flags || []).includes("sold-live-row"))) {
       push(importHoldingRow(decision.next, source,
         manual.get(String(decision.isin || "").toUpperCase())));
     }
@@ -1568,23 +1846,36 @@ const NET_FIELDS = ["label", "category", "quantity", "cost_paise", "value_paise"
   "as_of", "disposed_at", "disposed_quantity", "disposed_type", "disposed_source",
   "disposed_reason", "disposed_cost_paise", "txn_key"];
 
-const holdingKey = (row) => String(row?.security_id || row?.isin || "").toUpperCase()
-  || `label:${norm(row?.label || "")}`;
+// Two rows for one security are two rows: a disposal is history and a live lot
+// is not, so they must not collapse into one key in a before/after count.
+const holdingKey = (row) => `${String(row?.security_id || row?.isin || "").toUpperCase()
+  || `label:${norm(row?.label || "")}`}|${row?.disposed_at
+  ? `sold:${row.txn_key || String(row.disposed_at).slice(0, 10)}` : "live"}`;
 
 /**
  * What one plan changes in one account, read from the rows before and after.
  * The receipts say what each file did, and a row that one file adds and another
  * fills cost on is one added holding, not an add plus an update. A matured row
- * moved to zero is history, not an update.
+ * moved to zero is history, not an update. A cost a report puts on a recorded
+ * disposal is a sold cost basis, not a live holding.
+ * @param {Array<object>} before
+ * @param {Array<object>} after
+ * @returns {{added: number, updated: number, kept: number, history: number,
+ *   removed: number, soldCost: number}}
  */
-function netChange(before = [], after = []) {
+export function planNetChange(before = [], after = []) {
   const old = new Map((before || []).map((row) => [holdingKey(row), row]));
   const seen = new Set();
-  const net = { added: 0, updated: 0, kept: 0, history: 0, removed: 0 };
+  const net = { added: 0, updated: 0, kept: 0, history: 0, removed: 0, soldCost: 0 };
   for (const row of after || []) {
     const key = holdingKey(row);
     seen.add(key);
     const prior = old.get(key);
+    if (row.disposed_at) {
+      if (prior && fieldsWouldChange(prior, row, NET_FIELDS).length) net.soldCost += 1;
+      else net.kept += 1;
+      continue;
+    }
     const matured = Number(row.quantity) === 0 && !row.disposed_at
       && (!prior || Number(prior.quantity) > 0);
     if (!prior) {
@@ -1643,13 +1934,13 @@ export function planImportChains({ chains = [], today = isoToday(), acceptAsk = 
       state = planStateAfter({ ...state, holdings: rows }, plan, contribution);
     }
     return { accountId: chain.accountId || "", account: chain.account || null,
-      receipts, rows: state.holdings || [], net: netChange(chain.holdings || [], state.holdings || []),
+      receipts, rows: state.holdings || [], net: planNetChange(chain.holdings || [], state.holdings || []),
       ...aggregateReceipts(receipts) };
   });
   const net = out.reduce((total, chain) => {
     for (const key of Object.keys(total)) total[key] += chain.net[key] || 0;
     return total;
-  }, { added: 0, updated: 0, kept: 0, history: 0, removed: 0 });
+  }, { added: 0, updated: 0, kept: 0, history: 0, removed: 0, soldCost: 0 });
   return { chains: out, net,
     ...aggregateReceipts(out.flatMap((chain) => chain.receipts)) };
 }

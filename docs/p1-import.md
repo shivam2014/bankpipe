@@ -188,14 +188,68 @@ existing demat that only a later CAS can relabel. Grouping leaves that
 unchanged: there is no account id to join on, and inventing one is the stored
 mapping this phase forbids.
 
-### Follow-up: recover a sold-conflict accept
+### Follow-up: recover a sold-conflict accept (landed)
 
-Accepting a sold-conflict ask currently writes the report's live row beside the
-disposal. The durable fix is to keep the `disposed_at` row and fill
-`disposed_cost_paise` from the report's cost, so the wrong order is recoverable.
-It is not in Phase 2. It changes what an accepted ask writes, and it needs tests
-for a full sale, a partial sale, a re-purchase and a linked cost portfolio. The
-card gate prevents the wrong order in the meantime.
+Accepting a sold-conflict ask used to write the report's live row beside the
+disposal. The bond then appeared both sold and held, and the disposal kept
+`disposed_cost_paise: null`. The broker-first gate prevents the wrong order for a
+broker that funds the cost, but nothing recovered from it: no screen edits
+`disposed_cost_paise`, and the ask was the only way in — declining it left the
+cost unknown, and accepting it wrote the wrong shape.
+
+The acceptance now prices the disposal instead of adding a row. Three rules, all
+in `web/import-flow.js`:
+
+- **Which reading a report gets.** `soldReportVerdict` decides between a
+  recovery and a new position. A report that dates its purchase after the sale
+  is a new holding and is added, never merged into the disposal. A report that
+  names exactly the units the live row and the disposal account for
+  (`reported === live + disposed`) is the position that was sold, so its cost is
+  the disposal's. Every other quantity is the question it was before, because
+  the app cannot tell a re-purchase of a different size from a stale snapshot.
+  A depository statement is never a recovery: its snapshot is the custody
+  record, so a CAS that still names a sold bond stays a person's decision.
+- **Which cost wins.** `soldCostAttribution` applies the report's own unit price
+  to the disposed units, and only over units the report names. An empty basis is
+  filled; a recorded basis is kept and the difference is named on the card, with
+  both numbers. Nothing is averaged, and a report that names fewer units than
+  the sale prices nothing.
+- **One report, one total.** When the report names exactly the position on file,
+  the rest of its cost belongs to the live units and fills only an empty live
+  cost. The same money never lands on both rows, and a known live cost is never
+  overwritten by the report. A bond held in several lots is left alone with a
+  warning: this writer decides per ISIN, so pricing one lot would repeat or
+  collapse the cost.
+
+`mergeRowsFromPlan` applies an accepted recovery to the stored disposal row,
+matched by its `txn_key` (or its date on a legacy row), and leaves every other
+field of that row alone. The plan counts a priced disposal as `soldCost`, not as
+an updated holding, so the card says "Record the sold cost basis" and the net
+count does not claim a holding appeared.
+
+A linked cost portfolio is untouched: `planLinkedSales` still consumes its FIFO
+lots once, at CAS time, and the recovery only ever writes the demat's disposal.
+When the portfolio already priced the sale, the broker's different number is
+kept-and-flagged, which is the same rule.
+
+Measured on synthetic rows with the probe in `scripts/probe-import-plans.mjs`,
+statement first and broker second, then the ask accepted:
+
+| | Before `71293c5` | After |
+| --- | ---: | ---: |
+| rows written | 2 | 1 |
+| live rows for the sold bond | 1 | 0 |
+| `disposed_cost_paise` | null | 200000 |
+| `net.added` | 1 | 0 |
+| `net.soldCost` | — | 1 |
+
+The second import says "already matches" in both cases. What changed is the row
+it matched: before, the report's own row, held beside the sale; after, the
+priced disposal.
+
+The card gate stays. It is still the cheap path: a broker that funds the cost is
+imported first, and the statement's disposal takes the cost at CAS time. What
+changed is that the expensive path is now recoverable.
 
 ## Phase 3: one gate and one write per plan
 
