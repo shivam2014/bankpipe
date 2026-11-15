@@ -47,15 +47,25 @@ test("no disposals render nothing", () => {
   assert.equal(soldHoldingsHtml([live], "demat-a", fmt), "");
 });
 
-test("the CAS preview lists the sold row with its date, units and cost", () => {
+test("the CAS preview lists the sold row with its cost basis", () => {
   const lines = casSoldLines({ sold: [sold] }, fmt);
   assert.deepEqual(lines,
-    ["Sold 50 units of INE000000032 on 2026-08-12: cost ₹5000"]);
+    ["Cost basis for 50 units of INE000000032 sold on 2026-08-12: ₹5000"]);
 });
 
 test("a sold row with no cost says so instead of printing zero", () => {
   const lines = casSoldLines({ sold: [{ ...sold, disposed_cost_paise: null }] }, fmt);
-  assert.match(lines[0], /cost not known/);
+  assert.equal(lines[0],
+    "Cost basis for 50 units of INE000000032 sold on 2026-08-12: not known");
+});
+
+test("no cost line opens with Sold, so it cannot read as a second sale", () => {
+  // The movement line above already opens "Sold N units of …". Two bullets that
+  // open the same way read as a double count.
+  const lines = casSoldLines({ sold: [sold, { ...sold, disposed_cost_paise: null }] }, fmt);
+  for (const line of lines) assert.doesNotMatch(line, /^Sold/);
+  assert.match(lines[0], /^Cost basis for 50 units/);
+  assert.match(lines[1], /^Cost basis for 50 units/);
 });
 
 test("a zero cost basis is shown, not hidden", () => {

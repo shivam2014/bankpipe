@@ -30,8 +30,13 @@ export function casSoldLines(plan, fmt = {}) {
     const units = row.disposed_quantity === null || row.disposed_quantity === undefined
       ? "—" : row.disposed_quantity;
     const cost = row.disposed_cost_paise === null || row.disposed_cost_paise === undefined
-      ? "cost not known" : `cost ${money(row.disposed_cost_paise)}`;
-    return `${soldTypeLabel(row)} ${units} units of ${row.security_id || ""} on `
+      ? "not known" : money(row.disposed_cost_paise);
+    // The movement line above already opens "Sold N units of …" for a sale. This
+    // line carries the cost basis, so it leads with that and cannot read as a
+    // second disposal of the same units.
+    const verb = row?.disposed_type === "sale" ? "sold"
+      : row?.disposed_type === "transfer-out" ? "transferred out" : "disposed";
+    return `Cost basis for ${units} units of ${row.security_id || ""} ${verb} on `
       + `${row.disposed_at || "an unknown date"}: ${cost}`;
   });
 }

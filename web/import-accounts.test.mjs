@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { isSecuritiesAccount, isImportAccount, isDepositoryAccount } from "./assets.js";
 import { accountMatches, groupBundles, importAccountGaps, importAccountSummary,
-  normalizeAccount, IMPORT_REPORT_GUIDE } from "./import-flow.js";
+  importPlanPrimary, normalizeAccount, IMPORT_REPORT_GUIDE } from "./import-flow.js";
 
 // Synthetic identifiers only. The real files are never committed.
 const isin = (n) => `INE${String(n).padStart(9, "0")}`;
@@ -603,6 +603,32 @@ test("the batch closes through the ready flag and reports the net", () => {
   assert.match(all, /plan\.net\?\.added/);
   assert.match(all, /plan\.net\?\.updated/);
   assert.match(all, /plan\.net\?\.history/);
+});
+
+test("the batch offers Import all only when every plan can run", () => {
+  // A dead primary that keeps the accent fill competes with the gate message.
+  // The bar keeps its explanation; only the action is absent until it can act.
+  const render = between("function bpImportInboxRender", "async function bpImportInboxReadOne");
+  assert.match(render, /\$\{allReady\s*\n?\s*\? `<button class="btn primary"/,
+    "the button is rendered by the ready flag, not disabled by it");
+  assert.doesNotMatch(render, /class="btn primary" disabled[\s\S]{0,60}Import all/,
+    "there is no disabled Import all left in the batch");
+  assert.match(render, /Import all appears when every plan is ready/);
+});
+
+test("a plan of one holding says holding, not holdings", () => {
+  assert.equal(importPlanPrimary({ family: "cas", planned: 1 }), "Import 1 holding");
+  assert.equal(importPlanPrimary({ family: "cas", planned: 3 }), "Import 3 holdings");
+  assert.equal(importPlanPrimary({ family: "motilal", planned: 1 }), "Import 1 holding");
+  assert.equal(importPlanPrimary({ family: "zerodha", planned: 1 }), "Import 1 equity");
+  assert.equal(importPlanPrimary({ family: "zerodha", planned: 2 }), "Import 2 equities");
+  assert.equal(importPlanPrimary({ family: "motilal", planned: 1, create: true }),
+    "Create account and import 1 holding");
+  assert.equal(importPlanPrimary({ family: "cas", planned: 0, sales: 1 }), "Record 1 sale");
+  assert.equal(importPlanPrimary({ family: "cas", planned: 0, sales: 2 }), "Record 2 sales");
+  assert.equal(importPlanPrimary({ family: "cas", identityOnly: true }),
+    "Attach identity and fill empty values");
+  assert.equal(importPlanPrimary({ family: "cas" }), "Attach identity");
 });
 
 test("a buy-only movement card says movements, not disposals", () => {

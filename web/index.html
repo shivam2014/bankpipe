@@ -1349,8 +1349,8 @@ import { folioAdoptionPlan, folioHome, folioKey, folioTail, isFolioAccount,
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, mergeRowsFromPlan, planImportChains, movementGate, statementAccounts,
-  importAccountSummary, importAccountGaps, IMPORT_REPORT_GUIDE, normalizeAccount,
-  parseTradebook, parseTradebookMatrix,
+  importAccountSummary, importAccountGaps, importPlanPrimary, IMPORT_REPORT_GUIDE,
+  normalizeAccount, parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
@@ -7836,13 +7836,13 @@ function bpImportPlanHtml(plan) {
   const net = plan.net || {};
   const planned = (net.added || 0) + (net.updated || 0) + (net.history || 0);
   const sales = bundle.saleEvents?.length || 0;
-  const primary = bundle.family === "cas"
-    ? (bundle.plan?.identityOnly
-      ? "Attach identity and fill empty values"
-      : planned ? `Import ${planned} holdings`
-        : sales ? `Record ${sales} sale${sales === 1 ? "" : "s"}` : "Attach identity")
-    : `${bundle.create && !bundle.targetId ? "Create account and import " : "Import "}${
-      planned} ${bundle.family === "zerodha" ? "equities" : "holdings"}`;
+  const primary = importPlanPrimary({
+    family: bundle.family,
+    identityOnly: !!bundle.plan?.identityOnly,
+    planned,
+    sales,
+    create: bundle.create && !bundle.targetId,
+  });
   return `<div class="card pad import-bundle" data-plan="${esc(plan.key)}">
     <div class="import-bundle-head">
       <div><div class="import-kicker">${bundle.family === "cas"
@@ -7903,11 +7903,11 @@ function bpImportInboxRender() {
     <div class="import-batch-copy"><b>${totalFiles} file${totalFiles === 1 ? "" : "s"} ·
       ${plans.length} plan${plans.length === 1 ? "" : "s"}</b>
       <span class="muted">Selection order does not matter. Each plan is matched by its contents.
-        ${allReady ? "" : "Choose an account or review the differences before importing all."}</span></div>
+        ${allReady ? "" : "Import all appears when every plan is ready."}</span></div>
     <div class="import-batch-actions">
       <button class="btn" onclick="bpImportReviewAll()">Review differences</button>
-      <button class="btn primary" ${allReady && !state.applying ? "" : "disabled"}
-        onclick="bpImportApplyAll()">Import all</button>
+      ${allReady ? `<button class="btn primary" ${state.applying ? "disabled" : ""}
+        onclick="bpImportApplyAll()">Import all</button>` : ""}
     </div></div>` : "";
   host.innerHTML = `${looseHtml}${batch}${plans.map(bpImportPlanHtml).join("")}`;
 }
