@@ -19,6 +19,46 @@ const isoDay = (value) => {
   return m ? `${m[1]}-${m[2]}-${m[3]}` : "";
 };
 
+// Where a stored term came from, ranked. A report or a person outranks a
+// lookup, and the label is the last resort. A value with no source is treated
+// as a statement: it was written before provenance existed, so a lookup must
+// not replace it.
+const TERM_SOURCE_RANK = { label: 1, lookup: 2, report: 3, manual: 3 };
+export function termSourceKind(source) {
+  const s = String(source || "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "label") return "label";
+  if (s === "manual" || s.includes("by hand") || s.includes("entered")) return "manual";
+  if (s.includes("smest") || s.includes("bse")
+    || s.includes("lookup") || s.includes("market")) {
+    return "lookup";
+  }
+  return "report";
+}
+export function termSourceRank(source) {
+  const kind = termSourceKind(source);
+  return kind ? TERM_SOURCE_RANK[kind] : 0;
+}
+
+// The coupon a row actually stores, never the one parsed out of its name. The
+// label stays a render-time fallback so an old row does not gain a fake fact.
+export function storedCoupon(row) {
+  const raw = row?.couponPct ?? row?.coupon_pct;
+  if (raw === null || raw === undefined || String(raw).trim() === "") {
+    return { value: null, source: "", asOf: "", stored: false };
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    return { value: null, source: "", asOf: "", stored: false };
+  }
+  return {
+    value,
+    source: String(row?.couponSource ?? row?.coupon_source ?? "").trim(),
+    asOf: String(row?.couponAsOf ?? row?.coupon_as_of ?? "").slice(0, 10),
+    stored: true,
+  };
+}
+
 export const isDisposed = (row) => !!String(row?.disposed_at || "").trim();
 
 // One notion of maturity, shared by the value maths, the Matured section and
@@ -28,7 +68,14 @@ export const isDisposed = (row) => !!String(row?.disposed_at || "").trim();
 // latest date, because a series or issue date can sit earlier in the name.
 export function bondMaturity(row) {
   const stored = isoDay(row?.maturity) || isoDay(row?.maturity_date);
-  if (stored) return { maturity: stored, source: "stored", guessed: false };
+  if (stored) {
+    const source = String(row?.maturitySource ?? row?.maturity_source ?? "").trim();
+    return {
+      maturity: stored,
+      source: source || "stored",
+      guessed: termSourceKind(source) === "label",
+    };
+  }
   const category = String(row?.category || row?.kind || "").trim().toLowerCase();
   if (category && category !== "bond") {
     return { maturity: "", source: "", guessed: false };
@@ -274,17 +321,20 @@ export function bondAnalytics(h) {
   // A coupon the statement or the broker prints is a fact. The label is only a
   // fallback, and the card reports that fallback as a guess. The old order
   // preferred the name and could silently replace a stated rate.
-  const storedCoupon = h?.couponPct === null || h?.couponPct === undefined
-    || String(h.couponPct).trim() === "" ? null : Number(h.couponPct);
-  const hasStoredCoupon = storedCoupon !== null && Number.isFinite(storedCoupon);
+  const stored = storedCoupon(h);
+  const hasStoredCoupon = stored.stored;
   const labelCoupon = parsedLabel?.couponPct ?? null;
-  const couponPct = hasStoredCoupon ? storedCoupon
+  const couponPct = hasStoredCoupon ? stored.value
     : (labelCoupon !== null && Number.isFinite(labelCoupon) ? labelCoupon : null);
   if (!terms.maturity || couponPct === null) return null;
+  const couponSource = hasStoredCoupon ? (stored.source || "stored")
+    : (labelCoupon !== null && Number.isFinite(labelCoupon) ? "label" : "");
   const parsed = { ...(parsedLabel || {}), couponPct,
-    couponSource: hasStoredCoupon ? "stored" : "label",
-    couponGuessed: !hasStoredCoupon,
+    couponSource,
+    couponAsOf: hasStoredCoupon ? stored.asOf : "",
+    couponGuessed: !hasStoredCoupon || termSourceKind(couponSource) === "label",
     maturity: terms.maturity, maturitySource: terms.source,
+    maturityAsOf: String(h?.maturityAsOf ?? h?.maturity_as_of ?? "").slice(0, 10),
     maturityGuessed: terms.guessed,
     dateUnread: terms.maturity ? false : !!parsedLabel?.dateUnread,
     name: String(h?.label || "") };
@@ -535,11 +585,20 @@ export function bondRatingChange(atPurchase, current) {
 // proposed — a rating or a payment frequency already on the row is a fact the
 // user chose, and a bulk fetch must not rewrite it. The value is clinical:
 // face × units × price, and only when the price and the units are both known.
-export function bondFillPlan(row, fetched) {
+export function bondFillPlan(row, fetched, today = new Date().toISOString().slice(0, 10)) {
   const details = fetched?.details || null;
   const market = fetched?.market || null;
   const units = Number(row.quantity) || 0;
   const patch = {};
+  const source = details?.source === "BSE" ? "BSE" : "SMEST";
+  // A lookup may fill an empty term or replace another lookup. It never
+  // replaces a report or a person, and a stored value with no provenance is
+  // old enough to be either, so it is left alone.
+  const canTake = (value, oldSource) => {
+    if (value === null || value === undefined || value === "") return true;
+    const kind = termSourceKind(oldSource);
+    return kind === "label" || kind === "lookup";
+  };
   if (details) {
     // The rating is the one field that is meant to move: `rating` is today's
     // grade and `rating_at_purchase` keeps the baseline. A bulk fetch that only
@@ -551,19 +610,43 @@ export function bondFillPlan(row, fetched) {
     if (details.issuer && details.issuer !== String(row.issuer || "").trim()) {
       patch.issuer = details.issuer;
     }
+    const oldCoupon = storedCoupon(row);
+    const coupon = Number(details.coupon);
+    if (Number.isFinite(coupon) && coupon > 0
+        && canTake(oldCoupon.value, oldCoupon.source)
+        && (oldCoupon.value !== coupon || oldCoupon.source !== source)) {
+      patch.coupon_pct = coupon;
+      patch.coupon_source = source;
+      patch.coupon_as_of = today;
+    }
+    const oldMaturity = bondMaturity(row);
+    const maturity = isoDay(details.maturity);
+    if (maturity && canTake(oldMaturity.maturity, oldMaturity.source)
+        && (oldMaturity.maturity !== maturity || oldMaturity.source !== source)) {
+      patch.maturity = maturity;
+      patch.maturity_source = source;
+      patch.maturity_as_of = today;
+    }
     // SMEST prints the face now. Store the face bought instead, and keep the
     // difference as principal already returned, so a part redemption cannot
-    // make the purchase yield look negative on the next render.
-    if (Number(details.face) > 0 && units > 0) {
+    // make the purchase yield look negative on the next render. A report or a
+    // person already named the face, so a lookup leaves it alone.
+    const oldFaceSource = String(row.faceSource ?? row.face_source ?? "").trim();
+    const faceCanTake = !(Number(row.face_paise) > 0)
+      || ["label", "lookup"].includes(termSourceKind(oldFaceSource));
+    if (Number(details.face) > 0 && units > 0 && faceCanTake) {
       const currentFace = Number(details.face);
       const boughtFace = Math.max(currentFace, inferFace(row.cost_paise, units) || 0);
       const facePaise = Math.round(boughtFace * 100);
-      if (facePaise !== Number(row.face_paise || 0)) patch.face_paise = facePaise;
+      if (facePaise !== Number(row.face_paise || 0)) {
+        patch.face_paise = facePaise;
+        patch.face_source = source;
+        patch.face_as_of = today;
+      }
       const back = Math.round((boughtFace - currentFace) * units * 100);
       if (back > 0 && (row.returned_paise === null || row.returned_paise === undefined)) {
         patch.returned_paise = back;
         patch.returned_source = "smest";
-        const today = new Date().toISOString().slice(0, 10);
         const past = (details.redemptions || []).map(String)
           .filter((d) => d && d <= today).sort().pop();
         if (past) patch.returned_at = past;
@@ -601,7 +684,8 @@ export function bondFillPlan(row, fetched) {
     added: !!(patch.frequency || patch.interest_date),
     ratingChanged: !!(patch.rating && String(row.rating || "").trim()),
     terms: !!(patch.rating || patch.issuer || patch.face_paise || patch.returned_paise
-      || patch.frequency || patch.interest_date || patch.redemption_dates),
+      || patch.frequency || patch.interest_date || patch.redemption_dates
+      || patch.coupon_pct !== undefined || patch.maturity !== undefined),
     priced: patch.value_paise !== undefined,
     unread: !details && !market,
   };

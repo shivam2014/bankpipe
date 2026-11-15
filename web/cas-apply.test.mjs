@@ -75,6 +75,32 @@ test("a CAS label carries the coupon and the maturity", () => {
     "9% TEST BOND 31 Dec 2027");
 });
 
+test("a CAS stores the coupon and maturity it prints, and keeps an older term when silent", () => {
+  const plan = casApplyRows({
+    existing: [existingBroker()], holdings: [casHolding()],
+    asOf: "2026-10-31", preserveAbsent: false,
+  });
+  const row = plan.rows[0];
+  assert.equal(row.coupon_pct, 9);
+  assert.equal(row.coupon_source, "CAS");
+  assert.equal(row.coupon_as_of, "2026-10-31");
+  assert.equal(row.maturity, "2027-12-31");
+  assert.equal(row.maturity_source, "CAS");
+  assert.equal(row.maturity_as_of, "2026-10-31");
+
+  const older = existingBroker({ coupon_pct: 8, coupon_source: "Motilal Oswal",
+    coupon_as_of: "2026-11-05", maturity: "2027-12-31",
+    maturity_source: "Motilal Oswal", maturity_as_of: "2026-11-05" });
+  const silent = casApplyRows({
+    existing: [older], holdings: [casHolding({ couponPct: null, maturity: "" })],
+    asOf: "2026-10-31", preserveAbsent: false,
+  });
+  assert.equal(silent.rows[0].coupon_pct, 8);
+  assert.equal(silent.rows[0].coupon_source, "Motilal Oswal");
+  assert.equal(silent.rows[0].maturity, "2027-12-31");
+  assert.equal(silent.rows[0].maturity_source, "Motilal Oswal");
+});
+
 test("a label that already ends in a September date is not given a second one", () => {
   // Node's en-IN renders September as "Sept", four letters. A three-letter
   // guard missed it and appended the same date in its "Sep" form. A dated label

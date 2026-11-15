@@ -828,6 +828,23 @@ export function casApplyRows({ existing = [], holdings = [], asOf = "",
       value_paise: h.valuePaise,
       value_source: "CAS",
       purchase_date: carriedCost && old ? old.purchase_date || "" : "",
+      // The statement prints the coupon and maturity as columns. Store them as
+      // facts with the statement's date; where it is silent, keep the older
+      // broker term rather than dropping it.
+      coupon_pct: h.couponPct ?? oldRow?.coupon_pct ?? oldRow?.couponPct ?? null,
+      coupon_source: h.couponPct !== null && h.couponPct !== undefined
+        ? "CAS" : (oldRow?.coupon_source || oldRow?.couponSource || ""),
+      coupon_as_of: h.couponPct !== null && h.couponPct !== undefined
+        ? asOf : (oldRow?.coupon_as_of || oldRow?.couponAsOf || ""),
+      maturity: h.maturity || oldRow?.maturity || "",
+      maturity_source: h.maturity ? "CAS"
+        : (oldRow?.maturity_source || oldRow?.maturitySource || ""),
+      maturity_as_of: h.maturity ? asOf
+        : (oldRow?.maturity_as_of || oldRow?.maturityAsOf || ""),
+      face_source: h.faceValuePaise !== null && h.faceValuePaise !== undefined
+        ? "CAS" : (oldRow?.face_source || oldRow?.faceSource || ""),
+      face_as_of: h.faceValuePaise !== null && h.faceValuePaise !== undefined
+        ? asOf : (oldRow?.face_as_of || oldRow?.faceAsOf || ""),
       source: oldRow?.source || "",
       ...carryBrokerFields(oldRow, h.quantity),
       as_of: asOf,

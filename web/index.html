@@ -1332,7 +1332,7 @@ import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { bondAnalytics, bondSummary, bondMaturity, splitMatured, parseBondLabel,
-  bondLabelName, inferFace, bondFillPlan, bondRatingChange } from "./bonds.js";
+  bondLabelName, inferFace, bondFillPlan, bondRatingChange, termSourceRank } from "./bonds.js";
 import { bondCardHtml, bondBookSummary, bondRowView, bondSortValue, bondRatingOf,
   bondFrequency } from "./bond-book.js";
 import { bondLabelText, bondHoldingPatch, bondKeptLine } from "./bond-holding.js";
@@ -12040,6 +12040,8 @@ function holdingsCard(allRows, assetId) {
   const missingRating = bondRows.filter((h) => !bondRatingOf(h)).length;
   const missingName = bondRows.filter((h) => !String(h.issuer || "").trim()).length;
   const missingFace = bondRows.filter((h) => !(Number(h.face_paise) > 0)).length;
+  const missingTerms = bondRows.filter((h) => !(Number(h.coupon_pct) > 0)
+    || !String(h.maturity || "").trim()).length;
   const views = rows.map(bondRowView).sort((a, b) => {
     const va = bondSortValue(a, state.key);
     const vb = bondSortValue(b, state.key);
@@ -12085,14 +12087,18 @@ function holdingsCard(allRows, assetId) {
     missingFace ? `${missingFace} face value${missingFace === 1 ? "" : "s"} inferred` : "",
     missingName ? `${missingName} name${missingName === 1 ? "" : "s"} missing` : "",
     missingRating ? `${missingRating} rating${missingRating === 1 ? "" : "s"} missing` : "",
+    missingTerms ? `${missingTerms} coupon or maturity not stored` : "",
   ].filter(Boolean);
   const needsFetch = missingDetails.length > 0;
-  const needsCount = missingFace + missingName + missingRating;
+  const needsCount = missingFace + missingName + missingRating + missingTerms;
   const needsRows = bondRows.map((h) => {
     const missing = [];
     if (!(Number(h.face_paise) > 0)) missing.push("face value inferred");
     if (!String(h.issuer || "").trim()) missing.push("issuer name");
     if (!bondRatingOf(h)) missing.push("rating");
+    if (!(Number(h.coupon_pct) > 0) || !String(h.maturity || "").trim()) {
+      missing.push("coupon or maturity not stored");
+    }
     return missing.length ? { h, missing } : null;
   }).filter(Boolean);
   const costNote = missingCost
@@ -12111,7 +12117,7 @@ function holdingsCard(allRows, assetId) {
           <span>${missingDetails.join(" · ")}</span>
           ${fetching ? `<span>Fetching now…</span>`
             : assetId ? `<button class="actlink" id="bond-fetch-link"
-              title="Get each bond's name, rating, face value and BSE price from SMEST and BSE"
+              title="Get each bond's name, rating, coupon, maturity, face value and BSE price from SMEST and BSE"
               onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online to fill ${
                 needsCount === 1 ? "it" : "them"} →</button>` : ""}`
         : `<span class="sep">·</span><span>invested ${moneyOrDash(s.cost)}</span>
@@ -12132,7 +12138,7 @@ function holdingsCard(allRows, assetId) {
         <button class="btn" title="Type a value yourself. Use this when the online lookup has no price for a bond."
           onclick="bpHoldingsEdit(${jsArg(assetId)})">Enter value</button>
         <button class="btn ${needsFetch ? "primary" : ""}" id="bond-fetch-btn"
-          title="Get each bond's latest name, rating, face value and BSE price from SMEST. Nothing you typed is replaced."
+          title="Get each bond's latest name, rating, coupon, maturity, face value and BSE price from SMEST. Nothing a report or you supplied is replaced."
           onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online</button>
         <details class="more-menu" style="margin-left:0">
           <summary class="btn" aria-label="More holding actions">More</summary>
@@ -12347,9 +12353,17 @@ async function marketBondData(isins, onProgress) {
       const isin = queue.shift();
       try {
         const res = await fetch(`/__market/bond?isin=${encodeURIComponent(isin)}`);
-        // Keep the status: a 404 is a bond SMEST does not list, which is not the
-        // same problem as a lookup that never answered.
-        got.set(isin, res.ok ? await res.json() : { error: "lookup", status: res.status });
+        // A static host answers this path with HTML, not the local server's
+        // JSON. Treat that as "no lookup here", not as a bond it does not list.
+        const type = res.headers?.get?.("content-type") || "";
+        if (!type.includes("application/json")) {
+          got.set(isin, null);
+          down = true;
+        } else {
+          // Keep the status: a 404 is a bond SMEST does not list, which is not
+          // the same problem as a lookup that never answered.
+          got.set(isin, res.ok ? await res.json() : { error: "lookup", status: res.status });
+        }
       } catch (e) {
         got.set(isin, null);
         down = true;
@@ -12449,7 +12463,7 @@ window.bpBondFetchAll = async (assetId, onlyId = "") => {
       return;
     }
     show({ label: "Saving the latest details", pct: 95,
-      detail: "Writing names, ratings, face values and prices." });
+      detail: "Writing names, ratings, terms, face values and prices." });
     const counts = await applyMarketData(store, assetId, currentLots, got);
     if (maturedLots.length) {
       const terms = await applyMarketData(store, assetId, maturedLots, got, { termsOnly: true });
@@ -13041,8 +13055,14 @@ function assetForm(a, factCount, defaultCat, holdings) {
 }
 function bondLabelParts(h) {
   const p = parseBondLabel(h?.label);
-  if (!p) return { name: h?.label || "", coupon: "", maturity: "" };
-  return { name: bondLabelName(h.label), coupon: p.couponPct, maturity: p.maturity };
+  const storedCoupon = Number(h?.coupon_pct);
+  const storedMaturity = String(h?.maturity || "").slice(0, 10);
+  return {
+    name: bondLabelName(h?.label || "") || h?.label || "",
+    coupon: Number.isFinite(storedCoupon) && storedCoupon > 0
+      ? storedCoupon : (p?.couponPct ?? ""),
+    maturity: storedMaturity || p?.maturity || "",
+  };
 }
 window.bpBondHoldingNew = (assetId) => {
   window.bpState = { ...(window.bpState || {}), bondHoldingAsset: assetId, bondHoldingId: "" };
@@ -13089,6 +13109,7 @@ function renderBondHoldingForm() {
     const parts = h ? bondLabelParts(h) : { name: "", coupon: "", maturity: "" };
     window.bpHoldingIssuer = h?.issuer || "";
     window.bpHoldingRedemptions = h?.redemption_dates || "";
+    window.bpHoldingFetchedTerms = null;
     const val = (n) => (h && h[n] !== null && h[n] !== undefined ? h[n] : "");
     const freq = h && h.frequency ? bondFrequency(h.frequency) : "Quarterly";
     const moneyIn = (p) => (p === null || p === undefined || p === "") ? "" : inr(p);
@@ -13202,6 +13223,10 @@ window.bpBondFetch = async (assetId, holdingId, overwrite = false) => {
   let data = null;
   try {
     const res = await fetch(`/__market/bond?isin=${encodeURIComponent(isin)}`);
+    // A static host answers this path with HTML. That is not a missing bond;
+    // the lookup simply does not exist there.
+    const type = res.headers?.get?.("content-type") || "";
+    if (!type.includes("application/json")) throw new Error("no local server");
     if (res.status === 404) {
       if (applyBtn) applyBtn.style.display = "none";
       msg("SMEST does not list this ISIN. Type the rating and dates by hand.", true);
@@ -13225,11 +13250,13 @@ window.bpBondFetch = async (assetId, holdingId, overwrite = false) => {
   }
   const force = overwrite || !holdingId;
   let keptCount = 0;
+  const applied = {};
   const set = (id, v) => {
     const el = document.getElementById(id);
     if (!el || v === null || v === undefined || v === "") return;
     if (!force && String(el.value).trim()) { keptCount++; return; }
     el.value = String(v);
+    applied[id] = v;
   };
   if (fields) {
     set("bh-name", fields.name);
@@ -13240,6 +13267,11 @@ window.bpBondFetch = async (assetId, holdingId, overwrite = false) => {
     set("bh-payout-date", fields.interest_date);
     set("bh-face", fields.face);
   }
+  window.bpHoldingFetchedTerms = fields && ("bh-coupon" in applied || "bh-maturity" in applied)
+    ? { coupon: applied["bh-coupon"], maturity: applied["bh-maturity"],
+      source: data.details?.source === "BSE" ? "BSE" : "SMEST",
+      asOf: new Date().toISOString().slice(0, 10) }
+    : null;
   const market = data.market;
   // A lot is worth face × units × price. SMEST knows the face; without it,
   // infer it the way the cards do, so a price alone still values the lot.
@@ -13310,6 +13342,41 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
   const asOfPrior = document.getElementById("bh-value-date")?.dataset.prior ?? "";
   const valueTouched = valueText === "" ? valuePrior !== ""
     : String(value) !== String(valuePrior) || val("bh-value-date") !== asOfPrior;
+  const priorRows = holdingId ? await store.listHoldings(assetId).catch(() => []) : [];
+  const prior = priorRows.find((r) => String(r.id) === String(holdingId)) || null;
+  const priorParts = prior ? bondLabelParts(prior) : { coupon: "", maturity: "" };
+  const priorCoupon = Number(priorParts.coupon);
+  const storedCoupon = !!prior && Number(prior.coupon_pct) > 0;
+  const storedMaturity = !!prior && !!String(prior.maturity || "").trim();
+  const couponChanged = !prior || !Number.isFinite(priorCoupon)
+    || Math.abs(priorCoupon - coupon) > 1e-9;
+  const maturityChanged = !prior || String(priorParts.maturity || "") !== maturity;
+  const face = raw("bh-face");
+  const faceChanged = !prior || String(face ?? "") !== String(prior.face_paise ?? "");
+  // A value the lookup put in the form keeps the lookup as its source. A value
+  // the person changed is theirs, even when it started from a fetched number.
+  const fetched = window.bpHoldingFetchedTerms || null;
+  const today = new Date().toISOString().slice(0, 10);
+  const termSource = (changed, value, fetchedValue) => {
+    if (!changed) return "";
+    return fetched && String(fetchedValue ?? "") === String(value ?? "")
+      ? fetched.source : "Manual";
+  };
+  const termAsOf = (changed, value, fetchedValue) =>
+    changed ? (fetched && String(fetchedValue ?? "") === String(value ?? "")
+      ? fetched.asOf : today) : "";
+  // A lookup that agrees with the name still upgrades the term: the card can
+  // stop calling it a guess. It never lowers a report or a person.
+  const couponLookupWins = !!fetched
+    && String(fetched.coupon ?? "") === String(coupon ?? "")
+    && termSourceRank(prior?.coupon_source) <= 2;
+  const maturityLookupWins = !!fetched
+    && String(fetched.maturity ?? "") === String(maturity ?? "")
+    && termSourceRank(prior?.maturity_source) <= 2;
+  const couponSource = termSource(couponChanged || couponLookupWins,
+    coupon, fetched?.coupon);
+  const maturitySource = termSource(maturityChanged || maturityLookupWins,
+    maturity, fetched?.maturity);
   try {
     await store.upsertHolding(assetId, {
       id: holdingId ? Number(holdingId) : null,
@@ -13317,7 +13384,9 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
         label: bondLabelText(name, coupon, maturity),
         isin: val("bh-isin"),
         units, cost,
-        face: raw("bh-face"),
+        face,
+        faceSource: face !== null && faceChanged ? "Manual" : "",
+        faceAsOf: face !== null && faceChanged ? today : "",
         value, valueTouched,
         asOf: val("bh-value-date"),
         purchaseDate: val("bh-bought"),
@@ -13327,6 +13396,15 @@ window.bpBondHoldingSave = async (assetId, holdingId) => {
         interestDate: val("bh-payout-date"),
         issuer: window.bpHoldingIssuer || "",
         redemptions: window.bpHoldingRedemptions || "",
+        coupon: (couponChanged || storedCoupon || couponLookupWins || !prior)
+          ? coupon : undefined,
+        couponSource,
+        couponAsOf: termAsOf(couponChanged || couponLookupWins, coupon, fetched?.coupon),
+        maturity: (maturityChanged || storedMaturity || maturityLookupWins || !prior)
+          ? maturity : "",
+        maturitySource,
+        maturityAsOf: termAsOf(maturityChanged || maturityLookupWins, maturity,
+          fetched?.maturity),
       }),
     });
     window.bpAsset(assetId);

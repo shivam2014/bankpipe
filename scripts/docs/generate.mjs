@@ -90,7 +90,7 @@ const EXTERNAL_IDS = new Set(["holding.security_id", "setting.key", "account.bo_
 // Pure helpers db.js uses that are not part of the storage/crypto/backup map.
 // They hold no state and reach no store, so drawing them would add a node per
 // helper without telling a reader anything about how the ledger is kept.
-const OMITTED = new Set(["receipt.js", "asset-identity.js", "bo-id.js",
+const OMITTED = new Set(["receipt.js", "asset-identity.js", "bo-id.js", "bonds.js",
   "recon.js", "recon-diagnostics.js", "snapshots.js"]);
 
 // migrate() adds these in place. They are not in CREATE TABLE, so the diagram
@@ -107,9 +107,19 @@ const EXTRA_COLUMNS = {
   import_run: [["batch", "TEXT"], ["receipt", "TEXT"]],
   holding: [
     ["rating", "TEXT"], ["frequency", "TEXT"], ["yield_bps", "INTEGER"],
-    ["payout_paise", "INTEGER"], ["source", "TEXT"], ["rating_at_purchase", "TEXT"],
-    ["future_interest_paise", "INTEGER"], ["future_principal_paise", "INTEGER"],
-    ["principal_dates", "TEXT"], ["returned_paise", "INTEGER"],
+    ["payout_paise", "INTEGER"], ["source", "TEXT"], ["issuer", "TEXT"],
+    ["rating_at_purchase", "TEXT"], ["future_interest_paise", "INTEGER"],
+    ["future_principal_paise", "INTEGER"], ["principal_dates", "TEXT"],
+    ["redemption_dates", "TEXT"], ["value_source", "TEXT"],
+    ["face_paise", "INTEGER"], ["returned_paise", "INTEGER"],
+    ["returned_at", "TEXT"], ["returned_record_date", "TEXT"],
+    ["returned_source", "TEXT"], ["disposed_at", "TEXT"],
+    ["disposed_quantity", "REAL"], ["disposed_type", "TEXT"],
+    ["disposed_source", "TEXT"], ["disposed_reason", "TEXT"],
+    ["disposed_cost_paise", "INTEGER"],
+    ["coupon_pct", "REAL"], ["coupon_source", "TEXT"], ["coupon_as_of", "TEXT"],
+    ["maturity", "TEXT"], ["maturity_source", "TEXT"], ["maturity_as_of", "TEXT"],
+    ["face_source", "TEXT"], ["face_as_of", "TEXT"],
   ],
   locker: [["value_paise", "INTEGER"]],
 };

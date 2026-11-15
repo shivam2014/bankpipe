@@ -8,7 +8,7 @@ import { accountFolios, normalizeFolio } from "./folio.js";
 import { isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
-import { bondMaturity, isDisposed } from "./bonds.js";
+import { bondMaturity, isDisposed, termSourceRank } from "./bonds.js";
 
 const norm = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const text = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -1052,6 +1052,8 @@ export function importPlanPrimary({ family = "", identityOnly = false, planned =
 // --- the merge plan ---------------------------------------------------------
 
 function normalizeHolding(row) {
+  const explicitMaturity = parseDate(row.maturity || row.maturity_date || "");
+  const terms = bondMaturity(row);
   return {
     ...row,
     isin: rowIsin(row),
@@ -1065,12 +1067,18 @@ function normalizeHolding(row) {
     asOf: parseDate(row.asOf ?? row.as_of ?? ""),
     source: String(row.source || ""),
     valueSource: String(row.valueSource ?? row.value_source ?? ""),
-    couponPct: asNumber(row.couponPct),
+    couponPct: asNumber(row.couponPct || row.coupon_pct),
+    couponSource: text(row.couponSource || row.coupon_source),
+    couponAsOf: parseDate(row.couponAsOf || row.coupon_as_of || ""),
     frequency: text(row.frequency),
-    // A stored holding has no maturity column: the label carries it. Derive it
-    // for the old row too, or every re-import sees a maturity it cannot store
-    // as a new field and rewrites the same rows.
-    maturity: parseDate(row.maturity ?? row.maturity_date ?? "") || bondMaturity(row).maturity,
+    // The stored maturity is a fact; the label is a fallback. Keep which one
+    // this row used, so a report's term is not mistaken for a name guess.
+    maturity: explicitMaturity || terms.maturity,
+    maturitySource: text(row.maturitySource || row.maturity_source)
+      || (explicitMaturity ? "" : (terms.maturity ? "label" : "")),
+    maturityAsOf: parseDate(row.maturityAsOf || row.maturity_as_of || ""),
+    faceSource: text(row.faceSource || row.face_source),
+    faceAsOf: parseDate(row.faceAsOf || row.face_as_of || ""),
     interestDate: parseDate(row.interestDate ?? row.interest_date ?? ""),
     payoutPaise: asMoney(row.payoutPaise ?? row.payout_paise),
     futureInterestPaise: asMoney(row.futureInterestPaise ?? row.future_interest_paise),
@@ -1654,6 +1662,38 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
 
     if (costMode !== "keep") {
       const immutableManual = costMode === "fill-empty" && manualExisting && old.costPaise !== null;
+      const incomingTermSource = incoming?.kind === "cas" ? "CAS"
+        : (incoming?.label || incoming?.kind || "");
+      // Terms rank by source: a report or a person beats a lookup, and both
+      // beat the name. A stored term with no provenance is treated as a
+      // statement and is never replaced silently.
+      const fillTerm = (field, sourceField, asOfField, oldValue, newValue,
+        oldSource, newSource, equal) => {
+        if (newValue === null || newValue === undefined || newValue === "") return;
+        const same = equal ? equal(oldValue, newValue) : oldValue === newValue;
+        const hasOld = oldValue !== null && oldValue !== undefined && oldValue !== "";
+        const oldRank = hasOld ? (termSourceRank(oldSource) || 3) : 0;
+        const newRank = termSourceRank(newSource);
+        if (same) {
+          if (hasOld && newRank > oldRank) {
+            next[sourceField] = newSource;
+            next[asOfField] = incomingState.date || "";
+          }
+          return;
+        }
+        if (costMode === "ask") {
+          changes.push({ ...fieldChange("cost", field, oldValue, newValue, newSource,
+            incomingState.date), requiresConfirm: true });
+          return;
+        }
+        if (!hasOld || newRank > oldRank) {
+          next[field] = newValue;
+          next[sourceField] = newSource;
+          next[asOfField] = incomingState.date || "";
+          changes.push(fieldChange("cost", field, oldValue, newValue, newSource,
+            incomingState.date));
+        }
+      };
       const fill = (field, oldValue, newValue) => {
         // A recovery splits the report's cost by unit below. Taking the total
         // here would put the sold units' cost on the live row as well.
@@ -1678,10 +1718,22 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       };
       fill("cost", old.costPaise, row.costPaise);
       fill("purchase", old.purchaseDate, row.purchaseDate || "");
-      fill("couponPct", old.couponPct, row.couponPct);
+      fillTerm("couponPct", "couponSource", "couponAsOf",
+        old.couponPct, row.couponPct, old.couponSource,
+        row.couponSource === "label" ? "label" : incomingTermSource,
+        (a, b) => {
+          if (a === null || a === undefined || a === "") return b === null || b === undefined;
+          if (b === null || b === undefined || b === "") return false;
+          return Math.abs(Number(a) - Number(b)) < 1e-9;
+        });
       fill("frequency", old.frequency, row.frequency);
-      fill("facePaise", old.facePaise, row.facePaise);
-      fill("maturity", old.maturity, row.maturity);
+      fillTerm("facePaise", "faceSource", "faceAsOf",
+        old.facePaise, row.facePaise, old.faceSource, incomingTermSource,
+        (a, b) => !moneyDifferent(a, b));
+      fillTerm("maturity", "maturitySource", "maturityAsOf",
+        old.maturity, row.maturity, old.maturitySource,
+        row.maturitySource === "label" ? "label" : incomingTermSource,
+        (a, b) => String(a || "").slice(0, 10) === String(b || "").slice(0, 10));
       fill("yieldPct", old.yieldPct, row.yieldPct);
       fill("interestDate", old.interestDate, row.interestDate);
       fill("payoutPaise", old.payoutPaise, row.payoutPaise);
@@ -1837,6 +1889,12 @@ function importHoldingRow(next, source = {}, manual) {
   const category = next.category || "bond";
   const cost = next.costPaise ?? (manual?.cost_paise ?? null);
   const purchase = next.purchaseDate || manual?.purchase_date || "";
+  const reportSource = source.family === "cas" ? "CAS" : (source.label || source.family || "");
+  const reportAsOf = source.asOf || "";
+  const termSource = (value, stored) => stored || (value !== null
+    && value !== undefined && value !== "" ? reportSource : "");
+  const termAsOf = (value, stored) => stored || (value !== null
+    && value !== undefined && value !== "" ? reportAsOf : "");
   return {
     security_id: next.isin || next.security_id || "",
     label: next.label || "",
@@ -1869,6 +1927,14 @@ function importHoldingRow(next, source = {}, manual) {
     disposed_source: next.disposed_source || "",
     disposed_reason: next.disposed_reason || "",
     disposed_cost_paise: next.disposed_cost_paise ?? null,
+    coupon_pct: next.couponPct ?? next.coupon_pct ?? null,
+    coupon_source: termSource(next.couponPct ?? next.coupon_pct, next.couponSource),
+    coupon_as_of: termAsOf(next.couponPct ?? next.coupon_pct, next.couponAsOf),
+    maturity: next.maturity || "",
+    maturity_source: termSource(next.maturity, next.maturitySource),
+    maturity_as_of: termAsOf(next.maturity, next.maturityAsOf),
+    face_source: termSource(next.facePaise ?? next.face_paise, next.faceSource),
+    face_as_of: termAsOf(next.facePaise ?? next.face_paise, next.faceAsOf),
     txn_key: next.txn_key || "",
     source_row: next.sourceRow || next.source_row || 0,
     as_of: next.asOf || source.asOf || "",
@@ -2017,6 +2083,8 @@ function aggregateReceipts(receipts) {
 const NET_FIELDS = ["label", "category", "quantity", "cost_paise", "value_paise",
   "face_paise", "purchase_date", "interest_date", "frequency", "yield_bps",
   "payout_paise", "future_interest_paise", "future_principal_paise", "value_source",
+  "coupon_pct", "coupon_source", "coupon_as_of", "maturity", "maturity_source",
+  "maturity_as_of", "face_source", "face_as_of",
   "as_of", "disposed_at", "disposed_quantity", "disposed_type", "disposed_source",
   "disposed_reason", "disposed_cost_paise", "txn_key"];
 

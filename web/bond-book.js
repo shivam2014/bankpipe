@@ -3,7 +3,7 @@
 // figures come from bondAnalytics()/bondRowView, never from this module.
 
 import { bondAnalytics, bondMaturity, parseBondLabel, bondRatingChange,
-  bondRatingRank, soldGain, BOND_RATINGS } from "./bonds.js";
+  bondRatingRank, soldGain, storedCoupon, termSourceKind, BOND_RATINGS } from "./bonds.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -41,6 +41,20 @@ export function bondDateLabel(value) {
   return `${m[3]} ${MONTHS[Number(m[2]) - 1]} ${m[1]}`;
 }
 
+// The plain source line under a stored term. An old row with no provenance
+// says nothing rather than claiming one; a label fallback is handled by the
+// caller because it is a guess and stays amber.
+export function bondTermSourceText(source, asOf = "") {
+  const name = String(source || "").trim();
+  if (!name || name.toLowerCase() === "stored") return "";
+  const kind = termSourceKind(name);
+  const line = kind === "manual" ? "entered by hand"
+    : name.toLowerCase() === "cas" ? "from the CAS"
+      : `from ${name}`;
+  const day = String(asOf || "").slice(0, 10);
+  return day ? `${line} · ${bondDateLabel(day)}` : line;
+}
+
 export function bondRatingOf(h) {
   const explicit = String(h?.rating || "").trim();
   if (explicit) return explicit;
@@ -72,9 +86,10 @@ export function bondRowView(h) {
       guessed: !!h.maturityGuessed }
     : bondMaturity(h);
   const parsed = parseBondLabel(h.label);
-  const storedCoupon = h.couponPct === null || h.couponPct === undefined
-    || String(h.couponPct).trim() === "" ? null : Number(h.couponPct);
-  const hasStoredCoupon = storedCoupon !== null && Number.isFinite(storedCoupon);
+  const couponTerm = storedCoupon(h);
+  const hasStoredCoupon = couponTerm.stored;
+  const couponSource = hasStoredCoupon ? (couponTerm.source || "stored")
+    : (parsed?.couponPct !== null && parsed?.couponPct !== undefined ? "label" : "");
   const hasPrice = ba ? ba.hasMarket : (h.value_paise !== null && h.cost_paise !== null
     && Math.abs(h.value_paise - h.cost_paise) >= 1);
   const periods = bondPeriods(h.frequency);
@@ -89,16 +104,16 @@ export function bondRowView(h) {
     h, ba,
     rating: bondRatingOf(h),
     change: bondRatingChange(h.rating_at_purchase, h.rating),
-    coupon: ba ? ba.couponPct : (hasStoredCoupon ? storedCoupon
+    coupon: ba ? ba.couponPct : (hasStoredCoupon ? couponTerm.value
       : (parsed ? parsed.couponPct : null)),
-    couponSource: ba ? ba.couponSource
-      : (hasStoredCoupon ? "stored" : (parsed?.couponPct !== null
-        && parsed?.couponPct !== undefined ? "label" : "")),
+    couponSource: ba ? ba.couponSource : couponSource,
+    couponAsOf: ba ? ba.couponAsOf : (hasStoredCoupon ? couponTerm.asOf : ""),
     couponGuessed: ba ? !!ba.couponGuessed
-      : (!hasStoredCoupon && parsed?.couponPct !== null
-        && parsed?.couponPct !== undefined),
+      : (!hasStoredCoupon || termSourceKind(couponSource) === "label")
+        && parsed?.couponPct !== null && parsed?.couponPct !== undefined,
     maturity: terms.maturity || (ba ? ba.maturity : ""),
     maturitySource: terms.source,
+    maturityAsOf: String(h.maturityAsOf ?? h.maturity_as_of ?? "").slice(0, 10),
     maturityGuessed: terms.guessed,
     maturityUnread: !terms.maturity && !!(parsed?.dateUnread),
     yieldPct: h.yield_bps !== null && h.yield_bps !== undefined
@@ -129,6 +144,8 @@ export function bondRowView(h) {
     couponProgress: ba?.couponProgress ?? null,
     couponLost: ba?.couponLost ?? null,
     faceAtIssue: ba?.purchaseFaceTotal ?? null,
+    faceSource: String(h.face_source || "").trim(),
+    faceAsOf: String(h.face_as_of || "").slice(0, 10),
     principalLeft: ba?.faceTotal ?? null,
     marketPerUnit: hasPrice && Number(h.quantity) > 0 ? h.value_paise / Number(h.quantity) : null,
     valueAsOf: String(h.as_of || "").slice(0, 10),
@@ -334,7 +351,8 @@ export function bondFacts(v, {
     label: matured ? "Face value" : "Face at issue",
     value: v.faceAtIssue ? money(v.faceAtIssue) : "—",
     sub: v.faceAtIssue
-      ? (!matured && !(Number(v.h.face_paise) > 0) ? "inferred from invested" : "")
+      ? (!matured && !(Number(v.h.face_paise) > 0) ? "inferred from invested"
+        : bondTermSourceText(v.faceSource, v.faceAsOf))
       : "not in the statement",
     section: "Purchase", kind: "fact",
   });
@@ -342,14 +360,16 @@ export function bondFacts(v, {
     key: "coupon", label: "Interest rate",
     value: v.coupon === null ? "—" : `${v.coupon}%`,
     sub: v.coupon === null ? "not in the statement"
-      : (v.couponGuessed ? "read from the bond name — check it" : ""),
+      : (v.couponGuessed ? "read from the bond name — check it"
+        : bondTermSourceText(v.couponSource, v.couponAsOf)),
     subTone: v.couponGuessed ? "amber" : "",
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "maturity", label: "Maturity date",
     value: v.maturity ? dateLabel(v.maturity) : "—",
-    sub: v.maturity ? (v.maturityGuessed ? "read from the bond name — check it" : "")
+    sub: v.maturity ? (v.maturityGuessed ? "read from the bond name — check it"
+      : bondTermSourceText(v.maturitySource, v.maturityAsOf))
       : (v.maturityUnread ? "the date in the name could not be read — check it"
         : "not in the statement"),
     subTone: v.maturityGuessed || v.maturityUnread ? "amber" : "",

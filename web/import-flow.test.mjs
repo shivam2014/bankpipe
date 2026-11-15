@@ -1014,7 +1014,7 @@ test("an identical re-import of the broker's own key changes nothing", () => {
   }
 });
 
-test("a bond re-import does not count a maturity field the holding table cannot store", () => {
+test("a bond re-import does not turn a label date into a new stored fact", () => {
   const row = { security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2028",
     category: "bond", quantity: 10, cost_paise: 200000, purchase_date: "2024-06-06",
     value_paise: 100000, as_of: "2026-11-05", source: "motilal" };
@@ -1033,6 +1033,66 @@ test("a bond re-import does not count a maturity field the holding table cannot 
   assert.equal(plan.summary.added + plan.summary.updated + plan.summary.history, 0);
   assert.equal(plan.summary.kept, 1);
   assert.equal(plan.summary.ask, 0);
+});
+
+test("a report stores its coupon and maturity with the report as the source", () => {
+  const existing = holding({ coupon_pct: 8, coupon_source: "SMEST",
+    coupon_as_of: "2026-10-01", maturity: "2029-10-07", maturity_source: "SMEST",
+    maturity_as_of: "2026-10-01" });
+  const report = "Motilal Oswal holdings report";
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-12", rows: [{ isin: isin(1),
+      label: "9.25% TEST BOND 07 Oct 2029", category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06",
+      couponPct: 9.25, maturity: "2029-10-07" }] }),
+    existing: existingAccount({
+      snapshot: { source: "motilal", asOf: "2026-11-05" },
+      cost: { source: "motilal", asOf: "2026-11-05" },
+      holdings: [existing],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.summary.updated, 1);
+  const decision = plan.decisions.find((item) => item.action === "update");
+  assert.equal(decision.next.couponPct, 9.25);
+  assert.equal(decision.next.couponSource, report);
+  assert.equal(decision.next.couponAsOf, "2026-11-12");
+  assert.equal(decision.next.maturitySource, report,
+    "a report outranks a lookup even when the value agrees");
+
+  const rows = mergeRowsFromPlan([existing], plan,
+    { family: "motilal", label: report, asOf: "2026-11-12" });
+  assert.equal(rows[0].coupon_pct, 9.25);
+  assert.equal(rows[0].coupon_source, report);
+  assert.equal(rows[0].coupon_as_of, "2026-11-12");
+  assert.equal(rows[0].maturity, "2029-10-07");
+  assert.equal(rows[0].maturity_source, report);
+});
+
+test("a report asks before replacing a term the person entered", () => {
+  const manual = holding({ coupon_pct: 8, coupon_source: "Manual",
+    coupon_as_of: "2026-10-01", maturity: "2029-10-07", maturity_source: "Manual",
+    maturity_as_of: "2026-10-01" });
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-12", rows: [{ isin: isin(1),
+      label: "9.25% TEST BOND 07 Oct 2029", category: "bond", quantity: 10,
+      valuePaise: null, costPaise: 200000, purchaseDate: "2024-06-06",
+      couponPct: 9.25, maturity: "2029-10-07" }] }),
+    existing: existingAccount({
+      cost: { source: "motilal", asOf: "2026-11-05", manual: true },
+      holdings: [manual],
+    }),
+    today: "2026-11-14",
+  });
+  const ask = plan.decisions.find((item) => item.action === "ask");
+  assert.ok(ask, "the difference is a question");
+  assert.ok(ask.changes.some((change) => change.field === "couponPct"
+    && change.requiresConfirm), "the coupon move needs confirmation");
+  const kept = mergeRowsFromPlan([manual], plan,
+    { family: "motilal", label: "Motilal Oswal holdings report", asOf: "2026-11-12" },
+    false);
+  assert.equal(kept[0].coupon_pct, 8);
+  assert.equal(kept[0].coupon_source, "Manual");
 });
 
 test("a genuine alias still reports the stored key and the incoming key", () => {

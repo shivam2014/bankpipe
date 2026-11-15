@@ -99,6 +99,26 @@ test("the edit form saves through the shared patch and shows the kept line", () 
   assert.doesNotMatch(form, /id="bh-returned"/, "returned principal has no input");
 });
 
+test("a term the form writes carries its source; an untouched guess is not promoted", () => {
+  const untouched = bondHoldingPatch(fields);
+  assert.equal("coupon_pct" in untouched, false);
+  assert.equal("maturity" in untouched, false);
+  assert.equal("coupon_source" in untouched, false);
+
+  const typed = bondHoldingPatch({ ...fields, coupon: 9.5,
+    couponSource: "Manual", couponAsOf: "2026-11-16",
+    maturity: "2030-12-31", maturitySource: "Manual", maturityAsOf: "2026-11-16",
+    faceSource: "Manual", faceAsOf: "2026-11-16" });
+  assert.equal(typed.coupon_pct, 9.5);
+  assert.equal(typed.coupon_source, "Manual");
+  assert.equal(typed.coupon_as_of, "2026-11-16");
+  assert.equal(typed.maturity, "2030-12-31");
+  assert.equal(typed.maturity_source, "Manual");
+  assert.equal(typed.maturity_as_of, "2026-11-16");
+  assert.equal(typed.face_source, "Manual");
+  assert.equal(typed.face_as_of, "2026-11-16");
+});
+
 test("the saved name still reads as rate, name, maturity", () => {
   assert.equal(bondLabelText("Test 31", 10.5, "2030-12-31"),
     "10.5% Test 31 31 DEC 2030");
