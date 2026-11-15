@@ -288,6 +288,20 @@ test("a returned amount with no date is not called an early repayment", () => {
   assert.equal(progress.progress.note, "original schedule · estimated");
 });
 
+test("principal dates alone are not called an early repayment", () => {
+  // The estimate only shrinks on a past redemption date. A principal schedule
+  // that is now in the past does not shrink it, so the gap stays rounding.
+  const view = bondRowView({
+    ...dashedRow, face_paise: 1000000, returned_paise: 2000000,
+    future_principal_paise: 8000000, interest_date: "2026-12-01",
+    principal_dates: "2026-01-15,2027-01-15,2028-01-15",
+  });
+  assert.ok(view.returned > 0);
+  assert.equal(view.ba.firstPast, "");
+  const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
+  assert.equal(progress.progress.note, "original schedule · estimated");
+});
+
 test("a cumulative bond is not told its frequency is missing", () => {
   const view = bondRowView({ ...dashedRow, frequency: "Cumulative" });
   assert.equal(bondFacts(view).find((fact) => fact.key === "frequency").value,

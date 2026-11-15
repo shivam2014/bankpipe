@@ -406,6 +406,7 @@ export function bondAnalytics(h) {
     faceInferred: !storedFace,
     faceBoughtInferred: !storedFace || purchaseFace > storedFace,
     returned: returnedPaise,
+    firstPast,
     purchase_date: buy,
     annualCoupon, couponIncome, futureCoupon, pastCoupon,
     originalCouponEstimate, couponProgress, couponLost,

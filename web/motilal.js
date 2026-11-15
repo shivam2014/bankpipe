@@ -257,8 +257,8 @@ export function motilalHoldingPatch(row, holding) {
   // term the name carries is a guess; the report prints its own coupon and
   // maturity columns, so a stated term wins and the label is rebuilt around it.
   const current = String(holding?.label || "").trim();
-  const parsed = parseBondLabel(current);
   let label = current || String(row.label || "").trim();
+  const parsed = parseBondLabel(label);
   const statedCoupon = Number(row.coupon_pct) > 0 ? Number(row.coupon_pct) : null;
   const statedMaturity = labelDate(row.maturity_date);
   const couponWins = statedCoupon !== null && statedCoupon !== parsed?.couponPct;

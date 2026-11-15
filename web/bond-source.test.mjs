@@ -100,6 +100,7 @@ test("dates arrive in both the ISO and the Indian forms", () => {
 test("the coupon and the maturity are cut out of the name", () => {
   assert.equal(bondNameOnly("10.25% Test Issuer Limited 31 Dec 2026"), "Test Issuer Limited");
   assert.equal(bondNameOnly("Test Issuer Limited"), "Test Issuer Limited");
+  assert.equal(bondNameOnly("TESTD-11.90%-3-12-26-PVT"), "TESTD-PVT");
 });
 
 test("the fetched price values the lot when the units are known", () => {

@@ -254,6 +254,16 @@ test("a report that agrees with the name leaves the label alone", () => {
   assert.deepEqual(patch, {});
 });
 
+test("a report label's own date survives an empty holding label", () => {
+  // The holding has no label yet, so the report's name is the only place its
+  // date exists. The rebuild must parse the text it actually starts from.
+  const patch = motilalHoldingPatch({
+    ...bondRow, label: "TESTD-11.90%-3-12-26-PVT", coupon_pct: 9.5, maturity_date: "",
+  }, { label: "", quantity: 2, cost_paise: 20000000,
+    purchase_date: "2024-06-06", frequency: "monthly", face_paise: 10000000 });
+  assert.equal(patch.label, "9.5% TESTD-PVT 03 Dec 2026");
+});
+
 test("fills an incomplete bond label from the report", () => {
   const patch = motilalHoldingPatch(bondRow, {
     label: "TESTD", quantity: 2, cost_paise: 20000000,
