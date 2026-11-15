@@ -16,6 +16,8 @@ try {
 :root{--bg:#f5f3ee;--card:#fff;--ink:#0f1216;--muted:#6d6960;--line:#e9e5dc;
  --hair:#f0ece4;--green:#0b6b4f;--amber:#9a5b12;--red:#a32b22;--blue:#24597f;
  --r:16px;--sh:0 1px 2px rgba(15,18,22,.05),0 12px 30px -18px rgba(15,18,22,.25);
+ --control-font:16px;--tabbar-h:0px;--kb:0px;
+ --fab-safe:calc(var(--tabbar-h) + 44px + 12px + env(safe-area-inset-bottom));
  --s1:#0b6b4f;--s2:#24597f;--s3:#9a5b12;--s4:#7a5c9e;--s5:#a32b22;--s6:#0e7c86;--gold:#a8801f;
  color-scheme:light}
 /* A manual choice wins over the system one. The palette appears twice on
@@ -63,7 +65,10 @@ nav button{border:0;background:none;font:inherit;font-size:13.5px;color:var(--mu
  padding:7px 12px;border-radius:9px;cursor:pointer;white-space:nowrap}
 nav button[aria-current="page"]{background:var(--card);color:var(--ink);font-weight:620;
  box-shadow:0 1px 2px rgba(0,0,0,.06)}
-.wrap{max-width:1040px;margin:0 auto;padding:24px 18px 80px}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 18px calc(12px + var(--fab-safe) + var(--kb))}
+/* The tab bar, the privacy toggle and the help control are fixed. Both the end
+   of the page and a control scrolled into view stop above that band. */
+html{scroll-padding-bottom:calc(12px + var(--fab-safe) + var(--kb))}
 h1{font-size:24px;letter-spacing:-.02em;margin:0 0 16px}
 h2{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
  margin:26px 0 10px;font-weight:680}
@@ -153,7 +158,7 @@ input[type=file]::file-selector-button{font:inherit;font-size:13px;font-weight:6
  padding:7px 12px;border-radius:9px;margin-right:10px;cursor:pointer}
 input[type=file]::file-selector-button:hover{border-color:var(--green);color:var(--green)}
 label.field{display:grid;gap:5px;font-size:12.5px;color:var(--muted)}
-label.field input,label.field select,label.field textarea{font:inherit;font-size:14px;color:var(--ink);
+label.field input,label.field select,label.field textarea{font:inherit;font-size:var(--control-font);color:var(--ink);
  background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px 12px;width:100%}
 label.field input:focus,label.field select:focus,label.field textarea:focus{outline:2px solid var(--green);outline-offset:1px}
 label.field textarea{resize:vertical;min-height:58px}
@@ -391,7 +396,7 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .fd-flag{font-size:9.5px;font-weight:650;letter-spacing:.05em;text-transform:uppercase;
  color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 35%,transparent);
  border-radius:99px;padding:1px 6px;margin-left:7px;white-space:nowrap;vertical-align:1px}
-.mini-select{font:inherit;font-size:12.5px;padding:5px 8px;border:1px solid var(--line);
+.mini-select{font:inherit;font-size:var(--control-font);padding:5px 8px;border:1px solid var(--line);
  border-radius:8px;background:var(--card);color:var(--ink);max-width:100%}
 .mini-select:focus{outline:2px solid var(--green);outline-offset:1px}
 .how-values{margin-top:12px}
@@ -696,7 +701,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-password b{font-size:13.5px}
 .import-password .muted{font-size:12px;margin-top:4px}
 .import-password input{width:100%;min-height:44px;padding:9px 11px;border:1px solid var(--line);
- border-radius:9px;font:inherit;font-size:15px;background:var(--bg);color:var(--ink);margin-top:8px}
+ border-radius:9px;font:inherit;font-size:var(--control-font);background:var(--bg);color:var(--ink);margin-top:8px}
 .import-bank-copy{font-size:13.5px;color:var(--muted);margin:6px 0 10px}
 .import-old-copy{font-size:13.5px;color:var(--muted);margin:6px 0 10px}
 .import-old-card{border-top:1px solid var(--hair);margin-top:12px;padding-top:12px}
@@ -719,7 +724,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .menu-pop button{display:block;width:100%;padding:8px 10px;border:0;border-radius:7px;background:none;color:var(--ink);font:inherit;font-size:13px;font-weight:600;text-align:left;cursor:pointer}
 .menu-pop button.danger{color:var(--red)}
 .menu-pop button:hover{background:var(--hair)}
-.inline-input{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px;background:var(--card);color:var(--ink)}
+.inline-input{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:var(--control-font);background:var(--card);color:var(--ink)}
 textarea.inline-input{resize:vertical;min-height:48px}
 @media (max-width:600px){.kv-row{grid-template-columns:1fr;gap:2px}.kv-row .k{margin-top:7px}}
 .timeline{margin-top:2px}
@@ -771,15 +776,15 @@ textarea.inline-input{resize:vertical;min-height:48px}
   .dash > .alloc-card,.dash > .protection-card{grid-column:1/-1}}
 .tabbar{display:none}
 @media (max-width:640px){
+  :root{--tabbar-h:40px}
   header nav{display:none}
   .tabbar{display:grid;grid-template-columns:repeat(7,1fr);position:fixed;bottom:0;left:0;
     right:0;z-index:20;background:var(--card);border-top:1px solid var(--line);
-    padding:6px 2px calc(6px + env(safe-area-inset-bottom))}
+    min-height:var(--tabbar-h);padding:6px 2px calc(6px + env(safe-area-inset-bottom))}
   .tabbar button{border:0;background:none;font:inherit;font-size:9.5px;color:var(--muted);
     padding:6px 1px;border-radius:8px;white-space:nowrap}
   .tabbar button[aria-current="page"]{color:var(--green);font-weight:700}
-  body{padding-bottom:66px}
-  .wrap{padding:18px 14px 80px}
+  .wrap{padding:18px 14px calc(12px + var(--fab-safe) + var(--kb))}
   h1{font-size:21px}
   .hero{padding:20px 18px}
   .hero .num{font-size:32px;white-space:normal;word-break:break-word}
@@ -1003,7 +1008,10 @@ body.bp-privacy #s-ifsc{filter:blur(6px);opacity:.7}
 body.bp-privacy input[inputmode="decimal"]:focus,
 body.bp-privacy #s-number:focus,
 body.bp-privacy #s-ifsc:focus{filter:none}
-@media(min-width:641px){.privacy-toggle{bottom:20px;right:20px}}
+/* Above 640 the tab bar is gone and the privacy toggle holds this corner, so
+   the token is the height of whatever fixed control the help sits above. */
+@media(min-width:641px){:root{--tabbar-h:64px}
+ .privacy-toggle{bottom:20px;right:20px}}
 @media(max-width:640px){.privacy-toggle{top:10px;right:12px;bottom:auto;width:44px;height:44px;font-size:15px}}
 @media print{.privacy-toggle{display:none}body.bp-privacy .bp-money,body.bp-privacy input{filter:none!important}}
 dialog{padding:0;border:1px solid var(--line);border-radius:16px;background:var(--card);
@@ -1477,8 +1485,7 @@ function uploadPanel(mode) {
         <p class="muted" style="font-size:12px;margin:6px 0 6px">Copy the holdings table
         from BondsIndia, a broker page or a statement. Keep the header row; tabs or commas
         are both fine.</p>
-        <textarea id="hpaste" rows="5" placeholder="ISIN&#9;Security&#9;Quantity&#9;Buy Value&#9;Current Value&#9;Purchase Date"
-          style="width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:12px"></textarea>
+        <textarea id="hpaste" class="inline-input" rows="5" placeholder="ISIN&#9;Security&#9;Quantity&#9;Buy Value&#9;Current Value&#9;Purchase Date"></textarea>
         <button class="btn" style="margin-top:6px" onclick="bpHoldingsPaste()">Read pasted table</button>
       </details>
       <div id="h-target" style="margin-top:10px"></div>
@@ -15090,6 +15097,36 @@ function bpStartPrivacyObserver() {
   });
   obs.observe(view, { childList: true, subtree: true });
 }
+// The keyboard is not a safe-area inset: iOS shrinks the visual viewport
+// instead. The page reserves the overlap, and the control being typed in is
+// centred in what is left, above the tab bar and the help control.
+let bpKbInset = 0;
+function bpApplyKeyboardInset() {
+  const vv = window.visualViewport;
+  const overlap = vv ? window.innerHeight - vv.height - vv.offsetTop : 0;
+  // A collapsing URL bar moves the visual viewport by under 120px; a keyboard
+  // moves it by several hundred.
+  const next = overlap > 120 ? Math.round(overlap) : 0;
+  if (next === bpKbInset) return;
+  bpKbInset = next;
+  document.documentElement.style.setProperty("--kb", `${next}px`);
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", bpApplyKeyboardInset);
+  window.visualViewport.addEventListener("scroll", bpApplyKeyboardInset);
+}
+document.addEventListener("focusin", (event) => {
+  const el = event.target;
+  if (!(el instanceof HTMLElement) || !el.matches("input,select,textarea")) return;
+  const vv = window.visualViewport;
+  const wrap = document.querySelector(".wrap");
+  const band = wrap ? parseFloat(getComputedStyle(wrap).paddingBottom) - bpKbInset : 0;
+  const bottom = (vv ? vv.offsetTop + vv.height : window.innerHeight) - band;
+  const rect = el.getBoundingClientRect();
+  if (rect.bottom > bottom || rect.top < 0) {
+    el.scrollIntoView({ block: "center", behavior: "auto" });
+  }
+});
 bpApplyPrivacy();
 bpStartPrivacyObserver();
 </script>
