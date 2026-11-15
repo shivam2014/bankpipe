@@ -186,10 +186,11 @@ export function bondFacts(v, {
   const perUnit = v.marketPerUnit;
   const progress = v.couponProgress === null || v.couponProgress === undefined
     ? null : Math.max(0, Math.min(100, v.couponProgress));
-  // The early-repayment note is a claim that money came back. A rounding gap
-  // between the period count and the year count also leaves a few rupees in
-  // couponLost, and that is not a repayment.
-  const policyNote = v.couponLost && v.returned
+  // The early-repayment note is a claim that money came back on a date. A
+  // rounding gap between the period count and the year count also leaves a few
+  // rupees in couponLost, and a reduced stored face with no date is not proof
+  // of when anything was repaid.
+  const policyNote = v.couponLost && v.returned && v.returnedAt
     ? `${money(v.couponLost)} less after the early repayment`
     : "original schedule";
   const rawSource = v.h.value_source || (v.h.source === "manual" ? "Manual" : "CAS");
@@ -253,7 +254,9 @@ export function bondFacts(v, {
       key: "next-interest", label: "Next interest",
       value: v.payout === null ? "—" : money(v.payout),
       sub: [v.payout === null
-        ? (v.periods === null ? "needs the payment frequency" : "amount not recorded") : "",
+        ? (v.periods === null
+          ? (v.h.frequency ? "no periodic payment" : "needs the payment frequency")
+          : "amount not recorded") : "",
         v.interestDate ? dateLabel(v.interestDate) : "",
         v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · "),
       section: "Returns", kind: "fact",

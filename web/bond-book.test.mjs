@@ -278,6 +278,25 @@ test("a real repayment still carries the early-repayment note", () => {
   assert.match(progress.progress.note, /less after the early repayment/);
 });
 
+test("a returned amount with no date is not called an early repayment", () => {
+  // A face below the cost-implied one is money already back, but nothing says
+  // when. The estimate is not reduced by a date, so the gap is rounding.
+  const view = bondRowView({ ...dashedRow, face_paise: 8000, returned_paise: 4000000 });
+  assert.ok(view.returned > 0);
+  assert.equal(view.returnedAt, "");
+  const progress = bondFacts(view).find((fact) => fact.key === "interest-progress");
+  assert.equal(progress.progress.note, "original schedule · estimated");
+});
+
+test("a cumulative bond is not told its frequency is missing", () => {
+  const view = bondRowView({ ...dashedRow, frequency: "Cumulative" });
+  assert.equal(bondFacts(view).find((fact) => fact.key === "frequency").value,
+    "Cumulative");
+  const next = bondFacts(view).find((fact) => fact.key === "next-interest");
+  assert.equal(next.value, "—");
+  assert.equal(next.sub, "no periodic payment");
+});
+
 test("without a frequency Next interest names the missing input", () => {
   const view = bondRowView({ ...dashedRow, frequency: "" });
   const facts = bondFacts(view);
