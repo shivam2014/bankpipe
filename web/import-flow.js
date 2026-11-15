@@ -848,6 +848,25 @@ export function importAccountGaps(account, holdings = [],
   return { manual, gaps };
 }
 
+/**
+ * The primary action's label for one plan card. A plan that changes one holding
+ * is the common case for a single bond account, so a count of one never prints
+ * as "1 holdings". Pure, so the copy is testable without a DOM.
+ */
+export function importPlanPrimary({ family = "", identityOnly = false, planned = 0,
+  sales = 0, create = false } = {}) {
+  if (family === "cas") {
+    if (identityOnly) return "Attach identity and fill empty values";
+    if (planned) return `Import ${planned} ${planned === 1 ? "holding" : "holdings"}`;
+    if (sales) return `Record ${sales} sale${sales === 1 ? "" : "s"}`;
+    return "Attach identity";
+  }
+  const noun = family === "zerodha"
+    ? (planned === 1 ? "equity" : "equities")
+    : (planned === 1 ? "holding" : "holdings");
+  return `${create ? "Create account and import " : "Import "}${planned} ${noun}`;
+}
+
 // --- the merge plan ---------------------------------------------------------
 
 function normalizeHolding(row) {

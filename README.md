@@ -197,6 +197,15 @@ left alone so the arithmetic and date-format cases stay realistic.
 
 The optional Drive broker in `worker/` has its own suite: `cd worker && node --test`.
 
+### Renders
+
+`node scripts/render-shot.mjs --page <url|file> --width 390 --theme dark --out shot.png`
+sets the width through CDP and fails when the page is not the width it asked for; headless
+Chrome on macOS clamps `--window-size` to 500px, so a 390 window is a cropped desktop.
+`node scripts/render-gate-fixture.mjs` drops the synthetic pair in
+`web/fixtures/import/pdf` through the real inbox and writes the gated movement card to
+`build/renders/`.
+
 ## Limits
 
 - **PDF support reads the text layer only.** CSV, XLSX and text-layer PDFs import; a

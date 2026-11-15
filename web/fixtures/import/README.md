@@ -30,6 +30,13 @@ the test is skipped. A PDF is listed but not parsed here, because the page owns
 PDF text extraction. The DigiFInn paid-cashflow export is not recognised; the
 future-cashflow export is.
 
+## Render pair
+
+`pdf/cas-sold.pdf` and `pdf/motilal-sold.pdf` are one synthetic pair with a text
+layer: a CAS that sells `INE000000002` and the broker summary that funds it.
+`node scripts/render-gate-fixture.mjs` drops them through the real inbox. No test
+parses them, so they stay out of `samples.mjs`.
+
 ## Manifest
 
 `import-manifest.json` is optional. It pins the expected kind and a lower bound
