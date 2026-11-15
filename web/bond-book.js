@@ -1,9 +1,7 @@
-// The bond book: a compact index on the left and the bond card on the right.
-// The card is the same component the phone renders, so a fact cannot exist on
-// one surface and not the other. The index adds comparison; it adds no facts.
-//
-// Presentation only. Every money figure comes from bondAnalytics()/bondRowView;
-// this module formats what the ledger already decided.
+// One fact model for both bond surfaces. bondFacts() is the only ordered list;
+// every fact names the surface it ranks on, so the ledger row and the band are
+// filters over the same data the card renders. Presentation only: every money
+// figure comes from bondAnalytics()/bondRowView.
 
 import { bondAnalytics, bondMaturity, parseBondLabel, bondRatingChange,
   bondRatingRank, soldGain, BOND_RATINGS } from "./bonds.js";
@@ -41,8 +39,8 @@ export function bondDateLabel(value) {
 }
 
 // The six facts the card shows without opening anything. Record facts live
-// behind `Full breakdown`; the anchor is separate. A seventh visible fact means
-// the card is doing two jobs.
+// behind `Full breakdown`; the anchor and the interest progress are separate
+// body blocks. A seventh visible fact means the card is doing two jobs.
 export const BOND_CARD_FACTS = [
   { key: "coupon", label: "Interest rate" },
   { key: "maturity", label: "Maturity date" },
@@ -64,15 +62,9 @@ export const BOND_MATURED_FACTS = [
   { key: "face-value", label: "Face value" },
 ];
 
-// The comparison columns the index carries. Every one of them is also on the
-// card; the index never introduces a seventh bond fact.
-export const BOND_INDEX_FACTS = [
-  { key: "bond", label: "Bond" },
-  { key: "value", label: "Market value" },
-  { key: "yield", label: "Current yield" },
-  { key: "next", label: "Next interest" },
-  { key: "maturity", label: "Matures" },
-];
+// The band follows the card's own sections in the card's own order. Sources is
+// the foot line, not a fourth section.
+export const BOND_BAND_SECTIONS = ["Purchase", "Market", "Returns"];
 
 export function bondRatingOf(h) {
   const explicit = String(h?.rating || "").trim();
@@ -175,26 +167,28 @@ export function bondSortValue(v, key) {
   return 0;
 }
 
-const fact = (key, label, val, cls = "") => `<div class="bond-fact" data-fact="${key}">
-  <span class="k">${label}</span><span class="v ${cls}">${val}</span></div>`;
-
-const maturityFact = (v, dateLabel) => `${v.maturity ? dateLabel(v.maturity) : "—"}${
-  v.maturityGuessed ? `<div class="sub">read from the bond name — check it</div>` : ""}`;
-
 /**
- * The bond card. This is the phone surface and the desktop dossier; it is the
- * same function so parity is structural, not a promise.
+ * The one ordered fact list. `surface` is the rank the card gives the fact:
+ * "row" for the body (anchor, the six visible facts, the interest progress)
+ * and "band" for the Full breakdown set plus the sources foot. The ledger
+ * row and band are filters over this list, never a second list.
+ *
+ * Row facts also carry `column` (display order in the comparison row) and
+ * `columnLabel` where the header is shorter than the card label. Band facts
+ * carry `section`. A revised split is a change to `surface` here.
+ *
  * @param {object} v a bondRowView()
- * @param {string} assetId
- * @param {{matured?: boolean, currency?: string}} [options]
+ * @param {{matured?: boolean, assetId?: string, currency?: string}} [options]
+ * @returns {Array<{key: string, label: string, value: string, sub?: string,
+ *   rowSub?: string, surface: "row"|"band", kind: "anchor"|"fact"|"progress"|"sources",
+ *   section?: string, column?: number, columnLabel?: string, tone?: string,
+ *   subTone?: string, actionHtml?: string, progress?: object|null, empty?: string}>}
  */
-export function bondCardHtml(v, assetId, { matured = false, currency = DEFAULT_CURRENCY } = {}) {
+export function bondFacts(v, {
+  matured = !!v.matured, assetId = "", currency = DEFAULT_CURRENCY,
+} = {}) {
   const money = (x) => moneyText(x, currency);
-  const moneyOrDash = money;
   const dateLabel = bondDateLabel;
-  const rawSource = v.h.value_source || (v.h.source === "manual" ? "Manual" : "CAS");
-  const valueSourceLong = rawSource === "BSE" ? "from BSE"
-    : rawSource === "Manual" ? "entered by hand" : "from the CAS";
   const qty = Number(v.h.quantity) || 0;
   const returned = v.returned || 0;
   const still = v.expectedMaturity;
@@ -202,226 +196,435 @@ export function bondCardHtml(v, assetId, { matured = false, currency = DEFAULT_C
     : (v.ba?.lifetimeTotal ?? (still === null || still === undefined
       ? null : still + returned));
   const heldGain = matured ? null : (v.ba?.lifetimeGain ?? v.expectedGain);
-  const perUnit = v.value !== null && v.value !== undefined && qty > 0
-    ? v.value / qty : null;
+  const perUnit = v.marketPerUnit;
   const progress = v.couponProgress === null || v.couponProgress === undefined
     ? null : Math.max(0, Math.min(100, v.couponProgress));
   const policyNote = v.couponLost
     ? `${money(v.couponLost)} less after the early repayment`
     : "original schedule";
-  const progressBlock = progress === null
-    ? `<div class="bond-progress-empty">Interest received
-        needs the purchase date and coupon frequency.</div>`
-    : `<div class="bond-progress">
-        <div class="bp-top"><span>Interest received</span>
-          <span><b>${money(v.pastCoupon || 0)}</b> of ${money(v.originalCoupon || 0)}
-            · ${Math.round(progress)}% complete</span></div>
-        <div class="progress-track" role="progressbar" aria-valuemin="0"
-          aria-valuemax="100" aria-valuenow="${Math.round(progress)}"
-          aria-label="Interest received">
-          <div class="progress-fill" style="width:${progress}%"></div></div>
-        <div class="sub">${policyNote} · estimated</div>
-      </div>`;
+  const rawSource = v.h.value_source || (v.h.source === "manual" ? "Manual" : "CAS");
+  const valueSourceLong = rawSource === "BSE" ? "from BSE"
+    : rawSource === "Manual" ? "entered by hand" : "from the CAS";
+  const enterValue = assetId && v.h.id
+    ? `<button class="vupdate" data-bond-action="enter-value"
+        onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>`
+    : "";
   const marketSub = v.value === null
-    ? `not recorded${assetId && v.h.id ? ` · <button class="vupdate"
-        onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>` : ""}`
+    ? `not recorded${enterValue ? ` · ${enterValue}` : ""}`
     : [v.valueAsOf ? `as of ${dateLabel(v.valueAsOf)}` : "",
         valueSourceLong].filter(Boolean).join(" · ");
-  const maturedBadge = matured
-    ? `<span class="bond-matured-badge">Matured · awaiting payment</span>` : "";
-  const actions = `<div class="bond-card-actions">
-    ${maturedBadge}
-    ${assetId && v.h.id && v.h.security_id ? `<a class="mini-btn"
-      href="https://smest.in/bond-details/x/${encodeURIComponent(v.h.security_id)}"
-      target="_blank" rel="noopener"
-      title="Open this bond on SMEST, the source of the rating and terms">SMEST ↗</a>` : ""}
-    ${assetId && v.h.id && !matured ? `<button class="mini-btn"
-      title="Ask SMEST for this bond's terms and BSE for its last traded price"
-      onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Refresh</button>` : ""}
-    ${assetId && v.h.id ? `<button class="mini-btn"
-      onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)})">Edit</button>` : ""}
-    ${assetId && v.h.id ? `<button class="mini-btn"
-      onclick="bpBondHoldingDelete(${jsArg(assetId)},${jsArg(v.h.id)})">Remove</button>` : ""}
-  </div>`;
-
-  const anchor = matured
-    ? `<div class="bond-anchor">
-        <span class="k">Value in net worth</span>
-        <span class="v">${moneyOrDash(v.value ?? v.h.cost_paise)}</span>
-        <span class="sub">stays in net worth until a bank credit is matched</span>
-      </div>`
-    : `<div class="bond-anchor">
-        <span class="k">Total if held</span>
-        <span class="v">${heldTotal === null ? "—" : money(heldTotal)}</span>
-        ${heldGain === null ? `<span class="sub">not enough terms to estimate the gain</span>`
-          : `<span class="sub ${heldGain < 0 ? "neg" : "pos"}">${
-            heldGain < 0 ? "−" : "+"}${money(Math.abs(heldGain))} gain</span>`}
-      </div>`;
-
-  const facts = matured ? [
-    fact("coupon", "Interest rate", v.coupon === null ? "—" : `${v.coupon}%`),
-    fact("maturity", "Maturity date", maturityFact(v, dateLabel)),
-    fact("invested", "Invested", moneyOrDash(v.h.cost_paise)),
-    fact("units", "Units", qty || "—"),
-    fact("purchase-date", "Purchase date", v.bought ? dateLabel(v.bought) : "—"),
-    fact("face-value", "Face value", v.faceAtIssue ? money(v.faceAtIssue) : "—"),
-  ] : [
-    fact("coupon", "Interest rate", v.coupon === null ? "—" : `${v.coupon}%`),
-    fact("maturity", "Maturity date", maturityFact(v, dateLabel)),
-    fact("next-interest", "Next interest", v.payout === null ? "—" : `${money(v.payout)}${
-      v.interestDate || v.payoutEstimated ? `<div class="sub">${
-        [v.interestDate ? dateLabel(v.interestDate) : "",
-          v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · ")
-      }</div>` : ""}`),
-    fact("invested", "Invested", moneyOrDash(v.h.cost_paise)),
-    fact("market-value", "Market value", `${moneyOrDash(v.value)}${
-      v.value === null ? "" : `<div class="sub">${marketSub}</div>`}`),
-    fact("current-yield", "Current yield", v.currentYield === null || v.currentYield === undefined
-      ? "—" : `${v.currentYield.toFixed(2)}%`),
-  ];
-
-  const purchaseGrid = matured
-    ? `<div class="bond-grid">
-        ${fact("frequency", "Payment frequency", esc(v.frequency))}
-        ${fact("purchase-yield", "Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
-        ${fact("purchase-rating", "Purchase rating", v.h.rating_at_purchase
-          ? esc(v.h.rating_at_purchase)
-          : `—<div class="sub need">rating missing</div>`)}
-      </div>`
-    : `<div class="bond-grid">
-        ${fact("purchase-date", "Purchase date", v.bought ? dateLabel(v.bought) : "—")}
-        ${fact("units", "Units", qty || "—")}
-        ${fact("face-at-issue", "Face at issue", v.faceAtIssue ? `${money(v.faceAtIssue)}${
-          !(Number(v.h.face_paise) > 0)
-            ? `<div class="sub">inferred from invested</div>` : ""}` : "—")}
-        ${fact("frequency", "Payment frequency", esc(v.frequency))}
-        ${fact("purchase-yield", "Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
-        ${fact("purchase-rating", "Purchase rating", v.h.rating_at_purchase
-          ? esc(v.h.rating_at_purchase)
-          : `—<div class="sub need">rating missing</div>`)}
-      </div>`;
-  const marketGrid = matured ? "" : `<div class="bond-section">
-      <h3 class="bond-section-title">Market value</h3>
-      <div class="bond-grid">
-        ${fact("per-unit", "Per unit", perUnit === null ? "—" : money(perUnit))}
-        ${fact("current-rating", "Current rating", v.rating ? `${esc(v.rating)}${
-          v.change ? `<div class="sub ${v.change.down ? "neg" : "pos"}">${
-            v.change.down ? "downgraded" : "upgraded"} from ${esc(v.change.from)}</div>`
-            : v.h.rating_at_purchase ? `<div class="sub">unchanged since purchase</div>` : ""
-        }` : `—<div class="sub need">rating missing</div>`, v.change ? (v.change.down ? "neg" : "pos") : "")}
-      </div>
-    </div>`;
-  const returnsGrid = `<div class="bond-section">
-      <h3 class="bond-section-title">Returns</h3>
-      <div class="bond-grid">
-        ${fact("principal-returned", "Principal returned", returned ? `${money(returned)}${
-          v.returnedAt ? `<div class="sub">on ${dateLabel(v.returnedAt)}</div>` : ""}${
-          v.returnedRecordDate ? `<div class="sub">face reduced ${
-            dateLabel(v.returnedRecordDate)}</div>` : ""}` : "—")}
-        ${fact("principal-left", "Principal left", v.principalLeft ? `${money(v.principalLeft)}${
-          v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
-        ${matured ? "" : fact("gain-if-sold", "Gain if sold now",
-          v.gain === null || v.gain === undefined ? "—" : `${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain))}`,
-          v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "")}
-        ${matured ? "" : fact("maturity-value", "Maturity value",
-          v.expectedMaturity === null || v.expectedMaturity === undefined
-            ? "—" : `${money(v.expectedMaturity)}${
-            v.expectedGain === null || v.expectedGain === undefined ? ""
-              : `<div class="sub ${v.expectedGain < 0 ? "neg" : "pos"}">${
-                v.expectedGain < 0 ? "−" : "+"}${money(Math.abs(v.expectedGain))}${
-                v.parts > 1 ? ` · principal in ${v.parts} parts` : ""}</div>`}`)}
-      </div>
-      ${matured ? "" : progressBlock}
-    </div>`;
+  const marketRowSub = v.value === null ? "not recorded"
+    : [v.valueAsOf ? dateLabel(v.valueAsOf) : "",
+        rawSource === "BSE" ? "BSE" : rawSource === "Manual" ? "manual" : "CAS"]
+      .filter(Boolean).join(" · ");
+  const termsSource = v.h.source === "manual" ? "manual" : "CAS";
   const sources = matured
-    ? `Terms from the CAS${v.rating ? " · rating from SMEST" : ""}`
+    ? `${v.h.source === "manual" ? "Terms entered by hand" : "Terms from the CAS"}${
+      v.rating ? " · rating from SMEST" : ""}`
     : [
-      "CAS",
+      termsSource,
       v.returned ? (v.returnedSource === "cashflow" ? "Cashflow Future"
         : v.returnedSource === "bank" ? "bank" : "SMEST") : "",
       v.returnedRecordDate ? "BSE" : "",
       v.pastCoupon !== null && v.pastCoupon !== undefined ? "interest estimated" : "",
     ].filter(Boolean).join(" · ");
+  const changeTone = v.change ? (v.change.down ? "neg" : "pos") : "";
+  const facts = [];
+
+  facts.push(matured ? {
+    key: "value-in-net-worth", label: "Value in net worth",
+    value: money(v.value ?? v.h.cost_paise),
+    sub: "stays in net worth until a bank credit is matched",
+    rowSub: "carried until matched",
+    surface: "row", kind: "anchor", column: 1, columnLabel: "Value in net worth",
+  } : {
+    key: "total-if-held", label: "Total if held",
+    value: heldTotal === null ? "—" : money(heldTotal),
+    sub: heldGain === null ? "not enough terms to estimate the gain"
+      : `${heldGain < 0 ? "−" : "+"}${money(Math.abs(heldGain))} gain`,
+    subTone: heldGain === null ? "" : (heldGain < 0 ? "neg" : "pos"),
+    surface: "row", kind: "anchor", column: 1, columnLabel: "Total if held",
+  });
+
+  facts.push({
+    key: "coupon", label: "Interest rate",
+    value: v.coupon === null ? "—" : `${v.coupon}%`,
+    surface: "row", kind: "fact",
+  });
+
+  facts.push({
+    key: "maturity", label: "Maturity date",
+    value: v.maturity ? dateLabel(v.maturity) : "—",
+    sub: v.maturityGuessed ? "read from the bond name — check it" : "",
+    rowSub: v.maturityGuessed ? "read from the name — check" : "",
+    subTone: v.maturityGuessed ? "amber" : "",
+    surface: "row", kind: "fact",
+    column: matured ? 2 : 6, columnLabel: "Maturity",
+  });
+
+  if (!matured) {
+    facts.push({
+      key: "next-interest", label: "Next interest",
+      value: v.payout === null ? "—" : money(v.payout),
+      sub: [v.interestDate ? dateLabel(v.interestDate) : "",
+        v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · "),
+      rowSub: [v.interestDate ? dateLabel(v.interestDate) : "",
+        v.payoutEstimated ? "est" : ""].filter(Boolean).join(" · "),
+      surface: "row", kind: "fact", column: 5, columnLabel: "Next interest",
+    });
+  }
+
+  facts.push({
+    key: "invested", label: "Invested",
+    value: money(v.h.cost_paise),
+    surface: "row", kind: "fact", column: 3, columnLabel: "Invested",
+  });
+
+  if (!matured) {
+    facts.push({
+      key: "market-value", label: "Market value",
+      value: money(v.value), sub: marketSub, rowSub: marketRowSub,
+      actionHtml: enterValue,
+      surface: "row", kind: "fact", column: 2, columnLabel: "Market value",
+    });
+
+    facts.push({
+      key: "current-yield", label: "Current yield",
+      value: v.currentYield === null || v.currentYield === undefined
+        ? "—" : `${v.currentYield.toFixed(2)}%`,
+      surface: "row", kind: "fact", column: 4, columnLabel: "Current yield",
+    });
+
+    facts.push({
+      key: "interest-progress", label: "Interest received",
+      value: progress === null ? "" : `${Math.round(progress)}% complete`,
+      surface: "row", kind: "progress",
+      progress: progress === null ? null : {
+        pct: progress,
+        paid: v.pastCoupon || 0,
+        total: v.originalCoupon || 0,
+        note: `${policyNote} · estimated`,
+      },
+      empty: "Interest received needs the purchase date and coupon frequency.",
+    });
+  }
+
+  if (matured) {
+    facts.push({
+      key: "units", label: "Units", value: qty || "—",
+      surface: "row", kind: "fact", column: 4, columnLabel: "Units",
+    });
+    facts.push({
+      key: "purchase-date", label: "Purchase date", value: v.bought ? dateLabel(v.bought) : "—",
+      surface: "row", kind: "fact", column: 5, columnLabel: "Purchase date",
+    });
+    facts.push({
+      key: "face-value", label: "Face value",
+      value: v.faceAtIssue ? money(v.faceAtIssue) : "—",
+      surface: "row", kind: "fact", column: 6, columnLabel: "Face value",
+    });
+  } else {
+    facts.push({
+      key: "purchase-date", label: "Purchase date", value: v.bought ? dateLabel(v.bought) : "—",
+      surface: "band", kind: "fact", section: "Purchase",
+    });
+    facts.push({
+      key: "units", label: "Units", value: qty || "—",
+      surface: "band", kind: "fact", section: "Purchase",
+    });
+    facts.push({
+      key: "face-at-issue", label: "Face at issue",
+      value: v.faceAtIssue ? money(v.faceAtIssue) : "—",
+      sub: v.faceAtIssue && !(Number(v.h.face_paise) > 0) ? "inferred from invested" : "",
+      surface: "band", kind: "fact", section: "Purchase",
+    });
+  }
+
+  facts.push({
+    key: "frequency", label: "Payment frequency", value: esc(v.frequency),
+    surface: "band", kind: "fact", section: "Purchase",
+  });
+  facts.push({
+    key: "purchase-yield", label: "Purchase yield",
+    value: v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`,
+    surface: "band", kind: "fact", section: "Purchase",
+  });
+  facts.push({
+    key: "purchase-rating", label: "Purchase rating",
+    value: v.h.rating_at_purchase ? esc(v.h.rating_at_purchase) : "—",
+    sub: v.h.rating_at_purchase ? "" : "rating missing",
+    surface: "band", kind: "fact", section: "Purchase",
+  });
+
+  if (!matured) {
+    facts.push({
+      key: "per-unit", label: "Per unit", value: perUnit === null ? "—" : money(perUnit),
+      surface: "band", kind: "fact", section: "Market",
+    });
+    facts.push({
+      key: "current-rating", label: "Current rating",
+      value: v.rating ? esc(v.rating) : "—",
+      sub: v.rating
+        ? (v.change ? `${v.change.down ? "downgraded" : "upgraded"} from ${esc(v.change.from)}`
+          : (v.h.rating_at_purchase ? "unchanged since purchase" : ""))
+        : "rating missing",
+      tone: changeTone, subTone: changeTone,
+      surface: "band", kind: "fact", section: "Market",
+    });
+  }
+
+  facts.push({
+    key: "principal-returned", label: "Principal returned",
+    value: returned ? money(returned) : "—",
+    sub: returned
+      ? [v.returnedAt ? `on ${dateLabel(v.returnedAt)}` : "",
+        v.returnedRecordDate ? `face reduced ${dateLabel(v.returnedRecordDate)}` : ""]
+        .filter(Boolean).join(" · ")
+      : "",
+    surface: "band", kind: "fact", section: "Returns",
+  });
+  facts.push({
+    key: "principal-left", label: "Principal left",
+    value: v.principalLeft ? money(v.principalLeft) : "—",
+    sub: v.principalLeft && v.maturity ? `due ${dateLabel(v.maturity)}` : "",
+    surface: "band", kind: "fact", section: "Returns",
+  });
+  if (!matured) {
+    facts.push({
+      key: "gain-if-sold", label: "Gain if sold now",
+      value: v.gain === null || v.gain === undefined ? "—"
+        : `${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain))}`,
+      tone: v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "",
+      surface: "band", kind: "fact", section: "Returns",
+    });
+  }
+
+  facts.push({
+    key: "sources", label: "Sources", value: sources,
+    surface: "band", kind: "sources",
+  });
+
+  return facts;
+}
+
+const factHtml = (f) => `<div class="bond-fact" data-fact="${f.key}"
+  data-surface="${f.surface}"><span class="k">${f.label}</span><span class="v ${
+  f.tone || ""}">${f.value}${f.sub ? `<div class="sub ${f.subTone || ""}">${f.sub}</div>` : ""}</span></div>`;
+
+const anchorHtml = (f) => `<div class="bond-anchor" data-fact="${f.key}"
+  data-surface="${f.surface}"><span class="k">${f.label}</span><span class="v">${f.value}</span>${
+  f.sub ? `<span class="sub ${f.subTone || ""}">${f.sub}</span>` : ""}</div>`;
+
+function progressBlock(f, money) {
+  if (!f.progress) {
+    return `<div class="bond-progress-empty" data-fact="${f.key}"
+      data-surface="${f.surface}">${f.empty}</div>`;
+  }
+  const { pct, paid, total, note } = f.progress;
+  return `<div class="bond-progress" data-fact="${f.key}" data-surface="${f.surface}">
+    <div class="bp-top"><span>${f.label}</span>
+      <span><b>${money(paid)}</b> of ${money(total)} · ${Math.round(pct)}% complete</span></div>
+    <div class="progress-track" role="progressbar" aria-valuemin="0"
+      aria-valuemax="100" aria-valuenow="${Math.round(pct)}"
+      aria-label="${f.label}"><div class="progress-fill" style="width:${pct}%"></div></div>
+    <div class="sub">${note}</div>
+  </div>`;
+}
+
+function actionButtons(v, assetId, { matured = false } = {}) {
+  return `${assetId && v.h.id && v.h.security_id ? `<a class="mini-btn" data-bond-action="smest"
+      href="https://smest.in/bond-details/x/${encodeURIComponent(v.h.security_id)}"
+      target="_blank" rel="noopener"
+      title="Open this bond on SMEST, the source of the rating and terms">SMEST ↗</a>` : ""}
+    ${assetId && v.h.id && !matured ? `<button class="mini-btn" data-bond-action="refresh"
+      title="Ask SMEST for this bond's terms and BSE for its last traded price"
+      onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Refresh</button>` : ""}
+    ${assetId && v.h.id ? `<button class="mini-btn" data-bond-action="edit"
+      onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)})">Edit</button>` : ""}
+    ${assetId && v.h.id ? `<button class="mini-btn" data-bond-action="remove"
+      onclick="bpBondHoldingDelete(${jsArg(assetId)},${jsArg(v.h.id)})">Remove</button>` : ""}`;
+}
+
+/**
+ * The bond card. This is the phone surface; the desktop band is the same fact
+ * list with the same surfaces. The interest progress sits in the body, above
+ * the disclosure, because it ranks with the row.
+ * @param {object} v a bondRowView()
+ * @param {string} assetId
+ * @param {{matured?: boolean, currency?: string, open?: boolean}} [options]
+ */
+export function bondCardHtml(v, assetId, {
+  matured = false, currency = DEFAULT_CURRENCY, open = false,
+} = {}) {
+  const money = (x) => moneyText(x, currency);
+  const facts = bondFacts(v, { matured, assetId, currency });
+  const anchor = facts.find((f) => f.kind === "anchor");
+  const visible = facts.filter((f) => f.surface === "row" && f.kind === "fact");
+  const progress = facts.find((f) => f.kind === "progress");
+  const sources = facts.find((f) => f.kind === "sources");
+  const band = facts.filter((f) => f.surface === "band" && f.kind === "fact");
+  const issuer = String(v.h.issuer || "").trim();
+  const badge = matured
+    ? `<span class="bond-matured-badge">Matured · awaiting payment</span>` : "";
+  const toggle = assetId && v.h.id
+    ? ` ontoggle="bpBondCardToggle(${jsArg(assetId)},${jsArg(v.h.id)},this.open)"` : "";
+  const sections = BOND_BAND_SECTIONS.map((section) => {
+    const items = band.filter((f) => f.section === section);
+    if (!items.length) return "";
+    return `<div class="bond-section"><h3 class="bond-section-title">${section}</h3>
+      <div class="bond-grid">${items.map(factHtml).join("")}</div></div>`;
+  }).join("");
 
   return `<div class="bond-card" data-bond-card="${esc(v.h.id || "")}"
       data-matured="${matured ? "true" : "false"}">
     <div class="bond-card-head"><div class="bond-card-title">
       <div class="bond-name">${esc(v.h.label || "—")}</div>
-      <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
-        ? " · added by hand" : ""}${!String(v.h.issuer || "").trim()
+      <div class="sub">${issuer ? `${esc(issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
+        ? " · added by hand" : ""}${!issuer
         ? ` · <span class="need">issuer name missing</span>` : ""}</div></div>
-      ${actions}</div>
-    ${anchor}
-    <div class="bond-grid bond-facts">${facts.join("")}</div>
-    <details class="bond-breakdown"><summary>Full breakdown</summary>
-      <div class="bond-section">
-        <h3 class="bond-section-title">Purchase</h3>
-        ${purchaseGrid}
-      </div>
-      ${marketGrid}
-      ${returnsGrid}
+      <div class="bond-card-actions">${badge}${actionButtons(v, assetId, { matured })}</div></div>
+    ${anchorHtml(anchor)}
+    <div class="bond-grid bond-facts">${visible.map(factHtml).join("")}</div>
+    ${progress ? progressBlock(progress, money) : ""}
+    <details class="bond-breakdown"${open ? " open" : ""}${toggle}><summary>Full breakdown</summary>
+      ${sections}
     </details>
-    <div class="bond-sources">${sources}</div>
+    <div class="bond-sources" data-fact="sources" data-surface="band">${sources.value}</div>
   </div>`;
 }
 
-const indexCell = (value, sub = "") => `<span class="bi-num">${value}${
-  sub ? `<span class="bi-sub">${sub}</span>` : ""}</span>`;
+const bandIdOf = (id) => `bond-band-${String(id || "").replace(/[^A-Za-z0-9_-]/g, "_")}`;
 
-function bondIndexRow(v, assetId, selected, currency) {
+const bandKv = (f) => `<div class="bl-kv" data-fact="${f.key}" data-surface="${f.surface}">
+  <dt>${f.label}</dt><dd class="${f.tone || ""}">${f.value}${
+  f.sub ? `<small class="${f.subTone || ""}">${f.sub}</small>` : ""}</dd></div>`;
+
+function rowProgress(f, money) {
+  if (!f) return "";
+  if (!f.progress) {
+    return `<span class="bl-progress" data-row-fact="${f.key}" data-surface="${f.surface}">
+      <span class="bl-progress-label">${f.label}</span>
+      <span class="bl-progress-text">${f.empty}</span></span>`;
+  }
+  const { pct, paid, total, note } = f.progress;
+  return `<span class="bl-progress" data-row-fact="${f.key}" data-surface="${f.surface}">
+    <span class="bl-progress-label">${f.label}</span>
+    <span class="bl-bar" aria-hidden="true"><i style="width:${pct}%"></i></span>
+    <span class="bl-progress-text"><b>${money(paid)}</b> of ${money(total)} · ${
+  Math.round(pct)}% complete · ${note}</span></span>`;
+}
+
+function ledgerRow(v, facts, columns, matured, selected, assetId, currency) {
   const money = (x) => moneyText(x, currency);
-  const on = selected === String(v.h.id);
-  const value = v.matured ? (v.value ?? v.h.cost_paise) : v.value;
-  return `<button type="button" class="bond-index-row" data-bond-id="${esc(v.h.id || "")}"
-      aria-pressed="${on ? "true" : "false"}" aria-controls="bond-dossier"
-      onclick="bpBondSelect(${jsArg(assetId)},${jsArg(v.h.id)})">
-    <span class="bi-name">${esc(v.h.label || "—")}</span>
-    ${indexCell(value === null || value === undefined ? "—" : money(value))}
-    ${indexCell(v.matured || v.currentYield === null || v.currentYield === undefined
-      ? "—" : `${v.currentYield.toFixed(2)}%`)}
-    ${indexCell(v.matured || v.payout === null ? "—" : money(v.payout),
-      v.matured ? "" : (v.interestDate ? bondDateLabel(v.interestDate)
-        : (v.payoutEstimated ? "estimated" : "")))}
-    ${indexCell(v.maturity ? bondDateLabel(v.maturity) : "—")}
+  const byKey = new Map(facts.map((f) => [f.key, f]));
+  const coupon = byKey.get("coupon");
+  const progress = facts.find((f) => f.kind === "progress");
+  const id = String(v.h.id || "");
+  const label = v.h.label || "—";
+  const issuer = String(v.h.issuer || "").trim();
+  const parsedCoupon = parseBondLabel(v.h.label)?.couponPct;
+  const labelHasCoupon = parsedCoupon !== null && parsedCoupon !== undefined
+    && v.coupon !== null && Math.abs(Number(parsedCoupon) - Number(v.coupon)) < 0.001;
+  const couponChip = coupon && coupon.value !== "—" && !labelHasCoupon
+    ? ` · <span class="bl-coupon">${coupon.value}</span>` : "";
+  const identifierSub = `${issuer ? `${esc(issuer)} · ` : ""}${
+    esc(v.h.security_id || "no ISIN")}${v.h.source === "manual" ? " · added by hand" : ""}${
+    !issuer ? ` · <span class="need">issuer name missing</span>` : ""}${couponChip}`;
+  const cells = columns.map((col) => {
+    const f = byKey.get(col.key);
+    if (!f) return "";
+    const sub = f.rowSub ?? f.sub;
+    return `<span class="bl-num${f.kind === "anchor" ? " bl-anchor" : ""}"
+      data-row-fact="${f.key}" data-surface="row">${f.value}${
+      sub ? `<span class="bl-sub ${f.subTone || ""}">${sub}</span>` : ""}</span>`;
+  }).join("");
+  return `<button type="button" class="bl-row" data-bond-id="${esc(id)}"
+      data-matured="${matured ? "true" : "false"}" aria-expanded="${selected ? "true" : "false"}"
+      aria-controls="${bandIdOf(id)}"
+      onclick="bpBondSelect(${jsArg(assetId)},${jsArg(id)})">
+    <span class="bl-id" data-row-fact="coupon" data-surface="row">
+      <span class="bl-name" title="${esc(label)}">${esc(label)}</span>
+      <span class="bl-sub">${identifierSub}</span></span>
+    ${cells}
+    ${matured ? "" : rowProgress(progress, money)}
   </button>`;
 }
 
+function ledgerBand(v, facts, matured, selected, assetId) {
+  const id = String(v.h.id || "");
+  const band = facts.filter((f) => f.surface === "band" && f.kind === "fact");
+  const sources = facts.find((f) => f.kind === "sources");
+  const market = facts.find((f) => f.key === "market-value");
+  const columns = BOND_BAND_SECTIONS.map((section) => {
+    const items = band.filter((f) => f.section === section);
+    if (!items.length) return "";
+    const missing = section === "Market" && market && market.value === "—"
+      ? `<div class="bl-missing">Market value not recorded · ${market.actionHtml || ""}</div>`
+      : "";
+    return `<div class="bl-col" data-section="${section}"><h3>${section}</h3>
+      <dl>${items.map(bandKv).join("")}</dl>${missing}</div>`;
+  }).join("");
+  return `<div class="bl-band" id="${bandIdOf(id)}" data-band-id="${esc(id)}"
+      data-matured="${matured ? "true" : "false"}" role="region"
+      aria-label="${esc(v.h.label || "Bond")} breakdown"${selected ? "" : " hidden"}>
+    <div class="bl-cols">${columns}</div>
+    <div class="bl-foot"><div class="bl-src" data-fact="sources"
+      data-surface="band">${sources ? sources.value : ""}</div>
+      <div class="bl-actions">${actionButtons(v, assetId, { matured })}</div></div>
+  </div>`;
+}
+
+function maturedNote(matured, maturedValue, maturedGuessed, currency) {
+  return `${matured.length} matured · ${maturedValue
+    ? `${moneyText(maturedValue, currency)} ` : ""}awaiting payment. Carried in net worth
+    until a bank credit is matched.${maturedGuessed ? ` For ${maturedGuessed} lot${
+    maturedGuessed === 1 ? "" : "s"}, the date was read from the bond name; check it against
+    the statement.` : ""} Delete a lot only if you know it was paid.`;
+}
+
 /**
- * Master-detail book. The left index is comparison only; the right dossier is
- * the phone card exactly. Selecting a row changes the dossier, not the page.
+ * One ledger with one open band. The live and matured lots keep their own
+ * tables because the anchor means different things; the row and band facts
+ * are filters over bondFacts(), so a fact cannot rank on one surface only.
  * @param {Array<object>} views bondRowView() rows, each with `matured`
  * @param {string} assetId
  * @param {{selectedId?: string, currency?: string, maturedValue?: number,
  *   maturedGuessed?: number}} [options]
  */
-export function bondBookHtml(views, assetId, {
+export function bondLedgerHtml(views, assetId, {
   selectedId = "", currency = DEFAULT_CURRENCY, maturedValue = 0, maturedGuessed = 0,
 } = {}) {
   const rows = views || [];
   if (!rows.length) return "";
   const live = rows.filter((v) => !v.matured);
   const matured = rows.filter((v) => v.matured);
-  const pick = rows.find((v) => String(v.h.id) === String(selectedId)) || rows[0];
-  const note = matured.length ? `<div class="bond-index-note">
-      ${matured.length} matured · ${maturedValue ? `${moneyText(maturedValue, currency)} ` : ""}awaiting payment.
-      The money stays in the account value until a bank credit is matched.${maturedGuessed
-        ? ` For ${maturedGuessed} lot${maturedGuessed === 1 ? "" : "s"}, the date was read from
-          the bond name; check it against the statement.` : ""}
-      Delete a lot only if you know it was paid.
-    </div>` : "";
-  return `<div class="bond-book">
-    <div class="bond-index">
-      <div class="bond-index-head" aria-hidden="true">
-        ${BOND_INDEX_FACTS.map((f, index) => `<span${index ? ` class="num"` : ""}>${f.label}</span>`).join("")}
-      </div>
-      <div class="bond-index-list" role="group" aria-label="Bond book">
-        ${live.map((v) => bondIndexRow(v, assetId, String(pick.h.id), currency)).join("")}
-        ${matured.length ? `<div class="bond-index-divider">Matured · awaiting payment</div>
-          ${matured.map((v) => bondIndexRow(v, assetId, String(pick.h.id), currency)).join("")}` : ""}
-      </div>
-      ${note}
-    </div>
-    <div class="bond-dossier" id="bond-dossier" aria-live="polite">${
-      bondCardHtml(pick, assetId, { matured: !!pick.matured, currency })}</div>
-  </div>`;
+  const pick = rows.find((v) => String(v.h.id) === String(selectedId))
+    || live[0] || matured[0] || rows[0];
+  const pickId = pick ? String(pick.h.id) : "";
+
+  const tableFor = (list, isMatured) => {
+    if (!list.length) return "";
+    const sample = bondFacts(list[0], { matured: isMatured, assetId, currency });
+    const columns = sample
+      .filter((f) => f.surface === "row" && f.kind !== "progress" && f.key !== "coupon")
+      .sort((a, b) => (a.column ?? 99) - (b.column ?? 99));
+    const head = `<div class="bl-head" aria-hidden="true"><span>Bond</span>${
+      columns.map((f) => `<span class="num">${f.columnLabel || f.label}</span>`).join("")}</div>`;
+    const body = list.map((v) => {
+      const facts = bondFacts(v, { matured: isMatured, assetId, currency });
+      const on = String(v.h.id) === pickId;
+      return ledgerRow(v, facts, columns, isMatured, on, assetId, currency)
+        + ledgerBand(v, facts, isMatured, on, assetId);
+    }).join("");
+    return `<div class="bl-table${isMatured ? " bl-matured" : ""}" role="group"
+        aria-label="${isMatured ? "Matured bonds" : "Bonds"}">
+      ${isMatured ? `<div class="bl-divider">Matured · awaiting payment</div>` : ""}
+      ${head}
+      ${body}
+      ${isMatured ? `<div class="bl-note">${
+        maturedNote(matured, maturedValue, maturedGuessed, currency)}</div>` : ""}
+    </div>`;
+  };
+
+  return `<div class="bond-ledger">${tableFor(live, false)}${tableFor(matured, true)}</div>`;
 }
