@@ -12,7 +12,7 @@
 // the parser working when a section prints a different set of columns.
 
 import { parseDate as parseAnyDate, parseMoney, parseNumber } from "./holding-import.js";
-import { parseBondLabel } from "./bonds.js";
+import { parseBondLabel, bondLabelName } from "./bonds.js";
 
 const ISIN_RE = /^IN[A-Z0-9]{10}$/;
 const ROW_GAP = 1.5;
@@ -253,17 +253,30 @@ export function motilalHoldingPatch(row, holding) {
     const qty = Number(row.quantity) || Number(holding?.quantity) || 1;
     patch.face_paise = Math.round(Number(row.face_paise) / qty);
   }
-  // The label is the only place the app keeps the coupon and the maturity.
-  // Fill whichever is missing, never replace a fact the CAS already prints.
+  // The label is the only place the app keeps the coupon and the maturity. A
+  // term the name carries is a guess; the report prints its own coupon and
+  // maturity columns, so a stated term wins and the label is rebuilt around it.
   const current = String(holding?.label || "").trim();
   const parsed = parseBondLabel(current);
   let label = current || String(row.label || "").trim();
-  if (!parsed?.couponPct && row.coupon_pct) label = `${row.coupon_pct}% ${label}`.trim();
-  const maturity = labelDate(row.maturity_date);
-  // A parsed coupon does not mean the label already has a date: dashed names
-  // can carry NAME-<rate>%- only. Fill the maturity the report states whenever
-  // the label does not already carry one.
-  if (!parsed?.maturity && maturity) label = `${label} ${maturity}`.trim();
+  const statedCoupon = Number(row.coupon_pct) > 0 ? Number(row.coupon_pct) : null;
+  const statedMaturity = labelDate(row.maturity_date);
+  const couponWins = statedCoupon !== null && statedCoupon !== parsed?.couponPct;
+  const maturityWins = !!statedMaturity && statedMaturity !== labelDate(parsed?.maturity);
+  if (couponWins || maturityWins) {
+    const coupon = statedCoupon ?? parsed?.couponPct ?? null;
+    const maturity = statedMaturity || labelDate(parsed?.maturity);
+    label = [coupon === null ? "" : `${coupon}%`, bondLabelName(label), maturity]
+      .filter(Boolean).join(" ").trim();
+  } else {
+    if (!parsed?.couponPct && statedCoupon !== null) {
+      label = `${statedCoupon}% ${label}`.trim();
+    }
+    // A parsed coupon does not mean the label already has a date: dashed names
+    // can carry NAME-<rate>%- only. Fill the maturity the report states whenever
+    // the label does not already carry one.
+    if (!parsed?.maturity && statedMaturity) label = `${label} ${statedMaturity}`.trim();
+  }
   if (label && label !== current) patch.label = label;
   return patch;
 }
