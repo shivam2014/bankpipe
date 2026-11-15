@@ -1364,6 +1364,8 @@ import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, pla
   importAccountSummary, importAccountGaps, importPlanPrimary, IMPORT_REPORT_GUIDE,
   normalizeAccount, parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
+import { offersPasswordRetry, passwordFailure, PDF_PASSWORD_WRONG }
+  from "./import-password.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
@@ -1574,7 +1576,8 @@ function bpBatchDetectedHtml(entry) {
 
 function bpBatchFileNote(entry) {
   if (entry.duplicateOf) return "Same bytes as the earlier file; it is skipped by default.";
-  if (entry.status === "locked") return "Locked by the bank. Unlock it to read the rows.";
+  if (entry.status === "locked") return entry.passwordWrong
+    ? PDF_PASSWORD_WRONG : "Locked by the bank. Unlock it to read the rows.";
   if (entry.pdf && entry.status !== "error") return entry.pdf.line || "";
   return "";
 }
@@ -1735,6 +1738,7 @@ async function bpBatchPrepareQueued() {
 async function bpBatchPrepare(entry) {
   entry.status = "preparing";
   entry.message = "";
+  entry.passwordWrong = false;
   entry.result = null;
   bpBatchRender();
   try {
@@ -1750,11 +1754,11 @@ async function bpBatchPrepare(entry) {
     }
     bpBatchPrepareSheet(entry);
   } catch (e) {
-    if (e && (e.cancelled || e.wrong)) {
-      entry.status = "locked";
-      entry.message = e.wrong
-        ? "That password did not open this PDF. Unlock to try again."
-        : "Password needed.";
+    const failure = passwordFailure(e);
+    if (failure) {
+      entry.status = failure.status;
+      entry.passwordWrong = failure.wrong;
+      entry.message = failure.message;
     } else {
       entry.status = "error";
       entry.message = String((e && e.message) || e).slice(0, 180);
@@ -1909,7 +1913,7 @@ function bpShowUnlock() {
     <div id="bp-unlock-msg" class="muted" style="font-size:12.5px;margin-top:8px">${
       locked.wrong
         ? `<span style="color:var(--red)">That password did not open the ${pdf ? "PDF" : "file"}. Check the
-           password the bank sent and try again. One more try is allowed.</span>`
+           password the bank sent and try again.</span>`
         : ""}</div>
     <div class="muted" style="font-size:11.5px;margin-top:8px">The password is used here and
     nowhere else. It is not saved, and the file never leaves this device.</div>
@@ -6871,7 +6875,7 @@ window.bpCasFiles = async (files) => {
 const bpImportInboxState = () => {
   if (!window.bpImportInbox) {
     window.bpImportInbox = { entries: [], bundles: [], plans: [], accountRows: null,
-      accountError: "", choices: {}, acceptAsk: {},
+      accountError: "", choices: {}, acceptAsk: {}, readQueue: null,
       message: "", messageKind: "", preparing: false, pending: false, applying: false };
   }
   return window.bpImportInbox;
@@ -7909,6 +7913,21 @@ function bpImportPlanHtml(plan) {
   </div>`;
 }
 
+function bpImportInboxSettleStatus() {
+  const state = bpImportInboxState();
+  const ready = (state.plans || []).filter((plan) => plan.ready).length;
+  if (ready) {
+    bpImportInboxStatus(`${ready} plan${ready === 1 ? "" : "s"} ready. Nothing is saved until you confirm.`);
+    return;
+  }
+  // readOne already announced a bank handoff, and that line is the outcome.
+  if (state.entries.some((entry) => entry.status === "bank")) return;
+  // The locked entry states the password failure and its two actions. The page
+  // line must not repeat it.
+  if (state.entries.some(offersPasswordRetry)) { bpImportInboxStatus(""); return; }
+  bpImportInboxStatus("No plan is ready yet. Check the file messages above.", "bad");
+}
+
 function bpImportInboxRender() {
   const host = document.getElementById("import-inbox-host");
   if (!host) return;
@@ -7917,15 +7936,19 @@ function bpImportInboxRender() {
   const loose = state.entries.filter((entry) => !entry.bundleKey && entry.status !== "ready");
   const looseHtml = loose.map((entry) => {
     const error = bpImportInboxEntryError(entry);
-    const isError = entry.status === "error" || (entry.error && entry.status !== "bank");
+    const retry = offersPasswordRetry(entry);
+    const isError = retry || entry.status === "error"
+      || (entry.error && entry.status !== "bank");
+    const withdraw = entry.kind === "bank" ? "" : `<button class="btn"
+      onclick="bpImportDropEntry(${jsArg(entry.id)})">Remove</button>`;
+    const types = !retry && isError
+      ? `<button class="btn" onclick="bpImportOpenTypes()">Choose by file type</button>` : "";
+    const unlock = retry ? `<button class="btn primary"
+      onclick="bpImportInboxRetry(${jsArg(entry.id)})">Try the password again</button>` : "";
     return `<div class="${isError ? "import-wrong" : "import-section"}">
       <b>${esc(entry.name)}</b>
       <div class="muted">${esc(error || "Reading this file…")}</div>
-      <div class="import-actions">
-        ${entry.kind === "bank" ? "" : `<button class="btn ghost"
-          onclick="bpImportDropEntry(${jsArg(entry.id)})">Remove</button>`}
-        ${isError ? `<button class="btn" onclick="bpImportOpenTypes()">Choose by file type</button>` : ""}
-      </div></div>`;
+      <div class="import-actions">${unlock}${withdraw}${types}</div></div>`;
   }).join("");
   const plans = state.plans || [];
   const allReady = plans.length > 0 && plans.every((plan) => plan.ready);
@@ -7943,8 +7966,18 @@ function bpImportInboxRender() {
   host.innerHTML = `${looseHtml}${batch}${plans.map(bpImportPlanHtml).join("")}`;
 }
 
+// One password gate exists, so only one file may be reading at a time: a
+// second prompt would write over the first and strand its promise.
+function bpImportInboxReadQueue(task) {
+  const state = bpImportInboxState();
+  const run = (state.readQueue || Promise.resolve()).then(task, task);
+  state.readQueue = run.then(() => {}, () => {});
+  return run;
+}
+
 async function bpImportInboxReadOne(entry) {
   const state = bpImportInboxState();
+  if (!state.entries.includes(entry)) return;
   entry.status = "reading";
   entry.error = "";
   bpImportInboxStatus(`Reading ${entry.name}…`);
@@ -8147,11 +8180,14 @@ async function bpImportInboxReadOne(entry) {
     entry.kind = entry.kind || detected.kind;
     entry.detected = detected;
   } catch (e) {
-    const cancelled = e?.cancelled || /cancelled|canceled/i.test(String(e?.message || ""));
-    entry.error = cancelled
-      ? "No password entered. Nothing was read."
-      : (String(e?.message || e) || "The file could not be read.");
-    entry.status = cancelled ? "queued" : "error";
+    const failure = passwordFailure(e);
+    if (failure) {
+      entry.status = failure.status;
+      entry.error = failure.message;
+    } else {
+      entry.status = "error";
+      entry.error = String(e?.message || e) || "The file could not be read.";
+    }
   }
 }
 
@@ -8181,7 +8217,7 @@ function bpImportInboxPassword(entry, wrong) {
     const host = document.getElementById("import-inbox-gate");
     if (!host) { reject({ cancelled: true }); return; }
     host.innerHTML = `<div class="import-password">
-      <b>${wrong ? "That password did not open the PDF" : "This PDF is password protected"}</b>
+      <b>${wrong ? "Try the password again" : "This PDF is password protected"}</b>
       <p class="muted">Type the PDF password for <b>${esc(entry.name)}</b>. It is usually your
       PAN in capitals. It is not your BankPipe passphrase and it is not saved.</p>
       <input id="import-inbox-pw" type="password" autocomplete="off" spellcheck="false"
@@ -8236,13 +8272,11 @@ window.bpImportInboxAdd = async (files) => {
   }
   bpImportInboxRender();
   for (const entry of state.entries.filter((item) => item.status === "queued")) {
-    await bpImportInboxReadOne(entry);
+    await bpImportInboxReadQueue(() => bpImportInboxReadOne(entry));
     bpImportInboxRender();
   }
   await bpImportInboxPrepare(true);
-  const ready = (state.plans || []).filter((plan) => plan.ready).length;
-  if (ready) bpImportInboxStatus(`${ready} plan${ready === 1 ? "" : "s"} ready. Nothing is saved until you confirm.`);
-  else bpImportInboxStatus("No plan is ready yet. Check the file messages above.", "bad");
+  bpImportInboxSettleStatus();
 };
 
 window.bpImportChoose = async (key, accountId) => {
@@ -8267,6 +8301,21 @@ window.bpImportDropEntry = (id) => {
   const state = bpImportInboxState();
   state.entries = state.entries.filter((entry) => entry.id !== id);
   bpImportInboxPrepare();
+};
+
+// A retry is the same entry read again: same id, same file, same plan. The
+// password gate re-opens because the PDF reader asks again.
+window.bpImportInboxRetry = async (id) => {
+  const state = bpImportInboxState();
+  const entry = state.entries.find((item) => item.id === id);
+  if (!offersPasswordRetry(entry)) return;
+  entry.status = "queued";
+  entry.error = "";
+  bpImportInboxRender();
+  await bpImportInboxReadQueue(() => bpImportInboxReadOne(entry));
+  bpImportInboxRender();
+  if (entry.status === "ready") await bpImportInboxPrepare(true);
+  bpImportInboxSettleStatus();
 };
 
 window.bpImportDropPlan = (key) => {
