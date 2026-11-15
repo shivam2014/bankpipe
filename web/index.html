@@ -325,33 +325,55 @@ label.field textarea{resize:vertical;min-height:58px}
 .bond-line{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.4}
 tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
   padding:7px 10px 9px;line-height:1.5}
-.bond-table-wrap{overflow-x:auto;margin-top:10px;-webkit-overflow-scrolling:touch}
 .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.bond-table{width:100%;min-width:900px;border-collapse:collapse;font-size:11.5px}
-.bond-table th{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
-.bond-table td{padding:8px;border-bottom:1px solid var(--hair);vertical-align:top}
-.bond-table tr:last-child td{border-bottom:0}
-.bond-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.bond-table .bond-name{font-weight:600;font-size:12.5px;line-height:1.35;max-width:220px}
-.bond-table .sub{font-size:11px;color:var(--muted);margin-top:2px;white-space:normal;line-height:1.35}
-.bond-table th:first-child,.bond-table td:first-child{position:sticky;left:0;z-index:2;
- min-width:180px;max-width:220px;background:var(--card);box-shadow:1px 0 0 var(--hair)}
-.bond-table th:first-child{z-index:3}
-.bond-table .pos{color:var(--green)}
-.bond-table .neg{color:var(--red)}
-.bond-table .sub.need{color:var(--amber)}
+/* The bond book: a comparison index beside the phone card as a dossier. The
+   table it replaces could never carry as much as the card. */
+.bond-book{display:none}
+.bond-index{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+.bond-index-head,.bond-index-row{display:grid;grid-template-columns:minmax(0,1fr) 74px 50px 84px 74px;
+ gap:6px;align-items:center}
+.bond-index-head{padding:8px 10px;border-bottom:1px solid var(--line);font-size:11px;
+ text-transform:uppercase;letter-spacing:.05em;color:var(--muted);align-items:end;
+ line-height:1.25}
+.bond-index-head .num{text-align:right}
+.bond-index-list{max-height:min(62vh,560px);overflow:auto}
+.bond-index-row{width:100%;border:0;border-top:1px solid var(--hair);background:var(--card);
+ color:var(--ink);font:inherit;text-align:left;padding:9px 10px;cursor:pointer}
+.bond-index-row:first-of-type{border-top:0}
+.bond-index-row:hover{background:var(--hair)}
+.bond-index-row[aria-pressed="true"]{background:color-mix(in srgb,var(--green) 8%,var(--card));
+ box-shadow:inset 3px 0 0 var(--green)}
+.bi-name{font-size:13.5px;font-weight:600;line-height:1.3;min-width:0;overflow-wrap:anywhere}
+.bi-num{font-size:12px;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.bi-sub{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:1px}
+.bond-index-divider{padding:7px 10px;border-top:1px solid var(--line);background:var(--hair);
+ font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+.bond-index-note{padding:9px 10px;border-top:1px solid var(--line);font-size:12px;
+ color:var(--muted);line-height:1.45}
+.bond-dossier{min-width:0}
+.bond-matured-badge{display:inline-block;padding:2px 7px;border-radius:99px;
+ background:color-mix(in srgb,var(--amber) 14%,var(--card));color:var(--amber);
+ font-size:11px;font-weight:600;white-space:nowrap}
+.bond-anchor{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--hair);
+ display:flex;flex-direction:column;gap:1px}
+.bond-anchor .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.bond-anchor .v{font-size:24px;font-weight:640;letter-spacing:-.02em;line-height:1.15;
+ font-variant-numeric:tabular-nums}
+.bond-anchor .sub{font-size:12px;color:var(--muted)}
+.bond-anchor .sub.neg{color:var(--red)}
+.bond-anchor .sub.pos{color:var(--green)}
+.bond-facts{margin-top:10px}
+.bond-card .bond-matured-badge{margin-right:2px}
 .needs-details{margin-top:8px;font-size:11px;color:var(--muted)}
 .needs-details summary{cursor:pointer}
 .needs-list{display:grid;gap:4px;margin-top:6px}
 .needs-list b{color:var(--ink);font-weight:600}
-/* The book has thirteen columns. On desktop the table keeps the comparison
-   columns and drops the four that repeat the bond name or live on the card:
-   coupon, purchase date, maturity date and units. */
-@media (min-width:1000px){
-  .bond-table th:nth-child(3),.bond-table td:nth-child(3),
-  .bond-table th:nth-child(6),.bond-table td:nth-child(6),
-  .bond-table th:nth-child(7),.bond-table td:nth-child(7),
-  .bond-table th:nth-child(8),.bond-table td:nth-child(8){display:none}
+@media (min-width:1001px){
+  .bond-book{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;
+    align-items:start;margin-top:10px}
+  .bond-dossier .bond-card-head{flex-wrap:wrap}
+  .bond-dossier .bond-card-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}
+  .matured-bonds{display:none}
 }
 .bond-rating{display:inline-block;padding:2px 7px;border-radius:99px;background:var(--hair);font-size:10.5px;font-weight:600;white-space:nowrap}
 .bond-rating.down{background:color-mix(in srgb,var(--red) 16%,var(--card));color:var(--red)}
@@ -472,7 +494,8 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .bond-grid .v{display:block;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:1px}
 .bond-grid .v.neg{color:var(--red)}
 .bond-grid .v.pos{color:var(--green)}
-@media (max-width:1000px){.bond-table-wrap{display:none}.bond-cards{display:flex}}
+@media (max-width:1000px){.bond-cards{display:flex}}
+@media (pointer:coarse){.bond-index-row{min-height:44px}}
 @media (max-width:520px){.bond-card-head{flex-wrap:wrap}.bond-card-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (pointer:coarse){.bond-card-actions .mini-btn,.holding-head-actions .btn{min-height:44px}}
 @media (max-width:620px){.donut{width:160px;height:160px}.donut-hole{width:104px;height:104px}.legend-row .amt{font-size:11.5px}}
@@ -1201,10 +1224,6 @@ function wireResizableTables() {
   if (!view) return;
   view.querySelectorAll("table").forEach((table, index) => {
     if (table.dataset.resizableReady) return;
-    // The bond book already has its own horizontal scroller and 13 columns.
-    // Letting the generic column resizer pin those widths squeezes the cells
-    // until the values overlap, so it is deliberately left alone.
-    if (table.classList.contains("bond-table")) return;
     table.dataset.resizableReady = "1";
     const heading = view.querySelector("h1")?.textContent || "table";
     const key = table.dataset.table || `${heading}-${index}`;
@@ -1322,8 +1341,9 @@ import { assetMetrics } from "./finance.js";
 import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { bondAnalytics, bondSummary, bondMaturity, splitMatured, parseBondLabel,
-  inferFace, BOND_RATINGS, bondRatingRank, bondFillPlan, bondRatingChange,
-  soldGain } from "./bonds.js";
+  inferFace, bondFillPlan, bondRatingChange } from "./bonds.js";
+import { bondCardHtml, bondBookHtml, bondRowView, bondSortValue, bondRatingOf,
+  bondFrequency } from "./bond-book.js";
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
@@ -11873,101 +11893,6 @@ function assetFocusCard(a) {
         rest > 0 ? ` This ${esc(categoryLabel(cat).toLowerCase())} is ${selPct}% of net worth.` : ""}</div>
     </div></div>`;
 }
-function bondRatingOf(h) {
-  const explicit = String(h.rating || "").trim();
-  if (explicit) return explicit;
-  const cat = String(h.category || "").trim();
-  return BOND_RATINGS.includes(cat.toUpperCase()) ? cat : "";
-}
-function bondPeriods(freq) {
-  const f = String(freq || "").toLowerCase();
-  if (f.includes("month")) return 12;
-  if (f.includes("quarter")) return 4;
-  if (f.includes("half")) return 2;
-  if (f.includes("annual") || f.includes("year")) return 1;
-  return null;
-}
-function bondFrequency(freq) {
-  const p = bondPeriods(freq);
-  return p === 12 ? "Monthly" : p === 4 ? "Quarterly" : p === 2 ? "Half-yearly"
-    : p === 1 ? "Annual" : (freq || "—");
-}
-function bondRowView(h) {
-  const ba = bondAnalytics(h);
-  // splitMatured() attaches the date it resolved. Keep its source and guess
-  // flag; re-reading the row would mistake the attached date for a stored one.
-  const terms = h.maturitySource
-    ? { maturity: h.maturity || "", source: h.maturitySource,
-      guessed: !!h.maturityGuessed }
-    : bondMaturity(h);
-  const parsed = parseBondLabel(h.label);
-  const hasPrice = ba ? ba.hasMarket : (h.value_paise !== null && h.cost_paise !== null
-    && Math.abs(h.value_paise - h.cost_paise) >= 1);
-  const periods = bondPeriods(h.frequency);
-  // Principal already returned is money in hand, so a sale of the rest is
-  // measured against the full cost. Coupons already received and accrued
-  // interest are also the seller's, so the total gain includes them.
-  const returned = (ba && ba.returned) || 0;
-  const today = new Date().toISOString().slice(0, 10);
-  const pastReturn = String(h.redemption_dates || h.principal_dates || "")
-    .split(",").map((d) => d.trim()).filter((d) => d && d <= today).sort().pop() || "";
-  return {
-    h, ba,
-    rating: bondRatingOf(h),
-    change: bondRatingChange(h.rating_at_purchase, h.rating),
-    coupon: ba ? ba.couponPct : (parsed ? parsed.couponPct : (h.couponPct ?? null)),
-    maturity: terms.maturity || (ba ? ba.maturity : ""),
-    maturitySource: terms.source,
-    maturityGuessed: terms.guessed,
-    yieldPct: h.yield_bps !== null && h.yield_bps !== undefined
-      ? h.yield_bps / 100 : (ba ? ba.ytm : null),
-    frequency: bondFrequency(h.frequency),
-    periods,
-    payoutEstimated: !(h.payout_paise !== null && h.payout_paise !== undefined)
-      && !!(ba && periods),
-    interestDate: h.interest_date || "",
-    payout: h.payout_paise !== null && h.payout_paise !== undefined
-      ? h.payout_paise : (ba && periods ? ba.annualCoupon / periods : null),
-    totalCoupon: ba ? ba.couponIncome : null,
-    capitalGain: ba ? ba.capitalGain : null,
-    expectedMaturity: ba ? (ba.schedule ? ba.schedule.total : ba.faceTotal + ba.couponIncome) : null,
-    expectedGain: ba ? (ba.schedule ? (ba.schedule.short ? null : ba.schedule.gain) : ba.totalGain) : null,
-    expectedGainPct: ba ? ba.totalGainPct : null,
-    parts: ba?.schedule?.parts || 0,
-    returned,
-    returnedAt: h.returned_at || pastReturn,
-    returnedRecordDate: h.returned_record_date || "",
-    returnedSource: h.returned_source || "",
-    shortSchedule: !!(ba && ba.schedule && ba.schedule.short),
-    hasPrice,
-    value: hasPrice ? h.value_paise : null,
-    gain: hasPrice ? (ba ? soldGain(ba) : h.value_paise + returned - h.cost_paise) : null,
-    pastCoupon: ba?.pastCoupon ?? null,
-    originalCoupon: ba?.originalCouponEstimate ?? null,
-    couponProgress: ba?.couponProgress ?? null,
-    couponLost: ba?.couponLost ?? null,
-    faceAtIssue: ba?.purchaseFaceTotal ?? null,
-    principalLeft: ba?.faceTotal ?? null,
-    marketPerUnit: hasPrice && Number(h.quantity) > 0 ? h.value_paise / Number(h.quantity) : null,
-    valueAsOf: String(h.as_of || "").slice(0, 10),
-    accrued: ba?.accrued ?? null,
-    accruedFrom: ba?.accruedFrom || "",
-    accruedTo: ba?.accruedTo || "",
-    currentYield: ba?.currentYield ?? null,
-    bought: h.purchase_date || "",
-  };
-}
-function bondSortValue(v, key) {
-  if (key === "rating") return bondRatingRank(v.rating);
-  if (key === "yield") return v.yieldPct === null ? -Infinity : v.yieldPct;
-  if (key === "coupon") return v.coupon === null ? -Infinity : v.coupon;
-  if (key === "maturity") return v.maturity || "9999-99-99";
-  if (key === "bought") return v.bought || "9999-99-99";
-  if (key === "payout") return v.payout === null ? -Infinity : v.payout;
-  if (key === "value") return v.value === null ? (v.h.cost_paise || -Infinity) : v.value;
-  if (key === "gain") return v.gain === null ? -Infinity : v.gain;
-  return 0;
-}
 // Lots whose rating has moved since the money went in. Agencies re-rate the
 // issuer, so one action shows on every bond of that issuer.
 async function bondRatingDrift(store, assets) {
@@ -11980,137 +11905,6 @@ async function bondRatingDrift(store, assets) {
     }
   }
   return out;
-}
-function bondCardHtml(v, assetId, { matured = false } = {}) {
-  const moneyOrDash = (x) => x === null || x === undefined ? "—" : money(x);
-  const cell = (k, val, cls = "") => `<div><span class="k">${k}</span>
-    <span class="v ${cls}">${val}</span></div>`;
-  const rawSource = v.h.value_source || (v.h.source === "manual" ? "Manual" : "CAS");
-  const valueSourceLong = rawSource === "BSE" ? "from BSE"
-    : rawSource === "Manual" ? "entered by hand" : "from the CAS";
-  const qty = Number(v.h.quantity) || 0;
-  const returned = v.returned || 0;
-  const still = v.expectedMaturity;
-  const heldTotal = matured ? null
-    : (v.ba?.lifetimeTotal ?? (still === null || still === undefined
-      ? null : still + returned));
-  const heldGain = matured ? null : (v.ba?.lifetimeGain ?? v.expectedGain);
-  const perUnit = v.value !== null && v.value !== undefined && qty > 0
-    ? v.value / qty : null;
-  const progress = v.couponProgress === null || v.couponProgress === undefined
-    ? null : Math.max(0, Math.min(100, v.couponProgress));
-  const policyNote = v.couponLost
-    ? `${money(v.couponLost)} less after the early repayment`
-    : "original schedule";
-  const progressBlock = progress === null
-    ? `<div class="bond-progress-empty">Interest received
-        needs the purchase date and coupon frequency.</div>`
-    : `<div class="bond-progress">
-        <div class="bp-top"><span>Interest received</span>
-          <span><b>${money(v.pastCoupon || 0)}</b> of ${money(v.originalCoupon || 0)}
-            · ${Math.round(progress)}% complete</span></div>
-        <div class="progress-track" role="progressbar" aria-valuemin="0"
-          aria-valuemax="100" aria-valuenow="${Math.round(progress)}"
-          aria-label="Interest received">
-          <div class="progress-fill" style="width:${progress}%"></div></div>
-        <div class="sub">${policyNote} · estimated</div>
-      </div>`;
-  const marketSub = v.value === null
-    ? `not recorded${assetId && v.h.id ? ` · <button class="vupdate"
-        onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>` : ""}`
-    : [v.valueAsOf ? `as of ${dateLabel(v.valueAsOf)}` : "",
-        valueSourceLong].filter(Boolean).join(" · ");
-  return `<div class="bond-card">
-    <div class="bond-card-head"><div class="bond-card-title">
-      <div class="bond-name">${esc(v.h.label || "—")}</div>
-      <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
-        ? " · added by hand" : ""}${!String(v.h.issuer || "").trim()
-        ? ` · <span class="need">issuer name missing</span>` : ""}</div></div>
-      <div class="bond-card-actions">
-        ${matured ? `<span class="bond-rating">Awaiting payment</span>` : ""}
-        ${matured && v.rating ? `<span class="bond-rating" title="Current credit rating">${esc(v.rating)}</span>` : ""}
-        ${assetId && v.h.id && !matured ? `<a class="mini-btn"
-          href="https://smest.in/bond-details/x/${encodeURIComponent(v.h.security_id || "")}"
-          target="_blank" rel="noopener"
-          title="Open this bond on SMEST, the source of the rating and terms">SMEST ↗</a>` : ""}
-        ${assetId && v.h.id && !matured ? `<button class="mini-btn"
-          title="Ask SMEST for this bond's terms and BSE for its last traded price"
-          onclick="bpBondFetchAll(${jsArg(assetId)},${jsArg(v.h.id)})">Refresh</button>` : ""}
-        ${assetId && v.h.id ? `<button class="mini-btn"
-          onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)})">Edit</button>` : ""}</div></div>
-    ${matured ? `<div class="bond-grid">
-      ${cell("Interest rate", v.coupon === null ? "—" : `${v.coupon}%`)}
-      ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
-      ${cell("Maturity date", v.maturity ? `${dateLabel(v.maturity)}${
-        v.maturityGuessed ? `<div class="sub">read from the bond name — check it</div>` : ""}` : "—")}
-      ${cell("Units", qty || "—")}
-      ${cell("Face value", v.faceAtIssue ? money(v.faceAtIssue) : "—")}
-      ${cell("Invested", moneyOrDash(v.h.cost_paise))}
-      ${cell("Value in net worth", moneyOrDash(v.value ?? v.h.cost_paise))}
-    </div>
-    <div class="bond-sources">Matured · awaiting payment · terms from the CAS${
-      v.rating ? " · rating from SMEST" : ""}</div>`
-    : `<div class="bond-section">
-      <h3 class="bond-section-title">Purchase</h3>
-      <div class="bond-grid">
-        ${cell("Purchase date", v.bought ? dateLabel(v.bought) : "—")}
-        ${cell("Maturity date", v.maturity ? `${dateLabel(v.maturity)}${
-          v.maturityGuessed ? `<div class="sub">read from the bond name — check it</div>` : ""}` : "—")}
-        ${cell("Invested", moneyOrDash(v.h.cost_paise))}
-        ${cell("Units", qty || "—")}
-        ${cell("Face at issue", v.faceAtIssue ? `${money(v.faceAtIssue)}${
-          !(Number(v.h.face_paise) > 0)
-            ? `<div class="sub">inferred from invested</div>` : ""}` : "—")}
-        ${cell("Payment frequency", esc(v.frequency))}
-        ${cell("Purchase yield", v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`)}
-        ${cell("Purchase rating", v.h.rating_at_purchase
-          ? esc(v.h.rating_at_purchase)
-          : `—<div class="sub need">rating missing</div>`)}
-      </div>
-    </div>
-    <div class="bond-section">
-      <h3 class="bond-section-title">Market value</h3>
-      <div class="bond-grid">
-        ${cell("Total", `${moneyOrDash(v.value)}${
-          v.value === null ? "" : `<div class="sub">${marketSub}</div>`}`)}
-        ${cell("Per unit", perUnit === null ? "—" : money(perUnit))}
-        ${cell("Current yield", v.currentYield === null || v.currentYield === undefined
-          ? "—" : `${v.currentYield.toFixed(2)}%`)}
-        ${cell("Current rating", v.rating ? `${esc(v.rating)}${
-          v.change ? `<div class="sub ${v.change.down ? "neg" : "pos"}">${
-            v.change.down ? "downgraded" : "upgraded"} from ${esc(v.change.from)}</div>`
-            : v.h.rating_at_purchase ? `<div class="sub">unchanged since purchase</div>` : ""
-        }` : `—<div class="sub need">rating missing</div>`, v.change ? (v.change.down ? "neg" : "pos") : "")}
-      </div>
-    </div>
-    <div class="bond-section">
-      <h3 class="bond-section-title">Returns</h3>
-      <div class="bond-grid">
-        ${cell("Principal returned", returned ? `${money(returned)}${
-          v.returnedAt ? `<div class="sub">on ${dateLabel(v.returnedAt)}</div>` : ""}${
-          v.returnedRecordDate ? `<div class="sub">face reduced ${
-            dateLabel(v.returnedRecordDate)}</div>` : ""}` : "—")}
-        ${cell("Principal left", v.principalLeft ? `${money(v.principalLeft)}${
-          v.maturity ? `<div class="sub">due ${dateLabel(v.maturity)}</div>` : ""}` : "—")}
-        ${cell("Next interest", v.payout === null ? "—" : `${money(v.payout)}${
-          v.interestDate || v.payoutEstimated ? `<div class="sub">${
-            [v.interestDate ? dateLabel(v.interestDate) : "",
-              v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · ")
-          }</div>` : ""}`)}
-        ${cell("Total if held", heldTotal === null ? "—" : `${money(heldTotal)}${
-          heldGain === null ? "" : `<div class="sub ${heldGain < 0 ? "neg" : "pos"}">${
-            heldGain < 0 ? "−" : "+"}${money(Math.abs(heldGain))} gain</div>`}`)}
-      </div>
-      ${progressBlock}
-    </div>
-    <div class="bond-sources">${[
-      "CAS",
-      v.returned ? (v.returnedSource === "cashflow" ? "Cashflow Future"
-        : v.returnedSource === "bank" ? "bank" : "SMEST") : "",
-      v.returnedRecordDate ? "BSE" : "",
-      v.pastCoupon !== null && v.pastCoupon !== undefined ? "interest estimated" : "",
-    ].filter(Boolean).join(" · ")}</div>`}
-  </div>`;
 }
 function bondFetchPanelBody(state) {
   const pct = Math.max(0, Math.min(100, Math.round(Number(state.pct) || 0)));
@@ -12172,46 +11966,19 @@ function holdingsCard(allRows, assetId) {
     return (cmp * state.dir)
       || String(a.h.label || "").localeCompare(String(b.h.label || ""));
   });
+  const maturedViews = matured.map(bondRowView)
+    .sort((a, b) => String(b.maturity || "").localeCompare(String(a.maturity || "")))
+    .map((v) => ({ ...v, matured: true }));
+  const bookViews = [...views.map((v) => ({ ...v, matured: false })), ...maturedViews];
+  const selected = (window.bpBondSelected || {})[assetId] || "";
+  window.bpBondBookViews = bookViews;
   const sortBtn = (key, label) => `<button class="sortbtn ${state.key === key ? "on" : ""}"
     onclick="bpBondSort('${key}')">${label}${state.key === key
       ? ` <span class="ar">${state.dir > 0 ? "▲" : "▼"}</span>` : ""}</button>`;
   const sortBar = `<div class="sortbar"><span class="lbl">Sort</span>
-    ${sortBtn("rating", "Rating")}${sortBtn("yield", "Purchase yield")}
-    ${sortBtn("coupon", "Interest rate")}${sortBtn("maturity", "Maturity")}
-    ${sortBtn("payout", "Next interest")}${sortBtn("value", "Market value")}</div>`;
-  const tableRows = views.map((v) => `<tr>
-      <td><div class="bond-name">${esc(v.h.label || "—")}</div>
-        <div class="sub">${v.h.issuer ? `${esc(v.h.issuer)} · ` : ""}${esc(v.h.security_id || "")}</div>
-        ${!String(v.h.issuer || "").trim()
-          ? `<div class="sub need">issuer name missing</div>` : ""}</td>
-      <td>${v.rating ? `<span class="bond-rating">${esc(v.rating)}</span>` : "—"}
-        ${!v.rating ? `<div class="sub need">rating missing</div>` : ""}
-        ${v.change ? `<div class="sub ${v.change.down ? "neg" : "pos"}" style="margin-top:3px">
-          ${v.change.down ? "downgraded" : "upgraded"} ${esc(v.change.from)} → ${esc(v.change.to)}</div>` : ""}</td>
-      <td class="num">${v.coupon === null ? "—" : `${v.coupon}%`}</td>
-      <td class="num">${v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`}
-        ${v.currentYield === null || v.currentYield === undefined ? ""
-          : `<div class="sub">current ${v.currentYield.toFixed(2)}%</div>`}</td>
-      <td class="num">${v.payout === null ? "—" : money(v.payout)}
-        ${v.payout !== null
-          ? `<div class="sub">${esc(v.frequency.toLowerCase())}${v.payoutEstimated ? " · estimated" : ""}</div>`
-          : v.periods ? `<div class="sub">${esc(v.frequency.toLowerCase())}</div>`
-            : v.totalCoupon !== null ? `<div class="sub">payment frequency unknown</div>` : ""}</td>
-      <td>${v.bought ? dateLabel(v.bought) : "—"}</td>
-      <td>${v.maturity ? `${dateLabel(v.maturity)}${
-        v.maturityGuessed ? `<div class="sub">from the name</div>` : ""}` : "—"}</td>
-      <td class="num">${v.h.quantity === null || v.h.quantity === undefined ? "—" : v.h.quantity}</td>
-      <td class="num">${moneyOrDash(v.h.cost_paise)}</td>
-      <td class="num">${moneyOrDash(v.value)}</td>
-      <td class="num ${v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : ""}">${moneyOrDash(v.gain)}</td>
-      <td class="num">${moneyOrDash(v.expectedMaturity)}
-        ${v.expectedGain === null ? "" : `<div class="sub ${v.expectedGain < 0 ? "neg" : "pos"}">${v.expectedGain < 0 ? "−" : "+"}${money(Math.abs(v.expectedGain))}</div>`}
-        ${v.parts > 1 ? `<div class="sub">principal in ${v.parts} parts</div>` : ""}
-        ${v.returned ? `<div class="sub">${money(v.returned)} already back</div>` : ""}</td>
-      <td class="num">${assetId ? `<button class="btn" style="padding:3px 8px;font-size:12px"
-        title="Edit this holding" onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)})">✎</button>` : ""}</td>
-    </tr>`).join("");
-  const cards = views.map((v) => bondCardHtml(v, assetId)).join("");
+    ${sortBtn("maturity", "Maturity")}${sortBtn("payout", "Next interest")}
+    ${sortBtn("current-yield", "Current yield")}${sortBtn("value", "Market value")}</div>`;
+  const cards = views.map((v) => bondCardHtml(v, assetId, { currency: currency() })).join("");
   const valueDates = [...new Set(rows
     .map((h) => String(h.as_of || "").slice(0, 10)).filter(Boolean))];
   const valueAsOf = valueDates.length === 1 ? valueDates[0] : "";
@@ -12231,7 +11998,7 @@ function holdingsCard(allRows, assetId) {
   }).filter(Boolean);
   const costNote = missingCost
     ? `${missingCost} invested amount${missingCost === 1 ? "" : "s"} missing — edit the lot`
-      + " with the pencil to add it."
+      + " to add it."
     : "";
   // The last fetch belongs to this portfolio only; opening another bond page
   // must not show progress or a result about a different set of lots.
@@ -12290,17 +12057,8 @@ function holdingsCard(allRows, assetId) {
         fetchState ? bondFetchPanelBody(fetchState) : ""}</div>
     ${sortBar}
     <div id="bond-csv-preview"></div>
-    <div class="bond-table-wrap"><table class="bond-table">
-      <tr><th>Bond</th><th>Rating</th><th class="num">Interest rate</th>
-        <th class="num">Purchase yield</th><th class="num">Next interest</th>
-        <th>Purchase date</th><th>Maturity date</th><th class="num">Units</th>
-        <th class="num">Invested</th><th class="num" title="${valueAsOf
-          ? `Market value as of ${dateLabel(valueAsOf)}`
-          : "Market value, when it was last marked"}">Market value</th>
-        <th class="num" title="Market value plus principal already returned, coupons received and accrued interest, minus invested">Gain if sold now</th>
-        <th class="num" title="Amount you receive at maturity: principal plus remaining interest">Maturity value</th>
-        <th></th></tr>
-      ${tableRows}</table></div>
+    ${bondBookHtml(bookViews, assetId, { selectedId: selected, currency: currency(),
+      maturedValue, maturedGuessed })}
     <div class="bond-cards">${cards}</div>
     ${matured.length ? `<details class="matured-bonds"><summary>Matured bonds (${matured.length})
       · ${maturedValue ? `${money(maturedValue)} ` : ""}awaiting payment</summary>
@@ -12309,9 +12067,8 @@ function holdingsCard(allRows, assetId) {
       until a bank credit is matched.${maturedGuessed ? ` For ${maturedGuessed} lot${
         maturedGuessed === 1 ? "" : "s"}, the date was read from the bond name; check it against
         the statement.` : ""} Delete a lot only if you know it was paid.</div>
-      <div class="matured-cards">${matured.map((h) => bondRowView(h))
-        .sort((a, b) => String(b.maturity || "").localeCompare(String(a.maturity || "")))
-        .map((v) => bondCardHtml(v, assetId, { matured: true })).join("")}</div>
+      <div class="matured-cards">${maturedViews
+        .map((v) => bondCardHtml(v, assetId, { matured: true, currency: currency() })).join("")}</div>
     </details>` : ""}</div>`;
 }
 // A demat account's holdings arrive as one list, but the statement groups them:
@@ -12485,6 +12242,22 @@ window.bpBondSort = (key) => {
   window.bpBondSortState = { key, dir: cur.key === key ? -cur.dir : (text ? 1 : -1) };
   const host = document.getElementById("bond-holdings");
   if (host && window.bpBondRows) host.innerHTML = holdingsCard(window.bpBondRows, window.bpBondAsset);
+};
+// Selecting an index row changes the dossier, not the page. The phone has no
+// index; there the same card is already in the list.
+window.bpBondSelect = (assetId, holdingId) => {
+  const view = (window.bpBondBookViews || [])
+    .find((row) => String(row.h.id) === String(holdingId));
+  if (!view) return;
+  window.bpBondSelected = { ...(window.bpBondSelected || {}),
+    [assetId]: String(holdingId) };
+  for (const row of document.querySelectorAll(".bond-index-row")) {
+    row.setAttribute("aria-pressed",
+      row.dataset.bondId === String(holdingId) ? "true" : "false");
+  }
+  const host = document.getElementById("bond-dossier");
+  if (host) host.innerHTML = bondCardHtml(view, assetId,
+    { matured: !!view.matured, currency: currency() });
 };
 // One press for the whole portfolio: SMEST gives each lot the rating, payment
 // frequency and next interest date it is missing, BSE gives it a price. Nothing
