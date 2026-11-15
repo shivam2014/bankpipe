@@ -29,6 +29,57 @@ test("a label with a series date keeps the later maturity date", () => {
   assert.equal(p.maturity, "2028-12-31");
 });
 
+test("reads the coupon and maturity out of a dashed broker name", () => {
+  const p = parseBondLabel("TESTD-11.90%-3-12-26-PVT");
+  assert.equal(p.couponPct, 11.9);
+  assert.equal(p.maturity, "2026-12-03");
+  assert.equal(p.dateUnread, false);
+  // A trailing dash is the same shape.
+  assert.equal(parseBondLabel("TESTE-11.4%-13-6-27-").maturity, "2027-06-13");
+});
+
+test("the dashed family is day-month-year, not month-day-year", () => {
+  // The report's ISO Date column prints 2026-12-03 for 3-12-26 and 2027-06-13
+  // for 13-6-27. A day above 12 in the first slot rules out M-D-Y for the whole
+  // family, so 3-12-26 is read as 3 December, not 12 March.
+  assert.equal(parseBondLabel("TESTD-11.90%-3-12-26-PVT").maturity, "2026-12-03");
+  assert.equal(parseBondLabel("TESTE-11.4%-13-6-27-").maturity, "2027-06-13");
+});
+
+test("a two-digit dashed year follows one stated century rule", () => {
+  // 00-79 are 2000-2079; 80-99 are 1980-1999.
+  assert.equal(parseBondLabel("TESTF-9.5%-3-12-26-PVT").maturity, "2026-12-03");
+  assert.equal(parseBondLabel("TESTF-9.5%-3-12-79-PVT").maturity, "2079-12-03");
+  assert.equal(parseBondLabel("TESTF-9.5%-3-12-80-PVT").maturity, "1980-12-03");
+  assert.equal(parseBondLabel("TESTF-9.5%-3-12-99-PVT").maturity, "1999-12-03");
+  assert.equal(parseBondLabel("TESTF-9.5%-3-12-2026-PVT").maturity, "2026-12-03");
+});
+
+test("a dashed date that is not a real day stays unparsed", () => {
+  for (const label of [
+    "TESTF-11.90%-31-02-27-PVT",
+    "TESTF-11.90%-3-13-27-PVT",
+    "TESTF-11.90%-0-12-27-PVT",
+    "TESTF-11.90%-3-12-2-PVT",
+  ]) {
+    const p = parseBondLabel(label);
+    assert.equal(p.couponPct, 11.9, label);
+    assert.equal(p.maturity, "", label);
+    assert.equal(p.dateUnread, true, label);
+  }
+  // Without the rate the shape is not this family and is not read as a date.
+  assert.equal(parseBondLabel("TEST SERIES-3-12-26"), null);
+});
+
+test("a coupon with no maturity still reaches the card", () => {
+  const p = parseBondLabel("TESTF-11.90%-PVT");
+  assert.equal(p.couponPct, 11.9);
+  assert.equal(p.maturity, "");
+  assert.equal(p.dateUnread, false);
+  assert.equal(bondMaturity({ category: "bond",
+    label: "TESTF-11.90%-PVT" }).maturity, "");
+});
+
 test("a stored maturity is the source, not the first date in the name", () => {
   const row = { category: "bond", label: "9.50% TEST SERIES 15 JAN 2020 31 DEC 2028",
     maturity: "2032-05-15" };
@@ -47,6 +98,61 @@ test("a label fallback is a named guess and ignores an earlier series date", () 
 test("a share or fund name with a date is not a matured bond", () => {
   assert.equal(bondMaturity({ category: "equity",
     label: "TEST EQUITY 15 JAN 2020" }).maturity, "");
+});
+
+test("a stated coupon beats the rate in the name and is not a guess", () => {
+  const a = bondAnalytics({
+    label: "TESTD-11.90%-3-12-26-PVT", couponPct: 9.5,
+    quantity: 2, cost_paise: 20000000, purchase_date: "2024-06-06",
+    frequency: "Monthly",
+  });
+  assert.equal(a.couponPct, 9.5);
+  assert.equal(a.couponSource, "stored");
+  assert.equal(a.couponGuessed, false);
+});
+
+test("a stated maturity beats the date in the name and is not a guess", () => {
+  const a = bondAnalytics({
+    label: "TESTD-11.90%-3-12-26-PVT", maturity: "2031-01-01",
+    quantity: 2, cost_paise: 20000000, purchase_date: "2024-06-06",
+    frequency: "Monthly",
+  });
+  assert.equal(a.maturity, "2031-01-01");
+  assert.equal(a.maturitySource, "stored");
+  assert.equal(a.maturityGuessed, false);
+});
+
+test("terms read from a dashed name feed the money maths", () => {
+  const a = bondAnalytics({
+    label: "TESTD-11.90%-3-12-26-PVT",
+    quantity: 2, cost_paise: 20000000, value_paise: 21000000,
+    purchase_date: "2024-06-06", frequency: "Monthly",
+  });
+  assert.ok(a, "coupon and maturity together are enough");
+  assert.equal(a.couponPct, 11.9);
+  assert.equal(a.maturity, "2026-12-03");
+  assert.equal(a.couponGuessed, true);
+  assert.equal(a.maturityGuessed, true);
+  assert.ok(a.lifetimeTotal > 25000000 && a.lifetimeTotal < 27000000,
+    `total ${a.lifetimeTotal}`);
+  assert.ok(a.lifetimeGain > 5500000 && a.lifetimeGain < 6500000,
+    `gain ${a.lifetimeGain}`);
+  assert.ok(a.couponIncome > 5500000 && a.couponIncome < 6100000,
+    `coupons ${a.couponIncome}`);
+  assert.ok(a.futureCoupon > 0, `future ${a.futureCoupon}`);
+  assert.ok(a.ytm > 11 && a.ytm < 13, `ytm ${a.ytm}`);
+});
+
+test("without a frequency the totals still compute", () => {
+  const a = bondAnalytics({
+    label: "TESTD-11.90%-3-12-26-PVT",
+    quantity: 2, cost_paise: 20000000, value_paise: 21000000,
+    purchase_date: "2024-06-06",
+  });
+  assert.ok(a, "a frequency is not required for the lifetime estimate");
+  assert.ok(a.lifetimeTotal > 25000000, `total ${a.lifetimeTotal}`);
+  assert.ok(a.lifetimeGain > 5500000, `gain ${a.lifetimeGain}`);
+  assert.ok(a.futureCoupon > 0, `future ${a.futureCoupon}`);
 });
 
 test("matured, live and disposed lots are three different states", () => {

@@ -133,6 +133,36 @@ export function bondHomeOf(lots, asset, demats, positionsOf) {
 // clean price closest to 100; that is the only sane unit for the lot.
 const FACES = [1000, 5000, 10000, 25000, 50000, 100000, 200000, 500000, 1000000];
 
+// A dashed broker name writes the date as D-M-YY. Both observed shapes agree:
+// 3-12-26 is 3 Dec 2026 and 13-6-27 is 13 Jun 2027, and the report's own ISO
+// Date column prints 2026-12-03 and 2027-06-13. A day above 12 in the first
+// slot rules out M-D-Y for this family, so the order is fixed rather than
+// guessed per label. A date that is not a real calendar day is left unparsed.
+const DASHED_LABEL_DATE = /(\d+(?:\.\d+)?)\s*%\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{4}|\d{2})(?=-|$|[^0-9])/g;
+const DASHED_DATE_SHAPE = /\d+(?:\.\d+)?\s*%\s*-\s*\d{1,2}\s*-\s*\d{1,2}\s*-\s*\d{1,4}(?!\d)/;
+
+// An unqualified year in a bond name is the maturity's last two digits. Years
+// 00-79 are 2000-2079; 80-99 are 1980-1999, so an older matured lot still reads
+// correctly. Four-digit years must already be in 1900-2099.
+function dashedYear(value) {
+  const year = Number(value);
+  if (String(value).length === 4) return year;
+  return year <= 79 ? 2000 + year : 1900 + year;
+}
+
+function dashedIso(dayText, monthText, yearText) {
+  const day = Number(dayText);
+  const month = Number(monthText);
+  const year = dashedYear(yearText);
+  if (!(year >= 1900 && year <= 2099)) return "";
+  if (!(month >= 1 && month <= 12)) return "";
+  if (!(day >= 1 && day <= 31)) return "";
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 export function parseBondLabel(label) {
   const text = String(label || "");
   const coupon = text.match(/(\d+(?:\.\d+)?)\s*%/);
@@ -147,10 +177,22 @@ export function parseBondLabel(label) {
     const iso = `${match[3]}-${String(month).padStart(2, "0")}-${String(match[1]).padStart(2, "0")}`;
     if (!maturity || iso > maturity) maturity = iso;
   }
+  // Motilal and its peers can print the same terms as NAME-<rate>%-<d>-<m>-<yy>
+  // instead of a month word. The rate is part of the shape, so a bare code like
+  // SERIES-3-12-26 is not a date.
+  for (const match of text.matchAll(DASHED_LABEL_DATE)) {
+    const iso = dashedIso(match[2], match[3], match[4]);
+    if (iso && (!maturity || iso > maturity)) maturity = iso;
+  }
+  const couponPct = coupon ? Number(coupon[1]) : null;
   // A coupon and a date are not always both present: a CAS can know the
-  // maturity without the coupon. The date alone still belongs on the card.
-  if (!maturity) return null;
-  return { couponPct: coupon ? Number(coupon[1]) : null, maturity, name: text };
+  // maturity without the coupon, and a dashed name can carry the rate with no
+  // readable date. Either one still belongs on the card. A date-shaped run that
+  // is not a real date is reported so the card can say it could not be read
+  // instead of pretending the name never held a date.
+  if (couponPct === null && !maturity) return null;
+  return { couponPct, maturity, name: text,
+    dateUnread: !maturity && DASHED_DATE_SHAPE.test(text) };
 }
 
 export function inferFace(costPaise, quantity) {
@@ -214,11 +256,22 @@ function futureCouponCount(interestDate, frequency, maturity, today) {
 export function bondAnalytics(h) {
   const parsedLabel = parseBondLabel(h?.label);
   const terms = bondMaturity(h);
-  const couponPct = parsedLabel?.couponPct
-    ?? (h?.couponPct === null || h?.couponPct === undefined ? null : Number(h.couponPct));
-  if (!terms.maturity || couponPct === null || couponPct === undefined
-    || !Number.isFinite(couponPct)) return null;
-  const parsed = { ...(parsedLabel || {}), couponPct, maturity: terms.maturity,
+  // A coupon the statement or the broker prints is a fact. The label is only a
+  // fallback, and the card reports that fallback as a guess. The old order
+  // preferred the name and could silently replace a stated rate.
+  const storedCoupon = h?.couponPct === null || h?.couponPct === undefined
+    || String(h.couponPct).trim() === "" ? null : Number(h.couponPct);
+  const hasStoredCoupon = storedCoupon !== null && Number.isFinite(storedCoupon);
+  const labelCoupon = parsedLabel?.couponPct ?? null;
+  const couponPct = hasStoredCoupon ? storedCoupon
+    : (labelCoupon !== null && Number.isFinite(labelCoupon) ? labelCoupon : null);
+  if (!terms.maturity || couponPct === null) return null;
+  const parsed = { ...(parsedLabel || {}), couponPct,
+    couponSource: hasStoredCoupon ? "stored" : "label",
+    couponGuessed: !hasStoredCoupon,
+    maturity: terms.maturity, maturitySource: terms.source,
+    maturityGuessed: terms.guessed,
+    dateUnread: terms.maturity ? false : !!parsedLabel?.dateUnread,
     name: String(h?.label || "") };
   const qty = Number(h.quantity) || 0;
   const cost = Number(h.cost_paise);
