@@ -1359,6 +1359,7 @@ import { folioAdoptionPlan, folioHome, folioKey, folioTail, isFolioAccount,
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, mergeRowsFromPlan, planImportChains, movementGate, statementAccounts,
+  movementAccountGap, importWarningDigest,
   planHasWork, planNetChange,
   importAccountSummary, importAccountGaps, importPlanPrimary, IMPORT_REPORT_GUIDE,
   normalizeAccount, parseTradebook, parseTradebookMatrix,
@@ -7279,28 +7280,23 @@ function bpImportResolveCas(bundle) {
     bundle.plan.warnings = [...new Set([...bundle.plan.warnings,
       `${safety.note} This import keeps every holding the statement does not name.`])];
   }
-  // A movements-only statement with no account on file has nowhere to write its
-  // disposals. Saying "ready" would create nothing and drop the file. A movement
-  // can also name a demat that is not on file while another target exists; that
-  // account has to exist before its disposal can be written.
-  const movements = base?.parsed?.transactions || [];
-  const movementBos = new Set(movements
-    .map((event) => boId(event.account || "").boId).filter(Boolean));
-  const onFileBos = new Set((state.accountRows || [])
-    .filter((row) => String(row.account?.category || "") === "demat")
-    .map((row) => boId(row.account?.number || row.account?.bo_id || "").boId)
-    .filter(Boolean));
-  const missingBos = [...movementBos].filter((bo) => !onFileBos.has(bo));
-  bundle.movementBlocked = movements.length > 0
-    && (!bundle.casTargets.some((target) => target.targetId) || missingBos.length > 0);
-  if (bundle.movementBlocked) {
+  // A statement that lists holdings for the demat its movements name may create
+  // that demat: the writer creates accounts from those rows before it writes the
+  // events, so the disposal has a home in the same import. A movement account
+  // with no holdings row in the statement, or one that would land in an account
+  // with a different number, still has nowhere to go.
+  const gap = movementAccountGap({
+    movements: base?.parsed?.transactions || [],
+    accounts: (state.accountRows || [])
+      .filter((row) => String(row.account?.category || "") === "demat")
+      .map((row) => row.account),
+    targets: bundle.casTargets,
+  });
+  bundle.movementBlocked = gap.blocked;
+  bundle.movementMissing = gap.missing;
+  if (gap.blocked) {
     bundle.plan.blocking = true;
-    const detail = missingBos.length
-      ? `No demat on file for the movement account …${missingBos[0].slice(-4)}. `
-        + "Add that account, then import again."
-      : "No account on file can take this statement's movements. Add the demat account "
-        + "the statement names, then import again.";
-    bundle.plan.warnings = [...new Set([...bundle.plan.warnings, detail])];
+    bundle.plan.warnings = [...new Set([...bundle.plan.warnings, gap.reason])];
   }
   bundle.needsChoice = bundle.casTargets.some((target) =>
     target.match.tie && !target.targetId && !target.createChoice);
@@ -7834,11 +7830,13 @@ function bpImportPlanHtml(plan) {
   }).join("");
   const pill = plan.gate
     ? `<span class="import-pill warn">Import the ${esc(plan.gate.label)} report first</span>`
-    : !plan.ready
-      ? `<span class="import-pill warn">${plan.needsChoice ? "Choose an account" : "Check the file"}</span>`
-      : summary.ask && !plan.acceptAsk
-        ? `<span class="import-pill warn">Review the differences</span>`
-        : `<span class="import-pill good">Ready</span>`;
+    : bundle.movementBlocked
+      ? `<span class="import-pill warn">Add the account first</span>`
+      : !plan.ready
+        ? `<span class="import-pill warn">${plan.needsChoice ? "Choose an account" : "Check the file"}</span>`
+        : summary.ask && !plan.acceptAsk
+          ? `<span class="import-pill warn">Review the differences</span>`
+          : `<span class="import-pill good">Ready</span>`;
   const title = bpImportBundleLabel(bundle);
   const where = bundle.family === "cas" ? bpImportCasAccountsHtml(bundle) : bpImportMatchHtml(bundle);
   const countText = bpImportCategoryText(bundle.rows);
@@ -7902,6 +7900,9 @@ function bpImportPlanHtml(plan) {
         onclick="bpImportApplyPlan(${jsArg(plan.key)})">${esc(primary)}</button>
       ${plan.gate ? `<button class="btn" onclick="bpImportGoToPlan(${jsArg(plan.gate.key)})">
         Go to the ${esc(plan.gate.label)} report</button>` : ""}
+      ${bundle.movementMissing?.length ? `<button class="btn"
+        onclick="bpAssetNew('demat', { number: ${jsArg(bundle.movementMissing[0])} })">
+        Add the demat account</button>` : ""}
       <button class="btn" onclick="bpImportReview(${jsArg(plan.key)})">Review differences</button>
       <button class="btn ghost" onclick="bpImportDropPlan(${jsArg(plan.key)})">Remove</button>
     </div>
@@ -8856,9 +8857,21 @@ function casEventLines(plan) {
 }
 function casSaleHtml(lines, conflicts, warnings = []) {
   if (!lines.length && !(conflicts || []).length && !(warnings || []).length) return "";
+  const digest = importWarningDigest(warnings);
+  // One line per class, with the per-movement detail behind a disclosure. The
+  // summary of what the plan changes sits below this block, and a wall of
+  // near-identical refusals used to push it off the screen.
+  const notes = [
+    digest.lines.length ? `<div class="muted">${esc(digest.lines.join(" "))}</div>` : "",
+    ...digest.groups.map((group) => `<div class="muted">${esc(group.summary)}
+      <details class="import-change-more"><summary>Which
+        ${group.count === 1 ? "credit" : "credits"}</summary>
+        <ul>${group.detail.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>
+      </details></div>`),
+  ].join("");
   return `<div class="cas-sales"><b>Sales and transfers in this statement</b>
     ${lines.length ? `<ul>${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
-    ${(warnings || []).length ? `<div class="muted">${esc(warnings.join(" "))}</div>` : ""}
+    ${notes}
     ${(conflicts || []).length ? `<div class="import-wrong"><b>The report on file disagrees.</b>
       <div class="muted">${esc(conflicts.map((conflict) => conflict.message).join(" "))}</div>
     </div>` : ""}
@@ -12830,7 +12843,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
         <select id="s-kind" onchange="bpNamePreview()">${kinds.map((t) =>
           `<option value="${t}" ${t === sub ? "selected" : ""}>${t[0].toUpperCase() + t.slice(1)}</option>`).join("")}</select></label>
       <label class="field" ${leanHide}><span id="s-number-label">${numberLabel}</span>
-        <input id="s-number" value="${esc(a ? a.number || "" : "")}" placeholder="Account number, FD or policy number" autocomplete="off"
+        <input id="s-number" value="${esc(a ? a.number || "" : prefill.number || "")}" placeholder="Account number, FD or policy number" autocomplete="off"
           oninput="bpNamePreview()"></label>
       <label class="field" ${leanHide}><span id="s-owner-label">${["bank", "fd"].includes(cat) ? "Account holder" : "Owner"}</span>
         <input id="s-owner" value="${esc(a ? a.holder || "" : prefill.holder || "")}" placeholder="Name on the account" autocomplete="off"></label>

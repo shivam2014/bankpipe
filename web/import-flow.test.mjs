@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
   parseTradebookMatrix, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, normalizeAccount, mergeRowsFromPlan, planStateAfter,
-  planImportChains, movementGate, statementAccounts } from "./import-flow.js";
+  planImportChains, movementGate, statementAccounts, movementAccountGap,
+  importWarningDigest } from "./import-flow.js";
 import { casReplacePlan } from "./cas-apply.js";
+import { casRoute } from "./cas.js";
 
 // Synthetic identifiers only. The real files are never committed.
 const isin = (n) => `INE${String(n).padStart(9, "0")}`;
@@ -1621,4 +1623,181 @@ test("statement accounts count a shared resolved target once", () => {
   assert.deepEqual(statementAccounts([{ targetId: "demat-1" }, { targetId: "" },
     { targetId: "" }]), { resolved: ["demat-1"], unresolved: 2, count: 3 });
   assert.deepEqual(statementAccounts([]), { resolved: [], unresolved: 0, count: 0 });
+});
+
+// --- a movement account the statement itself lists -------------------------
+// A consolidated statement lists a demat in its holdings table and names the
+// same demat on its movements. The card offered to create that account and, in
+// the same breath, refused to import until it existed. It may create it: the
+// writer creates the account before it writes the disposals, so the movement has
+// a home in the same import. A movement account the statement never lists has
+// no rows to build an account from, and stays blocked.
+
+const BO_MOVED = "IN99990001344321";
+const BO_OTHER = "IN99990008997777";
+
+const dematAccount = (over = {}) => ({ id: "demat-1", category: "demat",
+  number: BO_MOVED, holdings: [], ...over });
+const casTarget = (over = {}) => ({ boId: BO_MOVED, targetId: "", tie: false,
+  createChoice: false, rows: [{ isin: isin(1), quantity: 10, valuePaise: 100000 }],
+  ...over });
+const casMovement = (bo = BO_MOVED, over = {}) => ({ isin: isin(9),
+  security: "TEST SOLD", date: "2026-09-14", type: "SALE", description: "SALE",
+  quantity: 2, creditPaise: 0, debitPaise: 20000, openingPaise: 20000,
+  closingPaise: 0, account: bo, ...over });
+const gap = (input) => movementAccountGap(input);
+
+test("a statement that lists an account may create it and record its movements", () => {
+  const out = gap({ movements: [casMovement()], accounts: [], targets: [casTarget()] });
+  assert.equal(out.blocked, false);
+  assert.equal(out.reason, "");
+  assert.deepEqual(out.missing, []);
+});
+
+test("a movement account the statement does not list in its holdings stays blocked", () => {
+  const out = gap({ movements: [casMovement()], accounts: [],
+    targets: [casTarget({ rows: [] })] });
+  assert.equal(out.blocked, true);
+  assert.deepEqual(out.missing, [BO_MOVED]);
+  assert.equal(out.reason, "No demat on file for the movement account …4321. "
+    + "Add that account, then import again.");
+});
+
+test("a movement account no target names stays blocked", () => {
+  const out = gap({ movements: [casMovement()], accounts: [], targets: [] });
+  assert.equal(out.blocked, true);
+  assert.deepEqual(out.missing, [BO_MOVED]);
+});
+
+test("a movement that would land in an account with another number stays blocked", () => {
+  const out = gap({
+    movements: [casMovement()],
+    accounts: [dematAccount({ id: "demat-2", number: BO_OTHER })],
+    targets: [casTarget({ targetId: "demat-2" })],
+  });
+  assert.equal(out.blocked, true);
+  assert.deepEqual(out.missing, [BO_MOVED]);
+});
+
+test("an account on file takes its movement without a holding row", () => {
+  const out = gap({
+    movements: [casMovement()],
+    accounts: [dematAccount({ holdings: [{ security_id: isin(1) }] })],
+    targets: [casTarget({ targetId: "demat-1", rows: [] })],
+  });
+  assert.equal(out.blocked, false);
+});
+
+test("an account with no number yet takes the statement's number, so its movement lands", () => {
+  const out = gap({
+    movements: [casMovement()],
+    accounts: [dematAccount({ id: "demat-3", number: "" })],
+    targets: [casTarget({ targetId: "demat-3", rows: [] })],
+  });
+  assert.equal(out.blocked, false);
+});
+
+test("an undecided account choice is a choice, not a missing demat", () => {
+  const out = gap({ movements: [casMovement()], accounts: [],
+    targets: [casTarget({ tie: true, createChoice: false })] });
+  assert.equal(out.blocked, false);
+  assert.equal(out.pending, true);
+});
+
+test("a movements-only statement with no account on file stays blocked", () => {
+  const out = gap({ movements: [casMovement("")], accounts: [],
+    targets: [casTarget({ rows: [] })] });
+  assert.equal(out.blocked, true);
+  assert.equal(out.reason, "No account on file can take this statement's movements. "
+    + "Add the demat account the statement names, then import again.");
+});
+
+test("two movement accounts the statement omits are both named", () => {
+  const out = gap({ movements: [casMovement(BO_MOVED), casMovement(BO_OTHER)],
+    accounts: [], targets: [casTarget({ rows: [] })] });
+  assert.deepEqual(out.missing, [BO_MOVED, BO_OTHER]);
+  assert.match(out.reason, /movement accounts …4321 and …7777/);
+});
+
+test("the writer creates the account from the statement's rows before the disposal", () => {
+  const rows = [
+    { isin: isin(1), label: "TEST EQUITY ONE", kind: "equity", quantity: 10,
+      valuePaise: 100000 },
+    { isin: isin(2), label: "TEST EQUITY TWO", kind: "equity", quantity: 4,
+      valuePaise: 40000 },
+  ];
+  const parsed = {
+    depository: "CDSL", demat: BO_MOVED, asOf: "2026-09-30",
+    counts: { rows: 2, quarantined: 0 }, printedTotalPaise: null,
+    accounts: [{ boId: BO_MOVED, dpName: "Zerodha", holdings: rows }],
+    holdings: rows,
+    // A bond sold in full is absent from the holdings table; only its movement
+    // names the account. It still needs a disposal record.
+    transactions: [casMovement(BO_MOVED, { isin: isin(3), security: "SOLD BOND" })],
+  };
+  const route = casRoute(parsed, []);
+  assert.ok(route.homeless.length, "the demat is not on file yet");
+  assert.equal(route.homeless[0].boId, BO_MOVED);
+  // The page creates the account from that group, then writes with its id.
+  const created = { id: "cas-demat-4321", number: BO_MOVED };
+  const plan = casReplacePlan({ parsed, existing: [], holdings: parsed.holdings,
+    events: parsed.transactions, assetId: created.id, accounts: [created.number],
+    route: true, asOf: parsed.asOf, confirmed: false });
+  const sold = plan.rows.find((row) => row.disposed_at);
+  assert.ok(sold, "the disposal is written to the account the import created");
+  assert.equal(sold.security_id, isin(3));
+  assert.equal(sold.disposed_quantity, 2);
+});
+
+// --- the card's warning wall ----------------------------------------------
+
+const creditWarning = (n) => `${isin(n)}: a credit with no purchase or transfer-in `
+  + `wording is not added (PAYOUT-CR CM ${n}).`;
+
+test("repeated credit warnings collapse into one line and a disclosure", () => {
+  const warnings = Array.from({ length: 17 }, (_, at) => creditWarning(100 + at));
+  const digest = importWarningDigest(warnings);
+  assert.deepEqual(digest.lines, []);
+  assert.equal(digest.groups.length, 1);
+  assert.equal(digest.groups[0].count, 17);
+  assert.equal(digest.groups[0].summary,
+    "17 credits were not added because they name no purchase or transfer-in.");
+  assert.deepEqual(digest.groups[0].detail, warnings);
+});
+
+test("one credit warning reads as one credit", () => {
+  const digest = importWarningDigest([creditWarning(5)]);
+  assert.equal(digest.groups[0].count, 1);
+  assert.equal(digest.groups[0].summary,
+    "1 credit was not added because it names no purchase or transfer-in.");
+});
+
+test("other warnings keep their own line", () => {
+  const date = "This CAS is older than the broker data on file.";
+  const skippedCredit = `${isin(1)}: no holding to add this purchase to.`;
+  const digest = importWarningDigest([date, creditWarning(5), skippedCredit]);
+  assert.deepEqual(digest.lines, [date, skippedCredit]);
+  assert.equal(digest.groups[0].count, 1);
+});
+
+test("the writer's own credit warnings are the ones the digest collapses", () => {
+  const parsed = {
+    asOf: "2026-09-30", counts: { rows: 0, quarantined: 0 }, printedTotalPaise: null,
+    holdings: [],
+    transactions: Array.from({ length: 14 }, (_, at) => ({
+      isin: isin(200 + at), security: `TEST BOND ${at}`, date: "2026-09-14",
+      type: "PAYOUT-CR", description: `PAYOUT-CR CM ${1000 + at}`, quantity: 5,
+      creditPaise: 1234, debitPaise: 0, openingPaise: 0, closingPaise: 0,
+      account: BO_MOVED,
+    })),
+  };
+  const plan = casReplacePlan({ parsed, existing: [], holdings: [],
+    events: parsed.transactions, assetId: "demat-1", accounts: [BO_MOVED],
+    route: true, asOf: parsed.asOf });
+  assert.equal(plan.warnings.length, 14);
+  const digest = importWarningDigest(plan.warnings);
+  assert.deepEqual(digest.lines, []);
+  assert.equal(digest.groups[0].count, 14);
+  assert.equal(digest.groups[0].summary,
+    "14 credits were not added because they name no purchase or transfer-in.");
 });

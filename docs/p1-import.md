@@ -251,6 +251,46 @@ The card gate stays. It is still the cheap path: a broker that funds the cost is
 imported first, and the statement's disposal takes the cost at CAS time. What
 changed is that the expensive path is now recoverable.
 
+### Landed: the account a statement moves
+
+A consolidated statement can list a demat in its holdings table and name the same
+demat on its movements. The card used to offer `New demat account` for the first
+fact and disable Import because that account was not on file for the second. The
+rule is now one decision, `movementAccountGap` in `web/import-flow.js`, and the
+card's account line, pill, footer and primary button all read it:
+
+- **The statement may create the account it moves, when it lists holdings for
+  that account.** Its rows are the account's identity and its first holdings, and
+  the writer creates accounts before it writes events, so the disposal lands in
+  the same import.
+- **A movement account the statement never lists in its holdings stays blocked.**
+  There are no rows to build an account from. The card labels the pill `Add the
+  account first`, keeps the footer sentence `No demat on file for the movement
+  account …8054. Add that account, then import again.`, and opens the add-account
+  form with the BO ID filled in.
+- **A movement that would land in another account stays blocked.** An account
+  attached by ISIN overlap whose number is a different BO ID is not this
+  movement's home.
+- **An undecided choice is not a gap.** Two matching accounts still ask on the
+  card, and the movement lands wherever the person chooses.
+- **A movement that names no account needs one on file.** That is the old rule,
+  kept whole: nothing the import creates can be chosen for it.
+
+The writer was already able to do this; only the card refused. The two are now
+checked together: `scripts/render-import-demat.mjs` presses Import on the created
+card and reads the store back, and the same script renders the blocked card so the
+pair cannot drift.
+
+Seventeen per-ISIN credit refusals (**`ISIN: a credit with no purchase or
+transfer-in wording is not added (PAYOUT-CR CM …)`**) used to run as one wall that
+pushed `Add 31 holdings`, `Record 4 sales` and `Move 2 matured to history` below
+the fold. `importWarningDigest` folds that one class into
+`14 credits were not added because they name no purchase or transfer-in.` with
+the per-ISIN sentences behind a disclosure. Every other warning keeps its own
+line, and the refusal itself is unchanged.
+
+Counts: tests 1214 → 1230, screens 1 → 1, stored fields 0 → 0, refusals removed 0.
+
 ## Phase 3: one gate and one write per plan
 
 The map counts 14 confirmation gates, 12 write buttons and 4 write primitives
