@@ -51,9 +51,24 @@ export function isFolioAccount(account) {
 }
 
 /**
- * Every folio an account answers to. A fund account's number is its folio; meta
- * carries the rest. A demat's number is a BO ID or a broker code, never a folio,
- * so it is skipped rather than taught to answer to a fund holding.
+ * Whether a stored value reads as a printed folio rather than a note. A folio is
+ * one token, so a sentence such as the old register import's "Payment From …"
+ * is a reference, not identity. A BO ID is an account, and an alphanumeric
+ * folio is still one token, so it stays a folio.
+ * @param {string} value
+ * @returns {boolean}
+ */
+export function looksLikeFolio(value) {
+  const text = tidy(value);
+  if (!text || /\s/.test(text)) return false;
+  return boId(text).kind !== "bo";
+}
+
+/**
+ * Every folio an account answers to. A fund account's number is its folio when
+ * it reads as one; meta carries the rest. A demat's number is a BO ID or a
+ * broker code, never a folio, so it is skipped rather than taught to answer to
+ * a fund holding.
  * @param {object} account
  * @returns {Array<string>} normalized folios
  */
@@ -65,7 +80,7 @@ export function accountFolios(account) {
   const out = [];
   for (const value of raw) {
     const text = tidy(value);
-    if (!text || boId(text).kind === "bo") continue;
+    if (!looksLikeFolio(text)) continue;
     const folio = normalizeFolio(text);
     if (folio && !out.includes(folio)) out.push(folio);
   }
@@ -206,11 +221,13 @@ export function accountCurrentValuePaise(account) {
 }
 
 /**
- * A fund account that holds a number but no rows. This is the shape a manual
- * mutual fund account has before any statement ever wrote units into it. A
- * single disposed row is history, not a current unit, but it still makes the
- * account unsafe to adopt into: writing units beside it would mix the two
- * records. Only an account with no holding rows at all is a candidate.
+ * A fund account that holds a value and no rows. This is the shape a manual
+ * mutual fund account has before any statement ever wrote units into it. Its
+ * number may be a folio or just a reference note; that is identity's question,
+ * not this one. A single disposed row is history, not a current unit, but it
+ * still makes the account unsafe to adopt into: writing units beside it would
+ * mix the two records. Only an account with no holding rows at all is a
+ * candidate.
  * @param {object} account
  * @param {Array<object>} [rows]
  * @returns {boolean}
@@ -225,8 +242,9 @@ export function isValueOnlyFolioAccount(account, rows = []) {
  * The accounts a folio could be adopted into. An account that carries this
  * canonical folio is an exact candidate: the folio number is its identity, so
  * the fund house and scheme are not consulted. An account with no folio at all
- * is a guess and still needs the fund house or scheme to look alike. An account
- * that carries a different folio is a different position and never a candidate.
+ * (including one whose number field is a reference, not a folio) is a guess and
+ * still needs the fund house or scheme to look alike. An account that carries a
+ * different folio is a different position and never a candidate.
  * A candidate must be value-only; the caller must still ask. One candidate is
  * never enough to apply.
  * @param {object} holding

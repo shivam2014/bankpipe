@@ -212,8 +212,9 @@ test("an exact folio offer shows the manual total, not a new-account line", () =
   // adopt without the money copy.
   assert.match(html, /target\.offer\?\.basis !== "folio"/);
   assert.match(html, /targetId = offer\.state === "adopt" \? offer\.chosen : ""/);
-  assert.match(html, /: exact\s*\n\s*\? \(targetId \? "update"/);
-  assert.match(html, /offer\.state === "kept" \? "kept" : "decide"/);
+  assert.match(html, /offer\?\.state === "kept" \? "kept"/);
+  assert.match(html, /offer && !targetId && !decided \? "decide"/);
+  assert.match(html, /: \(targetRow \? "update" : "create"\)/);
   assert.match(html, /target\.action !== "decide"/);
   assert.match(html, /target\.action === "decide"/);
 });
@@ -223,7 +224,7 @@ test("the exact keep button passes __skip__ and never creates a second folio", (
   assert.match(html, /accountId === "__skip__" \? "__skip__"/);
   assert.match(html, /folioChoices\[target\.offer\.key\] = "__skip__"/);
   assert.match(html, /target\.action !== "update"\) \{\s*\n\s*units\.delete/);
-  assert.match(html, /offer\.basis === "folio" && offer\.state !== "adopt"/);
+  assert.match(html, /offer\.state !== "adopt" && offer\.state !== "kept"/);
   assert.match(html, /Keep the manual total/);
   assert.match(html, /none of its rows were imported/);
   assert.match(html, /const keptKeys = new Set/);
@@ -266,12 +267,26 @@ test("a contested folio has no target, no create and an honest receipt", () => {
   assert.match(html, /const contestedKeys = new Set/);
 });
 
-test("the writer boundary refuses an unanswered exact folio", () => {
+test("the writer boundary refuses an unanswered folio offer", () => {
   assert.match(html, /function bpCasPendingFolioMessage\(plan\)/);
-  assert.match(html, /offer\.basis === "folio"\s*\n?\s*&& offer\.state !== "adopt" && offer\.state !== "kept"/);
+  assert.match(html, /filter\(\(offer\) => !offer\.chosen\)/);
   assert.match(html, /const pendingFolio = bpCasPendingFolioMessage\(folioPlan\)/);
   assert.match(html, /const pendingFolio = bpCasPendingFolioMessage\(/);
   assert.match(html, /still need the adopt-or-keep/);
+});
+
+test("a guess offer says it is by fund house and waits for the choice", () => {
+  // The real shape: the number column holds "Payment From …", not a folio. The
+  // offer must label the guess and still ask before adopting.
+  assert.match(html, /by fund house, not by folio/);
+  assert.match(html, /class="import-pill">Guess<\/span>/);
+  assert.match(html, /offer\.chosen === "__create__"/);
+  assert.match(html, /offer\.basis !== "folio" && offer\.chosen === "__create__"/);
+  assert.match(html, /target\.offer\?\.basis === "guess"/);
+  assert.match(html, /Similar account · choose below/);
+  assert.match(html, /if \(!targetId && !offer && !match\.tie\)/);
+  assert.match(html, /if \(target\.folioChoice === "__create__"\)/);
+  assert.match(html, /folioChoices\[target\.offer\.key\] = "__create__"/);
 });
 
 test("a value-only folio offer is shown, with the difference and both choices", () => {

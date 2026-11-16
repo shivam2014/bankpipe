@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { casRoute } from "./cas.js";
 import { casGroupByAsset, casReplacePlan } from "./cas-apply.js";
 import { assetMetrics } from "./finance.js";
-import { folioHome, folioKey, folioAdoptionPlan } from "./folio.js";
+import { accountFolios, folioHome, folioKey, folioAdoptionPlan } from "./folio.js";
 
 const FOLIO = "91062983856";
 const DEMAT = "IN99990001344321";
@@ -68,6 +68,65 @@ test("a value-only fund account with no folio is offered, never adopted by defau
   assert.equal(route.groups.length, 0);
   assert.equal(route.homeless.length, 1);
   assert.equal(route.homeless[0].folioNo, FOLIO);
+});
+
+test("a value-only account whose number is a reference is offered by fund house", () => {
+  // The old register import put a sentence in the number column. It is a note,
+  // not a folio, so it must not look like a different position and block the
+  // fund-house guess. Synthetic reference and numbers only.
+  const holding = casFund({ folio: `${FOLIO}/0` });
+  const reference = "Payment From 000000000000";
+  const manual = valueOnly({ number: reference,
+    meta: JSON.stringify({ amc: "Axis", amc_full: "Axis Mutual Fund",
+      current_value_paise: 32100000 }) });
+  assert.deepEqual(accountFolios(manual), []);
+  const plan = folioAdoptionPlan({ holdings: [holding],
+    accounts: routeAssets({ number: reference, meta: manual.meta }),
+    rowsOf: () => [] });
+  assert.equal(plan.offers.length, 1);
+  const offer = plan.offers[0];
+  assert.equal(offer.basis, "guess");
+  assert.equal(offer.state, "offer");
+  assert.equal(offer.candidates.length, 1);
+  assert.equal(offer.candidates[0].id, "axis-value");
+  assert.equal(offer.candidates[0].valuePaise, 32100000);
+  assert.equal(offer.valuePaise, 31357941);
+  assert.deepEqual(plan.targets, {});
+  // No choice is an unanswered guess: routing has no target, and the card asks
+  // before it creates a new account or adopts the manual one.
+  const route = casRoute(parsed([holding]),
+    routeAssets({ number: reference, meta: manual.meta }));
+  assert.equal(route.groups.length, 0);
+  assert.equal(route.homeless.length, 1);
+});
+
+test("a reference-number account from another fund house is never offered", () => {
+  const holding = casFund({ folio: `${FOLIO}/0` });
+  const other = valueOnly({ id: "mirae-value", label: "Mirae mutual fund",
+    bank: "Mirae", number: "Payment From 000000000001",
+    meta: JSON.stringify({ amc: "Mirae", amc_full: "Mirae Asset Mutual Fund",
+      current_value_paise: 32100000 }) });
+  const plan = folioAdoptionPlan({ holdings: [holding], accounts: [other],
+    rowsOf: () => [] });
+  assert.deepEqual(accountFolios(other), []);
+  assert.equal(plan.offers.length, 0);
+  assert.deepEqual(plan.targets, {});
+});
+
+test("an exact folio outranks a folio-less lookalike", () => {
+  const holding = casFund({ folio: `${FOLIO}/0` });
+  const exact = valueOnly({ id: "axis-exact", number: FOLIO,
+    meta: JSON.stringify({ amc: "Axis", current_value_paise: 32100000 }) });
+  const lookalike = valueOnly({ id: "axis-lookalike",
+    number: "Payment From 000000000002",
+    meta: JSON.stringify({ amc: "Axis", current_value_paise: 32000000 }) });
+  const plan = folioAdoptionPlan({ holdings: [holding],
+    accounts: [lookalike, exact], rowsOf: () => [] });
+  assert.equal(plan.offers.length, 1);
+  assert.equal(plan.offers[0].basis, "folio");
+  assert.deepEqual(plan.offers[0].candidates.map((candidate) => candidate.id),
+    ["axis-exact"]);
+  assert.deepEqual(plan.targets, {});
 });
 
 test("an explicit choice adopts the folio into the account and keeps its id", () => {
