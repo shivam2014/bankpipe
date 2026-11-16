@@ -190,7 +190,7 @@ test("one suffix away from zero is a different folio and no offer", () => {
 });
 
 test("the same folio printed two ways is one group, one offer and one key", () => {
-  const one = casFund({ isin: "INF000000778" });
+  const one = casFund({ isin: "INF000000778", folio: BASE });
   const two = casFund();
   const assets = [demat, valueOnly()];
   assert.equal(folioKey(one), folioKey(two));

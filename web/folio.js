@@ -20,7 +20,9 @@ const amcOf = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLower
  * without the soft hyphens and zero-width spaces a PDF leaves inside numbers.
  * A registrar prints a check digit after a slash; a zero check digit is the
  * same folio, so exactly one trailing `/0` is stripped. A non-zero suffix is
- * left in place: it is a different position until proven otherwise.
+ * left in place: it is a different position until proven otherwise. Exactly one
+ * suffix, so this is not idempotent (`/0/0` normalises to `/0`); normalise a
+ * stored value once and compare the result.
  * @param {string} value
  * @returns {string}
  */
@@ -77,11 +79,12 @@ function declaredAmc(account) {
 
 /**
  * What a canonical folio is on file, in one shape every surface reads. An
- * account carrying the folio either holds rows (a settled position) or is a
- * manual total with a current value and no rows. A manual total is never the
- * position while a settled owner exists, and when more than one settled owner
- * exists the AMC has to name exactly one; otherwise the folio is contested and
- * no surface may pick one, write one, or create another.
+ * account carrying the folio is a manual total only when it has a current value
+ * and no rows; every other such account is settled, including a freshly created
+ * folio with neither rows nor a value. A manual total is never the position
+ * while a settled owner exists, and when more than one settled owner exists the
+ * AMC has to name exactly one; otherwise the folio is contested and no surface
+ * may pick one, write one, or create another.
  * - `home`: one settled owner, or several settled owners with exactly one named
  *   by the holding's AMC. The folio is that account.
  * - `contested`: more than one settled owner and the AMC does not name exactly

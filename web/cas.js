@@ -1209,7 +1209,8 @@ export function casRoute(parsed, assets = [], { adopt = {} } = {}) {
       const home = ownership?.state === "home" ? ownership.home : null;
       const adopted = isFolio && ownership.state !== "home"
         && ownership.state !== "contested"
-        ? folioAdoptedHome(holding, assets, adopt) : null;      // A home wins over a stale adopt, so a manual total chosen before the
+        ? folioAdoptedHome(holding, assets, adopt) : null;
+      // A home wins over a stale adopt, so a manual total chosen before the
       // settled owner arrived cannot take the rows, and a contested folio
       // cannot be forced into one of its owners by a stale choice either.
       const target = isFolio ? (home || adopted) : asset;

@@ -329,6 +329,16 @@ function verifyWrite(state) {  const wrong = [];
   if (meta.current_value_paise !== undefined) {
     wrong.push(`the manual total survived the adoption: ${JSON.stringify(meta)}`);
   }
+  // A fund account has no DP. The synthetic card label must not become identity.
+  if (meta.dp !== undefined) {
+    wrong.push(`the adopted folio gained a synthetic DP: ${JSON.stringify(meta.dp)}`);
+  }
+  if (/into 2 accounts/.test(state.status || "")) {
+    wrong.push(`the receipt counts a demat that received no row: ${JSON.stringify(state.status)}`);
+  }
+  if (!/into Test Mutual Fund\.\s*$/.test(state.status || "")) {
+    wrong.push(`the receipt does not name the account it wrote: ${JSON.stringify(state.status)}`);
+  }
   if (!(meta.folios || []).includes(PRINTED)) {
     wrong.push(`the printed folio is not stored: ${JSON.stringify(meta.folios)}`);
   }

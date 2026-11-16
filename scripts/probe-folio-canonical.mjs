@@ -46,12 +46,34 @@ const inr = (paise) => `₹${(paise / 100).toLocaleString("en-IN", {
 
 // The old identity kept the suffix, so the stored base number and the printed
 // `/0` were two different folios. This is a direct comparison, not a second
-// parser: legacyNormalize is the pre-fix function.
+// parser: the three legacy* functions are the pre-fix rules, reproduced.
 const legacyNormalize = (value) => String(value ?? "")
   .replace(/[\u00AD\u200B]/g, "").replace(/\s+/g, "").toLowerCase();
-const legacyCarries = legacyNormalize(valueOnly.number) === legacyNormalize(PRINTED);
-const legacyOffers = legacyCarries || legacyNormalize(valueOnly.number) ? 0 : 1;
+const legacyMeta = (account) => {
+  try { return JSON.parse(account.meta || "{}"); } catch (e) { return {}; }
+};
+// The pre-fix accountFolios: a fund account's number is one of its folios, and
+// no check digit is stripped.
+const legacyFolios = (account) => {
+  const meta = legacyMeta(account);
+  const raw = [...(Array.isArray(meta.folios) ? meta.folios : []),
+    meta.folio, meta.folio_no];
+  if (/mutual\s*fund|^mf$/i.test(String(account.subtype || ""))
+    || /^mf$/i.test(String(account.type || ""))) {
+    raw.push(account.number, account.folio, account.folio_no);
+  }
+  return [...new Set(raw.map((value) => String(value ?? "").trim())
+    .filter(Boolean).map(legacyNormalize))];
+};
+// The pre-fix candidate rule: an account that answers to any folio is not a
+// value-only candidate, even when its folio is the printed one without `/0`.
+// The other two conditions (value-only, fund-house lookalike) hold here.
+const legacyCandidate = legacyFolios(valueOnly).length === 0;
+const legacyCarries = legacyFolios(valueOnly).includes(legacyNormalize(PRINTED));
+const legacyOffers = legacyCandidate ? 1 : 0;
 const legacyHome = legacyCarries ? valueOnly : null;
+const legacyReason = legacyCandidate ? "value-only lookalike"
+  : legacyCarries ? "one raw folio" : "another raw folio";
 const legacyNewFolio = { category: "demat", subtype: "mutual fund", holdings_count: 1,
   holdings_value: STATEMENT_PAISE, holdings_cost: 24000000,
   meta: JSON.stringify({ folios: [PRINTED] }) };
@@ -91,7 +113,8 @@ const candidate = offer?.candidates[0];
 const line = (label, text) => console.log(`${label.padEnd(28)}${text}`);
 
 line("legacy raw identity", `home ${legacyHome ? legacyHome.id : "none"}`
-  + ` · offers ${legacyOffers} · homeless ${legacyHome ? 0 : 1}`
+  + ` · offers ${legacyOffers} (${legacyReason})`
+  + ` · homeless ${legacyHome ? 0 : 1}`
   + ` · positions 2 · total ${inr(legacyTotal)}`);
 line("shipped offer", `basis ${offer?.basis || "none"}`
   + ` · state ${offer?.state || "none"}`
@@ -193,3 +216,12 @@ line("preview vs write", `matchIdentity ${agreeMatch.identityId || "none"}`
 const keptMovement = [{ isin: ISIN, side: "debit", quantity: 10 }];
 line("kept manual target", `rows ${casManualTargetRows([holding]).length}`
   + ` · events ${casManualTargetEvents(keptMovement, [holding]).length}`);
+
+// Why the withholding list must come from the statement, not the scoped write:
+// the inbox has already dropped the kept row when the writer reads it, so only
+// the full list can tell a demat holding the same ISIN that the event is foreign.
+const fullWithheld = casManualTargetEvents(keptMovement, [holding]).length;
+const scopedWithheld = casManualTargetEvents(keptMovement, []).length;
+line("kept event scope", `full list ${fullWithheld} event`
+  + ` · scoped list ${scopedWithheld} event`
+  + ` · ${scopedWithheld && !fullWithheld ? "the full list is required" : "unexpected"}`);

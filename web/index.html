@@ -7142,54 +7142,19 @@ function bpImportResolveCas(bundle) {
   const base = bundle.base;
   const casAccounts = base?.accounts?.length ? base.accounts : [];
   const importDay = new Date().toISOString().slice(0, 10);
-  const dematTargets = casAccounts.map((account) => {
-    const rows = casWritableHoldings((account.rows || []).filter((row) =>
-      !(row.category === "mf" && row.folio)), importDay);
-    const match = accountMatches({
-      accountKey: account.boId, accountKind: "bo", rows,
-    }, accounts, { forCas: true });
-    const choiceKey = `${bundle.key}:${account.boId}`;
-    const choice = state.choices[choiceKey] || "";
-    const createChoice = choice === "__create__";
-    let targetId = choice && !createChoice ? choice : "";
-    if (targetId && !bpImportAccountRow(targetId)) targetId = "";
-    if (!targetId && match.identityId) targetId = match.identityId;
-    // The matcher owns the threshold for both report families: identity, or an
-    // 80 percent ISIN overlap. The CAS resolver no longer keeps its own copy.
-    if (!targetId && match.attachId) targetId = match.attachId;
-    const targetRow = targetId ? bpImportAccountRow(targetId) : null;
-    const plan = bpImportPlanFor(bundle, targetRow, rows,
-      { kind: "bo", value: account.boId });
-    const holdingsOf = (id) => accounts.find((item) => item.id === id)?.holdings || [];
-    // The writer drops rows the holding plan skips. This plan reads the same
-    // rows, so a skipped row cannot appear as a movement that never lands.
-    const eventRows = (rows || []).filter((row) => {
-      const decision = plan?.decisions?.find((item) =>
-        String(item.isin || "").toUpperCase() === String(row.isin || "").toUpperCase());
-      return !decision || decision.action !== "skip";
-    });
-    const eventPlan = casReplacePlan({ parsed: base?.parsed || {},
-      existing: targetRow?.holdings || [], holdings: eventRows,
-      events: base?.parsed?.transactions || [], assetId: targetId,
-      accounts: [account.boId], route: true,
-      asOf: bundle.asOf || "", confirmed: false });
-    const linkedPortfolios = linkedCostPortfolios(targetId, accounts, holdingsOf)
-      .map((item) => ({ account: item, rows: holdingsOf(item.id) }));
-    const linked = planLinkedSales({ dematPlan: eventPlan, dematAssetId: targetId,
-      asOf: bundle.asOf || "", portfolios: linkedPortfolios });
-    return { ...account, rows, match, targetId, plan, eventPlan, linked, createChoice,
-      action: targetRow ? "update" : "create" };
-  });
   // A CAS can also carry mutual fund folios. They are not under the demat's BO
   // ID, so they get their own line here. The folio number is the identity: a
-  // different folio of the same AMC is a new position, never a match.
+  // different folio of the same AMC is a new position, never a match. A
+  // zero-unit folio row is closed history, not a position: it stays with the
+  // demat the statement printed, the same way casRoute and the writer place it.
   const folioGroups = new Map();
   for (const row of bundle.rows || []) {
     if (row.category !== "mf" || !row.folio) continue;
     if (casClosedRow(row, importDay)) continue;
-    const amc = String(row.amc || "Folio").trim();
+    if (!(Number(row.quantity) > 0)) continue;
+    const amc = String(row.amc || "").trim();
     const folioNo = String(row.folio || "").trim();
-    const key = `${amc.toLowerCase()}:${normalizeFolio(folioNo)}`;
+    const key = folioKey({ amc, folioNo });
     if (!folioGroups.has(key)) {
       folioGroups.set(key, { amc, folioNo, amcFull: String(row.amcFull || "").trim(),
         rows: [] });
@@ -7243,7 +7208,7 @@ function bpImportResolveCas(bundle) {
     const held = !!conflict || (exact && !targetId);
     const plan = bpImportPlanFor(bundle, targetRow, held ? [] : group.rows, null);
     return { boId: folioKey(group),
-      dpName: `${group.amc} mutual fund · folio …${folioTail(group.folioNo)}`,
+      dpName: `${group.amc || "Folio"} mutual fund · folio …${folioTail(group.folioNo)}`,
       rows: group.rows, match, targetId, plan, offer, folioChoice: choice,
       home, contested: conflict,
       action: conflict ? "conflict"
@@ -7253,6 +7218,57 @@ function bpImportResolveCas(bundle) {
             : (targetRow ? "update" : "create"),
       folio: true, amc: group.amc,
       amcFull: group.amcFull, folioNo: group.folioNo };
+  });
+  // A folio the plan keeps, contests or leaves unanswered writes no row, so it
+  // also contributes no movement. The writer reads the same list: a demat that
+  // happens to hold the same ISIN must not record the folio's sale.
+  const writtenFolios = new Set(folioTargets
+    .filter((target) => target.action !== "kept" && target.action !== "decide"
+      && target.action !== "conflict")
+    .map((target) => normalizeFolio(target.folioNo)));
+  const withheldRows = (base?.parsed?.holdings || []).filter((holding) =>
+    holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0
+    && !writtenFolios.has(normalizeFolio(holding.folio)));
+  const movements = casManualTargetEvents(base?.parsed?.transactions || [], withheldRows);
+  const dematTargets = casAccounts.map((account) => {
+    // A positive folio row belongs to its folio target. A zero-unit folio row
+    // has no position to route and stays with the demat the statement printed.
+    const rows = casWritableHoldings((account.rows || []).filter((row) =>
+      !(row.category === "mf" && row.folio && Number(row.quantity) > 0)), importDay);
+    const match = accountMatches({
+      accountKey: account.boId, accountKind: "bo", rows,
+    }, accounts, { forCas: true });
+    const choiceKey = `${bundle.key}:${account.boId}`;
+    const choice = state.choices[choiceKey] || "";
+    const createChoice = choice === "__create__";
+    let targetId = choice && !createChoice ? choice : "";
+    if (targetId && !bpImportAccountRow(targetId)) targetId = "";
+    if (!targetId && match.identityId) targetId = match.identityId;
+    // The matcher owns the threshold for both report families: identity, or an
+    // 80 percent ISIN overlap. The CAS resolver no longer keeps its own copy.
+    if (!targetId && match.attachId) targetId = match.attachId;
+    const targetRow = targetId ? bpImportAccountRow(targetId) : null;
+    const plan = bpImportPlanFor(bundle, targetRow, rows,
+      { kind: "bo", value: account.boId });
+    const holdingsOf = (id) => accounts.find((item) => item.id === id)?.holdings || [];
+    // The writer drops rows the holding plan skips. This plan reads the same
+    // rows, so a skipped row cannot appear as a movement that never lands.
+    const eventRows = (rows || []).filter((row) => {
+      const decision = plan?.decisions?.find((item) =>
+        String(item.isin || "").toUpperCase() === String(row.isin || "").toUpperCase());
+      return !decision || decision.action !== "skip";
+    });
+    const eventPlan = casReplacePlan({ parsed: base?.parsed || {},
+      existing: targetRow?.holdings || [], holdings: eventRows,
+      events: movements, assetId: targetId,
+      accounts: [account.boId], route: true,
+      asOf: bundle.asOf || "", confirmed: false });
+    const linkedPortfolios = linkedCostPortfolios(targetId, accounts, holdingsOf)
+      .map((item) => ({ account: item, rows: holdingsOf(item.id) }));
+    const linked = planLinkedSales({ dematPlan: eventPlan, dematAssetId: targetId,
+      asOf: bundle.asOf || "", portfolios: linkedPortfolios });
+    return { ...account, rows, match, targetId, plan, eventPlan, linked, createChoice,
+      action: targetRow ? "update" : "create" };
   });
   bundle.casTargets = [...dematTargets, ...folioTargets];
   // The accounts this statement resolved to, for grouping. A folio is its own
@@ -7287,8 +7303,12 @@ function bpImportResolveCas(bundle) {
   const saleEvents = [];
   for (const target of bundle.casTargets) {
     // An older CAS is identity-only: the writer fills empty fields and does not
-    // run its movements, so the preview must not promise a sale either.
+    // run its movements, so the preview must not promise a sale either. A
+    // kept, contested or unanswered folio writes no row, so it must not promise
+    // one of its movements either, on its own line or on a demat's.
     if (target.plan?.identityOnly) continue;
+    if (target.folio && (target.action === "kept" || target.action === "decide"
+      || target.action === "conflict")) continue;
     let plan = target.eventPlan;
     if (!plan) {
       const existing = target.targetId
@@ -7299,7 +7319,7 @@ function bpImportResolveCas(bundle) {
         return !decision || decision.action !== "skip";
       });
       plan = casReplacePlan({ parsed: base?.parsed || {}, existing,
-        holdings: rows, events: base?.parsed?.transactions || [],
+        holdings: rows, events: movements,
         assetId: target.targetId, asOf: bundle.asOf || "", confirmed: false,
         accounts: target.folio ? [] : [target.boId], route: true });
     }
@@ -7323,7 +7343,7 @@ function bpImportResolveCas(bundle) {
     const existing = bpImportAccountRow(extra.assetId)?.holdings || [];
     const holdingsOf = (id) => accounts.find((item) => item.id === id)?.holdings || [];
     const plan = casReplacePlan({ parsed: base?.parsed || {}, existing, holdings: [],
-      events: base?.parsed?.transactions || [], assetId: extra.assetId,
+      events: movements, assetId: extra.assetId,
       accounts: [extra.boId], route: true, asOf: bundle.asOf || "", confirmed: false });
     saleLines.push(...casEventLines(plan));
     saleConflicts.push(...(plan.conflicts || []));
@@ -7493,7 +7513,8 @@ function bpImportPlanForBundles(group, bundles) {
   const accountCount = head.family === "cas"
     ? statementAccounts((head.casTargets || []).filter((target) =>
       target.action !== "kept" && target.action !== "decide"
-      && target.action !== "conflict")).count : 1;
+      && target.action !== "conflict"
+      && ((target.rows || []).length || (target.eventPlan?.events || []).length))).count : 1;
   if (head.family === "cas") {
     for (const target of head.casTargets || []) {
       const attached = extraBundles.filter((bundle) =>
@@ -8437,7 +8458,13 @@ window.bpImportDropPlan = (key) => {
     (bundle.files || []).map((file) => file.entryId)));
   state.entries = state.entries.filter((entry) => !ids.has(entry.id));
   for (const bundle of bundles) {
-    delete state.choices[bundle.key];
+    // A choice belongs to the statement that was dropped. Every per-offer key
+    // carries the bundle key as its prefix, so the whole statement's answers go.
+    for (const choice of Object.keys(state.choices || {})) {
+      if (choice === bundle.key || choice.startsWith(`${bundle.key}:`)) {
+        delete state.choices[choice];
+      }
+    }
     delete state.acceptAsk[bundle.key];
   }
   delete state.acceptAsk[key];
@@ -8655,7 +8682,9 @@ async function bpImportApplyCas(bundle, opts = {}) {
     meta.identity_as_of = bundle.asOf || target.plan?.incomingAsOf || meta.identity_as_of || "";
     meta.broker_only = "0";
     if (bundle.base?.parsed?.depository) meta.depository = bundle.base.parsed.depository;
-    if (target.dpName) meta.dp = target.dpName;
+    // A folio target's dpName is a synthetic label for the card, not a
+    // depository. Only a demat names a DP.
+    if (target.dpName && !target.folio) meta.dp = target.dpName;
     const patch = { meta: JSON.stringify(meta) };
     if (!String(account.number || "").trim() && target.boId && !target.boId.startsWith("mf:")) {
       patch.number = target.boId;
@@ -8740,6 +8769,10 @@ async function bpImportApplyCas(bundle, opts = {}) {
     cas, route, file: bundle.base?.file || null, owner: cas.holder || "",
     picked: units.size ? units : undefined, safety, folioChoices,
     folioPlan: bundle.folioPlan || null,
+    // `cas.holdings` is scoped to what this write may store. The full statement
+    // stays here so a kept folio's ISIN is still withheld from a demat that
+    // happens to hold the same security.
+    allHoldings: parsed.holdings,
   };
   let host = document.getElementById("cas-inbox-apply");
   if (!host) {
@@ -8784,16 +8817,26 @@ async function bpImportApplyCas(bundle, opts = {}) {
     await store.updateAccount(id, patch);
   }
   const summary = bundle.plan?.summary || { added: 0, updated: 0, history: 0 };
+  // Name the account that actually received rows or an event, not every target
+  // the statement resolved to. A demat with no row and no movement was only
+  // identity-checked.
+  const written = importTargets.filter((target) => target.targetId
+    && ((target.plan?.summary?.added || 0) + (target.plan?.summary?.updated || 0)
+      + (target.plan?.summary?.history || 0) > 0));
+  const placeLabel = written.length === 1
+    ? bpImportAccountRow(written[0].targetId)?.account?.label || "" : "";
   return { ok: true, total: summary.added + summary.updated + summary.history,
     added: summary.added, updated: summary.updated, history: summary.history,
-    filled, accounts: targets.length, kept: !!outcome.kept,
+    filled, accounts: targets.length, places: Number(outcome.places || 0),
+    kept: !!outcome.kept,
     sold: outcome.sold || 0, linkedSold: outcome.linkedSold || 0,
     conflicts: outcome.conflicts || [], warnings: outcome.warnings || [],
-    label: targets.length > 1 ? `${targets.length} accounts`
-      : importTargets[0]?.targetId
-        ? bpImportAccountRow(importTargets[0].targetId)?.account?.label || "the account"
-        : targets.some((target) => target.action === "kept") ? "the account"
-          : "the new account" };
+    label: Number(outcome.places || 0) > 1 ? `${outcome.places} accounts`
+      : placeLabel
+        || (importTargets[0]?.targetId
+          ? bpImportAccountRow(importTargets[0].targetId)?.account?.label || "the account"
+          : targets.some((target) => target.action === "kept") ? "the account"
+            : "the new account") };
 }
 
 function bpImportPlanBlockedReceipt(plan) {
@@ -8880,7 +8923,13 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
     const ids = new Set(plan.files.map((file) => file.entryId));
     state.entries = state.entries.filter((entry) => !ids.has(entry.id));
     for (const bundle of plan.bundles) {
-      delete state.choices[bundle.key];
+      // Every answer a statement asked for is scoped to it: the offer keys carry
+      // the bundle key as a prefix, and a later statement starts unanswered.
+      for (const choice of Object.keys(state.choices || {})) {
+        if (choice === bundle.key || choice.startsWith(`${bundle.key}:`)) {
+          delete state.choices[choice];
+        }
+      }
       delete state.acceptAsk[bundle.key];
     }
     delete state.acceptAsk[key];
@@ -8918,10 +8967,14 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
       sold === 1 ? "" : "s"} recorded as sold`);
     if (linkedSold) parts.push(`${linkedSold} also reduced in the linked cost portfolio`);
     if (conflicts.length) parts.push(conflicts.join(" "));
-    const label = plan.accountCount > 1 ? `${plan.accountCount} accounts`
-      : (plan.accounts[0]
-        ? bpImportAccountRow(plan.accounts[0])?.account?.label || "the account"
-        : results.map((result) => result.label).find(Boolean) || "the account");
+    // Name only the account(s) the writers actually wrote into. A target that
+    // only had its identity checked is not somewhere the rows went.
+    const resultLabels = [...new Set(results.map((result) => result?.label).filter(Boolean))];
+    const label = resultLabels.length === 1 ? resultLabels[0]
+      : plan.accountCount > 1 ? `${plan.accountCount} accounts`
+        : (plan.accounts[0]
+          ? bpImportAccountRow(plan.accounts[0])?.account?.label || "the account"
+          : resultLabels[0] || "the account");
     if (!opts.silent) {
       // A kept folio writes no account, so "into <label>" would name an account
       // the import did not touch. The kept receipt is the whole status.
@@ -9203,10 +9256,12 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     // rows cannot be told from a manual total, and the route would withhold a
     // real home.
     const assets = await bpCasFundAccounts(await store.listAccounts(), store);
-    // A folio with no automatic home can look like a value-only account. Offer it,
-    // but route only the choices the person already made on this card.
+    // A re-render of the same file keeps its answers; a different file starts
+    // unanswered, so a folio kept in one statement cannot answer the next.
     const prior = window.bpCasCards?.[hostId] || {};
-    const folioPlan = bpCasFolioPlan(cas.holdings, assets, prior.folioChoices || {});
+    const sameFile = !!prior.file && prior.file === file;
+    const priorChoices = sameFile ? (prior.folioChoices || {}) : {};
+    const folioPlan = bpCasFolioPlan(cas.holdings, assets, priorChoices);
     const adopt = folioPlan.targets;
     const route = casRoute(cas, assets, { adopt });
     window.bpCasRoute = route;
@@ -9214,8 +9269,8 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     // read in one batch must not overwrite each other's receipt.
     window.bpCasCards = window.bpCasCards || {};
     window.bpCasCards[hostId] = { cas, route, file, safety, folioPlan,
-      folioChoices: prior.folioChoices || {}, owner: prior.owner,
-      picked: prior.picked || null };
+      folioChoices: priorChoices, owner: sameFile ? prior.owner : undefined,
+      picked: sameFile ? prior.picked || null : null };
     const total = cas.holdings.reduce((t, h) => t + (Number(h.valuePaise) || 0), 0);
     // The writer drops a closed position (and keeps a matured one). Every count
     // and preview below reads the same writable list.
@@ -9412,9 +9467,11 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const newAccounts = [...new Set(route.homeless
       .filter((g) => picked.has(unitKey(g)))
       .map((g) => unitKey(g)))];
-    // A manual target takes quantity movements, so it must be a demat. A cost
-    // portfolio is only ever reached through planLinkedSales.
-    const manualTargets = assets.filter((a) => categoryOf(a) === "demat");
+    // A manual target takes quantity movements, so it must be a demat. A fund
+    // account is never a demat target: its rows belong to a folio, and writing
+    // the empty manual plan over it would delete the total it holds.
+    const manualTargets = assets.filter((a) => categoryOf(a) === "demat"
+      && !isFolioAccount(a));
     const createHint = "";
     const routeHomed = (route.accounts || []).some((account) => account.assetId);
     const manual = (!route.demat || !routeHomed) && manualTargets.length
@@ -10928,7 +10985,18 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   // group for it. Its account still has to receive the disposal record: find the
   // demat this statement names that already holds the security the movements
   // name, and let the event pass write it.
-  const movementIsins = new Set((cas.transactions || [])
+  // A kept or contested folio's movement belongs to the folio, which this write
+  // will not store. It must not make a demat a write target either: the gate
+  // below and the writer read the same withheld list.
+  const writtenFolios = new Set((window.bpCasRoute.groups || [])
+    .filter((group) => group.kind === "mf" && group.folio
+      && (!card.picked || card.picked.has(folioKey(group))))
+    .map((group) => normalizeFolio(group.folioNo)));
+  const withheldRows = (card.allHoldings || cas.holdings || []).filter((holding) =>
+    holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0
+    && !writtenFolios.has(normalizeFolio(holding.folio)));
+  const movementEvents = casManualTargetEvents(cas.transactions, withheldRows);
+  const movementIsins = new Set(movementEvents
     .map((event) => String(event.isin || "").toUpperCase()).filter(Boolean));
   const eventAssets = [];
   if (movementIsins.size) {
@@ -10959,7 +11027,12 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
     }
   }
   card.eventAssets = eventAssets;
-  if (!window.bpCasRoute.groups.length) {
+  // A kept or contested folio is a decision about its own rows, not about the
+  // rest of the statement. Only a write with nothing else to do stops here:
+  // a demat movement or a manual target still runs the writer below.
+  const manualTarget = document.getElementById(`cas-target-${key}`)?.value || "";
+  const writable = (card.eventAssets || []).length > 0 || !!manualTarget;
+  if (!window.bpCasRoute.groups.length && !writable) {
     const kept = (card.folioPlan?.offers || []).filter((offer) =>
       offer.basis === "folio" && card.folioChoices?.[offer.key] === "__skip__");
     const contested = card.folioPlan?.contested || [];
@@ -11092,7 +11165,10 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       .filter((group) => group.kind === "mf" && group.folio
         && (!card.picked || card.picked.has(folioKey(group))))
       .map((group) => normalizeFolio(group.folioNo)));
-    const withheldRows = (cas.holdings || []).filter((holding) =>
+    // The inbox hands this writer a scoped holdings list that already dropped a
+    // kept folio. Withholding must read the statement's full list, or a demat
+    // holding the same ISIN records a sale the folio owns.
+    const withheldRows = (card.allHoldings || cas.holdings || []).filter((holding) =>
       holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0
       && !writtenFolios.has(normalizeFolio(holding.folio)));
     const events = casManualTargetEvents(cas.transactions, withheldRows);
@@ -11109,7 +11185,9 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     for (const [assetId, holdings] of byAsset) {
       const existing = await store.listHoldings(assetId);
       const asset = assetOf(assetId);
-      const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
+      // One rule for the writer and the rest of the app: a legacy `type: "mf"`
+      // account is a folio even when its subtype is blank.
+      const folioAccount = isFolioAccount(asset);
       const preview = casReplacePlan({ parsed: cas, existing, holdings, asOf,
         events, assetId, merge: folioAccount,
         accounts: boIdsOf.get(assetId) || [], route: true, safety,
@@ -11205,7 +11283,9 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       // A demat statement is the complete truth for its BO ID, and a confirmed
       // replace may drop what it does not name. A folio account collects folios
       // from several statements and AMCs, so it always merges.
-      const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
+      // One rule for the writer and the rest of the app: a legacy `type: "mf"`
+      // account is a folio even when its subtype is blank.
+      const folioAccount = isFolioAccount(asset);
       const plan = casReplacePlan({ parsed: cas, existing, holdings, asOf,
         events, assetId,
         confirmed: allowAbsentRemoval && confirmed && !movementsOnly, merge: folioAccount,
@@ -11248,7 +11328,9 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
         const meta = metaOf(asset);
         // A folio account's value now comes from its units, so the old manual
         // number must not linger and count a second time if the rows move again.
-        if (isFolioAccount(asset)) {
+        // Only delete it when this write actually put rows there: an empty plan
+        // must not erase a total it did not replace.
+        if (folioAccount && holdings.length) {
           delete meta.current_value_paise;
         }
         const currentNumber = String(asset.number || "").trim();
@@ -11276,9 +11358,11 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
         // A folio account keeps every folio number the statements printed; the
         // number is a folio, not a bank reference. A short cell that is only the
         // prefix of the stored number is the same folio, so it is not repeated.
-        const folios = [...new Set(holdings
+        // A demat never answers to a folio: its number is a BO ID, and writing
+        // the folio over it makes the account claim an identity it does not own.
+        const folios = folioAccount ? [...new Set(holdings
           .map((h) => String(h.folio || "").trim()).filter(Boolean))]
-          .filter((f) => f === currentNumber || !currentNumber.startsWith(f));
+          .filter((f) => f === currentNumber || !currentNumber.startsWith(f)) : [];
         let nextNumber = "";
         if (folios.length) {
           const known = Array.isArray(meta.folios) ? meta.folios : [];

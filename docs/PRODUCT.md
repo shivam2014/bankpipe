@@ -62,16 +62,25 @@ A mutual fund folio's slash suffix is the registrar's check digit, not a sub-fol
 trailing `/0` is the zero check digit and does not change identity, so `99990000001`
 and `99990001/0` are one position. Every other suffix stays distinct (`/1`, `/68`,
 `/00`): without the registrar's table a non-zero digit cannot be proven
-non-identifying, and a wrong merge costs more than a duplicate. The printed spelling
-stays on the account; only comparison normalises it (`web/folio.js:normalizeFolio`).
-A fund account that carries the folio, holds no unit rows and records a manual current
-value is an adoption candidate, not an automatic home. The import offers that exact
-account, and only an explicit choice replaces the manual total with the statement's
-units; keeping the manual total leaves it as the single position and imports none of
-the statement's rows. A second account carrying the same canonical folio is the
-duplicate this rule prevents. When one account carrying the folio already holds unit
-rows, that account is the home whatever order the accounts load in, and a manual-total
-duplicate is not offered over it.
+non-identifying, and a wrong merge costs more than a duplicate. Exactly one suffix is
+stripped, so `/0/0` normalises to `/0`; the printed spelling stays on the account and
+only comparison normalises it (`web/folio.js:normalizeFolio`), once.
+
+A fund account that carries the folio and records a manual current value with no unit
+rows is an adoption candidate, not an automatic home. The import offers that exact
+account with two answers. Adopting writes the statement's rows into the same account,
+adds the printed folio to `meta.folios`, and removes `meta.current_value_paise`; the
+account's own `value_paise` column is left in place. Keeping the manual total writes
+none of that folio's rows and no event, and creates no account. Keeping is per folio,
+not per statement: a second manual total for a different folio stays where it is, and
+neither answer creates a second account carrying the same canonical folio.
+
+A settled owner is an account carrying the folio that is not a manual total: it holds
+rows, or it has no recorded value yet. One settled owner is the home whatever order the
+accounts load in. With two or more settled owners the AMC has to name exactly one, by
+`meta.amc` or by the account's label; otherwise the folio is contested. No surface may
+pick one, write one, or create another, and every row and movement of a contested
+folio is withheld until one duplicate is removed and the statement is imported again.
 
 Two existing statements pull the other way and should be softened, not deleted.
 `web/db.js:110` says a demat account's identity is the BO ID "not the string a person
