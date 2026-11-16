@@ -3,15 +3,23 @@
 // same file through the holdings importer. One row per lot, keyed by ISIN and
 // units, so a round trip updates instead of duplicating.
 
-import { bondAnalytics, parseBondLabel } from "./bonds.js";
+import { bondAnalytics, parseBondLabel, valueKindOf } from "./bonds.js";
 import { csvCell as cell } from "./export.js";
 
 export const BOND_CSV_HEADERS = ["ISIN", "Security", "Rating", "Coupon %",
   "Yield %", "Frequency", "Purchase Date", "Next Payout Date", "Units",
   "Cost", "Current Value", "Next Payout Amount"];
 
-const rupees = (paise) => paise === null || paise === undefined
-  ? "" : (paise / 100).toFixed(2);
+const blankToNull = (value) => value === null || value === undefined
+  || (typeof value === "string" && value.trim() === "") ? null : value;
+const numberOrNull = (value) => {
+  const raw = blankToNull(value);
+  if (raw === null) return null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
+};
+const rupees = (paise) => blankToNull(paise) === null
+  ? "" : (Number(paise) / 100).toFixed(2);
 
 export function bondHoldingsCsv(rows) {
   const lines = [BOND_CSV_HEADERS.map(cell).join(",")];
@@ -19,15 +27,14 @@ export function bondHoldingsCsv(rows) {
     const ba = bondAnalytics(h);
     const parsed = parseBondLabel(h.label);
     const coupon = ba ? ba.couponPct : (parsed ? parsed.couponPct : "");
-    const yieldPct = h.yield_bps !== null && h.yield_bps !== undefined
-      ? (h.yield_bps / 100).toFixed(2)
+    const yieldBps = numberOrNull(h.yield_bps);
+    const yieldPct = yieldBps !== null
+      ? (yieldBps / 100).toFixed(2)
       : (ba && ba.ytm !== null ? ba.ytm.toFixed(2) : "");
-    // A value equal to cost is the old "no market price" placeholder. Leave
-    // the cell blank so the user can fill a real value instead of re-importing
-    // cost as if it were a market price.
-    const priced = h.value_paise !== null && h.value_paise !== undefined
-      && h.cost_paise !== null && h.cost_paise !== undefined
-      && Math.abs(h.value_paise - h.cost_paise) >= 1;
+    // The source decides whether a stored figure is a market value. A CAS or
+    // broker statement must not be exported as Current Value.
+    const value = numberOrNull(h.value_paise);
+    const priced = valueKindOf(h) === "market" && value !== null && value > 0;
     const line = [
       h.security_id || "",
       h.label || "",
@@ -39,7 +46,7 @@ export function bondHoldingsCsv(rows) {
       h.interest_date || "",
       h.quantity === null || h.quantity === undefined ? "" : h.quantity,
       rupees(h.cost_paise),
-      priced ? rupees(h.value_paise) : "",
+      priced ? rupees(value) : "",
       rupees(h.payout_paise),
     ];
     lines.push(line.map(cell).join(","));

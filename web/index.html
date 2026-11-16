@@ -439,6 +439,26 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .bond-progress-empty{font-size:11px;color:var(--muted);margin-top:8px}
 .bond-sources{font-size:11px;color:var(--muted);margin-top:9px;padding-top:7px;
  border-top:1px solid var(--hair)}
+.bond-gap-line{margin-top:6px;font-size:13.5px;line-height:1.45;color:var(--ink)}
+.bond-matured-gap{margin-top:6px;font-size:12px;line-height:1.4;color:var(--muted)}
+.bond-gap-link{appearance:none;background:none;border:0;padding:0;margin-left:4px;
+ font:inherit;font-size:13.5px;font-weight:620;color:var(--green);
+ text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.bond-card[data-gap-treatment]{padding:8px;align-self:start}
+.bond-card[data-gap-treatment] .bond-card-head{gap:6px}
+.bond-card[data-gap-treatment] .bond-section{margin-top:4px;padding-top:0;border-top:0}
+/* A MARKET VALUE heading above the statement figure would name it as a
+   market value, which this screen forbids. The fact labels carry the group. */
+.bond-card[data-gap-treatment] .bond-section-title{display:none}
+.bond-card[data-gap-treatment] .bond-grid{gap:6px 12px}
+.bond-gap-banner{display:block;width:100%;margin-top:8px;padding:8px 12px;
+ border:1px solid var(--line);border-radius:10px;background:var(--hair);
+ font:inherit;font-size:13.5px;line-height:1.4;color:var(--ink);text-align:left;
+ appearance:none}
+button.bond-gap-banner{cursor:pointer}
+button.bond-gap-banner:hover{border-color:var(--green)}
+.bond-gap-banner > span:last-child{margin-left:4px;color:var(--green);font-weight:620}
+@media (pointer:coarse){.bond-gap-banner{min-height:44px}}
 .bond-card .bond-name{font-size:13px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
 .bond-card .sub{font-size:11px;color:var(--muted);margin-top:2px}
 .bond-card .sub.pos{color:var(--green)}
@@ -468,13 +488,16 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
   .bond-summary{display:flex;align-items:flex-start;gap:16px;position:sticky;top:56px;z-index:4;
     background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;
     margin-top:10px}
+  .bond-summary[data-scope="true"]{flex-wrap:wrap}
   .bond-summary .bs-fig{display:flex;align-items:baseline;gap:6px;min-width:0;white-space:nowrap}
+  .bond-summary .bs-scope{font-size:11px;color:var(--muted);white-space:nowrap;align-self:center}
   .bond-summary .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
   .bond-summary .v{font-size:12px;font-weight:620;font-variant-numeric:tabular-nums}
   .bond-summary .sortbar{margin-top:0;margin-left:auto;flex-wrap:nowrap}
   .bond-summary .sortbtn{padding:4px 6px;white-space:nowrap;flex:0 0 auto}
   .bond-sortbar{display:none}
 }
+.bond-summary[data-empty="true"]{position:static;border:0;background:none;padding:0;justify-content:flex-end}
 @container (max-width:560px){.bond-card-head{flex-wrap:wrap}
   .bond-card-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (max-width:520px){.bond-card-head{flex-wrap:wrap}.bond-card-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
@@ -501,6 +524,8 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .icon-btn:hover{background:var(--hair);color:var(--ink)}
 .mini-btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:4px 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
 .mini-btn:focus-visible,.vupdate:focus-visible,.sortbtn:focus-visible{
+ outline:2px solid var(--green);outline-offset:2px}
+.bond-gap-link:focus-visible,.bond-gap-banner:focus-visible{
  outline:2px solid var(--green);outline-offset:2px}
 a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .linkish{background:none;border:0;padding:0;font:inherit;font-size:11px;color:var(--green);text-decoration:underline;cursor:pointer}
@@ -1333,9 +1358,9 @@ import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { bondAnalytics, bondSummary, bondMaturity, splitMatured, parseBondLabel,
   bondLabelName, inferFace, bondFillPlan, bondRatingChange, termSourceRank,
-  bondWriteRow } from "./bonds.js";
-import { bondCardHtml, bondBookSummary, bondRowView, bondSortValue, bondRatingOf,
-  bondFrequency } from "./bond-book.js";
+  bondWriteRow, bondInputsMissing } from "./bonds.js";
+import { bondCardHtml, bondBookSummary, bondCoverageText, bondGapBannerHtml,
+  bondRowView, bondSortValue, bondRatingOf, bondFrequency } from "./bond-book.js";
 import { bondLabelText, bondHoldingPatch, bondKeptLine } from "./bond-holding.js";
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
@@ -1364,7 +1389,9 @@ import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, pla
   accountFieldState, mergeRowsFromPlan, planImportChains, movementGate, statementAccounts,
   movementAccountGap, importWarningDigest,
   planHasWork, planNetChange,
-  importAccountSummary, importAccountGaps, importPlanPrimary, IMPORT_REPORT_GUIDE,
+  importAccountSummary, importAccountGaps, bondGapBanner, bondImportOf,
+  importPlanPrimary,
+  IMPORT_REPORT_GUIDE,
   normalizeAccount, parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { offersPasswordRetry, passwordFailure, PDF_PASSWORD_WRONG }
@@ -12027,7 +12054,7 @@ window.bpBondFetchDismiss = () => {
     el.innerHTML = "";
   }
 };
-function holdingsCard(allRows, assetId) {
+function holdingsCard(allRows, assetId, account) {
   const { current: rows, matured, maturedValue } = splitMatured(allRows);
   const state = window.bpBondSortState || { key: "maturity", dir: 1 };
   const s = summarizeHoldings(rows);
@@ -12037,12 +12064,17 @@ function holdingsCard(allRows, assetId) {
   // "missing a face value" would invent work that does not exist.
   const bondRows = rows.filter((h) => String(h.category || "") === "bond"
     || /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase()));
-  const missingCost = bondRows.filter((h) => h.cost_paise === null || h.cost_paise === undefined).length;
+  const missingCost = bondRows.filter((h) => bondInputsMissing(h).noCost).length;
   const missingRating = bondRows.filter((h) => !bondRatingOf(h)).length;
   const missingName = bondRows.filter((h) => !String(h.issuer || "").trim()).length;
   const missingFace = bondRows.filter((h) => !(Number(h.face_paise) > 0)).length;
   const missingTerms = bondRows.filter((h) => !(Number(h.coupon_pct) > 0)
     || !String(h.maturity || "").trim()).length;
+  // The two gap lists share one origin: the account's stored provenance and the
+  // shared bond rule. The banner counts lots; the disclosure prints the account
+  // sentences first and then the per-bond face, name and rating rows.
+  const importGaps = importAccountGaps(account, rows, dateLabel);
+  const banner = bondGapBanner(account, rows);
   const views = rows.map(bondRowView).sort((a, b) => {
     const va = bondSortValue(a, state.key);
     const vb = bondSortValue(b, state.key);
@@ -12053,6 +12085,19 @@ function holdingsCard(allRows, assetId) {
   const maturedViews = matured.map(bondRowView)
     .sort((a, b) => String(b.maturity || "").localeCompare(String(a.maturity || "")))
     .map((v) => ({ ...v, matured: true }));
+  // The hold bar is a market-value slot. A CAS statement figure is not a
+  // market value, so only rows bondRowView() priced count here; the statement
+  // value stays on the card under its own name.
+  const marketViews = views.filter((v) => v.value !== null);
+  const marketValue = marketViews.length
+    ? marketViews.reduce((total, v) => total + Number(v.value), 0) : null;
+  const marketDates = [...new Set(marketViews
+    .map((v) => String(v.valueAsOf || "").slice(0, 10)).filter(Boolean))];
+  const valueAsOf = marketDates.length === 1 ? marketDates[0] : "";
+  const costedCount = views.filter((v) =>
+    v.cost !== null && v.cost !== undefined).length;
+  const costedScope = bondCoverageText(costedCount, views.length, "costed");
+  const pricedScope = bondCoverageText(marketViews.length, views.length, "priced");
   const summary = bondBookSummary(views.map((v) => ({ ...v, matured: false })));
   const sortBtn = (key, label) => `<button class="sortbtn ${state.key === key ? "on" : ""}"
     onclick="bpBondSort('${key}')">${label}${state.key === key
@@ -12062,30 +12107,47 @@ function holdingsCard(allRows, assetId) {
   // Below 1000 the sort sits above the cards; at desktop the summary bar owns it.
   const sortBar = `<div class="sortbar bond-sortbar"><span class="lbl">Sort</span>
     ${sortButtons}</div>`;
-  const summaryBar = summary ? `<div class="bond-summary" role="group"
-      aria-label="Bond book summary">
+  // Never three dashes. With no figure to show the bar keeps the sort controls
+  // but drops its chrome: an empty bordered box reads as broken. A bar with
+  // figures keeps its border, background and sticky position.
+  const summaryFigures = summary && [summary.totalIfHeld, summary.principalLeft,
+    summary.interestPct].some((value) => value !== null);
+  const summaryScope = summary
+    ? bondCoverageText(summary.costed, summary.count, "costed") : "";
+  const summaryBar = summary ? `<div class="bond-summary"${
+    summaryFigures ? "" : ` data-empty="true"`}${
+    summaryScope ? ` data-scope="true"` : ""} role="group"
+      aria-label="Bond book summary">${summaryFigures ? `
     <span class="bs-fig"><span class="k">Total if held</span><span class="v">${
       summary.totalIfHeld === null ? "—" : money(summary.totalIfHeld)}</span></span>
     <span class="bs-fig"><span class="k">Principal left</span><span class="v">${
       summary.principalLeft === null ? "—" : money(summary.principalLeft)}</span></span>
     <span class="bs-fig"><span class="k">Interest received</span><span class="v">${
-      summary.interestPct === null ? "—" : `${Math.round(summary.interestPct)}%`}</span></span>
+      summary.interestPct === null ? "—" : `${Math.round(summary.interestPct)}%`}</span></span>` : ""}${
+    summaryScope ? `<span class="bs-scope">${summaryScope}</span>` : ""}
     <div class="sortbar">${sortButtons}</div></div>` : "";
+  // An import account can receive a report; a cost-only record cannot. A
+  // demat uses the broker section of Import, a bond portfolio the generic page.
+  const importOf = bondImportOf(account, assetId);
+  const { importTarget, importVia } = importOf;
   const cards = views.map((v) => bondCardHtml(v, assetId, {
-    currency: currency(),
+    currency: currency(), importTarget, importVia,
   })).join("");
   const maturedCards = maturedViews.map((v) => bondCardHtml(v, assetId, {
-    matured: true, currency: currency(),
+    matured: true, currency: currency(), importTarget, importVia,
   })).join("");
   const maturedDivider = matured.length ? `<div class="bond-matured-divider">
     <span>Matured · awaiting payment</span>
     <span>${matured.length} lot${matured.length === 1 ? "" : "s"}${
       maturedValue ? ` · ${money(maturedValue)}` : ""}</span></div>` : "";
-  const valueDates = [...new Set(rows
-    .map((h) => String(h.as_of || "").slice(0, 10)).filter(Boolean))];
-  const valueAsOf = valueDates.length === 1 ? valueDates[0] : "";
+  const missingFaceMissing = bondRows.filter((h) =>
+    !(Number(h.face_paise) > 0) && bondInputsMissing(h).noCost).length;
+  const missingFaceInferred = missingFace - missingFaceMissing;
   const missingDetails = [
-    missingFace ? `${missingFace} face value${missingFace === 1 ? "" : "s"} inferred` : "",
+    missingFaceMissing
+      ? `${missingFaceMissing} face value${missingFaceMissing === 1 ? "" : "s"} missing` : "",
+    missingFaceInferred
+      ? `${missingFaceInferred} face value${missingFaceInferred === 1 ? "" : "s"} inferred` : "",
     missingName ? `${missingName} name${missingName === 1 ? "" : "s"} missing` : "",
     missingRating ? `${missingRating} rating${missingRating === 1 ? "" : "s"} missing` : "",
     missingTerms ? `${missingTerms} coupon or maturity not stored` : "",
@@ -12094,7 +12156,9 @@ function holdingsCard(allRows, assetId) {
   const needsCount = missingFace + missingName + missingRating + missingTerms;
   const needsRows = bondRows.map((h) => {
     const missing = [];
-    if (!(Number(h.face_paise) > 0)) missing.push("face value inferred");
+    if (!(Number(h.face_paise) > 0)) {
+      missing.push(bondInputsMissing(h).noCost ? "face value missing" : "face value inferred");
+    }
     if (!String(h.issuer || "").trim()) missing.push("issuer name");
     if (!bondRatingOf(h)) missing.push("rating");
     if (!(Number(h.coupon_pct) > 0) || !String(h.maturity || "").trim()) {
@@ -12102,7 +12166,7 @@ function holdingsCard(allRows, assetId) {
     }
     return missing.length ? { h, missing } : null;
   }).filter(Boolean);
-  const costNote = missingCost
+  const costNote = missingCost && !banner
     ? `${missingCost} invested amount${missingCost === 1 ? "" : "s"} missing — edit the lot`
       + " to add it."
     : "";
@@ -12111,26 +12175,33 @@ function holdingsCard(allRows, assetId) {
   const fetchState = window.bpBondFetchStatus?.id === assetId
     ? window.bpBondFetchStatus : null;
   const fetching = !!fetchState && !fetchState.done && !fetchState.bad;
+  // Two unknown figures are not a status line. When both are null only the
+  // count (and the fetch line) speaks; a known half keeps both spans.
+  const showHoldFigures = s.cost !== null || marketValue !== null;
+  const figuresLine = `<span class="sep">·</span><span>invested ${moneyOrDash(s.cost)}</span>${
+    costedScope ? `<span class="sep">·</span><span>${costedScope}</span>` : ""}
+    <span class="sep">·</span><span>market value ${moneyOrDash(marketValue)}${
+      valueAsOf ? ` as of ${dateLabel(valueAsOf)}` : ""}</span>${
+    pricedScope ? `<span class="sep">·</span><span>${pricedScope}</span>` : ""}`;
+  const missingLine = `<span class="sep">·</span>
+    <span>${missingDetails.join(" · ")}</span>
+    ${fetching ? `<span>Fetching now…</span>`
+      : assetId ? `<button class="actlink" id="bond-fetch-link"
+        title="Get each bond's name, rating, coupon, maturity, face value and BSE price from SMEST and BSE"
+        onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online to fill ${
+          needsCount === 1 ? "it" : "them"} →</button>` : ""}`;
   const statusLine = bondBook
     ? `<div class="hold-bar">
         <span><b>${s.count} holding${s.count === 1 ? "" : "s"}</b></span>
-        ${needsFetch ? `<span class="sep">·</span>
-          <span>${missingDetails.join(" · ")}</span>
-          ${fetching ? `<span>Fetching now…</span>`
-            : assetId ? `<button class="actlink" id="bond-fetch-link"
-              title="Get each bond's name, rating, coupon, maturity, face value and BSE price from SMEST and BSE"
-              onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online to fill ${
-                needsCount === 1 ? "it" : "them"} →</button>` : ""}`
-        : `<span class="sep">·</span><span>invested ${moneyOrDash(s.cost)}</span>
-          <span class="sep">·</span><span>market value ${moneyOrDash(s.value)}${
-            valueAsOf ? ` as of ${dateLabel(valueAsOf)}` : ""}</span>`}
+        ${needsFetch ? missingLine : showHoldFigures ? figuresLine : ""}
         ${costNote ? `<span class="sep">·</span><span>${costNote}</span>`
-          : needsFetch ? "" : `<span class="sep">·</span><span class="done">✓ details complete</span>`}
+          : needsFetch || importGaps.gaps.length ? ""
+            : `<span class="sep">·</span><span class="done">✓ details complete</span>`}
       </div>`
     : `<div class="hold-bar"><b>${s.count} holding${s.count === 1 ? "" : "s"}</b>
-        <span class="sep">·</span><span>invested ${moneyOrDash(s.cost)}</span>
-        <span class="sep">·</span><span>market value ${moneyOrDash(s.value)}${
-          valueAsOf ? ` as of ${dateLabel(valueAsOf)}` : ""}</span></div>`;
+        ${needsFetch ? missingLine : showHoldFigures ? figuresLine : ""}</div>`;
+  // The banner row is the one primary action while it exists: it is a button,
+  // not a .btn.primary, and Fetch online already drops its fill above.
   return `<div class="card pad" style="margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0">Holdings</h2>
@@ -12138,7 +12209,7 @@ function holdingsCard(allRows, assetId) {
         ${assetId ? `<button class="btn" onclick="bpBondHoldingNew(${jsArg(assetId)})">Add holding</button>
         <button class="btn" title="Type a value yourself. Use this when the online lookup has no price for a bond."
           onclick="bpHoldingsEdit(${jsArg(assetId)})">Enter value</button>
-        <button class="btn ${needsFetch ? "primary" : ""}" id="bond-fetch-btn"
+        <button class="btn ${needsFetch && !banner ? "primary" : ""}" id="bond-fetch-btn"
           title="Get each bond's latest name, rating, coupon, maturity, face value and BSE price from SMEST. Nothing a report or you supplied is replaced."
           onclick="bpBondFetchAll(${jsArg(assetId)})">Fetch online</button>
         <details class="more-menu" style="margin-left:0">
@@ -12150,13 +12221,16 @@ function holdingsCard(allRows, assetId) {
         </details>` : ""}
       </div></div>
     ${statusLine}
-    ${needsFetch ? `<details class="needs-details">
+    ${needsFetch || importGaps.gaps.length ? `<details class="needs-details">
       <summary>Which bonds need details?</summary>
-      <div class="needs-list">${needsRows.map(({ h, missing }) =>
+      <div class="needs-list">${importGaps.gaps.map((gap) =>
+        `<div class="import-account-gap${importGaps.manual ? " optional" : ""}">${
+          esc(gap.text)}</div>`).join("")}${needsRows.map(({ h, missing }) =>
         `<div><b>${esc(h.label || h.security_id || "Bond")}</b>${
           h.security_id ? ` · ${esc(h.security_id)}` : ""} — ${missing.join(", ")}</div>`)
         .join("")}</div>
     </details>` : ""}
+    ${banner ? bondGapBannerHtml(banner, importTarget, importVia) : ""}
     <div id="bond-fetch-panel" role="status" aria-live="polite"
       class="fetch-panel${fetchState?.done ? " done" : fetchState?.bad ? " bad" : ""}"
       style="${fetchState ? "" : "display:none"}">${
@@ -12319,7 +12393,7 @@ function holdingsBlock(rows, assetId) {
     const kind = visible[0]?.[0] || "bond";
     const shown = visible[0]?.[1] || list;
     return `${tabs}${kind === "bond"
-      ? `<div id="bond-holdings">${holdingsCard(shown, assetId)}</div>`
+      ? `<div id="bond-holdings">${holdingsCard(shown, assetId, asset)}</div>`
       : holdingCards(shown, kind, { assetId })}${soldHtml}`;
   }
   const total = (list) => list.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
@@ -12327,7 +12401,7 @@ function holdingsBlock(rows, assetId) {
       justify-content:space-between;align-items:baseline;margin:16px 0 8px">
       <h2 style="margin:0;font-size:15px">${labels[kind]}</h2>
       <span class="muted" style="font-size:12px">${money(total(list))}</span></div>
-    ${kind === "bond" ? `<div id="bond-holdings">${holdingsCard(list, assetId)}</div>`
+    ${kind === "bond" ? `<div id="bond-holdings">${holdingsCard(list, assetId, asset)}</div>`
       : holdingCards(list, kind, { header: false, assetId })}`).join("");
   return `${tabs}${html}${soldHtml}`;
 }
@@ -12337,7 +12411,8 @@ window.bpBondSort = (key) => {
   window.bpBondSortState = { key, dir: cur.key === key ? -cur.dir : (text ? 1 : -1) };
   const host = document.getElementById("bond-holdings");
   if (host && window.bpBondRows) {
-    host.innerHTML = holdingsCard(window.bpBondRows, window.bpBondAsset);
+    const account = (window.bpAssetsForFocus || []).find((a) => a.id === window.bpBondAsset);
+    host.innerHTML = holdingsCard(window.bpBondRows, window.bpBondAsset, account);
   }
 };
 // One press for the whole portfolio: SMEST gives each lot the rating, payment
@@ -13579,7 +13654,7 @@ function renderHoldingEdit() {
     const bondTable = rows.some((h) => bondAnalytics(h));
     const body = rows.map((h) => {
       const ba = bondAnalytics(h);
-      const price = ba && ba.hasMarket ? ba.marketPrice : null;
+      const price = bondRowView(h).marketPrice;
       const input = bondTable
         ? (ba ? `<input id="hv-${h.id}" value="${price === null ? "" : price.toFixed(2)}"
             data-price="${price === null ? "" : price.toFixed(2)}"

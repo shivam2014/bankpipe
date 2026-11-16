@@ -4,7 +4,7 @@ import { parseBondLabel, bondMaturity, splitMatured, inferFace, bondAnalytics,
   storedCoupon, termSourceKind, termSourceRank, bondWriteRow,
   bondLabelName, bondSummary, accruedInterest, BOND_RATINGS, bondRatingRank, bondFillPlan,
   bondGrade, bondRatingChange, carryBrokerFields, soldGain, bondHomeOf,
-  isLiveBondRow } from "./bonds.js";
+  bondInputsMissing, valueKindOf, isLiveBondRow } from "./bonds.js";
 
 test("parses the coupon and maturity from a bond label", () => {
   const p = parseBondLabel("10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026");
@@ -520,6 +520,35 @@ test("summarizes a portfolio of bond lots", () => {
   assert.ok(s.totalGain > s.couponIncome - 500000);
 });
 
+test("a portfolio's market subset follows the value source", () => {
+  const base = { label: "10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026",
+    quantity: 1, cost_paise: 9982008, value_paise: 11000000,
+    purchase_date: "2024-02-15" };
+  const summary = bondSummary([
+    { ...base, value_source: "CAS" },
+    { ...base, value_source: "BSE" },
+  ]);
+  assert.equal(summary.marketCount, 1);
+  assert.equal(summary.marketValue, 11000000,
+    "the CAS statement figure is not a market value");
+});
+
+test("a portfolio with only a CAS value has no market total", () => {
+  const summary = bondSummary([{
+    label: "10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026",
+    quantity: 1, cost_paise: 9982008, value_paise: 11000000,
+    value_source: "CAS", purchase_date: "2024-02-15",
+  }]);
+  assert.equal(summary.marketCount, 0);
+  assert.equal(summary.marketValue, null);
+});
+
+test("a blank stored coupon is absent, not zero", () => {
+  const a = bondAnalytics({ label: "TEST BOND 15 May 2030", quantity: 1,
+    cost_paise: 100000, face_paise: 100000, couponPct: "" });
+  assert.equal(a, null);
+});
+
 test("a rating sorts by its grade, with or without the agency", () => {
   assert.equal(bondRatingRank("AAA"), 0);
   assert.equal(bondRatingRank("CRISIL A / Stable"), BOND_RATINGS.indexOf("A"));
@@ -687,4 +716,57 @@ test("a disposed row is not a live bond", () => {
   assert.equal(isLiveBondRow({ category: "bond", quantity: 0 }), true);
   assert.equal(isLiveBondRow({ category: "bond", disposed_at: "2026-08-12" }), false);
   assert.equal(isLiveBondRow({ category: "equity" }), false);
+});
+
+test("a bare CAS bond is missing both cost and terms", () => {
+  const bare = { security_id: "INE000000124", label: "TEST BARE BOND",
+    category: "bond", quantity: 100, value_paise: 2500000, value_source: "CAS" };
+  assert.deepEqual(bondInputsMissing(bare), { noCost: true, noTerms: true });
+  assert.deepEqual(bondInputsMissing({ ...bare, cost_paise: "" }),
+    { noCost: true, noTerms: true }, "an empty cost is not a cost");
+});
+
+test("one term is not enough: bondAnalytics needs a coupon and a maturity", () => {
+  // A coupon without a date, or a date without a coupon, cannot be estimated
+  // and the card cannot compute its anchor. It is still a terms gap.
+  const base = { category: "bond", quantity: 1, cost_paise: 100 };
+  assert.deepEqual(bondInputsMissing({ ...base, coupon_pct: 8 }),
+    { noCost: false, noTerms: true });
+  assert.deepEqual(bondInputsMissing({ ...base, label: "8.25% TEST BOND" }),
+    { noCost: false, noTerms: true });
+  assert.deepEqual(bondInputsMissing({ ...base, maturity: "2030-05-15" }),
+    { noCost: false, noTerms: true });
+  assert.deepEqual(bondInputsMissing({ ...base, label: "TEST BOND 15 May 2030" }),
+    { noCost: false, noTerms: true });
+});
+
+test("a stored value is classified by its source, not by arithmetic", () => {
+  assert.equal(valueKindOf({ value_source: "BSE" }), "market");
+  assert.equal(valueKindOf({ value_source: "bse" }), "market");
+  assert.equal(valueKindOf({ value_source: "Manual" }), "market");
+  assert.equal(valueKindOf({ value_source: "manual" }), "market");
+  assert.equal(valueKindOf({ value_source: "CAS" }), "statement");
+  assert.equal(valueKindOf({ value_source: "Motilal" }), "statement");
+  assert.equal(valueKindOf({ value_source: "SMEST" }), "statement");
+  assert.equal(valueKindOf({ value_source: "" }), "market",
+    "an empty source is the legacy market value");
+  assert.equal(valueKindOf({ valueSource: "CAS" }), "statement",
+    "the camel alias is read too");
+});
+
+test("a purchase yield alone is not a coupon", () => {
+  // The card prints a coupon, never a yield. A yield from a broker report is
+  // not the terms the card is missing.
+  const row = { category: "bond", label: "TEST BOND", quantity: 1,
+    cost_paise: 100, yield_bps: 900 };
+  assert.deepEqual(bondInputsMissing(row), { noCost: false, noTerms: true });
+  assert.equal(bondAnalytics(row), null, "a yield does not make analytics");
+});
+
+test("terms are a bond idea, not an equity one", () => {
+  assert.deepEqual(bondInputsMissing({ category: "equity", label: "TEST EQUITY",
+    quantity: 1 }), { noCost: true, noTerms: false });
+  assert.deepEqual(bondInputsMissing({ kind: "bond", label: "TEST BOND",
+    quantity: 1 }), { noCost: true, noTerms: false },
+  "the shared rule reads category, the field the card reads");
 });

@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as book from "./bond-book.js";
+import { splitMatured } from "./bonds.js";
 import {
-  BOND_SECTIONS, bondFacts, bondRowView, bondCardHtml, bondBookSummary,
-  moneyText, bondDateLabel,
+  BOND_SECTIONS, BOND_GAP_COPY, bondFacts, bondRowView, bondCardHtml,
+  bondBookSummary, bondCardGap, bondCoverageText, bondGapBannerHtml, moneyText,
+  bondDateLabel,
 } from "./bond-book.js";
 
 // A fully specified live lot: coupon, maturity, a BSE mark, a part repayment
@@ -297,7 +299,9 @@ test("the name's terms make Total if held and Next interest compute", () => {
   const facts = bondFacts(view);
   const total = facts.find((fact) => fact.key === "total-if-held");
   const next = facts.find((fact) => fact.key === "next-interest");
-  const gain = facts.find((fact) => fact.key === "gain-if-sold");
+  // The CAS value is a statement figure now, so a gain needs a market source.
+  const gain = bondFacts(bondRowView({ ...dashedRow, value_source: "BSE" }))
+    .find((fact) => fact.key === "gain-if-sold");
   assert.notEqual(total.value, "—");
   assert.match(total.sub, /gain/);
   assert.notEqual(next.value, "—");
@@ -392,7 +396,8 @@ test("a matured lot leads with Value in net worth and carries no future facts", 
   assert.match(card, /<span class="bond-matured-badge">Matured · awaiting payment<\/span>/);
   assert.match(card, /<div class="bond-fact bond-fact-anchor" data-fact="value-in-net-worth" data-section="Returns">/);
   assert.match(card, /<span class="k">Value in net worth<\/span>/);
-  assert.match(card, /<span class="sub ">stays in net worth until a bank credit is matched<\/span>/);
+  assert.match(card,
+    /<span class="sub ">stays in net worth until a bank credit is matched · from BSE<\/span>/);
   assert.doesNotMatch(card, /Total if held/);
   assert.doesNotMatch(card, /data-fact="interest-progress"/);
   assert.doesNotMatch(card, /class="bond-progress"/);
@@ -412,6 +417,34 @@ test("a manual lot names manual as its source", () => {
     /data-fact="sources"[^>]*>Terms entered by hand/);
 });
 
+test("a report source says report, not broker report or CAS", () => {
+  const card = bondCardHtml(bondRowView(row), "acct-1");
+  const foot = card.match(/data-fact="sources"[^>]*>([^<]*)</)?.[1] || "";
+  assert.match(foot, /^report/);
+  assert.match(foot, /bank/);
+  assert.doesNotMatch(foot, /broker report|CAS|SMEST/);
+});
+
+test("an unknown returned source says source not recorded", () => {
+  const card = bondCardHtml(bondRowView({ ...row, returned_source: "" }),
+    "acct-1");
+  const foot = card.match(/data-fact="sources"[^>]*>([^<]*)</)?.[1] || "";
+  assert.match(foot, /report · source not recorded/);
+  assert.doesNotMatch(foot, /SMEST/);
+  const smest = bondCardHtml(bondRowView({ ...row, returned_source: "smest" }),
+    "acct-1");
+  assert.match(smest.match(/data-fact="sources"[^>]*>([^<]*)</)?.[1] || "",
+    /report · SMEST/);
+});
+
+test("a matured foot has no invented rating source", () => {
+  const card = bondCardHtml({ ...bondRowView({ ...maturedRow, source: "report" }),
+    matured: true }, "acct-1", { matured: true });
+  const foot = card.match(/data-fact="sources"[^>]*>([^<]*)</)?.[1] || "";
+  assert.match(foot, /Terms from the report/);
+  assert.doesNotMatch(foot, /rating from SMEST/);
+});
+
 test("bondBookSummary adds the live book and weights interest by coupon", () => {
   const summary = bondBookSummary([
     { matured: false, ba: { lifetimeTotal: 100000 }, principalLeft: 40000,
@@ -423,6 +456,7 @@ test("bondBookSummary adds the live book and weights interest by coupon", () => 
   ]);
   assert.deepEqual(summary, {
     count: 2, totalIfHeld: 150000, principalLeft: 50000, interestPct: 20,
+    costed: 0, priced: 0,
   });
   assert.equal(bondBookSummary([]), null);
   assert.equal(bondBookSummary([{ matured: true, ba: { lifetimeTotal: 1 } }]), null);
@@ -437,6 +471,15 @@ test("bondBookSummary reads the same total the card anchor shows", () => {
   assert.equal(moneyText(summary.totalIfHeld), anchor.value);
   assert.equal(summary.principalLeft, 72000000);
   assert.ok(summary.interestPct > 0 && summary.interestPct <= 100);
+  assert.equal(summary.costed, 1);
+  assert.equal(summary.priced, 1);
+});
+
+test("coverage text appears only when the book is partly covered", () => {
+  assert.equal(bondCoverageText(1, 17, "costed"), "1 of 17 costed");
+  assert.equal(bondCoverageText(0, 16, "priced"), "0 of 16 priced");
+  assert.equal(bondCoverageText(17, 17, "costed"), "");
+  assert.equal(bondCoverageText(3, 3, "priced"), "");
 });
 
 test("the module no longer exports the ledger", () => {
@@ -484,4 +527,412 @@ test("money keeps Indian grouping and two paise digits", () => {
 test("dates keep the day, short month and year", () => {
   assert.equal(bondDateLabel("2030-02-10"), "10 Feb 2030");
   assert.equal(bondDateLabel(""), "");
+});
+
+// --- a card whose facts are missing -----------------------------------------
+// A demat that imported only a CAS has names, ISINs, units and statement
+// values, no cost and no terms. The card names the report that fills it
+// instead of printing one dash per field.
+
+const bare = {
+  id: "bare-1", category: "bond", label: "TEST BARE BOND",
+  security_id: "INE000000124", quantity: 100, face_paise: 100000,
+  value_paise: 2500000, value_source: "CAS", as_of: "2026-10-31",
+};
+const noStatement = { ...bare, id: "bare-2", value_paise: null, face_paise: null };
+const costLine = {
+  id: "cost-line-1", category: "bond", label: "7.15% TEST TERMS 15 May 2030",
+  security_id: "INE000000125", quantity: 50, face_paise: null, cost_paise: null,
+};
+const termsOnly = {
+  id: "terms-line-1", category: "bond", label: "TEST TERMS MISSING",
+  security_id: "INE000000126", quantity: 50, face_paise: 100000,
+  cost_paise: 5000000, value_paise: 5100000, value_source: "BSE",
+  as_of: "2026-10-31", rating: "AA",
+};
+
+test("a bare card names the broker report and keeps only its present facts", () => {
+  const view = bondRowView(bare);
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(card,
+    /No cost, terms or market value yet\. A broker holdings report fills these\. <button type="button" class="bond-gap-link"/);
+  assert.match(card, /onclick="bpEquityImport\(&quot;acct-1&quot;\)">Import<\/button>/);
+  assert.deepEqual(factKeys(card), ["statement-value", "market-value", "units",
+    "face-at-issue", "sources"]);
+  for (const key of ["total-if-held", "invested", "coupon", "maturity", "per-unit",
+    "current-yield", "gain-if-sold", "interest-progress"]) {
+    assert.equal(factKeys(card).includes(key), false, `${key} is not a bare-card fact`);
+  }
+  assert.equal((card.match(/—/g) || []).length, 1,
+    "only the one empty Market value remains");
+});
+
+test("the bare card keeps the statement's figure in its own name", () => {
+  const card = bondCardHtml(bondRowView(bare), "acct-1");
+  assert.match(card,
+    /data-fact="statement-value"[^>]*><span class="k">Statement value<\/span><span class="v ">₹ 25,000\.00<span class="sub ">as on 31 Oct 2026, from the CAS<\/span>/);
+  assert.match(card,
+    /data-fact="face-at-issue"[^>]*><span class="k">Face value<\/span><span class="v ">₹ 1,00,000\.00<\/span>/);
+  assert.doesNotMatch(card,
+    /data-fact="face-at-issue"[\s\S]*?face-at-issue[\s\S]*?as on 31 Oct 2026/,
+    "the face does not borrow the value's date or source");
+  assert.match(card,
+    /data-fact="market-value"[\s\S]*?<span class="v ">—<span class="sub ">not recorded · <button class="vupdate"/);
+  assert.equal((card.match(/Enter it/g) || []).length, 1);
+});
+
+test("an explicit repayment survives a card with no analytics", () => {
+  const view = bondRowView({ ...bare, returned_paise: 500000,
+    returned_at: "2026-04-10", returned_source: "bank" });
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(card,
+    /data-fact="principal-returned"[^>]*><span class="k">Principal returned<\/span><span class="v ">₹ 5,000\.00<span class="sub ">on 10 Apr 2026<\/span>/);
+});
+
+test("a BSE figure is a market value, never a statement", () => {
+  const card = bondCardHtml(bondRowView({ ...bare, value_source: "BSE" }), "acct-1");
+  assert.match(card, /data-fact="market-value"[\s\S]*?from BSE/);
+  assert.equal(factKeys(card).includes("statement-value"), false);
+});
+
+test("a bare card with no statement value invents no figure", () => {
+  const card = bondCardHtml(bondRowView(noStatement), "");
+  assert.doesNotMatch(card, /₹/);
+  assert.doesNotMatch(card, /—/);
+  assert.deepEqual(factKeys(card), ["units", "sources"]);
+  assert.match(card, /No cost, terms or market value yet\./);
+});
+
+test("an empty statement value is not a zero", () => {
+  for (const value of ["", 0]) {
+    const card = bondCardHtml(bondRowView({ ...noStatement, value_paise: value }), "");
+    assert.equal(factKeys(card).includes("statement-value"), false,
+      `value ${JSON.stringify(value)} is not a statement figure`);
+    assert.doesNotMatch(card, /₹/);
+  }
+});
+
+test("a BSE value without cost keeps the market facts and the second sentence", () => {
+  const view = bondRowView({ ...bare, id: "bse-bare-1", value_source: "BSE" });
+  assert.equal(view.value, 2500000);
+  assert.equal(view.statementValue, null);
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(card,
+    /No cost or terms yet\. A broker holdings report fills these\./);
+  assert.deepEqual(factKeys(card),
+    ["market-value", "per-unit", "units", "face-at-issue", "sources"]);
+  assert.equal(factKeys(card).includes("statement-value"), false);
+  assert.match(card, /data-fact="market-value"[\s\S]*?from BSE/);
+});
+
+test("a named statement source keeps its name", () => {
+  const card = bondCardHtml(bondRowView({ ...bare, value_source: "Motilal" }),
+    "acct-1");
+  assert.match(card, /data-fact="statement-value"[\s\S]*?from Motilal/);
+  assert.doesNotMatch(card, /data-fact="statement-value"[\s\S]*?from the CAS/);
+});
+
+test("a manual value says entered by hand", () => {
+  const card = bondCardHtml(bondRowView({ ...bare, value_source: "Manual" }), "");
+  assert.match(card, /data-fact="market-value"[\s\S]*?entered by hand/);
+  assert.doesNotMatch(card, /data-fact="market-value"[\s\S]*?from the CAS/);
+});
+
+test("an empty source says source not recorded, never CAS", () => {
+  const view = bondRowView({ ...bare, value_source: "" });
+  assert.equal(view.value, 2500000, "the legacy empty source stays a market value");
+  assert.equal(view.statementValue, null);
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(card, /data-fact="market-value"[\s\S]*?source not recorded/);
+  assert.doesNotMatch(card, /data-fact="market-value"[\s\S]*?from the CAS/);
+  assert.equal(factKeys(card).includes("statement-value"), false);
+});
+
+test("the gap sentences are one frozen object", () => {
+  assert.equal(Object.isFrozen(BOND_GAP_COPY), true);
+  assert.deepEqual(BOND_GAP_COPY, {
+    costTermsMarket: "No cost, terms or market value yet. A broker holdings report fills these.",
+    costTerms: "No cost or terms yet. A broker holdings report fills these.",
+    cost: "Cost not known yet",
+    terms: "Coupon or maturity not known yet",
+  });
+});
+
+test("a cost record gets no dead instruction", () => {
+  const card = bondCardHtml(bondRowView(bare), "bonds-1", { importTarget: "" });
+  assert.match(card, /No cost, terms or market value yet\.<\/div>/);
+  assert.doesNotMatch(card, /A broker holdings report fills these/);
+  assert.doesNotMatch(card, /bond-gap-link/);
+  assert.match(card, /data-bond-action="enter-value"/,
+    "the card can still take a value of its own");
+  const market = bondCardHtml(bondRowView({ ...bare, value_source: "BSE" }),
+    "bonds-1", { importTarget: "" });
+  assert.match(market, /No cost or terms yet\.<\/div>/);
+  assert.doesNotMatch(market, /A broker holdings report fills these/);
+});
+
+test("a bonds portfolio imports through the generic page", () => {
+  const card = bondCardHtml(bondRowView(bare), "bonds-1", { importVia: "page" });
+  assert.match(card, /onclick="go\('import'\)">Import<\/button>/);
+  assert.doesNotMatch(card, /bpEquityImport/);
+  const banner = bondGapBannerHtml({ text: "1 bond needs cost and terms" },
+    "bonds-1", "page");
+  assert.match(banner, /onclick="go\('import'\)"/);
+  assert.doesNotMatch(banner, /bpEquityImport/);
+});
+
+test("a demat imports through the broker section", () => {
+  const card = bondCardHtml(bondRowView(bare), "demat-1");
+  assert.match(card, /onclick="bpEquityImport\(&quot;demat-1&quot;\)"/);
+});
+
+test("a blank cost is absent, not zero", () => {
+  const view = bondRowView({ ...row, cost_paise: "", value_paise: 2500000,
+    value_source: "BSE" });
+  assert.equal(view.cost, null);
+  assert.equal(view.gain, null);
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(card, /Cost not known yet/);
+  assert.doesNotMatch(card, /₹ 0\.00/);
+  assert.doesNotMatch(card, /data-fact="gain-if-sold"/);
+  assert.match(sectionOf(card, "Market value"), /data-fact="market-value"/);
+});
+
+test("the card treatment follows the missing inputs, matured wins", () => {
+  assert.deepEqual(bondCardGap(bondRowView(bare)),
+    { noCost: true, noTerms: true, noMarket: true, treatment: "one-line" });
+  assert.deepEqual(bondCardGap(bondRowView(costLine)),
+    { noCost: true, noTerms: false, noMarket: true, treatment: "cost-line" });
+  assert.deepEqual(bondCardGap(bondRowView(termsOnly)),
+    { noCost: false, noTerms: true, noMarket: false, treatment: "terms-line" });
+  const priced = bondRowView({ ...row, value_paise: null, as_of: null });
+  assert.deepEqual(bondCardGap(priced),
+    { noCost: false, noTerms: false, noMarket: true, treatment: "full" });
+  const maturedBare = { ...bondRowView(bare), matured: true };
+  assert.equal(bondCardGap(maturedBare).treatment, "full",
+    "a matured lot is awaiting payment, not work");
+});
+
+test("a cost line keeps the terms and asks only for the cost", () => {
+  const view = bondRowView(costLine);
+  const card = bondCardHtml(view, "");
+  assert.match(card, /Cost not known yet/);
+  assert.doesNotMatch(card, /No cost, terms or market value yet/);
+  assert.doesNotMatch(card, /class="bond-gap-link"/, "no account, no link");
+  assert.deepEqual(factKeys(card), ["units", "coupon", "maturity", "sources"]);
+  for (const key of ["total-if-held", "invested", "market-value", "gain-if-sold",
+    "principal-returned", "interest-progress"]) {
+    assert.equal(factKeys(card).includes(key), false, `${key} is not a cost-line fact`);
+  }
+});
+
+test("a terms line keeps the cost and market facts and names the gap", () => {
+  const view = bondRowView(termsOnly);
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(card, /Coupon or maturity not known yet/);
+  assert.match(card, /Coupon or maturity not known yet[\s\S]*?class="bond-gap-link"/);
+  assert.deepEqual(factKeys(card), ["gain-if-sold", "market-value", "per-unit",
+    "current-rating", "invested", "units", "face-at-issue", "sources"]);
+  for (const key of ["total-if-held", "principal-left", "next-interest",
+    "interest-progress", "coupon", "maturity", "purchase-yield"]) {
+    assert.equal(factKeys(card).includes(key), false, `${key} is not a terms-line fact`);
+  }
+  assert.equal((card.match(/bond-gap-line/g) || []).length, 1,
+    "one gap line, not two");
+});
+
+test("a terms line with no market value keeps Enter it", () => {
+  const view = bondRowView({ ...termsOnly, value_paise: null });
+  const card = bondCardHtml(view, "acct-1");
+  assert.equal(factKeys(card).filter((key) => key === "market-value").length, 1);
+  assert.equal((card.match(/Enter it/g) || []).length, 1);
+});
+
+test("a coupon-only bond gets the terms line and keeps its coupon", () => {
+  const view = bondRowView({ ...termsOnly, id: "coupon-only",
+    label: "TEST COUPON ONLY", couponPct: 8 });
+  assert.equal(bondCardGap(view).treatment, "terms-line");
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(card, /Coupon or maturity not known yet/);
+  assert.equal(factKeys(card).includes("coupon"), true);
+  assert.equal(factKeys(card).includes("maturity"), false);
+  assert.equal(factKeys(card).includes("total-if-held"), false,
+    "no anchor from a half-term bond");
+});
+
+test("a maturity-only bond gets the terms line and keeps its maturity", () => {
+  const view = bondRowView({ ...termsOnly, id: "maturity-only",
+    label: "TEST MATURITY ONLY 15 May 2031", couponPct: null });
+  assert.equal(bondCardGap(view).treatment, "terms-line");
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(card, /Coupon or maturity not known yet/);
+  assert.equal(factKeys(card).includes("maturity"), true);
+  assert.equal(factKeys(card).includes("coupon"), false);
+  assert.equal(factKeys(card).includes("total-if-held"), false,
+    "no anchor from a half-term bond");
+});
+
+test("the banner is one clickable sentence with a trailing arrow", () => {
+  const text = "16 bonds need cost and terms — import a broker report";
+  const button = bondGapBannerHtml({ text }, "acct-1");
+  assert.match(button,
+    /^<button type="button" class="bond-gap-banner" data-bond-gap-banner onclick="bpEquityImport\(&quot;acct-1&quot;\)">/);
+  assert.match(button,
+    /<span>16 bonds need cost and terms — import a broker report<\/span><span aria-hidden="true">→<\/span><\/button>$/);
+  assert.doesNotMatch(button, /class="btn/);
+  assert.doesNotMatch(button, /Import broker report/);
+  const plain = bondGapBannerHtml({ text }, "");
+  assert.match(plain, /^<div class="bond-gap-banner" data-bond-gap-banner>/);
+  assert.doesNotMatch(plain, /onclick|bpEquityImport/);
+  assert.match(plain, /→<\/span><\/div>$/);
+});
+
+test("a stored coupon survives a name that only carries the date", () => {
+  const view = bondRowView({ ...costLine, label: "TEST TERMS 15 May 2030",
+    couponPct: 8 });
+  assert.equal(view.coupon, 8);
+  assert.equal(bondCardGap(view).treatment, "cost-line");
+  assert.match(bondCardHtml(view, ""), /data-fact="coupon"[\s\S]*?8%/);
+});
+
+test("a cost line with an account keeps the Enter it action", () => {
+  const card = bondCardHtml(bondRowView(costLine), "acct-1");
+  assert.equal(factKeys(card).filter((key) => key === "market-value").length, 1);
+  assert.equal((card.match(/Enter it/g) || []).length, 1);
+});
+
+test("a market-only card keeps every fact, one Enter it and no gap line", () => {
+  const view = { ...bondRowView({ ...row, value_paise: null, as_of: null }),
+    matured: false };
+  const card = bondCardHtml(view, "acct-1");
+  assert.deepEqual(factKeys(card), LIVE_KEYS);
+  assert.doesNotMatch(card, /bond-gap-line/);
+  assert.equal((card.match(/Enter it/g) || []).length, 1);
+});
+
+test("a CAS value with a broker cost stays a statement figure", () => {
+  const view = { ...bondRowView({ ...row, value_source: "CAS",
+    value_paise: 2500000, cost_paise: 2000000, as_of: "2026-10-31" }),
+  matured: false };
+  assert.equal(view.value, null, "the CAS figure is not a market value");
+  assert.equal(view.statementValue, 2500000);
+  assert.equal(view.gain, null, "no gain from a statement figure");
+  assert.equal(view.marketPerUnit, null);
+  assert.equal(view.currentYield, null);
+  const card = bondCardHtml(view, "acct-1");
+  const keys = factKeys(card);
+  assert.equal(keys.includes("statement-value"), true);
+  assert.equal(keys.indexOf("statement-value") + 1, keys.indexOf("market-value"),
+    "the statement figure sits before the empty market value");
+  assert.doesNotMatch(sectionTitles(card).join("|"), /Market value/,
+    "a statement figure gets no MARKET VALUE heading");
+  assert.match(sectionOf(card, "Market value"),
+    /data-fact="statement-value"[\s\S]*?from the CAS/);
+  assert.match(card, /data-fact="market-value"[\s\S]*?not recorded/);
+  for (const key of ["gain-if-sold", "current-yield", "per-unit"]) {
+    assert.match(sectionOf(card, "Market value") + sectionOf(card, "Returns"),
+      new RegExp(`data-fact="${key}"[^>]*>[\\s\\S]*?<span class="v ">—<span class="sub ">needs a market value`),
+      `${key} is empty, not derived from the statement figure`);
+  }
+});
+
+test("a matured CAS anchor is the book's value, not the cost", () => {
+  for (const cost of [2000000, null]) {
+    const split = splitMatured([{ ...maturedRow, value_source: "CAS",
+      value_paise: 2500000, cost_paise: cost }], "2026-11-16");
+    assert.equal(split.maturedValue, 2500000,
+      "the book counts the statement value");
+    const view = { ...bondRowView(split.matured[0]), matured: true };
+    assert.equal(view.value, null);
+    assert.equal(view.statementValue, 2500000);
+    const card = bondCardHtml(view, "acct-1", { matured: true });
+    assert.match(sectionOf(card, "Returns"),
+      /<span class="k">Value in net worth<\/span><span class="v ">₹ 25,000\.00<span class="sub ">stays in net worth until a bank credit is matched · from the CAS<\/span>/);
+    assert.equal(factKeys(card).includes("statement-value"), false);
+    assert.deepEqual(factKeys(card), MATURED_KEYS);
+  }
+});
+
+test("a matured lot with no value names cost in the anchor", () => {
+  const split = splitMatured([{ ...maturedRow, value_paise: null,
+    value_source: "", cost_paise: 2500000 }], "2026-11-16");
+  assert.equal(split.maturedValue, 2500000);
+  const view = { ...bondRowView(split.matured[0]), matured: true };
+  const card = bondCardHtml(view, "acct-1", { matured: true });
+  assert.match(sectionOf(card, "Returns"),
+    /<span class="k">Value in net worth<\/span><span class="v ">₹ 25,000\.00<span class="sub ">stays in net worth until a bank credit is matched · at cost<\/span>/);
+});
+
+test("a matured lot states a missing cost quietly", () => {
+  const card = bondCardHtml({ ...bondRowView({ ...maturedRow, cost_paise: null }),
+    matured: true }, "acct-1", { matured: true });
+  assert.match(card, /<div class="bond-matured-gap">Cost not known<\/div>/);
+  assert.equal((card.match(/data-bond-action="import-broker"/g) || []).length, 0);
+  assert.equal((card.match(/bond-gap-link/g) || []).length, 0);
+});
+
+test("a matured lot states missing terms quietly", () => {
+  const card = bondCardHtml({ ...bondRowView({ ...maturedRow, couponPct: null,
+    label: "TEST MATURED 15 May 2020" }), matured: true }, "acct-1", { matured: true });
+  assert.match(card,
+    /<div class="bond-matured-gap">Coupon not known<\/div>/);
+  assert.equal((card.match(/data-bond-action="import-broker"/g) || []).length, 0);
+});
+
+test("a matured lot states cost and terms quietly together", () => {
+  const card = bondCardHtml({ ...bondRowView({ ...maturedRow, cost_paise: null,
+    couponPct: null, label: "TEST MATURED 15 May 2020" }), matured: true },
+  "acct-1", { matured: true });
+  assert.match(card,
+    /<div class="bond-matured-gap">Cost or coupon not known<\/div>/);
+  assert.equal((card.match(/data-bond-action="import-broker"/g) || []).length, 0);
+});
+
+test("a complete matured lot has no quiet line", () => {
+  const card = bondCardHtml({ ...bondRowView(maturedRow), matured: true },
+    "acct-1", { matured: true });
+  assert.doesNotMatch(card, /bond-matured-gap/);
+});
+
+test("only a market value gives the edit screen a market price", () => {
+  const cas = bondRowView({ ...row, value_source: "CAS", value_paise: 2500000,
+    cost_paise: 2000000 });
+  assert.equal(cas.marketPrice, null);
+  const bse = bondRowView({ ...row, value_source: "BSE", value_paise: 2500000,
+    cost_paise: 2000000 });
+  assert.ok(bse.marketPrice > 0);
+});
+
+test("a matured blank cost is a dash, not zero", () => {
+  const view = { ...bondRowView({ ...maturedRow, value_paise: null,
+    value_source: "", cost_paise: "" }), matured: true };
+  const card = bondCardHtml(view, "acct-1", { matured: true });
+  assert.match(sectionOf(card, "Returns"),
+    /data-fact="value-in-net-worth"[^>]*><span class="k">Value in net worth<\/span><span class="v ">—/);
+  assert.doesNotMatch(card, /₹ 0\.00/);
+});
+
+test("current yield needs a market value, not a purchase yield", () => {
+  const view = { ...bondRowView({ ...row, value_source: "CAS",
+    value_paise: 2500000, cost_paise: 2000000 }), matured: false };
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(sectionOf(card, "Market value"),
+    /data-fact="current-yield"[^>]*><span class="k">Current yield<\/span><span class="v ">—<span class="sub ">needs a market value<\/span>/);
+  assert.match(sectionOf(card, "Purchase"),
+    /data-fact="purchase-yield"[\s\S]*?\d+\.\d+%/);
+});
+
+test("a book of bare lots has no summary figure to print", () => {
+  const summary = bondBookSummary([bondRowView(bare)]);
+  assert.equal(summary.count, 1);
+  assert.equal(summary.totalIfHeld, null);
+  assert.equal(summary.principalLeft, null);
+  assert.equal(summary.interestPct, null);
+});
+
+test("a matured lot never gets a gap line", () => {
+  const view = { ...bondRowView(bare), matured: true };
+  const card = bondCardHtml(view, "acct-1", { matured: true });
+  assert.doesNotMatch(card, /bond-gap-line/);
+  assert.match(card, /data-fact="value-in-net-worth"/);
 });

@@ -69,6 +69,25 @@ test("bond CSV quotes labels with commas and keeps a real market value", () => {
   assert.equal(parsed.rows[0].value_paise, 31000000);
 });
 
+test("a CAS statement figure is not exported as Current Value", () => {
+  const cas = { ...row, value_source: "CAS", value_paise: 31000000 };
+  const parsed = parseHoldingsMatrix(parseCsv(bondHoldingsCsv([cas])));
+  assert.equal(parsed.rows[0].value_paise, null);
+  const bse = { ...row, value_source: "BSE", value_paise: 31000000 };
+  const market = parseHoldingsMatrix(parseCsv(bondHoldingsCsv([bse])));
+  assert.equal(market.rows[0].value_paise, 31000000);
+});
+
+test("blank cost, yield and payout are blank cells, not zero", () => {
+  const blank = { ...row, cost_paise: "", yield_bps: "", payout_paise: "",
+    value_paise: "" };
+  const parsed = parseHoldingsMatrix(parseCsv(bondHoldingsCsv([blank])));
+  assert.equal(parsed.rows[0].cost_paise, null);
+  assert.equal(parsed.rows[0].value_paise, null);
+  assert.equal(parsed.rows[0].payout_paise, null);
+  assert.equal(parsed.rows[0].yield_bps, null);
+});
+
 test("bond CSV neutralises every spreadsheet formula prefix", () => {
   // A label is free text and comes from a broker export, so any of the four
   // triggers would run as a formula when the file is opened in Excel.

@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { isSecuritiesAccount, isImportAccount, isDepositoryAccount } from "./assets.js";
-import { accountMatches, groupBundles, importAccountGaps, importAccountSummary,
-  importPlanPrimary, normalizeAccount, IMPORT_REPORT_GUIDE } from "./import-flow.js";
+import { accountMatches, bondGapBanner, bondImportOf, groupBundles,
+  importAccountGaps, importAccountSummary, importPlanPrimary, normalizeAccount,
+  IMPORT_REPORT_GUIDE } from "./import-flow.js";
 
 // Synthetic identifiers only. The real files are never committed.
 const isin = (n) => `INE${String(n).padStart(9, "0")}`;
@@ -410,10 +411,12 @@ test("a bond with no coupon and no maturity is named once", () => {
     { security_id: isin(3), label: "TEST BOND TWO", category: "bond", quantity: 5,
       cost_paise: 100, as_of: "2026-10-31" },
   ], (value) => value, "2026-11-14");
-  assert.deepEqual(gapText(gaps), ["No coupon or maturity on 2 bonds"]);
+  assert.deepEqual(gapText(gaps), ["A coupon or maturity is missing on 2 bonds"]);
 });
 
-test("a coupon or a maturity in the label is terms enough", () => {
+test("one term is a gap: bondAnalytics needs both", () => {
+  // A coupon without a date, or a date without a coupon, cannot be estimated
+  // and the card cannot compute its anchor.
   const gaps = importAccountGaps(account({ meta: meta({ holdings_source: "cas",
     holdings_as_of: "2026-10-31" }) }), [
     { security_id: isin(2), label: "7.15% TEST BOND", category: "bond", quantity: 1,
@@ -421,7 +424,7 @@ test("a coupon or a maturity in the label is terms enough", () => {
     { security_id: isin(3), label: "TEST BOND 15 May 2032", category: "bond", quantity: 1,
       cost_paise: 1, as_of: "2026-10-31" },
   ], (value) => value, "2026-11-14");
-  assert.deepEqual(gaps.gaps, []);
+  assert.deepEqual(gapText(gaps), ["A coupon or maturity is missing on 2 bonds"]);
 });
 
 test("a matured or disposed row is history, not a gap", () => {
@@ -442,7 +445,7 @@ test("a typed account is offered what it could add, not told what is missing", (
   ], (value) => value, "2026-11-14");
   assert.equal(gaps.manual, true);
   assert.deepEqual(gapText(gaps),
-    ["Could add cost for 2 holdings", "Could add coupon and maturity for 1 bond"]);
+    ["Could add cost for 2 holdings", "Could add the missing coupon or maturity for 1 bond"]);
   for (const gap of gaps.gaps) assert.doesNotMatch(gap.text, /^No /);
 });
 
@@ -470,6 +473,23 @@ test("a row a statement named is not a typed account", () => {
   assert.deepEqual(gaps.gaps, []);
 });
 
+test("a hand-entered or fetched value does not file a typed account", () => {
+  const typed = account({ meta: "" });
+  const manual = [{ security_id: isin(2), label: "TEST BOND", category: "bond",
+    quantity: 5, cost_paise: null, value_paise: 2500000, value_source: "Manual",
+    as_of: "2026-10-01" }];
+  const gaps = importAccountGaps(typed, manual, (value) => value, "2026-11-14");
+  assert.equal(gaps.manual, true);
+  assert.deepEqual(gapText(gaps),
+    ["Could add cost for 1 holding", "Could add the missing coupon or maturity for 1 bond"]);
+  assert.equal(bondGapBanner(typed, manual, "2026-11-14").text,
+    "1 bond needs cost and terms — import a broker report",
+    "a typed demat is still an import account");
+  const bse = [{ ...manual[0], value_source: "BSE" }];
+  assert.equal(importAccountGaps(typed, bse, (value) => value, "2026-11-14").manual,
+    true, "a fetched price is not a file");
+});
+
 test("a CAS row with an empty source is not called unsourced", () => {
   // cas-apply writes every CAS row with an empty row source; the statement is
   // the account's source and the meta line already carries its date.
@@ -478,6 +498,158 @@ test("a CAS row with an empty source is not called unsourced", () => {
     [{ ...row(1), cost_paise: 100, value_source: "CAS", source: "" }],
     (value) => value, "2026-11-14");
   assert.deepEqual(gaps.gaps, []);
+});
+
+// A CAS-only bond lot: the name, ISIN, units and statement value arrived; the
+// cost, coupon and maturity did not.
+const bondLot = (n, over = {}) => ({
+  security_id: isin(n), label: `TEST BOND ${n}`, category: "bond", quantity: 10,
+  value_paise: 2500000, value_source: "CAS", as_of: "2026-10-31", ...over,
+});
+const filed = account({ meta: meta({ holdings_source: "cas",
+  holdings_as_of: "2026-10-31" }) });
+
+test("the banner names sixteen bonds that a broker report fills", () => {
+  const lots = Array.from({ length: 16 }, (_, index) => bondLot(index + 20));
+  const banner = bondGapBanner(filed, lots, "2026-11-14");
+  assert.equal(banner.count, 16);
+  assert.equal(banner.text,
+    "16 bonds need cost and terms — import a broker report");
+  const singular = bondGapBanner(filed, [bondLot(21)], "2026-11-14");
+  assert.equal(singular.text, "1 bond needs cost and terms — import a broker report");
+});
+
+test("the banner is quiet when there is nothing a report can fill", () => {
+  assert.equal(bondGapBanner(filed, [], "2026-11-14"), null);
+  const complete = [bondLot(20, { cost_paise: 1000,
+    label: "7.15% TEST BOND 15 May 2030" })];
+  assert.equal(bondGapBanner(filed, complete, "2026-11-14"), null);
+  const matured = [bondLot(21, { label: "TEST BOND 15 May 2020" })];
+  assert.equal(bondGapBanner(filed, matured, "2026-11-14"), null,
+    "a matured lot is awaiting payment, not work");
+});
+
+test("the banner says which input is missing when the lots disagree", () => {
+  const mixed = [
+    bondLot(20, { label: "7.15% TEST BOND 15 May 2030" }),
+    bondLot(21, { cost_paise: 1000 }),
+  ];
+  assert.equal(bondGapBanner(filed, mixed, "2026-11-14").text,
+    "2 bonds need cost or terms — import a broker report");
+  const costOnly = [bondLot(20, { label: "7.15% TEST BOND 15 May 2030" })];
+  assert.equal(bondGapBanner(filed, costOnly, "2026-11-14").text,
+    "1 bond needs cost — import a broker report");
+  const termsOnly = [bondLot(21, { cost_paise: 1000 })];
+  assert.equal(bondGapBanner(filed, termsOnly, "2026-11-14").text,
+    "1 bond needs terms — import a broker report");
+});
+
+test("a typed demat is an import account and gets the banner", () => {
+  const typed = account({ meta: "" });
+  const lots = [bondLot(20, { value_source: "", source: "" })];
+  assert.equal(bondGapBanner(typed, lots, "2026-11-14").text,
+    "1 bond needs cost and terms — import a broker report");
+});
+
+test("a bonds portfolio gets the banner, a cost-only record does not", () => {
+  const bonds = account({ id: "bonds-1", category: "bonds", subtype: "bond" });
+  assert.equal(bondGapBanner(bonds, [bondLot(20)], "2026-11-14").text,
+    "1 bond needs cost and terms — import a broker report");
+  const cost = account({ id: "cost-1", category: "bonds", subtype: "bond",
+    meta: meta({ cost_only: true }) });
+  assert.equal(bondGapBanner(cost, [bondLot(20)], "2026-11-14"), null);
+});
+
+test("the import gate follows the account, not the category", () => {
+  assert.deepEqual(bondImportOf(account({ id: "demat-1", category: "demat" }),
+    "demat-1"), { importable: true, importTarget: "demat-1", importVia: "broker" });
+  assert.deepEqual(bondImportOf(account({ id: "typed-1", category: "demat",
+    meta: "" }), "typed-1"),
+  { importable: true, importTarget: "typed-1", importVia: "broker" });
+  assert.deepEqual(bondImportOf(account({ id: "bonds-1", category: "bonds",
+    subtype: "bond" }), "bonds-1"),
+  { importable: true, importTarget: "bonds-1", importVia: "page" });
+  assert.deepEqual(bondImportOf(account({ id: "cost-1", category: "bonds",
+    subtype: "bond", meta: meta({ cost_only: true }) }), "cost-1"),
+  { importable: false, importTarget: "", importVia: "page" });
+});
+
+test("a purchase yield alone is not a coupon in the gap list", () => {
+  const gaps = importAccountGaps(filed, [bondLot(20, { cost_paise: 1000,
+    label: "TEST BOND", yield_bps: 900 })], (value) => value, "2026-11-14");
+  assert.deepEqual(gapText(gaps), ["A coupon or maturity is missing on 1 bond"]);
+});
+
+test("the disclosure prints the account sentences before the bond rows", () => {
+  // The page's initial import gaps and the account card's sentences are one
+  // function, so the two screens cannot drift.
+  const lots = [bondLot(20), bondLot(21)];
+  const gaps = importAccountGaps(filed, lots, (value) => value, "2026-11-14");
+  assert.deepEqual(gaps.gaps.map((gap) => gap.text),
+    ["No cost on 2 holdings", "A coupon or maturity is missing on 2 bonds"]);
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const card = html.slice(html.indexOf("function holdingsCard"),
+    html.indexOf("// A demat account's holdings arrive"));
+  assert.match(card, /const importGaps = importAccountGaps\(account, rows, dateLabel\)/);
+  assert.match(card, /importGaps\.gaps\.map\(\(gap\) =>/);
+  assert.match(card, /esc\(gap\.text\)/);
+});
+
+test("the bond page wires the banner before the summary and no filled button", () => {
+  const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const card = html.slice(html.indexOf("function holdingsCard"),
+    html.indexOf("// A demat account's holdings arrive"));
+  assert.match(html, /function holdingsCard\(allRows, assetId, account\)/);
+  assert.match(html, /holdingsCard\(shown, assetId, asset\)/);
+  assert.match(html, /holdingsCard\(list, assetId, asset\)/);
+  const sort = html.slice(html.indexOf("window.bpBondSort"),
+    html.indexOf("// One press for the whole portfolio"));
+  assert.match(sort, /window\.bpAssetsForFocus \|\| \[\]\)\.find/,
+    "a re-render looks the account up again");
+  assert.match(card, /const banner = bondGapBanner\(account, rows\)/);
+  assert.match(card, /const importOf = bondImportOf\(account, assetId\)/);
+  assert.match(card, /const \{ importTarget, importVia \} = importOf/);
+  assert.match(card, /bondCardHtml\(v, assetId, \{\s*currency: currency\(\), importTarget, importVia,/);
+  assert.match(card, /bondGapBannerHtml\(banner, importTarget, importVia\)/);
+  assert.match(card, /needsFetch \|\| importGaps\.gaps\.length \? `<details class="needs-details">/);
+  assert.doesNotMatch(card, /class="needs-details" open/,
+    "the disclosure starts closed");
+  assert.doesNotMatch(card, /Import broker report/,
+    "the banner sentence is the only action wording");
+  assert.match(card, /needsFetch && !banner \? "primary" : ""/);
+  assert.match(card, /costNote = missingCost && !banner/);
+  assert.match(card, /needsFetch \|\| importGaps\.gaps\.length \? ""/);
+  assert.match(card, /summaryFigures/);
+  assert.match(card, /data-empty="true"/, "an empty summary bar drops its chrome");
+  assert.match(card, /const marketViews = views\.filter\(\(v\) => v\.value !== null\)/);
+  assert.match(card, /market value \$\{moneyOrDash\(marketValue\)\}/);
+  assert.match(card, /bondCoverageText\(summary\.costed, summary\.count, "costed"\)/);
+  assert.match(card, /class="bs-scope"/);
+  assert.match(card, /data-scope="true"/);
+  assert.match(card, /const costedCount = views\.filter/);
+  assert.match(card, /bondCoverageText\(costedCount, views\.length, "costed"\)/);
+  assert.match(card, /bondCoverageText\(marketViews\.length, views\.length, "priced"\)/);
+  assert.doesNotMatch(card, /moneyOrDash\(s\.value\)/,
+    "the statement value never reaches the market-value slot");
+  assert.match(card, /const showHoldFigures = s\.cost !== null \|\| marketValue !== null/);
+  assert.match(card, /needsFetch \? missingLine : showHoldFigures \? figuresLine : ""/);
+  const disclosure = card.indexOf("needs-details");
+  const banner = card.indexOf("bondGapBannerHtml(banner, importTarget, importVia)");
+  const summary = card.indexOf("${summaryBar}");
+  assert.ok(disclosure > -1 && banner > disclosure && summary > banner,
+    "the banner sits after the disclosure and before the summary bar");
+  const css = html.slice(0, html.indexOf("</style>"));
+  assert.match(css, /\.bond-gap-line\{[^}]*font-size:13\.5px/);
+  assert.match(css, /\.bond-gap-banner\{[^}]*border-radius:10px/);
+  assert.match(css, /\.bond-gap-link:focus-visible/);
+  assert.match(css, /\.bond-gap-banner:focus-visible/);
+  assert.match(css, /@media \(pointer:coarse\)\{\.bond-gap-banner\{min-height:44px\}\}/);
+  assert.match(css, /\.bond-summary\[data-empty="true"\]\{position:static;border:0;background:none;padding:0;justify-content:flex-end\}/);
+  assert.match(css, /\.bond-summary\[data-scope="true"\]\{flex-wrap:wrap\}/);
+  assert.match(css, /\.bond-summary \.bs-scope\{[^}]*font-size:11px/);
+  assert.match(css, /\.bond-matured-gap\{[^}]*font-size:12px/);
+  assert.doesNotMatch(css, /\.bond-gap-banner \.btn/,
+    "the banner is the action, not a box around one");
 });
 
 test("the guide names three reports and claims nothing live", () => {
