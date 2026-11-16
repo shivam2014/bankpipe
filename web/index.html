@@ -9353,8 +9353,14 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       || linkedLines.length > 0 || movementLines.length > 0;
     const hasTarget = units.some((u) => picked.has(u.key))
       || (!!route.demat && routeHomed) || (!!manual && manualTargets.length > 0);
+    // An exact folio is a question for the person: adopt it into the account
+    // that holds it, or keep the manual total. Importing before an answer would
+    // drop the folio's rows while the person is still looking at the choice.
+    const undecidedFolio = (cardState.folioPlan?.offers || [])
+      .some((offer) => offer.basis === "folio"
+        && offer.state !== "adopt" && offer.state !== "kept");
     const canImport = (units.some((u) => picked.has(u.key)) || hasSales)
-      && hasTarget && !safety.blocked;
+      && hasTarget && !safety.blocked && !undecidedFolio;
     const noHome = !hasTarget
       && (movementLines.length > 0 || (!!route.demat && !routeHomed));
     const nothing = !units.length && !saleLines.length;

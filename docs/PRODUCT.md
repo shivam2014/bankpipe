@@ -69,7 +69,9 @@ value is an adoption candidate, not an automatic home. The import offers that ex
 account, and only an explicit choice replaces the manual total with the statement's
 units; keeping the manual total leaves it as the single position and imports none of
 the statement's rows. A second account carrying the same canonical folio is the
-duplicate this rule prevents.
+duplicate this rule prevents. When one account carrying the folio already holds unit
+rows, that account is the home whatever order the accounts load in, and a manual-total
+duplicate is not offered over it.
 
 Two existing statements pull the other way and should be softened, not deleted.
 `web/db.js:110` says a demat account's identity is the BO ID "not the string a person

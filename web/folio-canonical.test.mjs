@@ -4,7 +4,7 @@ import { casRoute } from "./cas.js";
 import { casGroupByAsset, casReplacePlan } from "./cas-apply.js";
 import { assetMetrics } from "./finance.js";
 import { accountFolios, folioAdoptedHome, folioHome, folioKey,
-  folioAdoptionPlan, normalizeFolio } from "./folio.js";
+  folioAdoptionPlan, isValueOnlyFolioAccount, normalizeFolio } from "./folio.js";
 
 // A registrar prints a check digit after the folio number. A zero check digit
 // is the same folio; every other suffix is a different position. Synthetic
@@ -29,6 +29,21 @@ const valueOnly = (over = {}) => ({
   number: BASE,
   meta: JSON.stringify({ amc: "axis", amc_full: "Axis Mutual Fund",
     current_value_paise: 31000000 }),
+  ...over,
+});
+
+// The duplicate an earlier bad import leaves behind: the same canonical folio
+// on a manual total and on an account that already holds units.
+const settled = (over = {}) => ({
+  id: "axis-settled",
+  label: "Axis mutual fund · folio …8993",
+  category: "demat",
+  subtype: "mutual fund",
+  type: "mf",
+  number: PRINTED,
+  holdings: [{ security_id: ISIN, quantity: 90, value_paise: 30000000 }],
+  meta: JSON.stringify({ amc: "axis", amc_full: "Axis Mutual Fund",
+    folios: [PRINTED] }),
   ...over,
 });
 
@@ -270,4 +285,35 @@ test("two exact value-only accounts stay a choice, not a silent pick", () => {
   assert.equal(plan.offers[0].state, "offer");
   assert.equal(plan.offers[0].choosable.length, 2);
   assert.deepEqual(plan.targets, {});
+});
+
+test("a settled owner wins over a manual total whatever the account order", () => {
+  const holding = casFund();
+  const rowsOf = (id) => (id === "axis-settled" ? settled().holdings : []);
+  const manualFirst = [demat, valueOnly(), settled()];
+  const settledFirst = [demat, settled(), valueOnly()];
+  for (const accounts of [manualFirst, settledFirst]) {
+    // One folio is one position. The account that already holds units is that
+    // position, so no offer is made over it and the route lands there.
+    const plan = folioAdoptionPlan({ holdings: [holding], accounts, rowsOf });
+    assert.equal(plan.offers.length, 0);
+    assert.deepEqual(plan.targets, {});
+    const route = casRoute(parsed([holding]), accounts);
+    assert.equal(route.groups.length, 1);
+    assert.equal(route.groups[0].assetId, "axis-settled");
+    assert.equal(route.homeless.length, 0);
+  }
+});
+
+test("the exclude option removes a manual total from the owner set", () => {
+  const holding = casFund();
+  const exclude = (account) => isValueOnlyFolioAccount(account, account.holdings || []);
+  assert.equal(folioHome(holding, [valueOnly(), settled()], { exclude })?.id, "axis-settled");
+  assert.equal(folioHome(holding, [settled(), valueOnly()], { exclude })?.id, "axis-settled");
+  // Without the predicate the first owner wins, which is the order dependence
+  // the callers that know the shape must remove.
+  assert.equal(folioHome(holding, [valueOnly(), settled()])?.id, "axis-value");
+  assert.equal(folioHome(holding, [settled(), valueOnly()])?.id, "axis-settled");
+  // A manual total is not a home on its own; the offer is still the only way in.
+  assert.equal(folioHome(holding, [valueOnly()], { exclude }), null);
 });

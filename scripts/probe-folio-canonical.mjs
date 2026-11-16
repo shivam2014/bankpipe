@@ -109,3 +109,33 @@ line("shipped write", `rows ${write.rows.length} · units ${write.rows[0]?.quant
 line("near miss " + NEAR, `home ${nearRoute.groups.length ? "found" : "none"}`
   + ` · offers ${nearPlan.offers.length} · homeless ${nearRoute.homeless.length}`
   + ` · positions 2 · total ${inr(nearTotal)}`);
+
+// The duplicate an earlier import can leave behind: the same canonical folio on
+// a manual total and on an account that already holds units. One folio is one
+// position, so both array orders route to the account with the units and no
+// offer is made over it.
+const duplicateManual = { ...valueOnly };
+const duplicateSettled = {
+  id: "axis-settled", label: "Axis mutual fund · folio …8993", category: "demat",
+  subtype: "mutual fund", type: "mf", number: PRINTED,
+  holdings: [{ security_id: ISIN, quantity: 90, value_paise: 30000000 }],
+  meta: JSON.stringify({ amc: "axis", amc_full: "Axis Mutual Fund",
+    folios: [PRINTED] }),
+};
+const duplicateRoute = (accounts) => casRoute(parsed(), accounts);
+const duplicatePlan = (accounts) => folioAdoptionPlan({ holdings: [holding], accounts,
+  rowsOf: (id) => (id === duplicateSettled.id ? duplicateSettled.holdings : []) });
+const manualFirst = [demat, duplicateManual, duplicateSettled];
+const settledFirst = [demat, duplicateSettled, duplicateManual];
+const manualFirstRoute = duplicateRoute(manualFirst);
+const settledFirstRoute = duplicateRoute(settledFirst);
+const manualFirstPlan = duplicatePlan(manualFirst);
+const settledFirstPlan = duplicatePlan(settledFirst);
+
+console.log("");
+line("duplicate manual first", `home ${manualFirstRoute.groups[0]?.assetId || "none"}`
+  + ` · offers ${manualFirstPlan.offers.length}`
+  + ` · homeless ${manualFirstRoute.homeless.length}`);
+line("duplicate settled first", `home ${settledFirstRoute.groups[0]?.assetId || "none"}`
+  + ` · offers ${settledFirstPlan.offers.length}`
+  + ` · homeless ${settledFirstRoute.homeless.length}`);

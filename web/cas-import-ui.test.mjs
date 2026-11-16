@@ -270,6 +270,12 @@ test("the old CAS card offers adoption and keeps the choice", () => {
   assert.match(html, /const adopt = folioPlan\.targets/);
 });
 
+test("the old CAS card waits for an exact folio answer before Import", () => {
+  assert.match(html, /const undecidedFolio = \(cardState\.folioPlan\?\.offers \|\| \[\]\)/);
+  assert.match(html, /offer\.state !== "adopt" && offer\.state !== "kept"/);
+  assert.match(html, /&& hasTarget && !safety\.blocked && !undecidedFolio;/);
+});
+
 test("adoption replaces the manual total and writes the folio on the account", () => {
   assert.match(html, /if \(isFolioAccount\(asset\)\) \{\s*\n\s*delete meta\.current_value_paise;/);
   assert.match(html, /nextMeta\.folios = \[\.\.\.new Set\(\[\.\.\.known, \.\.\.folios\]\)\]/);

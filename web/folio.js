@@ -82,15 +82,21 @@ function declaredAmc(account) {
  * a fund-house rename and a reused folio number cannot be told apart without a
  * second account, and orphaning a renamed account would create a duplicate. No
  * AMC-only and no ISIN fallback: an unmatched folio is a new position.
+ *
+ * `exclude` drops accounts from the owner set before the tie-break. A caller
+ * that knows an owner is only a manual total passes it, so an account that
+ * already holds the units wins whatever order the array arrived in.
  * @param {{folio?: string, amc?: string}} holding
  * @param {Array<object>} accounts
+ * @param {{exclude?: (account: object) => boolean}} [options]
  * @returns {object|null}
  */
-export function folioHome(holding, accounts = []) {
+export function folioHome(holding, accounts = [], { exclude = null } = {}) {
   const folio = normalizeFolio(holding?.folio);
   if (!folio) return null;
   const owners = (accounts || []).filter((account) =>
-    isFolioAccount(account) && accountFolios(account).includes(folio));
+    isFolioAccount(account) && accountFolios(account).includes(folio)
+    && !(exclude && exclude(account)));
   if (!owners.length) return null;
   if (owners.length === 1) return owners[0];
   const amc = amcOf(holding?.amc);
@@ -253,11 +259,14 @@ export function folioAdoptionPlan({ holdings = [], accounts = [], rowsOf = () =>
   const claims = new Map();
   for (const group of groups.values()) {
     const folio = normalizeFolio(group.folioNo);
-    const home = folioHome(group.holdings[0], accounts);
-    // An existing home is automatic only when it already holds units. A
-    // value-only account is a manual total: it is offered, never written
-    // without an explicit choice.
-    if (home && !isValueOnlyFolioAccount(home, rowsOf(home.id) || [])) continue;
+    // A value-only account is a manual total, not a position: exclude it from
+    // the owner set so an account that already holds units is the home whatever
+    // order the accounts arrived in. With no such owner, `home` is null and the
+    // manual total is offered below.
+    const home = folioHome(group.holdings[0], accounts, {
+      exclude: (account) => isValueOnlyFolioAccount(account, rowsOf(account.id) || []),
+    });
+    if (home) continue;
     const found = folioAdoptionCandidates(group.holdings[0], accounts, rowsOf);
     const exact = found.filter((account) => accountFolios(account).includes(folio));
     // An exact folio is identity, so its accounts are the only offer. The

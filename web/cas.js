@@ -1164,8 +1164,9 @@ export function parseCas(pdf) {
  * with no exact home stays homeless otherwise; the AMC label never merges it.
  * A value-only account that carries the folio is an adoption candidate, never
  * an automatic home: writing units over a manual total takes an explicit
- * choice. Callers pass fund accounts with their `holdings`, so an account that
- * already holds rows is still a home.
+ * choice. An account that already holds rows is the home even when a manual
+ * duplicate arrives first in the list. Callers pass fund accounts with their
+ * `holdings`, so the two shapes can be told apart.
  * @param {{holdings: Array<object>, demat?: string}} parsed
  * @param {Array<{id: string, label?: string, category?: string, number?: string}>} assets
  * @param {{adopt?: object|Map}} [options] folio key to account id, user chosen
@@ -1198,13 +1199,18 @@ export function casRoute(parsed, assets = [], { adopt = {} } = {}) {
       // being written into a folio account with a value picked from the wrong cell.
       const isFolio = holding.kind === "mf" && !!holding.folio
         && Number(holding.quantity) > 0;
-      const home = isFolio ? folioHome(holding, assets) : null;
+      // A value-only account is a manual total, not the folio's position. It is
+      // left out of the owner set, so an account that already holds the units
+      // wins whatever order the accounts arrived in. With no settled owner the
+      // home stays null and an explicit adopt is still the only way in.
+      const home = isFolio ? folioHome(holding, assets, {
+        exclude: (account) => isValueOnlyFolioAccount(account, account.holdings || []),
+      }) : null;
       // A home that already holds units is the folio's account. A value-only
       // home is a manual total; only an explicit adopt may replace it, and a
       // missing holdings list fails closed so no write happens by accident.
       const target = isFolio
-        ? (folioAdoptedHome(holding, assets, adopt)
-          || (home && !isValueOnlyFolioAccount(home, home.holdings || []) ? home : null))
+        ? (folioAdoptedHome(holding, assets, adopt) || home)
         : asset;
       const bucket = target ? groups : homeless;
       // One group per folio, even when one account carries two of them: the card
