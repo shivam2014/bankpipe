@@ -5,7 +5,7 @@
 import { assetMetrics } from "../web/finance.js";
 import { casRoute } from "../web/cas.js";
 import { casGroupByAsset, casReplacePlan } from "../web/cas-apply.js";
-import { folioAdoptionPlan, folioKey } from "../web/folio.js";
+import { accountFolios, folioAdoptionPlan, folioKey } from "../web/folio.js";
 
 const DEMAT = "IN99990001344321";
 const FOLIO = "91062983856";
@@ -15,9 +15,10 @@ const demat = {
   id: "demat-1", label: "Demat · NSDL · …4321", category: "demat",
   subtype: "equity", number: DEMAT,
 };
+const REFERENCE = "Payment From 000000000000";
 const valueOnly = {
   id: "axis-value", label: "Axis mutual fund", bank: "Axis", category: "demat",
-  subtype: "mutual fund", type: "mf", number: "",
+  subtype: "mutual fund", type: "mf", number: REFERENCE,
   meta: JSON.stringify({ amc: "axis", amc_full: "Axis Mutual Fund",
     current_value_paise: 32100000 }),
 };
@@ -42,6 +43,16 @@ const beforeFolio = assetMetrics({ category: "demat", subtype: "mutual fund",
 
 const noChoice = folioAdoptionPlan({ holdings: [holding],
   accounts: [demat, valueOnly], rowsOf: () => [] });
+const nearMiss = folioAdoptionPlan({ holdings: [holding],
+  accounts: [demat, { ...valueOnly, id: "mirae-value", label: "Mirae mutual fund",
+    bank: "Mirae", meta: JSON.stringify({ amc: "Mirae",
+      amc_full: "Mirae Asset Mutual Fund", current_value_paise: 32100000 }) }],
+  rowsOf: () => [] });
+const exact = folioAdoptionPlan({ holdings: [holding],
+  accounts: [demat, valueOnly,
+    { ...valueOnly, id: "axis-exact", number: FOLIO,
+      meta: JSON.stringify({ amc: "axis", current_value_paise: 32100000 }) }],
+  rowsOf: () => [] });
 const beforeRoute = casRoute(parsed, [demat, valueOnly]);
 const chosen = folioAdoptionPlan({ holdings: [holding],
   accounts: [demat, valueOnly], rowsOf: () => [],
@@ -60,12 +71,22 @@ const afterValue = assetMetrics({
 }, "demat").value;
 
 console.log("folio adoption probe · synthetic Axis value-only + NSDL folio");
+console.log(`identity reference note        folios ${accountFolios(valueOnly).length}`
+  + ` (not a folio)`);
 console.log(`before  value-only account      ${inr(beforeValue)}`);
 console.log(`before  new folio account       ${inr(beforeFolio)}`);
 console.log(`before  total                   ${inr(beforeValue + beforeFolio)}`);
-console.log(`offer   candidates ${noChoice.offers[0]?.candidates.length || 0}`
-  + ` · chosen targets ${Object.keys(noChoice.targets).length}`
-  + ` · route ${beforeRoute.homeless.length} homeless`);
+console.log(`offer   basis ${noChoice.offers[0]?.basis || "none"}`
+  + ` · state ${noChoice.offers[0]?.state || "none"}`
+  + ` · candidates ${noChoice.offers[0]?.candidates.length || 0}`
+  + ` · candidate ${inr(noChoice.offers[0]?.candidates[0]?.valuePaise || 0)}`
+  + ` · statement ${inr(noChoice.offers[0]?.valuePaise || 0)}`);
+console.log(`no choice targets ${Object.keys(noChoice.targets).length}`
+  + ` · route ${beforeRoute.groups.length} groups / ${beforeRoute.homeless.length} homeless`);
+console.log(`near miss other AMC            offers ${nearMiss.offers.length}`);
+console.log(`exact priority                 basis ${exact.offers[0]?.basis || "none"}`
+  + ` · candidates ${exact.offers[0]?.candidates.length || 0}`
+  + ` · ${exact.offers[0]?.candidates.map((candidate) => candidate.id).join(",") || "none"}`);
 console.log(`adopt   targets ${Object.keys(chosen.targets).length}`
   + ` · route group ${afterRoute.groups[0]?.assetId || "none"}`
   + ` · account id ${valueOnly.id}`);

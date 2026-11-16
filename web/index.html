@@ -7173,6 +7173,10 @@ function bpImportResolveCas(bundle) {
     const choiceKey = `${bundle.key}:${folioKey(group)}`;
     const choice = String(state.choices[choiceKey] || "");
     const exact = offer?.basis === "folio";
+    // A guess is answered by Adopt or Keep both; exact also has Keep the manual
+    // total. An unanswered offer is a question, not a default, so its rows wait.
+    const decided = !!offer && (offer.state === "adopt" || offer.state === "kept"
+      || offer.chosen === "__create__");
     let targetId = "";
     if (home) {
       // The plan's home is the account casRoute writes, so the preview cannot
@@ -7197,15 +7201,15 @@ function bpImportResolveCas(bundle) {
       if (targetId && offer && !offer.choosable.some((candidate) => candidate.id === targetId)) {
         targetId = "";
       }
-      // Only a guess may fall back to the generic matcher: no account carries
-      // this folio, so no manual total or settled position can be picked over
-      // another through the label sort.
-      if (!targetId && !match.tie) targetId = match.identityId || match.bestId || "";
+      // A guess is never adopted through the generic matcher: the offer names
+      // the account, and only a click on Adopt may reach it.
+      if (!targetId && !offer && !match.tie) targetId = match.identityId || match.bestId || "";
     }
     const targetRow = targetId ? bpImportAccountRow(targetId) : null;
     // Keeping or contesting a folio writes none of its rows, so the plan must
     // not claim them as additions. The card still shows the statement's count.
-    const held = !!conflict || (exact && !targetId);
+    const held = !!conflict || (exact && !targetId)
+      || (!!offer && !exact && !targetId && !decided);
     const plan = bpImportPlanFor(bundle, targetRow, held ? [] : group.rows, null);
     return { boId: folioKey(group),
       dpName: `${group.amc || "Folio"} mutual fund · folio …${folioTail(group.folioNo)}`,
@@ -7213,9 +7217,9 @@ function bpImportResolveCas(bundle) {
       home, contested: conflict,
       action: conflict ? "conflict"
         : home ? "update"
-          : exact
-            ? (targetId ? "update" : (offer.state === "kept" ? "kept" : "decide"))
-            : (targetRow ? "update" : "create"),
+          : offer?.state === "kept" ? "kept"
+            : offer && !targetId && !decided ? "decide"
+              : (targetRow ? "update" : "create"),
       folio: true, amc: group.amc,
       amcFull: group.amcFull, folioNo: group.folioNo };
   });
@@ -7745,7 +7749,9 @@ function bpImportCasAccountsHtml(bundle) {
         : target.action === "conflict"
           ? "Two accounts hold this folio · not imported"
           : target.action === "decide"
-            ? "Existing folio · choose below"
+            ? target.offer?.basis === "guess"
+              ? "Similar account · choose below"
+              : "Existing folio · choose below"
             : target.action === "kept"
               ? "Kept the manual total"
               : target.folio ? "New mutual fund folio account" : "New demat account";
@@ -8772,6 +8778,12 @@ async function bpImportApplyCas(bundle, opts = {}) {
       folioChoices[target.offer.key] = "__skip__";
       continue;
     }
+    // A guess answered Keep both keeps the decision on the record, so the
+    // writer's recomputed plan does not see the same offer as unanswered.
+    if (target.folioChoice === "__create__") {
+      folioChoices[target.offer.key] = "__create__";
+      continue;
+    }
     if (!target.targetId) continue;
     if ((target.offer.choosable || []).some((candidate) => candidate.id === target.targetId)) {
       folioChoices[target.offer.key] = target.targetId;
@@ -9157,11 +9169,11 @@ function bpCasFolioPlan(holdings, accounts, choices = {}) {
   });
 }
 
-// An exact folio is a question, not a default. The card's button gates it and
-// the writers re-check, so a direct call cannot write past an unanswered choice.
+// A folio offer is a question, not a default, whether the folio is exact or a
+// guess. The card's button gates it and the writers re-check, so a direct call
+// cannot write past an unanswered choice.
 function bpCasPendingFolioMessage(plan) {
-  const pending = (plan?.offers || []).filter((offer) => offer.basis === "folio"
-    && offer.state !== "adopt" && offer.state !== "kept");
+  const pending = (plan?.offers || []).filter((offer) => !offer.chosen);
   if (!pending.length) return "";
   const tails = pending.map((offer) => `…${folioTail(offer.folioNo)}`).join(", ");
   return `Folio${pending.length === 1 ? "" : "s"} ${tails} still need the adopt-or-keep `
@@ -9196,15 +9208,19 @@ function casFolioOfferHtml(offer, { chosen = "", where = "", onChoose } = {}) {
   const balances = choosable.length > 1
     ? ` ${choosable.map((candidate) => `${candidate.label} holds ${
       money(candidate.valuePaise)}`).join("; ")}.` : "";
+  // A guess is a fund-house resemblance, not identity. Say so before the money
+  // copy, so the person never reads the offer as "the folio is already on this
+  // account".
+  const guessWhy = " The folio is not on file, so this is a guess by fund house, not by folio.";
   const head = exact
     ? choosable.length > 1
       ? `This ${source}folio …${tail}${scheme} is already on ${choosable.length} accounts.`
       : `This ${source}folio …${tail}${scheme} is already on ${accountLabel}, which holds ${
         money(first?.valuePaise || 0)} as a current value with no units.`
     : choosable.length > 1
-      ? `${choosable.length} accounts look like this ${source}folio …${tail}${scheme}.`
+      ? `${choosable.length} accounts look like this ${source}folio …${tail}${scheme}.${guessWhy}`
       : `This ${source}folio …${tail}${scheme} looks like your existing ${accountLabel}, which holds ${
-        money(first?.valuePaise || 0)} as a current value with no units.`;
+        money(first?.valuePaise || 0)} as a current value with no units.${guessWhy}`;
   const copy = exact
     ? choosable.length
       ? `The statement holds ${money(offer.valuePaise)}.${balances}${diff}${large
@@ -9229,7 +9245,7 @@ function casFolioOfferHtml(offer, { chosen = "", where = "", onChoose } = {}) {
       !chosen || chosen === "__create__" ? " primary" : ""}" onclick="${
       onChoose(offer, "__create__")}">Keep both</button>`;
   return `<div class="import-folio" data-folio="${esc(offer.key)}">
-    <b>${esc(head)}</b>
+    <b>${esc(head)}${exact ? "" : ' <span class="import-pill">Guess</span>'}</b>
     <div class="muted">${esc(copy)}</div>
     <div class="import-actions">${buttons}${keep}</div>
   </div>`;
@@ -9357,14 +9373,18 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const cardState = window.bpCasCards[hostId];
     cardState.units = units;
     if (!cardState.picked) cardState.picked = new Set(units.map((u) => u.key));
-    // An exact folio that is not adopted contributes nothing: its row is shown
-    // with a disabled checkbox and its key stays out of the picked set. Choosing
-    // adopt puts it back; choosing keep or making no choice leaves it out. A
+    // An unanswered folio offer contributes nothing: its row is shown with a
+    // disabled checkbox and its key stays out of the picked set. Choosing adopt
+    // puts it back; choosing keep the manual total leaves an exact folio out,
+    // while Keep both puts a guess back because a new account is the answer. A
     // contested folio has no safe owner, so it stays out too.
     for (const offer of cardState.folioPlan?.offers || []) {
-      if (offer.basis !== "folio") continue;
-      if (offer.state === "adopt") cardState.picked.add(offer.key);
-      else cardState.picked.delete(offer.key);
+      if (offer.state === "adopt"
+        || (offer.basis !== "folio" && offer.chosen === "__create__")) {
+        cardState.picked.add(offer.key);
+      } else {
+        cardState.picked.delete(offer.key);
+      }
     }
     for (const group of cardState.folioPlan?.contested || []) {
       cardState.picked.delete(group.key);
@@ -9453,7 +9473,8 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     // for the person importing, and it can be corrected before anything is written.
     if (cardState.owner === undefined) cardState.owner = cas.holder || "";
     const heldFolioOffers = new Map((cardState.folioPlan?.offers || [])
-      .filter((offer) => offer.basis === "folio" && offer.state !== "adopt")
+      .filter((offer) => offer.state !== "adopt"
+        && !(offer.basis !== "folio" && offer.chosen === "__create__"))
       .map((offer) => [offer.key, offer]));
     const contestedFolios = new Map((cardState.folioPlan?.contested || [])
       .map((group) => [group.key, group]));
@@ -9519,12 +9540,12 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       || linkedLines.length > 0 || movementLines.length > 0;
     const hasTarget = units.some((u) => picked.has(u.key))
       || (!!route.demat && routeHomed) || (!!manual && manualTargets.length > 0);
-    // An exact folio is a question for the person: adopt it into the account
-    // that holds it, or keep the manual total. Importing before an answer would
+    // A folio offer is a question for the person: adopt it into the account that
+    // holds it, or keep the manual total/both. Importing before an answer would
     // drop the folio's rows while the person is still looking at the choice.
     const undecidedFolio = (cardState.folioPlan?.offers || [])
-      .some((offer) => offer.basis === "folio"
-        && offer.state !== "adopt" && offer.state !== "kept");
+      .some((offer) => offer.state !== "adopt" && offer.state !== "kept"
+        && !(offer.basis !== "folio" && offer.chosen === "__create__"));
     const canImport = (units.some((u) => picked.has(u.key)) || hasSales)
       && hasTarget && !safety.blocked && !undecidedFolio;
     const noHome = !hasTarget

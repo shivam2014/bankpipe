@@ -86,6 +86,12 @@ test("a zero check digit is the same folio and every other suffix is not", () =>
   assert.equal(normalizeFolio("90000001234/\u00AD0"), BASE);
 });
 
+test("a reference note in the number column is not a folio", () => {
+  const reference = valueOnly({ number: "Payment From 000000000000" });
+  assert.deepEqual(accountFolios(reference), []);
+  assert.deepEqual(accountFolios(valueOnly()), [BASE]);
+});
+
 test("an account that prints one folio two ways answers to one identity", () => {
   const account = valueOnly({ number: PRINTED,
     meta: JSON.stringify({ amc: "axis", folios: [PRINTED, BASE] }) });
