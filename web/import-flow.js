@@ -5,10 +5,10 @@
 
 import { boId } from "./bo-id.js";
 import { accountFolios, normalizeFolio } from "./folio.js";
-import { isDepositoryAccount, isImportAccount } from "./assets.js";
+import { categoryOf, isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
-import { bondMaturity, isDisposed, termSourceRank } from "./bonds.js";
+import { bondInputsMissing, bondMaturity, isDisposed, termSourceRank } from "./bonds.js";
 
 const norm = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const text = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -937,18 +937,6 @@ export function importAccountSummary(account, holdings = [],
       brokerAsOf ? `Broker ${formatDate(brokerAsOf)}` : ""].filter(Boolean).join(" · ") };
 }
 
-// A bond's terms are its coupon and its maturity. The coupon may be a rate on
-// the row or a percentage in the name the depository printed; the maturity may
-// be stored or sit in that name. Either one is enough to leave the row alone.
-function bondWithoutTerms(row) {
-  const category = String(row?.category || row?.kind || "").trim().toLowerCase();
-  if (category !== "bond") return false;
-  const coupon = asNumber(row?.yield_bps ?? row?.couponPct ?? row?.coupon_pct);
-  if (coupon !== null && coupon > 0) return false;
-  if (/\d+(?:\.\d+)?\s*%/.test(String(row?.label || ""))) return false;
-  return !holdingMaturity(row);
-}
-
 /**
  * Which reports a person can fetch, when to fetch it and what it adds. Copy,
  * not state: the card renders it behind one closed disclosure so the guide is
@@ -987,21 +975,27 @@ export function importAccountGaps(account, holdings = [],
   const rows = holdings || [];
   const meta = safeMeta(account);
   const state = accountFieldState(account, rows);
-  // Nothing on this account names a source, so a file is not what it is missing.
+  // Nothing on this account names a file, so a file is not what it is missing.
   // Read the stored meta, not the derived state: a row date alone falls back to
   // "report", and a typed account must not inherit that name. A row can carry
   // the source too: cas-apply leaves the row's own `source` empty and stamps
   // `value_source` instead, which is still a statement naming the account.
-  const filed = rows.some((row) => text(row?.valueSource ?? row?.value_source))
-    || rows.some((row) => text(row?.source) && text(row?.source) !== "manual");
+  // Manual and BSE are values, not files: a hand-entered or fetched price does
+  // not turn a typed account into one a broker report can fill.
+  const filed = rows.some((row) => {
+    const valueSource = text(row?.valueSource ?? row?.value_source).toLowerCase();
+    if (valueSource && valueSource !== "manual" && valueSource !== "bse") return true;
+    const source = text(row?.source).toLowerCase();
+    return !!source && source !== "manual" && source !== "bse";
+  });
   const manual = !filed && !text(meta.holdings_source) && !text(meta.identity_source)
     && !text(meta.cost_source || meta.broker_source);
   const live = holdingPositions(rows, today)
     .filter((position) => position.active).map((position) => position.row);
   if (!live.length) return { manual, gaps: [] };
   const gaps = [];
-  const uncosted = live.filter((row) =>
-    asMoney(row?.costPaise ?? row?.cost_paise) === null).length;
+  const missing = live.map((row) => bondInputsMissing(row));
+  const uncosted = missing.filter((input) => input.noCost).length;
   const plural = (count) => (count === 1 ? "" : "s");
   if (uncosted) {
     gaps.push({ kind: "cost", text: manual
@@ -1013,13 +1007,67 @@ export function importAccountGaps(account, holdings = [],
     gaps.push({ kind: "cost-older", text: `Cost from ${formatDate(state.cost.asOf)}, `
       + `older than the ${formatDate(state.snapshot.asOf)} holdings` });
   }
-  const termless = live.filter(bondWithoutTerms).length;
+  const termless = missing.filter((input) => input.noTerms).length;
   if (termless) {
     gaps.push({ kind: "terms", text: manual
-      ? `Could add coupon and maturity for ${termless} bond${plural(termless)}`
-      : `No coupon or maturity on ${termless} bond${plural(termless)}` });
+      ? `Could add the missing coupon or maturity for ${termless} bond${plural(termless)}`
+      : `A coupon or maturity is missing on ${termless} bond${plural(termless)}` });
   }
   return { manual, gaps };
+}
+
+/**
+ * The page-level sentence above a bond book: how many live bond lots a broker
+ * holdings report can fill, and with which fields. Lots, not gaps: one lot
+ * missing both is one bond, not two. Only an import account gets a banner; a
+ * typed demat still is one, a cost-only record is not. Returns null when no
+ * live bond lot has a fillable gap.
+ *
+ * @param {object} account
+ * @param {Array<object>} holdings
+ * @param {string} [today]
+ * @returns {{count: number, needs: string, text: string}|null}
+ */
+export function bondGapBanner(account, holdings = [],
+  today = new Date().toISOString().slice(0, 10)) {
+  if (!isImportAccount(account)) return null;
+  const liveBonds = holdingPositions(holdings || [], today)
+    .filter((position) => position.active
+      && String(position.row?.category || "").trim().toLowerCase() === "bond")
+    .map((position) => position.row);
+  const missing = liveBonds.map((row) => bondInputsMissing(row))
+    .filter((input) => input.noCost || input.noTerms);
+  if (!missing.length) return null;
+  const both = missing.filter((input) => input.noCost && input.noTerms).length;
+  const cost = missing.filter((input) => input.noCost).length;
+  const terms = missing.filter((input) => input.noTerms).length;
+  const needs = both === missing.length ? "cost and terms"
+    : cost && terms ? "cost or terms" : cost ? "cost" : "terms";
+  const count = missing.length;
+  return {
+    count, needs,
+    text: `${count} bond${count === 1 ? "" : "s"} ${count === 1 ? "needs" : "need"} `
+      + `${needs} — import a broker report`,
+  };
+}
+
+/**
+ * Where a bond book's Import action may lead. A demat uses the broker section
+ * of Import; a bond portfolio uses the generic Import page. A cost-only record
+ * receives no target at all, so its banner and card carry no dead link. The
+ * gate is the same isImportAccount() the import page uses.
+ *
+ * @param {object} account
+ * @param {string} [assetId]
+ * @returns {{importable: boolean, importTarget: string, importVia: "broker"|"page"}}
+ */
+export function bondImportOf(account, assetId = "") {
+  const importable = isImportAccount(account);
+  return {
+    importable,
+    importTarget: importable ? String(assetId || "") : "",
+    importVia: categoryOf(account) === "demat" ? "broker" : "page",
+  };
 }
 
 /**

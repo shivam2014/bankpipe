@@ -2,14 +2,33 @@
 // fact names the section it ranks in, and the card groups that list. Money
 // figures come from bondAnalytics()/bondRowView, never from this module.
 
-import { bondAnalytics, bondMaturity, parseBondLabel, bondRatingChange,
-  bondRatingRank, soldGain, storedCoupon, termSourceKind, BOND_RATINGS } from "./bonds.js";
+import { bondAnalytics, bondInputsMissing, bondMaturity, parseBondLabel,
+  bondRatingChange, bondRatingRank, soldGain, storedCoupon, termSourceKind,
+  valueKindOf, BOND_RATINGS } from "./bonds.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// A blank field is absent, not a zero. Use this before every Number() that
+// reads a stored money, rate or date figure.
+const numberOrNull = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
 export const DEFAULT_CURRENCY = "₹";
+
+// The four card sentences, in the owner's words. The one-line treatment picks
+// the first or second by whether a market figure survived.
+export const BOND_GAP_COPY = Object.freeze({
+  costTermsMarket: "No cost, terms or market value yet. A broker holdings report fills these.",
+  costTerms: "No cost or terms yet. A broker holdings report fills these.",
+  cost: "Cost not known yet",
+  terms: "Coupon or maturity not known yet",
+});
 
 // Returns leads because the card answers "what is owed and what has been paid"
 // before "what is it worth" and "what were the terms".
@@ -86,17 +105,35 @@ export function bondRowView(h) {
       guessed: !!h.maturityGuessed }
     : bondMaturity(h);
   const parsed = parseBondLabel(h.label);
+  // A coupon can be in the name without a maturity date, and parseBondLabel
+  // only returns when it has a date. Read the rate from the label too, so a
+  // coupon-only row can still show the term it has.
+  const labelCoupon = String(h.label || "").match(/(\d+(?:\.\d+)?)\s*%/);
+  const couponFromLabel = parsed?.couponPct
+    ?? (labelCoupon ? Number(labelCoupon[1]) : null);
   const couponTerm = storedCoupon(h);
   const hasStoredCoupon = couponTerm.stored;
   const couponSource = hasStoredCoupon ? (couponTerm.source || "stored")
-    : (parsed?.couponPct !== null && parsed?.couponPct !== undefined ? "label" : "");
-  const hasPrice = ba ? ba.hasMarket : (h.value_paise !== null && h.cost_paise !== null
-    && Math.abs(h.value_paise - h.cost_paise) >= 1);
+    : (couponFromLabel !== null ? "label" : "");
+  // The source decides the label, not arithmetic. A CAS figure is a statement
+  // figure even when a broker cost lets the price maths run; a BSE quote is a
+  // market value even when there is no cost to measure it against.
+  const kind = valueKindOf(h);
+  const finiteValue = numberOrNull(h.value_paise);
+  const marketValue = kind === "market" && finiteValue !== null && finiteValue > 0
+    ? finiteValue : null;
+  const statementValue = kind === "statement" ? finiteValue : null;
+  const costPaise = numberOrNull(h.cost_paise);
+  const yieldBps = numberOrNull(h.yield_bps);
+  const payoutPaise = numberOrNull(h.payout_paise);
   const periods = bondPeriods(h.frequency);
   // Principal already returned is money in hand, so a sale of the rest is
   // measured against the full cost. Coupons already received and accrued
-  // interest are also the seller's, so the total gain includes them.
-  const returned = (ba && ba.returned) || 0;
+  // interest are also the seller's, so the total gain includes them. A row
+  // with no analytics still has an explicit repayment to show.
+  const returned = ba ? (ba.returned || 0)
+    : (h.returned_paise === null || h.returned_paise === undefined
+      ? 0 : Number(h.returned_paise) || 0);
   const today = new Date().toISOString().slice(0, 10);
   const pastReturn = String(h.redemption_dates || h.principal_dates || "")
     .split(",").map((d) => d.trim()).filter((d) => d && d <= today).sort().pop() || "";
@@ -104,27 +141,25 @@ export function bondRowView(h) {
     h, ba,
     rating: bondRatingOf(h),
     change: bondRatingChange(h.rating_at_purchase, h.rating),
-    coupon: ba ? ba.couponPct : (hasStoredCoupon ? couponTerm.value
-      : (parsed ? parsed.couponPct : null)),
+    coupon: ba ? ba.couponPct
+      : (hasStoredCoupon ? couponTerm.value : couponFromLabel),
     couponSource: ba ? ba.couponSource : couponSource,
     couponAsOf: ba ? ba.couponAsOf : (hasStoredCoupon ? couponTerm.asOf : ""),
     couponGuessed: ba ? !!ba.couponGuessed
       : (!hasStoredCoupon || termSourceKind(couponSource) === "label")
-        && parsed?.couponPct !== null && parsed?.couponPct !== undefined,
+        && couponFromLabel !== null,
     maturity: terms.maturity || (ba ? ba.maturity : ""),
     maturitySource: terms.source,
     maturityAsOf: String(h.maturityAsOf ?? h.maturity_as_of ?? "").slice(0, 10),
     maturityGuessed: terms.guessed,
     maturityUnread: !terms.maturity && !!(parsed?.dateUnread),
-    yieldPct: h.yield_bps !== null && h.yield_bps !== undefined
-      ? h.yield_bps / 100 : (ba ? ba.ytm : null),
+    yieldPct: yieldBps !== null ? yieldBps / 100 : (ba ? ba.ytm : null),
     frequency: bondFrequency(h.frequency),
     periods,
-    payoutEstimated: !(h.payout_paise !== null && h.payout_paise !== undefined)
-      && !!(ba && periods),
+    payoutEstimated: payoutPaise === null && !!(ba && periods),
     interestDate: h.interest_date || "",
-    payout: h.payout_paise !== null && h.payout_paise !== undefined
-      ? h.payout_paise : (ba && periods ? ba.annualCoupon / periods : null),
+    payout: payoutPaise !== null
+      ? payoutPaise : (ba && periods ? ba.annualCoupon / periods : null),
     totalCoupon: ba ? ba.couponIncome : null,
     capitalGain: ba ? ba.capitalGain : null,
     expectedMaturity: ba ? (ba.schedule ? ba.schedule.total : ba.faceTotal + ba.couponIncome) : null,
@@ -136,9 +171,16 @@ export function bondRowView(h) {
     returnedRecordDate: h.returned_record_date || "",
     returnedSource: h.returned_source || "",
     shortSchedule: !!(ba && ba.schedule && ba.schedule.short),
-    hasPrice,
-    value: hasPrice ? h.value_paise : null,
-    gain: hasPrice ? (ba ? soldGain(ba) : h.value_paise + returned - h.cost_paise) : null,
+    cost: costPaise,
+    marketValue,
+    value: marketValue,
+    // The figure the statement supplied, kept apart from the calculated
+    // market value. Source decides; a CAS value with a cost is still a
+    // statement figure, never a price.
+    statementValue,
+    gain: marketValue === null ? null
+      : (ba && ba.hasMarket ? soldGain(ba)
+        : (costPaise === null ? null : marketValue + returned - costPaise)),
     pastCoupon: ba?.pastCoupon ?? null,
     originalCoupon: ba?.originalCouponEstimate ?? null,
     couponProgress: ba?.couponProgress ?? null,
@@ -147,14 +189,76 @@ export function bondRowView(h) {
     faceSource: String(h.face_source || "").trim(),
     faceAsOf: String(h.face_as_of || "").slice(0, 10),
     principalLeft: ba?.faceTotal ?? null,
-    marketPerUnit: hasPrice && Number(h.quantity) > 0 ? h.value_paise / Number(h.quantity) : null,
+    marketPerUnit: marketValue !== null && Number(h.quantity) > 0
+      ? marketValue / Number(h.quantity) : null,
+    // The clean price the "Enter market values" screen pre-fills. It is null
+    // for a statement figure, even when the row also has a cost.
+    marketPrice: marketValue !== null && ba?.faceTotal > 0
+      ? (marketValue / ba.faceTotal) * 100 : null,
     valueAsOf: String(h.as_of || "").slice(0, 10),
     accrued: ba?.accrued ?? null,
     accruedFrom: ba?.accruedFrom || "",
     accruedTo: ba?.accruedTo || "",
-    currentYield: ba?.currentYield ?? null,
+    currentYield: marketValue === null ? null : (ba?.currentYield ?? null),
     bought: h.purchase_date || "",
   };
+}
+
+/**
+ * How much of a bond card is worth rendering for the facts it has.
+ *
+ * A matured lot is awaiting payment, not work, so it always keeps its full
+ * card. A live lot with neither cost nor terms gets one sentence and its
+ * present facts, not a wall of dashes. A lot missing one side keeps the other
+ * and one line for the absent side. Everything else is the full card.
+ *
+ * A cost-less row can still have a market value when its source is BSE or
+ * Manual; a CAS or broker figure is a statement value, never a price.
+ *
+ * @param {object} v a bondRowView()
+ * @param {{matured?: boolean}} [options]
+ * @returns {{noCost: boolean, noTerms: boolean, noMarket: boolean,
+ *   treatment: "one-line"|"cost-line"|"terms-line"|"full"}}
+ */
+export function bondCardGap(v, { matured = !!v.matured } = {}) {
+  const input = bondInputsMissing(v.h || {});
+  const noMarket = v.value === null;
+  const gap = { noCost: input.noCost, noTerms: input.noTerms, noMarket };
+  if (matured) return { ...gap, treatment: "full" };
+  if (input.noCost && input.noTerms) return { ...gap, treatment: "one-line" };
+  if (input.noCost) return { ...gap, treatment: "cost-line" };
+  if (input.noTerms) return { ...gap, treatment: "terms-line" };
+  return { ...gap, treatment: "full" };
+}
+
+/**
+ * The coverage line for a partial total. Empty when every lot is covered, so
+ * a complete book does not carry a redundant scope.
+ * @param {number} covered
+ * @param {number} count
+ * @param {string} noun
+ * @returns {string}
+ */
+export function bondCoverageText(covered, count, noun) {
+  return covered < count ? `${covered} of ${count} ${noun}` : "";
+}
+
+/**
+ * The page banner as one action. The sentence is the label; the arrow is the
+ * only decoration. An account with no id gets the same row as a div, because a
+ * button that does nothing is worse than plain text.
+ *
+ * @param {{text: string}} banner
+ * @param {string} [importTarget]
+ * @param {"broker"|"page"} [importVia]
+ * @returns {string}
+ */
+export function bondGapBannerHtml(banner, importTarget = "", importVia = "broker") {
+  const content = `<span>${esc(banner?.text || "")}</span><span aria-hidden="true">→</span>`;
+  const action = importVia === "page" ? "go('import')" : `bpEquityImport(${jsArg(importTarget)})`;
+  return importTarget
+    ? `<button type="button" class="bond-gap-banner" data-bond-gap-banner onclick="${action}">${content}</button>`
+    : `<div class="bond-gap-banner" data-bond-gap-banner>${content}</div>`;
 }
 
 export function bondSortValue(v, key) {
@@ -187,9 +291,13 @@ function heldTotalOf(v, matured) {
  *
  * @param {object} v a bondRowView()
  * @param {{matured?: boolean, assetId?: string, currency?: string}} [options]
+ * Every fact says whether its figure is actually present, so a card with a
+ * fillable gap can keep what it has instead of printing a wall of dashes.
+ *
  * @returns {Array<{key: string, label: string, value: string, sub?: string,
- *   section: string, kind: "anchor"|"fact"|"progress"|"sources", tone?: string,
- *   subTone?: string, actionHtml?: string, progress?: object|null, empty?: string}>}
+ *   present: boolean, section: string, kind: "anchor"|"fact"|"progress"|"sources",
+ *   tone?: string, subTone?: string, actionHtml?: string, progress?: object|null,
+ *   empty?: string}>}
  */
 export function bondFacts(v, {
   matured = !!v.matured, assetId = "", currency = DEFAULT_CURRENCY,
@@ -210,9 +318,26 @@ export function bondFacts(v, {
   const policyNote = v.couponLost && v.returned > 0 && v.ba?.firstPast
     ? `${money(v.couponLost)} less after the early repayment`
     : "original schedule";
-  const rawSource = v.h.value_source || (v.h.source === "manual" ? "Manual" : "CAS");
-  const valueSourceLong = rawSource === "BSE" ? "from BSE"
-    : rawSource === "Manual" ? "entered by hand" : "from the CAS";
+  // A figure names the source that supplied it. Never turn an unknown or
+  // empty source into CAS; the legacy empty source says so plainly.
+  const rawValueSource = String(v.h.value_source ?? v.h.valueSource ?? "").trim();
+  const valueSourceLong = !rawValueSource ? "source not recorded"
+    : rawValueSource.toUpperCase() === "BSE" ? "from BSE"
+      : rawValueSource.toUpperCase() === "MANUAL" ? "entered by hand"
+        : rawValueSource.toUpperCase() === "CAS" ? "from the CAS"
+          : `from ${esc(rawValueSource)}`;
+  const statementPaise = Number(v.statementValue);
+  const hasStatementValue = Number.isFinite(statementPaise) && statementPaise > 0;
+  // The book's lotValue() counts the stored value first, then cost. The
+  // matured anchor must be the same amount the divider totals.
+  const anchorPaise = matured
+    ? (v.value ?? (hasStatementValue ? statementPaise : null) ?? v.cost)
+    : null;
+  const anchorSource = !matured ? ""
+    : (v.value !== null || hasStatementValue) ? valueSourceLong
+      : v.cost !== null ? "at cost" : "";
+  const anchorSub = `stays in net worth until a bank credit is matched${
+    anchorSource ? ` · ${anchorSource}` : ""}`;
   const enterValue = assetId && v.h.id
     ? `<button class="vupdate" data-bond-action="enter-value"
         onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>`
@@ -221,24 +346,46 @@ export function bondFacts(v, {
     ? `not recorded${enterValue ? ` · ${enterValue}` : ""}`
     : [v.valueAsOf ? `as of ${dateLabel(v.valueAsOf)}` : "",
         valueSourceLong].filter(Boolean).join(" · ");
-  const termsSource = v.h.source === "manual" ? "manual" : "CAS";
-  const sources = matured
-    ? `${v.h.source === "manual" ? "Terms entered by hand" : "Terms from the CAS"}${
-      v.rating ? " · rating from SMEST" : ""}`
+  const rowSource = String(v.h.source || "").trim();
+  const rowSourceKey = rowSource.toLowerCase();
+  const termsSource = rowSourceKey === "manual" ? "manual"
+    : rowSourceKey === "cas" ? "CAS"
+      : rowSourceKey === "report" ? "report"
+        : rowSource ? esc(rowSource) : "source not recorded";
+  const termsLine = rowSourceKey === "manual" ? "Terms entered by hand"
+    : rowSourceKey === "cas" ? "Terms from the CAS"
+      : rowSourceKey === "report" ? "Terms from the report"
+        : rowSource ? `Terms from ${esc(rowSource)}` : "Terms source not recorded";
+  const returnedKey = String(v.returnedSource || "").trim().toLowerCase();
+  const returnedLabel = !v.returned ? ""
+    : returnedKey === "smest" ? "SMEST"
+      : returnedKey === "cashflow" ? "Cashflow Future"
+        : returnedKey === "bank" ? "bank"
+          : "source not recorded";
+  const sources = matured ? termsLine
     : [
       termsSource,
-      v.returned ? (v.returnedSource === "cashflow" ? "Cashflow Future"
-        : v.returnedSource === "bank" ? "bank" : "SMEST") : "",
+      returnedLabel,
       v.returnedRecordDate ? "BSE" : "",
       v.pastCoupon !== null && v.pastCoupon !== undefined ? "interest estimated" : "",
     ].filter(Boolean).join(" · ");
   const changeTone = v.change ? (v.change.down ? "neg" : "pos") : "";
+  // A CAS row can carry the face per unit with no cost, so there is no
+  // purchase face to derive. The statement's face and quantity are still a
+  // fact, named as the statement's face rather than a cost-implied guess.
+  const facePaise = numberOrNull(v.h.face_paise);
+  const faceFallback = !v.ba && facePaise !== null && facePaise > 0 && qty > 0
+    ? facePaise * qty : null;
+  const faceValue = v.faceAtIssue || faceFallback || null;
+  const faceFromStatement = !v.faceAtIssue && faceFallback !== null;
+  const gap = bondCardGap(v, { matured });
   const facts = [];
 
   facts.push(matured ? {
     key: "value-in-net-worth", label: "Value in net worth",
-    value: money(v.value ?? v.h.cost_paise),
-    sub: "stays in net worth until a bank credit is matched",
+    value: money(anchorPaise),
+    sub: anchorSub,
+    present: anchorPaise !== null,
     section: "Returns", kind: "anchor",
   } : {
     key: "total-if-held", label: "Total if held",
@@ -246,6 +393,7 @@ export function bondFacts(v, {
     sub: heldGain === null ? "not enough terms to estimate the gain"
       : `${heldGain < 0 ? "−" : "+"}${money(Math.abs(heldGain))} gain`,
     subTone: heldGain === null ? "" : (heldGain < 0 ? "neg" : "pos"),
+    present: heldTotal !== null,
     section: "Returns", kind: "anchor",
   });
 
@@ -257,12 +405,14 @@ export function bondFacts(v, {
         v.returnedRecordDate ? `face reduced ${dateLabel(v.returnedRecordDate)}` : ""]
         .filter(Boolean).join(" · ")
       : "none yet",
+    present: !!returned,
     section: "Returns", kind: "fact",
   });
   facts.push({
     key: "principal-left", label: "Principal left",
     value: v.principalLeft ? money(v.principalLeft) : "—",
     sub: v.principalLeft ? (v.maturity ? `due ${dateLabel(v.maturity)}` : "") : "not recorded",
+    present: !!v.principalLeft,
     section: "Returns", kind: "fact",
   });
 
@@ -276,6 +426,7 @@ export function bondFacts(v, {
           : "amount not recorded") : "",
         v.interestDate ? dateLabel(v.interestDate) : "",
         v.payoutEstimated ? "estimated" : ""].filter(Boolean).join(" · "),
+      present: v.payout !== null && v.payout !== undefined,
       section: "Returns", kind: "fact",
     });
     facts.push({
@@ -284,11 +435,13 @@ export function bondFacts(v, {
         : `${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain))}`,
       sub: v.gain === null || v.gain === undefined ? "needs a market value" : "",
       tone: v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "",
+      present: v.gain !== null && v.gain !== undefined,
       section: "Returns", kind: "fact",
     });
     facts.push({
       key: "interest-progress", label: "Interest received",
       value: progress === null ? "" : `${Math.round(progress)}% complete`,
+      present: progress !== null,
       section: "Returns", kind: "progress",
       progress: progress === null ? null : {
         pct: progress,
@@ -299,15 +452,30 @@ export function bondFacts(v, {
       empty: "Interest received needs the purchase date and coupon frequency.",
     });
 
+    // A statement value is not a market value. It keeps the name of the
+    // source that supplied it, and the calculated figure stays empty. An
+    // empty string is not a zero: only a finite positive figure is a value.
+    if (v.value === null && hasStatementValue) {
+      facts.push({
+        key: "statement-value", label: "Statement value",
+        value: money(statementPaise),
+        sub: [v.valueAsOf ? `as on ${dateLabel(v.valueAsOf)}` : "", valueSourceLong]
+          .filter(Boolean).join(", "),
+        present: true,
+        section: "Market value", kind: "fact",
+      });
+    }
     facts.push({
       key: "market-value", label: "Market value",
       value: money(v.value), sub: marketSub,
       actionHtml: enterValue,
+      present: v.value !== null,
       section: "Market value", kind: "fact",
     });
     facts.push({
       key: "per-unit", label: "Per unit", value: perUnit === null ? "—" : money(perUnit),
       sub: perUnit === null ? "needs a market value" : "",
+      present: perUnit !== null,
       section: "Market value", kind: "fact",
     });
     facts.push({
@@ -316,6 +484,7 @@ export function bondFacts(v, {
         ? "—" : `${v.currentYield.toFixed(2)}%`,
       sub: v.currentYield === null || v.currentYield === undefined
         ? "needs a market value" : "",
+      present: v.currentYield !== null && v.currentYield !== undefined,
       section: "Market value", kind: "fact",
     });
     facts.push({
@@ -326,34 +495,40 @@ export function bondFacts(v, {
           : (v.h.rating_at_purchase ? "unchanged since purchase" : ""))
         : "rating missing",
       tone: changeTone, subTone: changeTone,
+      present: !!v.rating,
       section: "Market value", kind: "fact",
     });
   }
 
   facts.push({
     key: "invested", label: "Invested",
-    value: money(v.h.cost_paise),
-    sub: v.h.cost_paise === null || v.h.cost_paise === undefined ? "not recorded" : "",
+    value: money(v.cost),
+    sub: v.cost === null ? "not recorded" : "",
+    present: v.cost !== null,
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "units", label: "Units", value: qty || "—",
     sub: qty ? "" : "not recorded",
+    present: qty > 0,
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "purchase-date", label: "Purchase date", value: v.bought ? dateLabel(v.bought) : "—",
     sub: v.bought ? "" : "not in the statement",
+    present: !!v.bought,
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: matured ? "face-value" : "face-at-issue",
-    label: matured ? "Face value" : "Face at issue",
-    value: v.faceAtIssue ? money(v.faceAtIssue) : "—",
-    sub: v.faceAtIssue
-      ? (!matured && !(Number(v.h.face_paise) > 0) ? "inferred from invested"
-        : bondTermSourceText(v.faceSource, v.faceAsOf))
+    label: matured || faceFromStatement ? "Face value" : "Face at issue",
+    value: faceValue ? money(faceValue) : "—",
+    sub: faceValue
+      ? (faceFromStatement ? ""
+        : (!matured && !(Number(v.h.face_paise) > 0) ? "inferred from invested"
+          : bondTermSourceText(v.faceSource, v.faceAsOf)))
       : "not in the statement",
+    present: !!faceValue,
     section: "Purchase", kind: "fact",
   });
   facts.push({
@@ -363,6 +538,7 @@ export function bondFacts(v, {
       : (v.couponGuessed ? "read from the bond name — check it"
         : bondTermSourceText(v.couponSource, v.couponAsOf)),
     subTone: v.couponGuessed ? "amber" : "",
+    present: v.coupon !== null && v.coupon !== undefined,
     section: "Purchase", kind: "fact",
   });
   facts.push({
@@ -373,31 +549,46 @@ export function bondFacts(v, {
       : (v.maturityUnread ? "the date in the name could not be read — check it"
         : "not in the statement"),
     subTone: v.maturityGuessed || v.maturityUnread ? "amber" : "",
+    // An unreadable date is a present fact about the name: keep the dash and
+    // its note even on a gap card, or the card cannot say why it is missing.
+    present: !!v.maturity || v.maturityUnread,
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "frequency", label: "Payment frequency", value: esc(v.frequency),
     sub: v.h.frequency ? "" : "not in the statement",
+    present: !!v.h.frequency,
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "purchase-yield", label: "Purchase yield",
     value: v.yieldPct === null ? "—" : `${v.yieldPct.toFixed(2)}%`,
     sub: v.yieldPct === null ? "not in the statement" : "",
+    present: v.yieldPct !== null && v.yieldPct !== undefined,
     section: "Purchase", kind: "fact",
   });
   facts.push({
     key: "purchase-rating", label: "Purchase rating",
     value: v.h.rating_at_purchase ? esc(v.h.rating_at_purchase) : "—",
     sub: v.h.rating_at_purchase ? "" : "rating missing",
+    present: !!v.h.rating_at_purchase,
     section: "Purchase", kind: "fact",
   });
 
   facts.push({
     key: "sources", label: "Sources", value: sources,
+    present: true,
     section: "Purchase", kind: "sources",
   });
 
+  // A card with a fillable gap shows what it has, not every field the schema
+  // could produce. Market value stays beside its Enter it action; the sources
+  // always stay as the foot.
+  if (gap.treatment !== "full") {
+    return facts.filter((fact) => fact.present
+      || fact.kind === "sources"
+      || (fact.key === "market-value" && !!enterValue));
+  }
   return facts;
 }
 
@@ -406,9 +597,12 @@ export function bondFacts(v, {
  * values the cards render. Presentation arithmetic only and live lots only: a
  * matured lot has no future total and stays on its own card.
  *
+ * `costed` and `priced` are the coverage counts, so the bar can say when its
+ * totals cover only part of the book.
+ *
  * @param {Array<object>} views bondRowView() rows
  * @returns {{count: number, totalIfHeld: number|null, principalLeft: number|null,
- *   interestPct: number|null}|null}
+ *   interestPct: number|null, costed: number, priced: number}|null}
  */
 export function bondBookSummary(views) {
   const list = (views || []).filter((v) => !v.matured);
@@ -417,12 +611,16 @@ export function bondBookSummary(views) {
   let principalLeft = null;
   let paid = 0;
   let original = 0;
+  let costed = 0;
+  let priced = 0;
   for (const v of list) {
     const held = heldTotalOf(v, false);
     if (held !== null && held !== undefined) totalIfHeld = (totalIfHeld ?? 0) + held;
     if (v.principalLeft !== null && v.principalLeft !== undefined) {
       principalLeft = (principalLeft ?? 0) + v.principalLeft;
     }
+    if (v.cost !== null && v.cost !== undefined) costed += 1;
+    if (v.value !== null && v.value !== undefined) priced += 1;
     if (Number(v.originalCoupon) > 0
       && v.pastCoupon !== null && v.pastCoupon !== undefined) {
       paid += Number(v.pastCoupon);
@@ -434,6 +632,8 @@ export function bondBookSummary(views) {
     totalIfHeld,
     principalLeft,
     interestPct: original > 0 ? Math.min(100, (paid / original) * 100) : null,
+    costed,
+    priced,
   };
 }
 
@@ -476,10 +676,12 @@ function actionButtons(v, assetId, { matured = false } = {}) {
  * to one card per row below 1000px.
  * @param {object} v a bondRowView()
  * @param {string} assetId
- * @param {{matured?: boolean, currency?: string}} [options]
+ * @param {{matured?: boolean, currency?: string, importTarget?: string,
+ *   importVia?: "broker"|"page"}} [options]
  */
 export function bondCardHtml(v, assetId, {
-  matured = false, currency = DEFAULT_CURRENCY,
+  matured = false, currency = DEFAULT_CURRENCY, importTarget = assetId,
+  importVia = "broker",
 } = {}) {
   const money = (x) => moneyText(x, currency);
   const facts = bondFacts(v, { matured, assetId, currency });
@@ -487,27 +689,71 @@ export function bondCardHtml(v, assetId, {
   const issuer = String(v.h.issuer || "").trim();
   const badge = matured
     ? `<span class="bond-matured-badge">Matured · awaiting payment</span>` : "";
+  const gap = bondCardGap(v, { matured });
+  const statementFigure = Number(v.statementValue);
+  const statementOnly = v.value === null && Number.isFinite(statementFigure)
+    && statementFigure > 0;
+  const headerSub = gap.treatment === "full"
+    ? `${issuer ? `${esc(issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
+      ? " · added by hand" : ""}${!issuer
+      ? ` · <span class="need">issuer name missing</span>` : ""}`
+    : [issuer ? esc(issuer) : "", esc(v.h.security_id || "no ISIN"),
+      v.h.source === "manual" ? "added by hand" : ""].filter(Boolean).join(" · ");
+  const importAction = importVia === "page"
+    ? "go('import')" : `bpEquityImport(${jsArg(importTarget)})`;
+  const importLink = importTarget
+    ? `<button type="button" class="bond-gap-link" data-bond-action="import-broker"
+        onclick="${importAction}">Import</button>` : "";
+  const oneLineBase = gap.noMarket
+    ? BOND_GAP_COPY.costTermsMarket : BOND_GAP_COPY.costTerms;
+  const oneLineCopy = importTarget ? oneLineBase
+    : oneLineBase.replace(" A broker holdings report fills these.", "");
+  const gapLine = gap.treatment === "one-line"
+    ? `<div class="bond-gap-line">${oneLineCopy}${
+      importLink ? ` ${importLink}` : ""}</div>`
+    : gap.treatment === "cost-line"
+      ? `<div class="bond-gap-line">${BOND_GAP_COPY.cost}${
+        importLink ? ` ${importLink}` : ""}</div>`
+      : gap.treatment === "terms-line"
+        ? `<div class="bond-gap-line">${BOND_GAP_COPY.terms}${
+          importLink ? ` ${importLink}` : ""}</div>`
+        : "";
+  // A matured lot is money already owed, not a task. Say what is missing
+  // quietly, with no Import and no action attribute.
+  // A matured lot always has a maturity date; its terms gap can only be the
+  // coupon. Never claim the known date is unknown.
+  const maturedGap = matured
+    ? (gap.noCost && gap.noTerms ? "Cost or coupon not known"
+      : gap.noCost ? "Cost not known"
+        : gap.noTerms ? "Coupon not known" : "")
+    : "";
   const sectionHtml = (section) => {
     const items = facts.filter((f) => f.section === section
       && f.kind !== "progress" && f.kind !== "sources");
     const progress = facts.find((f) => f.section === section && f.kind === "progress");
     if (!items.length && !progress) return "";
     const gridClass = section === "Purchase" ? " bond-grid-purchase" : "";
+    // A MARKET VALUE heading over a statement figure would name it as a
+    // market value. Keep the section's facts, drop the heading when the only
+    // figure in it is the statement's.
+    const title = section === "Market value" && statementOnly
+      ? "" : `<h3 class="bond-section-title">${section}</h3>`;
     return `<div class="bond-section" data-section="${section}">
-      <h3 class="bond-section-title">${section}</h3>
+      ${title}
       <div class="bond-grid${gridClass}">${items.map(factHtml).join("")}</div>
       ${progress ? progressBlock(progress, money) : ""}</div>`;
   };
 
   return `<div class="bond-card" data-bond-card="${esc(v.h.id || "")}"
-      data-matured="${matured ? "true" : "false"}">
+      data-matured="${matured ? "true" : "false"}"${
+      gap.treatment !== "full" ? ` data-gap-treatment="${gap.treatment}"` : ""}>
     <div class="bond-card-head"><div class="bond-card-title">
       <div class="bond-name">${esc(v.h.label || "—")}</div>
-      <div class="sub">${issuer ? `${esc(issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
-        ? " · added by hand" : ""}${!issuer
-        ? ` · <span class="need">issuer name missing</span>` : ""}</div></div>
+      <div class="sub">${headerSub}</div></div>
       <div class="bond-card-actions">${badge}${actionButtons(v, assetId, { matured })}</div></div>
-    ${BOND_SECTIONS.map(sectionHtml).join("")}
+    ${gapLine}${maturedGap
+      ? `<div class="bond-matured-gap">${maturedGap}</div>` : ""}${
+      BOND_SECTIONS.map(sectionHtml).join("")}
     <div class="bond-sources" data-fact="sources">${sources ? sources.value : ""}</div>
   </div>`;
 }

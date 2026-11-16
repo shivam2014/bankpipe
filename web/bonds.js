@@ -85,6 +85,41 @@ export function bondMaturity(row) {
   return { maturity: parsed.maturity, source: "label", guessed: true };
 }
 
+// What the card needs before it can compute anything, shared by the card and
+// the import gap list so the two screens cannot disagree. Cost is the number
+// the person paid. Terms are a coupon and a maturity; a yield is not a coupon,
+// because the card cannot print a yield as one. The coupon may be a rate on
+// the row or a percentage in the name; the maturity may be stored or in that
+// name. One missing term is still a gap: bondAnalytics needs both to estimate
+// the anchor, so a broker report can fill either side.
+export function bondInputsMissing(row) {
+  const cost = row?.costPaise ?? row?.cost_paise;
+  const noCost = cost === null || cost === undefined || cost === "";
+  const category = String(row?.category || "").trim().toLowerCase();
+  if (category !== "bond") return { noCost, noTerms: false };
+  // Use the same stored coupon the card reads, then the name. A stored zero
+  // is still a stored term; a yield is not a coupon.
+  const hasCoupon = storedCoupon(row).stored
+    || /\d+(?:\.\d+)?\s*%/.test(String(row?.label || ""));
+  const hasMaturity = !!bondMaturity(row).maturity;
+  // bondAnalytics needs both terms. A coupon without a date, or a date without
+  // a coupon, cannot be estimated, so it is still a terms gap.
+  return { noCost, noTerms: !hasCoupon || !hasMaturity };
+}
+
+// A stored value is either a price or a statement figure, and its source says
+// which. BSE and Manual are prices (the user's own figure is a market value
+// entered by hand). Any other named source is a statement. An empty source is
+// a legacy row: it stays a market value, because the existing data and the
+// render harness have values with no source, and reclassifying them is a
+// separate decision. Its sub says "source not recorded", never CAS.
+export function valueKindOf(row) {
+  const source = String(row?.value_source ?? row?.valueSource ?? "").trim();
+  if (!source) return "market";
+  const upper = source.toUpperCase();
+  return upper === "BSE" || upper === "MANUAL" ? "market" : "statement";
+}
+
 // What a lot contributes to the account it sits in. A priced lot uses its
 // value; an unpriced one uses cost, the same fallback assetMetrics() uses, so
 // the "matured" line and the account total can never disagree.
@@ -533,7 +568,11 @@ export function bondSummary(rows) {
   const couponIncome = sum("futureCoupon");
   const capitalGain = sum("capitalGain");
   const totalGain = items.reduce((t, x) => t + (x.futureCoupon || 0) + (x.capitalGain || 0), 0);
-  const market = items.filter((x) => x.hasMarket);
+  // The market subset follows the same source classifier as the card. A CAS
+  // statement figure is not a market value even when the arithmetic would
+  // treat it as one.
+  const market = (rows || []).filter((row) => valueKindOf(row) === "market")
+    .map(bondAnalytics).filter((x) => x && x.hasMarket);
   const marketValue = market.reduce((t, x) => t + x.value, 0);
   const marketCost = market.reduce((t, x) => t + x.cost, 0);
   // Prefer the imported schedule where a lot has one; fall back to the estimate.
