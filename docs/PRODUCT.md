@@ -58,6 +58,19 @@ whatever stable key its source provides: a BO ID, an account number, a folio num
 a broker client code. A source that offers only a client code is still a source; match
 on that code and do not refuse it for lacking a BO ID.
 
+A mutual fund folio's slash suffix is the registrar's check digit, not a sub-folio. A
+trailing `/0` is the zero check digit and does not change identity, so `99990000001`
+and `99990001/0` are one position. Every other suffix stays distinct (`/1`, `/68`,
+`/00`): without the registrar's table a non-zero digit cannot be proven
+non-identifying, and a wrong merge costs more than a duplicate. The printed spelling
+stays on the account; only comparison normalises it (`web/folio.js:normalizeFolio`).
+A fund account that carries the folio, holds no unit rows and records a manual current
+value is an adoption candidate, not an automatic home. The import offers that exact
+account, and only an explicit choice replaces the manual total with the statement's
+units; keeping the manual total leaves it as the single position and imports none of
+the statement's rows. A second account carrying the same canonical folio is the
+duplicate this rule prevents.
+
 Two existing statements pull the other way and should be softened, not deleted.
 `web/db.js:110` says a demat account's identity is the BO ID "not the string a person
 typed", and `web/bo-id.js:3-4` says a client code is "a label, never a key". Both are

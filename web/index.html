@@ -7203,20 +7203,38 @@ function bpImportResolveCas(bundle) {
     const folio = folioKey(group);
     const offer = folioPlan.offers.find((item) => item.key === folio) || null;
     const choiceKey = `${bundle.key}:${folioKey(group)}`;
-    let targetId = state.choices[choiceKey] || "";
-    if (targetId && !bpImportAccountRow(targetId)) targetId = "";
-    // A stale choice is not an adoption. The candidate must still be value-only
-    // and unshared, or the writer would merge rows the preview no longer offers.
-    if (targetId && offer && !offer.choosable.some((candidate) => candidate.id === targetId)) {
-      targetId = "";
+    const choice = String(state.choices[choiceKey] || "");
+    const exact = offer?.basis === "folio";
+    let targetId = "";
+    if (exact) {
+      // An exact folio has one owner: the account the plan found. It is never
+      // reached through the generic identity match or a create fallback, because
+      // a second account with the same canonical folio is the duplicate this
+      // rule exists to prevent.
+      targetId = offer.state === "adopt" ? offer.chosen : "";
+      if (targetId && !bpImportAccountRow(targetId)) targetId = "";
+    } else {
+      targetId = choice;
+      if (targetId && !bpImportAccountRow(targetId)) targetId = "";
+      // A stale choice is not an adoption. The candidate must still be value-only
+      // and unshared, or the writer would merge rows the preview no longer offers.
+      if (targetId && offer && !offer.choosable.some((candidate) => candidate.id === targetId)) {
+        targetId = "";
+      }
+      if (!targetId && !match.tie) targetId = match.identityId || match.bestId || "";
     }
-    if (!targetId && !match.tie) targetId = match.identityId || match.bestId || "";
     const targetRow = targetId ? bpImportAccountRow(targetId) : null;
-    const plan = bpImportPlanFor(bundle, targetRow, group.rows, null);
+    // Keeping an exact folio writes none of its rows, so the plan must not claim
+    // them as additions. The card still shows the statement's row count.
+    const held = exact && !targetId;
+    const plan = bpImportPlanFor(bundle, targetRow, held ? [] : group.rows, null);
     return { boId: folioKey(group),
       dpName: `${group.amc} mutual fund · folio …${folioTail(group.folioNo)}`,
-      rows: group.rows, match, targetId, plan, offer,
-      action: targetRow ? "update" : "create", folio: true, amc: group.amc,
+      rows: group.rows, match, targetId, plan, offer, folioChoice: choice,
+      action: exact
+        ? (targetId ? "update" : (offer.state === "kept" ? "kept" : "decide"))
+        : (targetRow ? "update" : "create"),
+      folio: true, amc: group.amc,
       amcFull: group.amcFull, folioNo: group.folioNo };
   });
   bundle.casTargets = [...dematTargets, ...folioTargets];
@@ -7333,10 +7351,12 @@ function bpImportResolveCas(bundle) {
     bundle.plan.warnings = [...new Set([...bundle.plan.warnings, gap.reason])];
   }
   bundle.needsChoice = bundle.casTargets.some((target) =>
-    target.match.tie && !target.targetId && !target.createChoice);
-  bundle.create = bundle.casTargets.some((target) => !target.targetId);
+    target.action === "decide"
+    || (target.match.tie && !target.targetId && !target.createChoice));
+  bundle.create = bundle.casTargets.some((target) => !target.targetId
+    && target.action !== "kept" && target.action !== "decide");
   bundle.ready = !safety.blocked && !bundle.movementBlocked && bundle.casTargets.length > 0
-    && bundle.casTargets.every((target) => target.plan
+    && bundle.casTargets.every((target) => target.action !== "decide" && target.plan
       && !["invalid", "future"].includes(target.plan.incomingDateState)
       && (target.plan.summary.ask === 0 || bundle.acceptAsk)
       && (target.targetId || !target.match.tie || target.createChoice));
@@ -7444,7 +7464,8 @@ function bpImportPlanForBundles(group, bundles) {
     || /\b(sale|sold|sell|transfer\s*out|redemption|switch\s*out|withdrawal)\b/i
       .test(String(event.type || "")));
   const accountCount = head.family === "cas"
-    ? statementAccounts(head.casTargets).count : 1;
+    ? statementAccounts((head.casTargets || []).filter((target) =>
+      target.action !== "kept" && target.action !== "decide")).count : 1;
   if (head.family === "cas") {
     for (const target of head.casTargets || []) {
       const attached = extraBundles.filter((bundle) =>
@@ -7666,16 +7687,24 @@ function bpImportCasAccountsHtml(bundle) {
     <div class="import-account-list">${targets.map((target) => {
       const status = target.targetId
         ? `Update ${esc(bpImportAccountRow(target.targetId)?.account?.label || "the account")}`
-        : target.folio ? "New mutual fund folio account" : "New demat account";
+        : target.action === "decide"
+          ? "Existing folio · choose below"
+          : target.action === "kept"
+            ? "Kept the manual total"
+            : target.folio ? "New mutual fund folio account" : "New demat account";
       const matchLine = target.match?.matches?.length
         ? `${target.match.matches[0].hits} of ${target.match.matches[0].of} ISINs match`
         : "";
-      const showMatches = !target.targetId && !!target.match?.matches?.length;
+      // An exact folio offer carries the money copy (manual total, statement
+      // value, adopt or keep). The generic identity buttons would let a person
+      // adopt without that copy, so they are hidden for this target.
+      const showMatches = !target.targetId && !!target.match?.matches?.length
+        && target.offer?.basis !== "folio";
       const createSelected = !target.targetId
         && (!target.match?.tie || target.createChoice);
       const offerHtml = target.offer
         ? casFolioOfferHtml(target.offer, {
-          chosen: target.targetId || "",
+          chosen: target.targetId || (target.action === "kept" ? "__skip__" : ""),
           where: bundle.base?.parsed?.depository || "CAS",
           onChoose: (offer, accountId) =>
             `bpImportChoose(${jsArg(`${bundle.key}:${offer.key}`)}, ${jsArg(accountId)})`,
@@ -7707,12 +7736,13 @@ function bpImportCasAccountsHtml(bundle) {
           <span class="import-choice-meta">${esc(status)}${matchLine ? ` · ${matchLine}` : ""}
             ${target.plan?.identityOnly ? " · older than the data on file; identity only" : ""}</span>
         </span>
-        <span class="import-choice-hits">${target.rows.length} holding${target.rows.length === 1 ? "" : "s"}</span>
+        <span class="import-choice-hits">${target.rows.length} holding${target.rows.length === 1 ? "" : "s"}${
+          target.action === "decide" || target.action === "kept" ? " · not imported" : ""}</span>
       </div>${offerHtml}`;
     }).join("")}</div>
     <div class="muted import-note">The account number in the statement decides where its holdings
-      go. A new number creates a new account. A folio number that is not on file can be adopted
-      into a value-only account, but only after you choose it.</div>
+      go. A new number creates a new account. A folio already printed on a value-only account
+      is adopted, or its manual total kept, only after you choose.</div>
   </div>`;
 }
 
@@ -7826,9 +7856,18 @@ function bpImportPlanItems(plan) {
   if (summary.skipped) stillMore.push(`${summary.skipped} row${summary.skipped === 1 ? "" : "s"} from an older snapshot are not added`);
   if (bundle.family === "cas") stillMore.push("A broker's cost and purchase date are not replaced by the statement",
     "Rows the statement does not name stay on the account");
-  const keptFolios = (bundle.casTargets || []).filter((target) =>
-    target.folio && target.offer && !target.targetId).length;
-  if (keptFolios) stillMore.push(`${keptFolios} folio${keptFolios === 1 ? "" : "s"} kept
+  const heldFolios = (bundle.casTargets || []).filter((target) =>
+    target.folio && target.offer && target.action !== "update");
+  const exactHeld = heldFolios.filter((target) => target.offer.basis === "folio");
+  const exactKept = exactHeld.filter((target) => target.action === "kept");
+  const exactWaiting = exactHeld.length - exactKept.length;
+  if (exactWaiting) stillMore.push(`${exactWaiting} folio${exactWaiting === 1 ? "" : "s"} waits
+    for the adopt-or-keep choice below; its rows are not imported yet`);
+  if (exactKept.length) stillMore.push(`${exactKept.length} folio${
+    exactKept.length === 1 ? "" : "s"} kept the manual total; none of its rows are imported`);
+  const guessedFolios = heldFolios.filter((target) => target.offer.basis !== "folio").length;
+  if (guessedFolios) stillMore.push(`${guessedFolios} folio${
+    guessedFolios === 1 ? "" : "s"} kept
     separate; the existing value-only total also counts until you reconcile them`);
   return { change, still, stillMore };
 }
@@ -7896,15 +7935,23 @@ function bpImportPlanHtml(plan) {
   const net = plan.net || {};
   const planned = (net.added || 0) + (net.updated || 0) + (net.history || 0);
   const sales = bundle.saleEvents?.length || 0;
-  const primary = importPlanPrimary({
-    family: bundle.family,
-    identityOnly: !!bundle.plan?.identityOnly,
-    planned,
-    sales,
-    soldCost: net.soldCost || 0,
-    attachIdentity: !!bundle.plan?.identityChange,
-    create: bundle.create && !bundle.targetId,
-  });
+  // An exact folio with no work has no import to describe. The choice itself is
+  // the answer, so the button says what it does instead of "Attach identity".
+  const heldFolio = bundle.family === "cas" && !planned && !sales
+    ? (bundle.casTargets || []).some((target) => target.action === "decide") ? "decide"
+      : (bundle.casTargets || []).some((target) => target.action === "kept") ? "kept" : ""
+    : "";
+  const primary = heldFolio === "decide" ? "Choose below"
+    : heldFolio === "kept" ? "Finish without importing"
+      : importPlanPrimary({
+        family: bundle.family,
+        identityOnly: !!bundle.plan?.identityOnly,
+        planned,
+        sales,
+        soldCost: net.soldCost || 0,
+        attachIdentity: !!bundle.plan?.identityChange,
+        create: bundle.create && !bundle.targetId,
+      });
   return `<div class="card pad import-bundle" data-plan="${esc(plan.key)}">
     <div class="import-bundle-head">
       <div><div class="import-kicker">${bundle.family === "cas"
@@ -8619,12 +8666,18 @@ async function bpImportApplyCas(bundle, opts = {}) {
     accounts: scoped.accounts,
     holdings,
   };
-  const accounts = await store.listAccounts();
+  const accounts = await bpCasFundAccounts(await store.listAccounts(), store);
   // Only a folio the inbox offered and the person chose is routed into an
-  // existing account. Everything else keeps the folio-number rule.
+  // existing account. Everything else keeps the folio-number rule. A kept
+  // exact folio carries `__skip__`: it must not be created either.
   const folioChoices = {};
   for (const target of targets) {
-    if (!target.folio || !target.offer || !target.targetId) continue;
+    if (!target.folio || !target.offer) continue;
+    if (target.folioChoice === "__skip__") {
+      folioChoices[target.offer.key] = "__skip__";
+      continue;
+    }
+    if (!target.targetId) continue;
     if ((target.offer.choosable || []).some((candidate) => candidate.id === target.targetId)) {
       folioChoices[target.offer.key] = target.targetId;
     }
@@ -8636,11 +8689,20 @@ async function bpImportApplyCas(bundle, opts = {}) {
     groups: [...route.groups, ...route.homeless],
     movements: cas.transactions,
   });
+  // An exact folio that is undecided or kept is not part of the write. Its unit
+  // key stays out of the picked set, so the create loop cannot make a second
+  // account with the same canonical folio.
+  for (const target of targets) {
+    if (target.offer?.basis === "folio" && target.action !== "update") {
+      units.delete(target.offer.key);
+    }
+  }
   const key = `inbox-${String(bundle.key).replace(/[^a-z0-9]+/gi, "-")}`;
   window.bpCasCards = window.bpCasCards || {};
   window.bpCasCards[key] = {
     cas, route, file: bundle.base?.file || null, owner: cas.holder || "",
     picked: units.size ? units : undefined, safety, folioChoices,
+    folioPlan: bundle.folioPlan || null,
   };
   let host = document.getElementById("cas-inbox-apply");
   if (!host) {
@@ -8659,7 +8721,7 @@ async function bpImportApplyCas(bundle, opts = {}) {
   // The existing CAS import wrote the rows and may have created demat and folio
   // accounts. Re-route once more so every account the statement touched carries
   // the CAS identity, not a broker-only flag from an earlier import.
-  const after = casRoute(cas, await store.listAccounts());
+  const after = casRoute(cas, await bpCasFundAccounts(await store.listAccounts(), store));
   const touched = new Set();
   for (const account of after.accounts || []) if (account.assetId) touched.add(account.assetId);
   for (const group of [...(after.groups || []), ...(after.homeless || [])]) {
@@ -8687,13 +8749,14 @@ async function bpImportApplyCas(bundle, opts = {}) {
   const summary = bundle.plan?.summary || { added: 0, updated: 0, history: 0 };
   return { ok: true, total: summary.added + summary.updated + summary.history,
     added: summary.added, updated: summary.updated, history: summary.history,
-    filled, accounts: targets.length,
+    filled, accounts: targets.length, kept: !!outcome.kept,
     sold: outcome.sold || 0, linkedSold: outcome.linkedSold || 0,
     conflicts: outcome.conflicts || [], warnings: outcome.warnings || [],
     label: targets.length > 1 ? `${targets.length} accounts`
       : importTargets[0]?.targetId
         ? bpImportAccountRow(importTargets[0].targetId)?.account?.label || "the account"
-        : "the new account" };
+        : targets.some((target) => target.action === "kept") ? "the account"
+          : "the new account" };
 }
 
 function bpImportPlanBlockedReceipt(plan) {
@@ -8823,7 +8886,10 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
         ? bpImportAccountRow(plan.accounts[0])?.account?.label || "the account"
         : results.map((result) => result.label).find(Boolean) || "the account");
     if (!opts.silent) {
-      bpImportInboxStatus(`${parts.join("; ")} into ${label}.`,
+      // A kept folio writes no account, so "into <label>" would name an account
+      // the import did not touch. The kept receipt is the whole status.
+      const keptOnly = results.length && results.every((result) => result.kept);
+      bpImportInboxStatus(keptOnly ? parts.join("; ") : `${parts.join("; ")} into ${label}.`,
         conflicts.length ? "" : "good");
     }
   } catch (e) {
@@ -8983,35 +9049,52 @@ async function bpCasFundAccounts(accounts, store) {
 
 function casFolioOfferHtml(offer, { chosen = "", where = "", onChoose } = {}) {
   if (!offer) return "";
-  const tail = String(offer.folioNo || "").replace(/\s+/g, "").slice(-4);
+  const tail = folioTail(offer.folioNo);
   const choosable = offer.choosable || [];
   const first = choosable[0] || offer.candidates[0] || null;
   const accountLabel = first?.label || "the existing account";
   const source = where ? `${where} ` : "";
+  const exact = offer.basis === "folio";
   const diff = first && Number.isFinite(first.diffPct)
     ? ` They differ by ${money(Math.abs(first.diffPaise))} (${Math.abs(first.diffPct * 100).toFixed(1)}%).`
     : first ? ` They differ by ${money(Math.abs(first.diffPaise))}.` : "";
   const large = first && Number.isFinite(first.diffPct) && Math.abs(first.diffPct) >= 0.25;
   const scheme = offer.label ? ` for ${offer.label}` : "";
-  const head = choosable.length > 1
-    ? `${choosable.length} accounts look like this ${source}folio …${tail}${scheme}.`
-    : `This ${source}folio …${tail}${scheme} looks like your existing ${accountLabel}, which holds ${
-      money(first?.valuePaise || 0)} as a current value with no units.`;
   const balances = choosable.length > 1
     ? ` ${choosable.map((candidate) => `${candidate.label} holds ${
       money(candidate.valuePaise)}`).join("; ")}.` : "";
-  const copy = choosable.length
-    ? `The statement holds ${money(offer.valuePaise)}.${balances}${diff}${large
-      ? " That is more than market movement; check that this is the same holding before adopting."
-      : ""} Adopting replaces that manual total with the statement's units; keeping both
-      leaves both totals counting.`
-    : `${offer.reason}. Nothing will be linked; keeping both is the safe choice.`;
+  const head = exact
+    ? choosable.length > 1
+      ? `This ${source}folio …${tail}${scheme} is already on ${choosable.length} accounts.`
+      : `This ${source}folio …${tail}${scheme} is already on ${accountLabel}, which holds ${
+        money(first?.valuePaise || 0)} as a current value with no units.`
+    : choosable.length > 1
+      ? `${choosable.length} accounts look like this ${source}folio …${tail}${scheme}.`
+      : `This ${source}folio …${tail}${scheme} looks like your existing ${accountLabel}, which holds ${
+        money(first?.valuePaise || 0)} as a current value with no units.`;
+  const copy = exact
+    ? choosable.length
+      ? `The statement holds ${money(offer.valuePaise)}.${balances}${diff}${large
+        ? " That is more than market movement; check that this is the same holding before adopting."
+        : ""} Adopting replaces that manual total with the statement's units, cost and folio.
+        Keeping the manual total imports none of these rows.`
+      : `${offer.reason}. Keeping the manual total imports none of these rows.`
+    : choosable.length
+      ? `The statement holds ${money(offer.valuePaise)}.${balances}${diff}${large
+        ? " That is more than market movement; check that this is the same holding before adopting."
+        : ""} Adopting replaces that manual total with the statement's units; keeping both
+        leaves both totals counting.`
+      : `${offer.reason}. Nothing will be linked; keeping both is the safe choice.`;
   const buttons = choosable.map((candidate) => `<button type="button" class="btn${
     chosen === candidate.id ? " primary" : ""}" onclick="${
     onChoose(offer, candidate.id)}">Adopt into ${esc(candidate.label)}</button>`).join("");
-  const keep = `<button type="button" class="btn${
-    !chosen || chosen === "__create__" ? " primary" : ""}" onclick="${
-    onChoose(offer, "__create__")}">Keep both</button>`;
+  const keep = exact
+    ? `<button type="button" class="btn${
+      chosen === "__skip__" ? " primary" : ""}" onclick="${
+      onChoose(offer, "__skip__")}">Keep the manual total</button>`
+    : `<button type="button" class="btn${
+      !chosen || chosen === "__create__" ? " primary" : ""}" onclick="${
+      onChoose(offer, "__create__")}">Keep both</button>`;
   return `<div class="import-folio" data-folio="${esc(offer.key)}">
     <b>${esc(head)}</b>
     <div class="muted">${esc(copy)}</div>
@@ -9068,12 +9151,14 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     }
     const [{ casRoute }] = await Promise.all([import("./cas.js")]);
     const store = await import("./db.js");
-    const assets = await store.listAccounts();
-    // A folio with no exact home can look like a value-only account. Offer it,
+    // One enriched list for the offer and the route. A fund account without its
+    // rows cannot be told from a manual total, and the route would withhold a
+    // real home.
+    const assets = await bpCasFundAccounts(await store.listAccounts(), store);
+    // A folio with no automatic home can look like a value-only account. Offer it,
     // but route only the choices the person already made on this card.
     const prior = window.bpCasCards?.[hostId] || {};
-    const folioPlan = bpCasFolioPlan(cas.holdings,
-      await bpCasFundAccounts(assets, store), prior.folioChoices || {});
+    const folioPlan = bpCasFolioPlan(cas.holdings, assets, prior.folioChoices || {});
     const adopt = folioPlan.targets;
     const route = casRoute(cas, assets, { adopt });
     window.bpCasRoute = route;
@@ -9137,6 +9222,14 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const cardState = window.bpCasCards[hostId];
     cardState.units = units;
     if (!cardState.picked) cardState.picked = new Set(units.map((u) => u.key));
+    // An exact folio that is not adopted contributes nothing: its row is shown
+    // with a disabled checkbox and its key stays out of the picked set. Choosing
+    // adopt puts it back; choosing keep or making no choice leaves it out.
+    for (const offer of cardState.folioPlan?.offers || []) {
+      if (offer.basis !== "folio") continue;
+      if (offer.state === "adopt") cardState.picked.add(offer.key);
+      else cardState.picked.delete(offer.key);
+    }
     // The preview and the writer both call casReplacePlan with the same event
     // list. What is shown here is the row set the import will store.
     const linkRows = new Map();
@@ -9210,14 +9303,22 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     // The statement names its holder. That is the one field the file can default
     // for the person importing, and it can be corrected before anything is written.
     if (cardState.owner === undefined) cardState.owner = cas.holder || "";
-    const unitRows = units.map((u) => `<label style="display:flex;gap:8px;align-items:baseline;
+    const heldFolioOffers = new Map((cardState.folioPlan?.offers || [])
+      .filter((offer) => offer.basis === "folio" && offer.state !== "adopt")
+      .map((offer) => [offer.key, offer]));
+    const unitRows = units.map((u) => {
+      const held = heldFolioOffers.get(u.key) || null;
+      const note = held
+        ? ` · <i>${held.state === "kept" ? "kept the manual total" : "choose below"}</i>`
+        : u.assetId ? "" : " · <i>new account</i>";
+      return `<label style="display:flex;gap:8px;align-items:baseline;
         font-size:12.5px;margin-top:6px;cursor:pointer">
         <input type="checkbox" data-unit="${esc(u.key)}" style="margin-top:2px"
-          ${cardState.picked.has(u.key) ? "checked" : ""}
+          ${cardState.picked.has(u.key) && !held ? "checked" : ""} ${held ? "disabled" : ""}
           onchange="bpCasPick('${hostId}')">
         <span><b style="color:var(--ink)">${esc(u.label)}</b> · ${u.count} holding${
-          u.count === 1 ? "" : "s"} · ${money(u.valuePaise)}${
-          u.assetId ? "" : " · <i>new account</i>"}</span></label>`).join("");
+          u.count === 1 ? "" : "s"} · ${money(u.valuePaise)}${note}</span></label>`;
+    }).join("");
     const folioOffers = (cardState.folioPlan?.offers || []).map((offer) =>
       casFolioOfferHtml(offer, {
         chosen: cardState.folioChoices?.[offer.key] || "",
@@ -9351,7 +9452,7 @@ window.bpCasAdoptChoice = (key, folio, accountId) => {
   const card = (window.bpCasCards || {})[key];
   if (!card) return;
   card.folioChoices = { ...(card.folioChoices || {}),
-    [folio]: accountId || "__create__" };
+    [folio]: accountId === "__skip__" ? "__skip__" : (accountId || "__create__") };
   if (card.file) window.bpCasFile(card.file, key);
 };
 window.bpCasOwner = (key, value) => {
@@ -10609,6 +10710,12 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   const folioPlan = bpCasFolioPlan(cas.holdings,
     await bpCasFundAccounts(await store.listAccounts(), store),
     card.folioChoices || {});
+  if (!(cas.holdings || []).length && (card.folioPlan?.offers || []).length) {
+    // The inbox scoped a kept folio's rows away, so there is nothing left to
+    // offer. The offer that recorded the choice is still the one the create
+    // guard and the receipt must read.
+    folioPlan.offers = card.folioPlan.offers;
+  }
   card.folioPlan = folioPlan;
   const adopt = folioPlan.targets;
   // A consolidated statement can name more than one demat. Each becomes its own
@@ -10618,7 +10725,8 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   const isinsOf = (bo) => new Set((cas.accounts || [])
     .find((a) => a.boId === bo)?.holdings.map((h) => String(h.isin || "").toUpperCase()) || []);
   for (let pass = 0; pass < 4; pass += 1) {
-    const current = casRoute(cas, await store.listAccounts(), { adopt });
+    const current = casRoute(cas,
+      await bpCasFundAccounts(await store.listAccounts(), store), { adopt });
     const homeless = current.homeless || [];
     if (!homeless.length) { window.bpCasRoute = current; break; }
     const all = await store.listAccounts();
@@ -10631,9 +10739,15 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
     const done = new Set();
     const unitKey = (g) => (g.kind === "mf" && g.folio)
       ? folioKey(g) : `bo:${String(g.boId || "")}`;
+    // An exact folio that is undecided or kept has no create answer. The offer
+    // is the decision; making an account behind it would be the duplicate.
+    const exactHeld = new Set((card.folioPlan?.offers || [])
+      .filter((offer) => offer.basis === "folio" && offer.state !== "adopt")
+      .map((offer) => offer.key));
     for (const group of homeless) {
       // Only the accounts the person ticked are created.
       if (card.picked && !card.picked.has(unitKey(group))) continue;
+      if (exactHeld.has(unitKey(group))) continue;
       // A folio gets an account of its own. The number is the identity; the AMC
       // only names it. Two folios of one AMC are two accounts, and an existing
       // account that carries a different folio is not this folio's home.
@@ -10693,7 +10807,8 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
       all.push({ id, label, number: group.boId, category: "demat" });
     }
   }
-  window.bpCasRoute = casRoute(cas, await store.listAccounts(), { adopt });
+  window.bpCasRoute = casRoute(cas,
+    await bpCasFundAccounts(await store.listAccounts(), store), { adopt });
   if (card) card.route = window.bpCasRoute;
   // A bond sold in full is absent from the holdings table, so the routing has no
   // group for it. Its account still has to receive the disposal record: find the
@@ -10731,6 +10846,19 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   }
   card.eventAssets = eventAssets;
   if (!window.bpCasRoute.groups.length && !(cas.transactions || []).length) {
+    const kept = (card.folioPlan?.offers || []).filter((offer) =>
+      offer.basis === "folio" && card.folioChoices?.[offer.key] === "__skip__");
+    if (kept.length) {
+      // Keeping the manual total is a completed decision, not a missing account:
+      // no rows, no events and no account are written, and the receipt says so.
+      const tails = kept.map((offer) => `…${folioTail(offer.folioNo)}`).join(", ");
+      const message = `Folio${kept.length === 1 ? "" : "s"} ${tails} kept: `
+        + "the manual total stays and none of its rows were imported.";
+      const host = document.getElementById(key);
+      if (host) host.innerHTML = `<div class="muted">${esc(message)}</div>`;
+      return { ok: true, written: 0, places: 0, sold: 0, linkedSold: 0,
+        kept: true, conflicts: [message], warnings: [] };
+    }
     const host = document.getElementById(key);
     if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Created the
       demat account. Import again to write the holdings.</div>`;
@@ -11019,10 +11147,16 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       const chosen = String(card.folioChoices?.[offer.key] || "");
       const choosable = offer.choosable || [];
       const adopted = choosable.find((candidate) => candidate.id === chosen);
-      const tail = String(offer.folioNo || "").slice(-4);
-      if (adopted) {
+      const tail = folioTail(offer.folioNo);
+      if (offer.basis === "folio" && chosen === "__skip__") {
+        conflictMessages.push(`Folio …${tail} was kept: the manual total stays and `
+          + "none of its rows were imported.");
+      } else if (adopted) {
         conflictMessages.push(`Folio …${tail} adopted into ${adopted.label}; its manual
           total was replaced by the statement's units, folio, cost and source.`);
+      } else if (offer.basis === "folio") {
+        conflictMessages.push(`Folio …${tail} was not linked because the adopt-or-keep `
+          + "choice was not made; none of its rows were imported.");
       } else if (!choosable.length) {
         conflictMessages.push(`Folio …${tail} was not linked: ${offer.reason}. It is a new
           account; the existing total still counts.`);
@@ -11038,7 +11172,12 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
             choosable[0]?.label || "the existing account"}.`);
       }
     }
-    const skipped = route.homeless.reduce((t, g) => t + g.count, 0);
+    const keptKeys = new Set((card.folioPlan?.offers || [])
+      .filter((offer) => offer.basis === "folio"
+        && card.folioChoices?.[offer.key] === "__skip__")
+      .map((offer) => offer.key));
+    const skipped = route.homeless.filter((group) => !keptKeys.has(folioKey(group)))
+      .reduce((t, g) => t + g.count, 0);
     // A statement says what is held; a portfolio says what it cost. Attaching
     // happens on import, so a later statement still picks up the cost already on
     // file and a later portfolio lands on the holdings already there.

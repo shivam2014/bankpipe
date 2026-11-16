@@ -743,7 +743,10 @@ test("the card counts the net plan change, not the sum of its files", () => {
 
 test("the card and the receipt count every account the plan writes", () => {
   const plans = between("function bpImportPlanForBundles", "function bpImportPlans");
-  assert.match(plans, /statementAccounts\(head\.casTargets\)/);
+  // A folio that is kept or still undecided writes no account, so it must not
+  // inflate the count.
+  assert.match(plans, /statementAccounts\(\(head\.casTargets \|\| \[\]\)\.filter/);
+  assert.match(plans, /target\.action !== "kept" && target\.action !== "decide"/);
   assert.match(html, /plan\.accountCount > 1/);
   const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
   assert.match(apply, /plan\.accountCount > 1/);

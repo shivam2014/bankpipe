@@ -29,7 +29,8 @@
 // DOM, no storage, no network.
 
 import { boId } from "./bo-id.js";
-import { folioAdoptedHome, folioHome, normalizeFolio } from "./folio.js";
+import { folioAdoptedHome, folioHome, isValueOnlyFolioAccount,
+  normalizeFolio } from "./folio.js";
 
 const ISIN = /^IN[A-Z0-9]{10}$/;
 const DATE = /^\d{1,2}-[A-Za-z]{3}-\d{4}$/;
@@ -1161,6 +1162,10 @@ export function parseCas(pdf) {
  * either overwrite a class or force the person to import the same file twice.
  * `adopt` carries only the folio targets the person explicitly chose. A folio
  * with no exact home stays homeless otherwise; the AMC label never merges it.
+ * A value-only account that carries the folio is an adoption candidate, never
+ * an automatic home: writing units over a manual total takes an explicit
+ * choice. Callers pass fund accounts with their `holdings`, so an account that
+ * already holds rows is still a home.
  * @param {{holdings: Array<object>, demat?: string}} parsed
  * @param {Array<{id: string, label?: string, category?: string, number?: string}>} assets
  * @param {{adopt?: object|Map}} [options] folio key to account id, user chosen
@@ -1193,8 +1198,13 @@ export function casRoute(parsed, assets = [], { adopt = {} } = {}) {
       // being written into a folio account with a value picked from the wrong cell.
       const isFolio = holding.kind === "mf" && !!holding.folio
         && Number(holding.quantity) > 0;
+      const home = isFolio ? folioHome(holding, assets) : null;
+      // A home that already holds units is the folio's account. A value-only
+      // home is a manual total; only an explicit adopt may replace it, and a
+      // missing holdings list fails closed so no write happens by accident.
       const target = isFolio
-        ? (folioHome(holding, assets) || folioAdoptedHome(holding, assets, adopt))
+        ? (folioAdoptedHome(holding, assets, adopt)
+          || (home && !isValueOnlyFolioAccount(home, home.holdings || []) ? home : null))
         : asset;
       const bucket = target ? groups : homeless;
       // One group per folio, even when one account carries two of them: the card

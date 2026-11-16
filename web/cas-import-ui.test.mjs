@@ -190,6 +190,49 @@ test("a sold-only holdings card keeps its add actions", () => {
   assert.match(html, /\$\{isDemat \|\| cat === "bonds" \|\| isFolio/);
 });
 
+test("an exact folio offer shows the manual total, not a new-account line", () => {
+  assert.match(html, /"Existing folio · choose below"/);
+  assert.match(html, /"Kept the manual total"/);
+  // The generic identity buttons are hidden for an exact offer, so no click can
+  // adopt without the money copy.
+  assert.match(html, /target\.offer\?\.basis !== "folio"/);
+  assert.match(html, /targetId = offer\.state === "adopt" \? offer\.chosen : ""/);
+  assert.match(html, /action: exact/);
+  assert.match(html, /offer\.state === "kept" \? "kept" : "decide"/);
+  assert.match(html, /target\.action !== "decide"/);
+  assert.match(html, /target\.action === "decide"/);
+});
+
+test("the exact keep button passes __skip__ and never creates a second folio", () => {
+  assert.match(html, /onChoose\(offer, "__skip__"\)/);
+  assert.match(html, /accountId === "__skip__" \? "__skip__"/);
+  assert.match(html, /folioChoices\[target\.offer\.key\] = "__skip__"/);
+  assert.match(html, /target\.action !== "update"\) \{\s*\n\s*units\.delete/);
+  assert.match(html, /offer\.basis === "folio" && offer\.state !== "adopt"/);
+  assert.match(html, /Keep the manual total/);
+  assert.match(html, /none of its rows were imported/);
+  assert.match(html, /const keptKeys = new Set/);
+  assert.match(html, /Finish without importing/);
+  assert.match(html, /heldFolio === "decide" \? "Choose below"/);
+});
+
+test("the offer and the route read the same enriched account list", () => {
+  // A manual total without its rows looks value-only; a real home with rows
+  // looks the same unless every fund account is enriched before routing.
+  assert.match(html, /const assets = await bpCasFundAccounts\(await store\.listAccounts\(\), store\)/);
+  assert.match(html, /bpCasFolioPlan\(cas\.holdings, assets, prior\.folioChoices/);
+  assert.match(html, /const folioPlan = bpCasFolioPlan\(cas\.holdings,/);
+  assert.match(html, /await bpCasFundAccounts\(await store\.listAccounts\(\), store\),/);
+  assert.match(html, /const current = casRoute\(cas,/);
+  assert.match(html, /bpCasFundAccounts\(await store\.listAccounts\(\), store\), \{ adopt \}\)/);
+});
+
+test("an exact folio unit is disabled while the offer is undecided", () => {
+  assert.match(html, /held \? "disabled" : ""/);
+  assert.match(html, /kept the manual total" : "choose below/);
+  assert.match(html, /cardState\.picked\.delete\(offer\.key\)/);
+});
+
 test("a value-only folio offer is shown, with the difference and both choices", () => {
   assert.match(html, /const folioPlan = folioAdoptionPlan\(\{/);
   assert.match(html, /bundle\.folioPlan = folioPlan/);
@@ -205,7 +248,8 @@ test("a value-only folio offer is shown, with the difference and both choices", 
 
 test("the writer routes only the folio targets the person chose", () => {
   assert.match(html, /const adopt = folioPlan\.targets/);
-  assert.match(html, /casRoute\(cas, await store\.listAccounts\(\), \{ adopt \}\)/);
+  assert.match(html,
+    /casRoute\(cas, await bpCasFundAccounts\(await store\.listAccounts\(\), store\)\)/);
   assert.match(html, /const folioChoices = \{\}/);
   assert.match(html, /casRoute\(cas, accounts, \{ adopt: folioChoices \}\)/);
   assert.match(html, /folioChoices\[target\.offer\.key\] = target\.targetId/);
