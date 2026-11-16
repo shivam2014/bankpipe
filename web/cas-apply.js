@@ -217,6 +217,33 @@ export function casImportUnits({ accounts = [], routeAccounts = [], groups = [],
 }
 
 /**
+ * The movements no write target can record.
+ *
+ * The writer scopes each target's events through `casMovementEvents`, so an
+ * event outside every target's scope is dropped without a trace. A kept or
+ * contested folio made that silent drop look like a completed import while the
+ * file left the inbox. This asks the same scoping question for every target
+ * before anything is written: a named movement needs a target carrying that BO
+ * ID, and an unnamed one needs a target whose rows hold its ISIN or an explicit
+ * manual target.
+ * @param {{events?: Array<object>, targets?: Array<{assetId?: string,
+ *   accounts?: Array<string>, rows?: Array<object>}>, manualTarget?: string}} input
+ * @returns {Array<object>} the events with no home, in statement order
+ */
+export function casUnhomedMovements({ events = [], targets = [], manualTarget = "" } = {}) {
+  const list = events || [];
+  if (!list.length) return [];
+  return list.filter((event) => !(targets || []).some((target) =>
+    casMovementEvents([event], {
+      accounts: target?.accounts || [],
+      route: true,
+      rows: target?.rows || [],
+      manualTarget: !!manualTarget
+        && String(target?.assetId || "") === String(manualTarget),
+    }).length));
+}
+
+/**
  * The fund holdings a folio card can show. A zero-unit fund keeps a value but
  * is not a folio the route or the writer can place, so the card must not show a
  * phantom unit for it.

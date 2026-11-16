@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { casApplyRows, casClosedRow, casHoldingLabel, casImportHoldings,
-  casManualTargetEvents, casManualTargetRows,
+  casManualTargetEvents, casManualTargetRows, casUnhomedMovements,
   casReplacePlan, casSafety } from "./cas-apply.js";
 
 const ISIN_A = "INE000000031";
@@ -421,4 +421,37 @@ test("a manual demat target never takes a positive folio row or its movement", (
   // manual target's; a positive folio's movement is the folio's.
   assert.deepEqual(casManualTargetEvents(events, [holding, history])
     .map((event) => event.isin), [ISIN_B, "INE000000033"]);
+});
+
+test("a movement no target can record is named before anything is written", () => {
+  const events = [
+    { isin: ISIN_A, side: "debit", quantity: 2 },
+    { isin: ISIN_B, side: "debit", quantity: 3 },
+  ];
+  // The first is held by a target's rows; the second belongs to a fully
+  // redeemed folio that printed no row and no account, so nothing can take it.
+  const targets = [{ assetId: "demat-1", accounts: ["1200000012345678"],
+    rows: [{ security_id: ISIN_A, quantity: 10 }] }];
+  assert.deepEqual(casUnhomedMovements({ events, targets })
+    .map((event) => event.isin), [ISIN_B]);
+});
+
+test("a named movement needs a target carrying that BO ID", () => {
+  const event = { isin: ISIN_A, side: "debit", quantity: 2, account: "1200000012345678" };
+  assert.deepEqual(casUnhomedMovements({ events: [event], targets: [] }), [event]);
+  assert.deepEqual(casUnhomedMovements({ events: [event],
+    targets: [{ assetId: "demat-1", accounts: ["1200000098765432"], rows: [] }] }), [event]);
+  assert.deepEqual(casUnhomedMovements({ events: [event],
+    targets: [{ assetId: "demat-1", accounts: ["1200000012345678"], rows: [] }] }), []);
+});
+
+test("a manual target takes an unnamed movement even with no row", () => {
+  const event = { isin: ISIN_A, side: "debit", quantity: 2 };
+  const targets = [{ assetId: "demat-1", accounts: [], rows: [] }];
+  assert.deepEqual(casUnhomedMovements({ events: [event], targets }), [event]);
+  assert.deepEqual(casUnhomedMovements({ events: [event], targets,
+    manualTarget: "demat-1" }), []);
+  // Only the account the person named manually gets the override.
+  assert.deepEqual(casUnhomedMovements({ events: [event], targets,
+    manualTarget: "demat-2" }), [event]);
 });

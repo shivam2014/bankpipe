@@ -70,16 +70,20 @@ A fund account that carries the folio and records a manual current value with no
 rows is an adoption candidate, not an automatic home. The import offers that exact
 account with two answers. Adopting writes the statement's rows into the same account,
 adds the printed folio to `meta.folios`, and removes `meta.current_value_paise`; the
-account's own `value_paise` column is left in place. Keeping the manual total writes
-none of that folio's rows and no event, and creates no account. Keeping is per folio,
-not per statement: a second manual total for a different folio stays where it is, and
-neither answer creates a second account carrying the same canonical folio.
+account's own `value_paise` column is left in place. Keeping the manual total writes no
+unit row or position of that folio and no event, and creates no account. A zero-unit
+history row that prints the folio still belongs to the demat that printed it, so keeping
+does not withhold that row from the demat. Keeping is per folio, not per statement: a
+second manual total for a different folio stays where it is, and neither answer creates a
+second account carrying the same canonical folio.
 
 A settled owner is an account carrying the folio that is not a manual total: it holds
 rows, or it has no recorded value yet. One settled owner is the home whatever order the
-accounts load in. With two or more settled owners the AMC has to name exactly one, by
-`meta.amc` or by the account's label; otherwise the folio is contested. No surface may
-pick one, write one, or create another, and every row and movement of a contested
+accounts load in. With two or more settled owners a declared `meta.amc` decides: only the
+account whose declared AMC matches the holding's AMC is named. The account label is
+consulted only when that owner declares no AMC, so a matching label never overrides a
+declared mismatch. If that names no single owner, the folio is contested. No surface may
+pick one, write one, or create another, and every unit row and movement of a contested
 folio is withheld until one duplicate is removed and the statement is imported again.
 
 Two existing statements pull the other way and should be softened, not deleted.

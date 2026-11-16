@@ -4,7 +4,7 @@
 // here: the page owns the preview, the confirmation and the database.
 
 import { boId } from "./bo-id.js";
-import { accountFolios, normalizeFolio } from "./folio.js";
+import { accountFolios, isFolioAccount, normalizeFolio } from "./folio.js";
 import { categoryOf, isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
@@ -782,7 +782,9 @@ function identityFor(file) {
  * A broker holding can land on any securities account. A CAS is a depository
  * statement, so with `forCas` it can only land on a demat or a fund folio: a
  * bond portfolio that holds the same ISIN is a cost record, not a custody
- * account, and must not receive a depository snapshot.
+ * account, and must not receive a depository snapshot. The identity kind keeps
+ * the two apart: a folio number reaches only a fund folio, and a BO ID, UCID or
+ * client ID reaches only a custody account, never a fund folio.
  */
 export function accountMatches(file, accounts = [], { forCas = false } = {}) {
   const identity = identityFor(file);
@@ -803,13 +805,24 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
       // folio; ISIN overlap must not attach it to a different folio of the same
       // AMC, so a non-match drops the account instead of falling through.
       if (identity.kind === "folio") {
+        if (!isFolioAccount(raw)) continue;
         if (!account.folios.includes(normalizeFolio(identity.value))) continue;
         identityKind = "folio";
-      } else if ((identity.kind === "bo" || identity.kind === "demat")
-        && account.boId && boId(identity.value).boId === account.boId) identityKind = "BO ID";
-      else if (identity.kind === "ucid" && account.ucid === identity.value) identityKind = "UCID";
-      else if (identity.kind === "client" && account.clientId === identity.value) identityKind = "client ID";
-      else if (identity.kind === "client" && upper(account.number) === identity.value) identityKind = "client ID";
+      } else {
+        // A BO ID, UCID or client ID is a custody identity. A fund folio
+        // answers to its folio number, never to one of these, so a depository
+        // statement cannot land on a fund account by ISIN overlap either.
+        if (isFolioAccount(raw)) continue;
+        if ((identity.kind === "bo" || identity.kind === "demat")
+          && account.boId && boId(identity.value).boId === account.boId) identityKind = "BO ID";
+        else if (identity.kind === "ucid" && account.ucid === identity.value) identityKind = "UCID";
+        else if (identity.kind === "client" && account.clientId === identity.value) identityKind = "client ID";
+        else if (identity.kind === "client" && upper(account.number) === identity.value) identityKind = "client ID";
+      }
+    } else if (forCas && isFolioAccount(raw)) {
+      // A statement with no readable account number cannot prove that a fund
+      // account is its custodian. Only a folio identity may reach one.
+      continue;
     }
     let hits = 0;
     for (const isin of account.isins) if (wantedSet.has(isin)) hits += 1;

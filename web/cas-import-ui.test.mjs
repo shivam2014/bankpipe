@@ -399,3 +399,36 @@ test("the inbox counts and writes the zero-unit folio row with its demat", () =>
   // It stays in the demat's rows, which is the account that stores it.
   assert.match(resolver, /!\(row\.category === "mf" && row\.folio && Number\(row\.quantity\) > 0\)/);
 });
+
+test("a zero-unit-only statement creates the demat instead of claiming it did", () => {
+  // A non-folio mutual-fund group is demat history, not a folio. The create
+  // loop must route it to the demat branch or the zero-unit-only statement
+  // creates no account while the card says it did.
+  assert.match(html, /if \(group\.folio\) \{/);
+  assert.equal((html.match(/createdCount \+= 1;/g) || []).length, 2,
+    "the folio and demat create branches both count a new account");
+  assert.match(html, /if \(!movements && createdCount\) \{/);
+});
+
+test("a kept folio does not finish while a movement has no home", () => {
+  assert.match(html, /if \(messages\.length && !movementEvents\.length\) \{/);
+  // The writer asks the same scoping question per target before any write.
+  assert.match(html, /const unhomed = casUnhomedMovements\(\{ events, targets: writeTargets,/);
+  assert.match(html, /const reason = `The statement's \$\{one \? "movement has" : "movements have"\} no `/);
+});
+
+test("a depository target can never be a fund folio", () => {
+  const resolver = between("function bpImportResolveCas", "function bpImportPlanFiles");
+  assert.match(resolver, /if \(chosen && isFolioAccount\(chosen\)\) targetId = ""/);
+  assert.match(html, /if \(account && isFolioAccount\(account\)\) \{/);
+  assert.match(html, /A depository statement cannot attach to a mutual fund/);
+  // The movement target list excludes a fund account, by ISIN overlap too.
+  assert.match(html, /String\(account\.category \|\| ""\) !== "demat"\s*\n\s*\|\| isFolioAccount\(account\)\) continue;/);
+});
+
+test("dropping an entry clears the answers that belonged to it", () => {
+  const drop = between("window.bpImportDropEntry", "window.bpImportDropPlan");
+  assert.match(drop, /state\.bundles \|\| \[\]\)\.filter/);
+  assert.match(drop, /choice\.startsWith\(`\$\{bundle\.key\}:`\)/);
+  assert.match(drop, /delete state\.acceptAsk\[bundle\.key\]/);
+});

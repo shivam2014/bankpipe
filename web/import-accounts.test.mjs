@@ -823,3 +823,30 @@ test("a buy-only movement card says movements, not disposals", () => {
   assert.match(plans, /This statement records movements/);
   assert.match(plans, /This statement records disposals/);
 });
+
+test("a demat identity never matches a fund folio by ISIN overlap", () => {
+  const folio = account({ id: "folio-1", label: "Test Mutual Fund",
+    subtype: "mutual fund", type: "mf", number: "99990000001",
+    meta: meta({ folios: ["99990000001"] }), holdings: [row(1)] });
+  const file = { accountKey: "1200000012345678", accountKind: "bo",
+    rows: [row(1)] };
+  assert.deepEqual(accountMatches(file, [folio], { forCas: true }).matches, []);
+  // A broker report is a custody report too, so its BO ID cannot land there.
+  assert.deepEqual(accountMatches(file, [folio]).matches, []);
+});
+
+test("a fund identity never matches a custody account that carries the number", () => {
+  const demat = account({ id: "demat-1", subtype: "equity", type: "equity",
+    number: "1200000012345678",
+    meta: meta({ folios: ["99990000001"] }), holdings: [row(1)] });
+  const file = { accountKey: "99990000001", accountKind: "folio",
+    rows: [row(1)] };
+  assert.deepEqual(accountMatches(file, [demat], { forCas: true }).matches, []);
+});
+
+test("a CAS with no readable account number does not attach to a fund account", () => {
+  const folio = account({ id: "folio-1", subtype: "mutual fund", type: "mf",
+    number: "99990000001", holdings: [row(1)] });
+  assert.deepEqual(accountMatches({ rows: [row(1)] }, [folio],
+    { forCas: true }).matches, []);
+});

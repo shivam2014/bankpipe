@@ -11,6 +11,12 @@
 // history with no position to route, so it stays with the demat. The card's
 // count and the store must agree, row for row.
 //
+// Three more passes prove the guards around that decision. A statement whose
+// only row is zero units creates its demat and stores the row. A fund account
+// that holds the same ISIN is never the demat's target. A kept folio never
+// finishes while a movement (a fully redeemed fund sale) has no target that
+// could record it: the file stays and nothing is written.
+//
 // Every name, ISIN and number here is invented. The page's own inbox resolver
 // and renderer produce the card; the write checks press its buttons and read
 // the store back.
@@ -36,6 +42,7 @@ const BASE = "99990000001";
 const PRINTED = "99990001/0";
 const FUND = "INF000000901";
 const FUND_ZERO = "INF000000902";
+const REDEEMED = "INF999900253";
 const EQUITY = "INE000000101";
 const MANUAL_PAISE = 31000000;
 
@@ -109,6 +116,29 @@ const zeroEntry = entry(statement({
   holdings: [fund, zeroFund, equity],
   transactions: [],
 }), "inbox-zero-unit");
+// A statement whose only row is closed history. No demat is on file, so the
+// import itself has to create the account before it can store the row.
+const zeroOnlyEntry = entry(statement({
+  holdings: [zeroFund],
+  transactions: [],
+}), "inbox-zero-only");
+// A fund account holds the same ISIN as the zero-unit folio row. The ISIN
+// overlap must not make that fund account the demat's home.
+const boundaryEntry = entry(statement({
+  holdings: [zeroFund],
+  transactions: [],
+}), "inbox-boundary");
+// A fully redeemed fund folio prints a sale and no holding row, so the folio
+// has no target for the movement. Keeping a different manual total must not
+// turn that into a successful import.
+const redeemed = {
+  isin: REDEEMED, label: "TEST FUND REDEEMED", kind: "mf", category: "mf",
+  account: "",
+};
+const unhomedEntry = entry(statement({
+  holdings: [fund],
+  transactions: [sale(redeemed, { quantity: 4, openingPaise: 4000, closingPaise: 0 })],
+}), "inbox-unhomed");
 
 function pageScript({ mode, write = false } = {}) {
   return `(async () => {
@@ -116,7 +146,7 @@ function pageScript({ mode, write = false } = {}) {
   const store = await import("./db.js");
   const text = (node) => (node?.textContent || "").replace(/\\s+/g, " ").trim();
   await store.clearAll();
-  const kept = ${mode === "kept"};
+  const kept = ${mode === "kept" || mode === "unhomed"};
   if (kept) {
     await store.createAccount({
       id: "demat-1", label: "Demat · Test DP · …5678", category: "demat",
@@ -134,6 +164,19 @@ function pageScript({ mode, write = false } = {}) {
       quantity: 10, value_paise: 1000000, cost_paise: 800000, as_of: "2026-08-31",
     }], "2026-08-31");
   }
+  if (${mode === "boundary"}) {
+    await store.createAccount({
+      id: "axis-value", label: "Test Mutual Fund", bank: "Test Mutual Fund",
+      category: "demat", subtype: "mutual fund", type: "mf",
+      number: ${JSON.stringify(BASE)},
+      meta: JSON.stringify({ amc: "testmutual", amc_full: "Test Mutual Fund",
+        current_value_paise: ${MANUAL_PAISE} }),
+    });
+    await store.replaceHoldings("axis-value", [{
+      security_id: ${JSON.stringify(FUND_ZERO)}, label: "TEST FUND CLOSED PLAN",
+      category: "mf", quantity: 5, value_paise: 500000, as_of: "2026-08-31",
+    }], "2026-08-31");
+  }
   go("import");
   await sleep(900);
   const state = window.bpImportInbox;
@@ -143,7 +186,10 @@ function pageScript({ mode, write = false } = {}) {
   state.choices = {};
   state.acceptAsk = {};
   state.accountRows = null;
-  state.entries.push(${JSON.stringify(mode === "kept" ? keptEntry : zeroEntry)});
+  state.entries.push(${JSON.stringify(mode === "kept" ? keptEntry
+    : mode === "unhomed" ? unhomedEntry
+      : mode === "boundary" ? boundaryEntry
+        : mode === "zeroonly" ? zeroOnlyEntry : zeroEntry)});
   window.bpImportDropPlan("__render__");
   await sleep(1400);
 
@@ -206,7 +252,32 @@ function pageScript({ mode, write = false } = {}) {
         rows: (await store.listHoldings(manual.id)).length } : null,
     };
   }
-  if (!kept && ${write}) {
+  if (${mode === "boundary"} && ${write}) {
+    const button = primary();
+    if (!button || button.disabled) throw new Error("the boundary import is not available: "
+      + JSON.stringify(summary.before));
+    button.click();
+    for (let attempt = 0; attempt < 48; attempt += 1) {
+      await sleep(250);
+      if (!state.entries.length) break;
+    }
+    const accounts = await store.listAccounts();
+    const holdings = [];
+    for (const account of accounts) {
+      holdings.push({ id: account.id, account: account.number,
+        subtype: account.subtype || "",
+        meta: JSON.parse(account.meta || "{}"),
+        rows: (await store.listHoldings(account.id)).map((holding) => ({
+          isin: holding.security_id, quantity: holding.quantity,
+          disposed: holding.disposed_at || "",
+        })) });
+    }
+    summary.after = {
+      status: document.getElementById("import-inbox-status")?.textContent?.trim() || "",
+      entries: state.entries.length, accounts: accounts.length, holdings,
+    };
+  }
+  if (${mode === "zero" || mode === "zeroonly"} && ${write}) {
     const button = primary();
     if (!button || button.disabled) throw new Error("the import button is not available: "
       + JSON.stringify(summary.before));
@@ -361,6 +432,119 @@ function verifyZeroWrite(state) {
   return wrong;
 }
 
+function verifyZeroOnlyCard(state) {
+  const wrong = [];
+  if (!state.before.ready) wrong.push("the zero-unit-only card is not Ready");
+  if (state.before.primary !== "Import 1 holding") {
+    wrong.push(`the zero-unit-only card says ${JSON.stringify(state.before.primary)}`);
+  }
+  const demat = (state.before.accountLines || []).find((line) => /…5678/.test(line));
+  if (!demat || !/New demat account/.test(demat) || !/1 holding/.test(demat)) {
+    wrong.push(`the zero-unit-only demat line is ${JSON.stringify(demat)}`);
+  }
+  return wrong;
+}
+
+function verifyZeroOnlyWrite(state) {
+  const wrong = [];
+  const after = state.after || {};
+  if (after.entries !== 0) wrong.push(`the file is still in the inbox: ${after.entries}`);
+  if (after.accounts !== 1) wrong.push(`accounts: ${after.accounts}`);
+  const demat = (after.holdings || []).find((account) => account.account === DEMAT);
+  if (!demat) wrong.push("the demat account was not created");
+  else {
+    if (demat.rows.length !== 1 || demat.rows[0].isin !== FUND_ZERO
+      || Number(demat.rows[0].quantity) !== 0) {
+      wrong.push(`the demat rows are ${JSON.stringify(demat.rows)}`);
+    }
+  }
+  if (!/1 holding imported/.test(after.status || "")) {
+    wrong.push(`the receipt does not count the row: ${JSON.stringify(after.status)}`);
+  }
+  return wrong;
+}
+
+function verifyBoundaryCard(state) {
+  const wrong = [];
+  if (!state.before.ready) wrong.push("the boundary card is not Ready");
+  if (state.before.primary !== "Import 1 holding") {
+    wrong.push(`the boundary card says ${JSON.stringify(state.before.primary)}`);
+  }
+  const lines = state.before.accountLines || [];
+  if (lines.some((line) => /Update Test Mutual Fund|Update .*mutual fund/i.test(line))) {
+    wrong.push(`the fund account is the demat target: ${JSON.stringify(lines)}`);
+  }
+  if (!lines.some((line) => /…5678/.test(line) && /New demat account/.test(line))) {
+    wrong.push(`the boundary card has no new demat line: ${JSON.stringify(lines)}`);
+  }
+  return wrong;
+}
+
+function verifyBoundaryWrite(state) {
+  const wrong = [];
+  const after = state.after || {};
+  if (after.entries !== 0) wrong.push(`the file is still in the inbox: ${after.entries}`);
+  if (after.accounts !== 2) wrong.push(`accounts: ${after.accounts}`);
+  const manual = (after.holdings || []).find((account) => account.id === "axis-value");
+  if (!manual) wrong.push("the fund account is missing");
+  else {
+    for (const key of ["identity_source", "identity_as_of", "broker_only", "depository", "dp"]) {
+      if (Object.prototype.hasOwnProperty.call(manual.meta || {}, key)) {
+        wrong.push(`the fund account inherited ${key}: ${JSON.stringify(manual.meta)}`);
+      }
+    }
+    if (manual.meta.current_value_paise !== MANUAL_PAISE) {
+      wrong.push(`the fund total changed: ${JSON.stringify(manual.meta)}`);
+    }
+    if (manual.rows.length !== 1 || manual.rows[0].isin !== FUND_ZERO
+      || Number(manual.rows[0].quantity) !== 5) {
+      wrong.push(`the fund rows changed: ${JSON.stringify(manual.rows)}`);
+    }
+  }
+  const demat = (after.holdings || []).find((account) => account.account === DEMAT);
+  if (!demat) wrong.push("the new demat account is missing");
+  else if (demat.rows.length !== 1 || demat.rows[0].isin !== FUND_ZERO
+    || Number(demat.rows[0].quantity) !== 0) {
+    wrong.push(`the demat rows are ${JSON.stringify(demat.rows)}`);
+  }
+  return wrong;
+}
+
+function verifyUnhomedAfterKeep(state) {
+  const wrong = [];
+  const afterKeep = state.afterKeep || {};
+  if (!afterKeep.ready) wrong.push("the card is not Ready after Keep");
+  if (afterKeep.primary !== "Finish without importing") {
+    wrong.push(`after Keep primary: ${JSON.stringify(afterKeep.primary)}`);
+  }
+  if (String(afterKeep.sales || "").includes(REDEEMED)) {
+    wrong.push(`the unhomed sale is promised: ${afterKeep.sales}`);
+  }
+  return wrong;
+}
+
+function verifyUnhomedWrite(state) {
+  const wrong = [];
+  const after = state.after || {};
+  if (after.entries !== 1) wrong.push(`the file left the inbox: ${after.entries}`);
+  if (!/No account on file can take this statement/.test(after.status || "")) {
+    wrong.push(`the refusal is missing: ${JSON.stringify(after.status)}`);
+  }
+  const manual = after.manual || {};
+  if (manual.meta?.current_value_paise !== MANUAL_PAISE) {
+    wrong.push(`the manual total changed: ${JSON.stringify(manual.meta)}`);
+  }
+  if (manual.rows !== 0) wrong.push(`the manual account gained rows: ${manual.rows}`);
+  const demat = after.demat || [];
+  if (demat.some((row) => row.isin === REDEEMED || row.disposed)) {
+    wrong.push(`a refused movement was written: ${JSON.stringify(demat)}`);
+  }
+  if (demat.some((row) => row.isin === EQUITY && Number(row.quantity) !== 10)) {
+    wrong.push(`the demat equity row changed: ${JSON.stringify(demat)}`);
+  }
+  return wrong;
+}
+
 function parseArgs(argv) {
   const args = { outDir: join(ROOT, "build/renders") };
   for (let index = 0; index < argv.length; index += 1) {
@@ -467,10 +651,74 @@ try {
     }
     console.log(out);
   }
+
+  // A zero-unit-only statement: no demat on file, no equity row to create it.
+  for (const shot of SHOTS) {
+    const theme = shot.width === 390 ? "light" : "dark";
+    const write = shot.width === 390;
+    const script = join(dir, "page-zero-only.js");
+    writeFileSync(script, pageScript({ mode: "zeroonly", write }));
+    const out = join(args.outDir, `import-folio-zero-only-${shot.width}-${theme}.png`);
+    const result = await capture({
+      page, out, script, wait: 2400,
+      width: shot.width, height: shot.height, theme,
+    });
+    const state = JSON.parse(result.value);
+    const wrong = verifyZeroOnlyCard(state)
+      .concat(write ? verifyZeroOnlyWrite(state) : []);
+    if (wrong.length) {
+      throw new Error("render-import-folio-kept: the zero-unit-only statement did not "
+        + "create its demat.\n  " + wrong.join("\n  ")
+        + "\n  full state: " + JSON.stringify(state));
+    }
+    console.log(out);
+  }
+
+  // A fund account holding the same ISIN is not the demat's home.
+  for (const shot of SHOTS) {
+    const theme = shot.width === 390 ? "light" : "dark";
+    const write = shot.width === 390;
+    const script = join(dir, "page-boundary.js");
+    writeFileSync(script, pageScript({ mode: "boundary", write }));
+    const out = join(args.outDir, `import-folio-boundary-${shot.width}-${theme}.png`);
+    const result = await capture({
+      page, out, script, wait: 2400,
+      width: shot.width, height: shot.height, theme,
+    });
+    const state = JSON.parse(result.value);
+    const wrong = verifyBoundaryCard(state)
+      .concat(write ? verifyBoundaryWrite(state) : []);
+    if (wrong.length) {
+      throw new Error("render-import-folio-kept: the demat/fund boundary is not kept.\n  "
+        + wrong.join("\n  ") + "\n  full state: " + JSON.stringify(state));
+    }
+    console.log(out);
+  }
+
+  // A kept folio plus a fully redeemed fund movement no target can record.
+  const unhomedScript = join(dir, "page-unhomed.js");
+  writeFileSync(unhomedScript, pageScript({ mode: "unhomed", write: true }));
+  const unhomedOut = join(args.outDir, "import-folio-unhomed-390-light.png");
+  const unhomed = await capture({
+    page, out: unhomedOut, script: unhomedScript, wait: 2400,
+    width: 390, height: 1800, theme: "light",
+  });
+  const unhomedState = JSON.parse(unhomed.value);
+  const unhomedWrong = verifyUnhomedAfterKeep(unhomedState)
+    .concat(verifyUnhomedWrite(unhomedState));
+  if (unhomedWrong.length) {
+    throw new Error("render-import-folio-kept: the kept folio finished over an unhomed "
+      + "movement.\n  " + unhomedWrong.join("\n  ")
+      + "\n  full state: " + JSON.stringify(unhomedState));
+  }
+  console.log(unhomedOut);
+
   console.log("import folio kept: a kept folio keeps only its own rows and movements out, "
     + "the demat's sale is previewed and recorded, and the file leaves the inbox; a "
     + "zero-unit folio row stays with its demat, and the receipt counts the three rows "
-    + "the store holds · 390/1280 light and dark");
+    + "the store holds; a zero-unit-only statement creates its demat and stores the row; "
+    + "a fund account is never the demat target; a kept folio never finishes over a "
+    + "movement no target can record · 390/1280 light and dark");
 } finally {
   server.child.kill();
   rmSync(dir, { recursive: true, force: true });
