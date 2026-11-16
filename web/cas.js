@@ -29,7 +29,7 @@
 // DOM, no storage, no network.
 
 import { boId } from "./bo-id.js";
-import { folioAdoptedHome, folioHome, normalizeFolio } from "./folio.js";
+import { folioAdoptedHome, folioOwnership, normalizeFolio } from "./folio.js";
 
 const ISIN = /^IN[A-Z0-9]{10}$/;
 const DATE = /^\d{1,2}-[A-Za-z]{3}-\d{4}$/;
@@ -1160,7 +1160,13 @@ export function parseCas(pdf) {
  * this app keeps bonds and equities in separate accounts, so one target would
  * either overwrite a class or force the person to import the same file twice.
  * `adopt` carries only the folio targets the person explicitly chose. A folio
- * with no exact home stays homeless otherwise; the AMC label never merges it.
+ * with no settled home stays homeless otherwise; the AMC label never merges it.
+ * A value-only account that carries the folio is an adoption candidate, never
+ * an automatic home: writing units over a manual total takes an explicit
+ * choice. A settled owner is the home even when a manual duplicate arrives first
+ * in the list. Two settled owners with no unique AMC are contested: the rows
+ * stay homeless and no caller may pick one or create another. Callers pass fund
+ * accounts with their `holdings`, so the two shapes can be told apart.
  * @param {{holdings: Array<object>, demat?: string}} parsed
  * @param {Array<{id: string, label?: string, category?: string, number?: string}>} assets
  * @param {{adopt?: object|Map}} [options] folio key to account id, user chosen
@@ -1193,9 +1199,21 @@ export function casRoute(parsed, assets = [], { adopt = {} } = {}) {
       // being written into a folio account with a value picked from the wrong cell.
       const isFolio = holding.kind === "mf" && !!holding.folio
         && Number(holding.quantity) > 0;
-      const target = isFolio
-        ? (folioHome(holding, assets) || folioAdoptedHome(holding, assets, adopt))
-        : asset;
+      // The ownership shape decides the folio once: one settled owner (or one
+      // named by the AMC) is the home; two settled owners with no unique AMC
+      // are contested and get no write; a manual total is never a home and only
+      // an explicit adopt may replace it. A missing holdings list fails closed
+      // because the account cannot be told from a manual total.
+      const ownership = isFolio
+        ? folioOwnership(holding, assets, (account) => account.holdings || []) : null;
+      const home = ownership?.state === "home" ? ownership.home : null;
+      const adopted = isFolio && ownership.state !== "home"
+        && ownership.state !== "contested"
+        ? folioAdoptedHome(holding, assets, adopt) : null;
+      // A home wins over a stale adopt, so a manual total chosen before the
+      // settled owner arrived cannot take the rows, and a contested folio
+      // cannot be forced into one of its owners by a stale choice either.
+      const target = isFolio ? (home || adopted) : asset;
       const bucket = target ? groups : homeless;
       // One group per folio, even when one account carries two of them: the card
       // ticks and the writer group by position, not by fund house.

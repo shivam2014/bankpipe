@@ -2,7 +2,14 @@
 // beside it. Two folios of one AMC are two positions with their own units and
 // value, and a folio the app has never seen is a new position. Matching on the
 // AMC label alone merged an NSDL folio into a CDSL account that held a different
-// folio of the same fund house. Pure: no storage, no DOM, no network.
+// folio of the same fund house.
+//
+// The slash suffix a registrar prints is a check digit, not a sub-folio. A
+// zero check digit is the same folio, so `99990000001` and `99990001/0` are
+// one position; every other suffix stays distinct, because without the
+// registrar's table a non-zero digit cannot be proven non-identifying and a
+// wrong merge is worse than a duplicate. The printed spelling stays in storage;
+// identity is computed here. Pure: no storage, no DOM, no network.
 import { boId } from "./bo-id.js";
 
 const tidy = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -11,6 +18,11 @@ const amcOf = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLower
 /**
  * One spelling of a folio number for comparison. Caseless, spaceless, and
  * without the soft hyphens and zero-width spaces a PDF leaves inside numbers.
+ * A registrar prints a check digit after a slash; a zero check digit is the
+ * same folio, so exactly one trailing `/0` is stripped. A non-zero suffix is
+ * left in place: it is a different position until proven otherwise. Exactly one
+ * suffix, so this is not idempotent (`/0/0` normalises to `/0`); normalise a
+ * stored value once and compare the result.
  * @param {string} value
  * @returns {string}
  */
@@ -18,7 +30,8 @@ export function normalizeFolio(value) {
   return String(value ?? "")
     .replace(/[\u00AD\u200B]/g, "")
     .replace(/\s+/g, "")
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/\/0$/, "");
 }
 
 function metaOf(account) {
@@ -65,31 +78,72 @@ function declaredAmc(account) {
 }
 
 /**
- * The account a fund folio belongs to. The folio number decides; the AMC only
- * breaks a tie between two or more accounts that carry the same folio. A single
- * on-file account carrying the exact folio is the home whatever AMC it declares:
- * a fund-house rename and a reused folio number cannot be told apart without a
- * second account, and orphaning a renamed account would create a duplicate. No
- * AMC-only and no ISIN fallback: an unmatched folio is a new position.
+ * What a canonical folio is on file, in one shape every surface reads. An
+ * account carrying the folio is a manual total only when it has a current value
+ * and no rows; every other such account is settled, including a freshly created
+ * folio with neither rows nor a value. A manual total is never the position
+ * while a settled owner exists, and when more than one settled owner exists the
+ * AMC has to name exactly one; otherwise the folio is contested and no surface
+ * may pick one, write one, or create another.
+ * - `home`: one settled owner, or several settled owners with exactly one named
+ *   by the holding's AMC. The folio is that account.
+ * - `contested`: more than one settled owner and the AMC does not name exactly
+ *   one. There is no safe pick; the rows stay unwritten.
+ * - `manual`: no settled owner; the value-only accounts carrying the folio are
+ *   an exact offer, with adopt or keep as the only answers.
+ * - `new`: nothing on file carries the folio.
  * @param {{folio?: string, amc?: string}} holding
- * @param {Array<object>} accounts
- * @returns {object|null}
+ * @param {Array<object>} [accounts]
+ * @param {(account: object) => Array<object>} [rowsOf] defaults to `holdings`
+ * @returns {{state: string, folio: string, home: object|null,
+ *   owners: Array<object>, settled: Array<object>, manuals: Array<object>}}
  */
-export function folioHome(holding, accounts = []) {
+export function folioOwnership(holding, accounts = [], rowsOf = null) {
   const folio = normalizeFolio(holding?.folio);
-  if (!folio) return null;
-  const owners = (accounts || []).filter((account) =>
-    isFolioAccount(account) && accountFolios(account).includes(folio));
-  if (!owners.length) return null;
-  if (owners.length === 1) return owners[0];
+  const rowsFor = typeof rowsOf === "function"
+    ? rowsOf
+    : (account) => account?.holdings || [];
+  const owners = folio ? (accounts || []).filter((account) =>
+    isFolioAccount(account) && accountFolios(account).includes(folio)) : [];
+  const settled = [];
+  const manuals = [];
+  for (const account of owners) {
+    if (isValueOnlyFolioAccount(account, rowsFor(account) || [])) manuals.push(account);
+    else settled.push(account);
+  }
+  if (!settled.length) {
+    return { state: manuals.length ? "manual" : "new", folio,
+      home: null, owners, settled, manuals };
+  }
   const amc = amcOf(holding?.amc);
-  const named = owners.filter((account) => {
+  const named = settled.filter((account) => {
     if (!amc) return false;
     const declared = declaredAmc(account);
     return declared ? declared === amc
       : String(account.label || "").toLowerCase().includes(amc);
   });
-  return named[0] || null;
+  const home = settled.length === 1 ? settled[0] : (named.length === 1 ? named[0] : null);
+  return { state: home ? "home" : "contested", folio, home, owners, settled, manuals };
+}
+
+/**
+ * The account a fund folio belongs to. The folio number decides; the AMC only
+ * breaks a tie between two or more accounts that carry the same folio. A single
+ * settled account carrying the exact folio is the home whatever AMC it declares:
+ * a fund-house rename and a reused folio number cannot be told apart without a
+ * second account, and orphaning a renamed account would create a duplicate. No
+ * AMC-only and no ISIN fallback: an unmatched folio is a new position. A manual
+ * total is not a settled owner; with no settled owner the answer is null and the
+ * exact offer is the only way in. With more than one settled owner and no unique
+ * AMC the answer is null too, so no caller picks by array order.
+ * @param {{folio?: string, amc?: string}} holding
+ * @param {Array<object>} accounts
+ * @param {{rowsOf?: (account: object) => Array<object>}} [options]
+ * @returns {object|null}
+ */
+export function folioHome(holding, accounts = [], { rowsOf = null } = {}) {
+  const ownership = folioOwnership(holding, accounts, rowsOf);
+  return ownership.state === "home" ? ownership.home : null;
 }
 
 /**
@@ -168,11 +222,13 @@ export function isValueOnlyFolioAccount(account, rows = []) {
 }
 
 /**
- * The accounts a folio could be adopted into. The folio number decides when it
- * is known: an exact folio is `folioHome`'s job, and a different folio is a
- * different position. Only an account with no folio at all, no unit rows, a
- * current value and a matching fund house or scheme is a candidate. The caller
- * must still ask; one candidate is never enough to apply.
+ * The accounts a folio could be adopted into. An account that carries this
+ * canonical folio is an exact candidate: the folio number is its identity, so
+ * the fund house and scheme are not consulted. An account with no folio at all
+ * is a guess and still needs the fund house or scheme to look alike. An account
+ * that carries a different folio is a different position and never a candidate.
+ * A candidate must be value-only; the caller must still ask. One candidate is
+ * never enough to apply.
  * @param {object} holding
  * @param {Array<object>} [accounts]
  * @param {(id: string) => Array<object>} [rowsOf]
@@ -184,27 +240,38 @@ export function folioAdoptionCandidates(holding, accounts = [], rowsOf = () => [
   const found = [];
   for (const account of accounts || []) {
     if (!isFolioAccount(account)) continue;
-    // An account that answers to any folio is not value-only. When it carries
-    // this folio, folioHome already routes there; when it carries another, it
-    // is a different position and must not be merged.
-    if (accountFolios(account).length) continue;
+    const folios = accountFolios(account);
+    const exact = folios.includes(folio);
+    // An account that answers to another folio is a different position. When it
+    // carries this folio it is the exact home and the route offers it.
+    if (folios.length && !exact) continue;
     if (!isValueOnlyFolioAccount(account, rowsOf(account.id) || [])) continue;
-    if (!fundHouseMatches(holding, account) && !schemeMatches(holding, account)) continue;
+    if (!exact && !fundHouseMatches(holding, account) && !schemeMatches(holding, account)) continue;
     found.push(account);
   }
   return found;
 }
 
 /**
- * The adoption choices one statement can offer. A folio with no exact home is
- * offered the value-only accounts that look like it, with the value difference.
- * A candidate shared by two folios in the same statement is blocked, because
- * adopting both would merge two positions. Nothing is applied without a choice
- * for that folio; the writer receives only the explicit targets.
+ * The adoption choices one statement can offer. A folio with no settled owner
+ * is offered the value-only accounts that carry its exact folio (`basis:
+ * "folio"`), or, when none does, the value-only accounts that look like it
+ * (`basis: "guess"`). A candidate shared by two folios in the same statement is
+ * blocked, because adopting both would merge two positions. Nothing is applied
+ * without a choice for that folio; the writer receives only the explicit
+ * targets. An exact offer has two answers, adopt (`targets[key] = id`) or keep
+ * the manual total (`state: "kept"`, `chosen: "__skip__"`); it never offers to
+ * create a second account carrying the same canonical folio.
+ *
+ * A folio with a settled owner is never offered a manual total over it. One
+ * settled owner is the `home`. Two or more with no unique AMC are `contested`:
+ * no offer, no target, and every surface withholds the rows rather than picking
+ * one by name or array order.
  * @param {{holdings?: Array<object>, accounts?: Array<object>,
  *   rowsOf?: (id: string) => Array<object>,
  *   choices?: object|Map|((key: string) => string)}} [input]
- * @returns {{offers: Array<object>, targets: object}}
+ * @returns {{offers: Array<object>, targets: object, homes: Array<object>,
+ *   contested: Array<object>}}
  */
 export function folioAdoptionPlan({ holdings = [], accounts = [], rowsOf = () => [],
   choices = {} } = {}) {
@@ -232,15 +299,41 @@ export function folioAdoptionPlan({ holdings = [], accounts = [], rowsOf = () =>
     if (Number.isFinite(value) && value > 0) group.valuePaise += value;
   }
   const offers = [];
+  const homes = [];
+  const contested = [];
   const claims = new Map();
   for (const group of groups.values()) {
-    // An exact folio is already identified. Only a folio with no home is a
-    // question for the person, never a silent AMC-only merge.
-    if (folioHome(group.holdings[0], accounts)) continue;
-    const candidates = folioAdoptionCandidates(group.holdings[0], accounts, rowsOf);
+    const folio = normalizeFolio(group.folioNo);
+    // The ownership shape decides this folio once. A manual total is never the
+    // position while a settled owner exists, and two settled owners with no
+    // unique AMC have no safe pick, so neither may become an offer.
+    const ownership = folioOwnership(group.holdings[0], accounts,
+      (account) => rowsOf(account.id) || []);
+    if (ownership.state === "home") {
+      homes.push({ key: group.key, folioNo: group.folioNo, amc: group.amc,
+        id: String(ownership.home.id || ""),
+        label: String(ownership.home.label || ownership.home.id || "") });
+      continue;
+    }
+    if (ownership.state === "contested") {
+      contested.push({ key: group.key, folioNo: group.folioNo, amc: group.amc,
+        amcFull: group.amcFull, label: group.label, valuePaise: group.valuePaise,
+        accounts: ownership.settled.map((account) => ({
+          id: String(account.id || ""),
+          label: String(account.label || account.id || ""),
+        })),
+        reason: "more than one account carrying this folio already holds units" });
+      continue;
+    }
+    const found = folioAdoptionCandidates(group.holdings[0], accounts, rowsOf);
+    const exact = found.filter((account) => accountFolios(account).includes(folio));
+    // An exact folio is identity, so its accounts are the only offer. The
+    // lookalikes are a guess and are offered only when no exact account exists.
+    const candidates = exact.length ? exact : found;
     if (!candidates.length) continue;
     const offer = {
       key: group.key,
+      basis: exact.length ? "folio" : "guess",
       folioNo: group.folioNo,
       amc: group.amc,
       amcFull: group.amcFull,
@@ -276,28 +369,35 @@ export function folioAdoptionPlan({ holdings = [], accounts = [], rowsOf = () =>
     offer.choosable = offer.candidates.filter((candidate) => !candidate.shared);
     const choice = choiceOf(offer.key);
     const picked = offer.choosable.find((candidate) => candidate.id === choice);
-    if (!offer.choosable.length) {
+    if (offer.basis === "folio" && choice === "__skip__") {
+      // Keeping is always available for an exact folio: it leaves the manual
+      // total alone, writes none of this folio's rows and creates no account.
+      offer.state = "kept";
+      offer.chosen = "__skip__";
+    } else if (!offer.choosable.length) {
       offer.state = "ambiguous";
       offer.reason = "more than one folio in this statement looks like the same account";
     } else if (picked) {
       offer.state = "adopt";
       offer.chosen = picked.id;
       targets[offer.key] = picked.id;
+    } else if (offer.basis === "folio") {
+      offer.state = "offer";
     } else if (offer.choosable.length > 1) {
       offer.state = "ambiguous";
       offer.reason = "more than one account looks like this folio";
-    } else if (choice === "__create__") {
-      offer.chosen = "__create__";
     }
-    if (choice === "__create__") offer.chosen = "__create__";
+    if (offer.basis !== "folio" && choice === "__create__") offer.chosen = "__create__";
   }
-  return { offers, targets };
+  return { offers, targets, homes, contested };
 }
 
 /**
  * The account an explicit adoption sends a folio's rows to. The route uses
- * this only after the person chose it; an account that has since gained a
- * folio or lost its current value is refused rather than guessed at.
+ * this only after the person chose it; an account that has since lost its
+ * current value is refused rather than guessed at. A value-only account that
+ * carries this exact folio is the chosen home; one that carries another folio
+ * is a different position and is still refused.
  * @param {object} holding
  * @param {Array<object>} [accounts]
  * @param {object|Map} [adopt] folio key to account id
@@ -308,7 +408,13 @@ export function folioAdoptedHome(holding, accounts = [], adopt = {}) {
   const id = adopt instanceof Map ? adopt.get(key) : (adopt?.[key] || "");
   if (!id) return null;
   const account = (accounts || []).find((item) => String(item.id || "") === String(id));
-  if (!account || !isFolioAccount(account) || accountFolios(account).length) return null;
+  if (!account || !isFolioAccount(account)) return null;
+  // An account that has since gained rows is no longer value-only; refusing it
+  // is safer than merging a manual record with a statement.
+  if (Array.isArray(account.holdings) && account.holdings.length) return null;
+  const folios = accountFolios(account);
+  const folio = normalizeFolio(holding?.folio);
+  if (folios.length && !folios.includes(folio)) return null;
   return accountCurrentValuePaise(account) > 0 ? account : null;
 }
 

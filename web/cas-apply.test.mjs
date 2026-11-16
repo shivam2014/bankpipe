@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { casApplyRows, casClosedRow, casHoldingLabel, casImportHoldings,
+  casManualTargetEvents, casManualTargetRows, casUnhomedMovements,
   casReplacePlan, casSafety } from "./cas-apply.js";
 
 const ISIN_A = "INE000000031";
@@ -401,4 +402,56 @@ test("a closed row is dropped but a matured zero row is history", () => {
   assert.equal(casClosedRow({ quantity: 0, valuePaise: 0, kind: "bond",
     label: "9% TEST 01 Jan 2020", maturity: "2020-01-01" }), false);
   assert.equal(casClosedRow({ quantity: 5, valuePaise: 0 }), false);
+});
+
+test("a manual demat target never takes a positive folio row or its movement", () => {
+  const holding = { isin: ISIN_A, kind: "mf", category: "mf", folio: "99990001/0",
+    quantity: 100, valuePaise: 32453600 };
+  const history = { isin: ISIN_B, kind: "mf", category: "mf", folio: "99990001/0",
+    quantity: 0, valuePaise: 500 };
+  const equity = { isin: "INE000000033", kind: "equity", quantity: 10, valuePaise: 1000 };
+  const rows = casManualTargetRows([holding, history, equity], "2026-09-30");
+  assert.deepEqual(rows.map((row) => row.isin), [ISIN_B, "INE000000033"]);
+  const events = [
+    { isin: ISIN_A, side: "debit", quantity: 10 },
+    { isin: ISIN_B, side: "debit", quantity: 0 },
+    { isin: "INE000000033", side: "debit", quantity: 1 },
+  ];
+  // A zero-unit folio row is history, not a position, so its movement is the
+  // manual target's; a positive folio's movement is the folio's.
+  assert.deepEqual(casManualTargetEvents(events, [holding, history])
+    .map((event) => event.isin), [ISIN_B, "INE000000033"]);
+});
+
+test("a movement no target can record is named before anything is written", () => {
+  const events = [
+    { isin: ISIN_A, side: "debit", quantity: 2 },
+    { isin: ISIN_B, side: "debit", quantity: 3 },
+  ];
+  // The first is held by a target's rows; the second belongs to a fully
+  // redeemed folio that printed no row and no account, so nothing can take it.
+  const targets = [{ assetId: "demat-1", accounts: ["1200000012345678"],
+    rows: [{ security_id: ISIN_A, quantity: 10 }] }];
+  assert.deepEqual(casUnhomedMovements({ events, targets })
+    .map((event) => event.isin), [ISIN_B]);
+});
+
+test("a named movement needs a target carrying that BO ID", () => {
+  const event = { isin: ISIN_A, side: "debit", quantity: 2, account: "1200000012345678" };
+  assert.deepEqual(casUnhomedMovements({ events: [event], targets: [] }), [event]);
+  assert.deepEqual(casUnhomedMovements({ events: [event],
+    targets: [{ assetId: "demat-1", accounts: ["1200000098765432"], rows: [] }] }), [event]);
+  assert.deepEqual(casUnhomedMovements({ events: [event],
+    targets: [{ assetId: "demat-1", accounts: ["1200000012345678"], rows: [] }] }), []);
+});
+
+test("a manual target takes an unnamed movement even with no row", () => {
+  const event = { isin: ISIN_A, side: "debit", quantity: 2 };
+  const targets = [{ assetId: "demat-1", accounts: [], rows: [] }];
+  assert.deepEqual(casUnhomedMovements({ events: [event], targets }), [event]);
+  assert.deepEqual(casUnhomedMovements({ events: [event], targets,
+    manualTarget: "demat-1" }), []);
+  // Only the account the person named manually gets the override.
+  assert.deepEqual(casUnhomedMovements({ events: [event], targets,
+    manualTarget: "demat-2" }), [event]);
 });

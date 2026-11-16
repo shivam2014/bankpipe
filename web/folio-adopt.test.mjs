@@ -147,18 +147,24 @@ test("a value-only account carrying a different folio is a different position", 
   assert.equal(plan.offers.length, 0);
 });
 
-test("a value-only account carrying the same folio is already a folio home", () => {
+test("a value-only account carrying the same folio is offered, not silently adopted", () => {
   const holding = casFund();
   const same = valueOnly({ number: FOLIO,
     meta: JSON.stringify({ amc: "axis", current_value_paise: 32100000 }) });
-  assert.equal(folioHome(holding, [same])?.id, "axis-value");
+  // A manual total is a candidate, not a home: the exact offer is the only way
+  // in and the number is the identity that offer is keyed on.
+  assert.equal(folioHome(holding, [same]), null);
   const plan = folioAdoptionPlan({ holdings: [holding], accounts: [same],
     rowsOf: () => [] });
-  assert.equal(plan.offers.length, 0);
-  // The existing folio route already writes the units there; it is not a guess.
+  assert.equal(plan.offers.length, 1);
+  assert.equal(plan.offers[0].basis, "folio");
+  assert.equal(plan.offers[0].state, "offer");
+  assert.deepEqual(plan.targets, {});
+  // A manual total is never written without the person choosing it.
   const route = casRoute(parsed([holding]), routeAssets({ number: FOLIO,
     meta: JSON.stringify({ amc: "axis", current_value_paise: 32100000 }) }));
-  assert.equal(route.groups[0].assetId, "axis-value");
+  assert.equal(route.groups.length, 0);
+  assert.equal(route.homeless.length, 1);
 });
 
 test("a unit-bearing account is not a value-only candidate", () => {

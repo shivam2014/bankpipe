@@ -7,6 +7,12 @@ import { readFileSync } from "node:fs";
 // removed; the planner itself is covered by cas-apply.test.mjs and
 // cas-events.test.mjs.
 const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+const between = (start, end) => {
+  const from = html.indexOf(start);
+  const to = html.indexOf(end, from + start.length);
+  assert.ok(from >= 0 && to > from, `could not read ${start} … ${end}`);
+  return html.slice(from, to);
+};
 
 test("a movements-only statement never offers the replace dialog", () => {
   assert.match(html, /const movementsOnly = !\(cas\.holdings \|\| \[\]\)\.length/);
@@ -77,11 +83,13 @@ test("the writer groups rows through the shared folio rule", () => {
   assert.match(html, /picked: card\.picked \|\| null/);
 });
 
-test("a manual demat target keeps a zero-unit folio row", () => {
+test("a manual demat target takes the statement's rows, never a positive folio", () => {
   assert.match(html,
-    /if \(id\) byAsset\.set\(id, cas\.holdings\.filter\(\(h\) => !casClosedRow\(h, importDay\)\)\)/);
-  assert.equal(
-    /h\.kind === "mf" && h\.folio && !\(Number\(h\.quantity\) > 0\)/.test(html), false);
+    /byAsset\.set\(id, casManualTargetRows\(cas\.holdings, importDay\)\)/);
+  // The rule lives in the pure module, so the card, the manual preview and the
+  // writer share it.
+  assert.match(html, /casManualTargetEvents\(card\.cas\.transactions, card\.cas\.holdings\)/);
+  assert.match(html, /casManualTargetEvents\(cas\.transactions, withheldRows\)/);
 });
 
 test("the card demat rows use the shared folio rule", () => {
@@ -126,8 +134,9 @@ test("the card requires a homed route or a manual target before Import", () => {
 test("the preview and the writer share the closed-holding rule", () => {
   assert.match(html, /import \{ casClosedRow, /);
   assert.equal(/function casClosedRow\(/.test(html), false);
-  assert.match(html, /casClosedRow\(h, importDay\)/);
+  assert.match(html, /casClosedRow\(row, importDay\)/);
   assert.match(html, /const writableHoldings = casWritableHoldings\(cas\.holdings, cardImportDay\)/);
+  assert.match(html, /casManualTargetRows\(cas\.holdings, importDay\)/);
 });
 
 test("an identity-only target contributes no rows to the write", () => {
@@ -149,7 +158,10 @@ test("linked warnings do not enable Import as if they were sales", () => {
 test("the CAS inbox matches a folio by its number, not by AMC label or ISIN", () => {
   assert.match(html, /accountKey: group\.folioNo, accountKind: "folio"/);
   assert.match(html, /amc: group\.amc,/);
-  assert.match(html, /const key = `\$\{amc\.toLowerCase\(\)\}:\$\{normalizeFolio\(folioNo\)\}`/);
+  // The grouping key is the plan's own key, from the row's AMC as printed. A
+  // "Folio" fallback here made the exact offer invisible on the card.
+  assert.match(html, /const amc = String\(row\.amc \|\| ""\)\.trim\(\)/);
+  assert.match(html, /const key = folioKey\(\{ amc, folioNo \}\)/);
   assert.match(html, /const choiceKey = `\$\{bundle\.key\}:\$\{folioKey\(group\)\}`/);
   assert.match(html, /boId: folioKey\(group\)/);
   assert.match(html, /folio: true, amc: group\.amc/);
@@ -175,7 +187,10 @@ test("account creation makes one account per folio, not one per AMC label", () =
   assert.match(html, /const folio = normalizeFolio\(folioNo\)/);
   assert.match(html, /done\.has\(folioKey\(group\)\)\) continue;/);
   assert.match(html, /done\.add\(folioKey\(group\)\);/);
-  assert.match(html, /if \(folioHome\(\{ folio: folioNo, amc \}, all\)\) continue;/);
+  // Only a folio with no owner anywhere is a new account. A settled owner, a
+  // manual total and a contested pair all refuse to create.
+  assert.match(html,
+    /if \(folioOwnership\(\{ folio: folioNo, amc \}, all\)\.state !== "new"\) continue;/);
   assert.equal(/accountFolios\(a\)\.includes\(folio\)/.test(html), false);
   assert.match(html, /number: folioNo/);
   assert.match(html, /folios: \[folioNo\]/);
@@ -188,6 +203,75 @@ test("account creation makes one account per folio, not one per AMC label", () =
 test("a sold-only holdings card keeps its add actions", () => {
   assert.match(html, /No live holdings/);
   assert.match(html, /\$\{isDemat \|\| cat === "bonds" \|\| isFolio/);
+});
+
+test("an exact folio offer shows the manual total, not a new-account line", () => {
+  assert.match(html, /"Existing folio · choose below"/);
+  assert.match(html, /"Kept the manual total"/);
+  // The generic identity buttons are hidden for an exact offer, so no click can
+  // adopt without the money copy.
+  assert.match(html, /target\.offer\?\.basis !== "folio"/);
+  assert.match(html, /targetId = offer\.state === "adopt" \? offer\.chosen : ""/);
+  assert.match(html, /: exact\s*\n\s*\? \(targetId \? "update"/);
+  assert.match(html, /offer\.state === "kept" \? "kept" : "decide"/);
+  assert.match(html, /target\.action !== "decide"/);
+  assert.match(html, /target\.action === "decide"/);
+});
+
+test("the exact keep button passes __skip__ and never creates a second folio", () => {
+  assert.match(html, /onChoose\(offer, "__skip__"\)/);
+  assert.match(html, /accountId === "__skip__" \? "__skip__"/);
+  assert.match(html, /folioChoices\[target\.offer\.key\] = "__skip__"/);
+  assert.match(html, /target\.action !== "update"\) \{\s*\n\s*units\.delete/);
+  assert.match(html, /offer\.basis === "folio" && offer\.state !== "adopt"/);
+  assert.match(html, /Keep the manual total/);
+  assert.match(html, /none of its rows were imported/);
+  assert.match(html, /const keptKeys = new Set/);
+  assert.match(html, /Finish without importing/);
+  assert.match(html, /heldFolio === "decide" \? "Choose below"/);
+});
+
+test("the offer and the route read the same enriched account list", () => {
+  // A manual total without its rows looks value-only; a real home with rows
+  // looks the same unless every fund account is enriched before routing.
+  assert.match(html, /const assets = await bpCasFundAccounts\(await store\.listAccounts\(\), store\)/);
+  assert.match(html, /bpCasFolioPlan\(cas\.holdings, assets, priorChoices\)/);
+  assert.match(html, /const folioPlan = bpCasFolioPlan\(cas\.holdings,/);
+  assert.match(html, /await bpCasFundAccounts\(await store\.listAccounts\(\), store\),/);
+  assert.match(html, /const current = casRoute\(cas,/);
+  assert.match(html, /bpCasFundAccounts\(await store\.listAccounts\(\), store\), \{ adopt \}\)/);
+});
+
+test("an exact folio unit is disabled while the offer is undecided", () => {
+  assert.match(html, /held \|\| conflict \? "disabled" : ""/);
+  assert.match(html, /kept the manual total" : "choose below/);
+  assert.match(html, /cardState\.picked\.delete\(offer\.key\)/);
+  assert.match(html, /cardState\.picked\.delete\(group\.key\)/);
+});
+
+test("a contested folio has no target, no create and an honest receipt", () => {
+  // The resolver reads the plan's homes and contested states, not the label
+  // sort, so the preview names the account the route writes.
+  assert.match(html, /const home = folioPlan\.homes\.find/);
+  assert.match(html, /const conflict = folioPlan\.contested\.find/);
+  assert.match(html, /targetId = bpImportAccountRow\(home\.id\) \? home\.id : ""/);
+  assert.match(html, /target\.action === "conflict"/);
+  assert.match(html, /action: conflict \? "conflict"/);
+  assert.match(html, /Two accounts hold this folio · not imported/);
+  assert.match(html, /target\.action !== "conflict"\);/);
+  assert.match(html, /none of its rows were\s+imported\. Remove one duplicate/);
+  assert.match(html, /units\.delete\(group\.key\)/);
+  assert.match(html, /const contested = card\.folioPlan\?\.contested \|\| \[\]/);
+  assert.match(html, /two accounts hold this folio · not imported/);
+  assert.match(html, /const contestedKeys = new Set/);
+});
+
+test("the writer boundary refuses an unanswered exact folio", () => {
+  assert.match(html, /function bpCasPendingFolioMessage\(plan\)/);
+  assert.match(html, /offer\.basis === "folio"\s*\n?\s*&& offer\.state !== "adopt" && offer\.state !== "kept"/);
+  assert.match(html, /const pendingFolio = bpCasPendingFolioMessage\(folioPlan\)/);
+  assert.match(html, /const pendingFolio = bpCasPendingFolioMessage\(/);
+  assert.match(html, /still need the adopt-or-keep/);
 });
 
 test("a value-only folio offer is shown, with the difference and both choices", () => {
@@ -205,7 +289,8 @@ test("a value-only folio offer is shown, with the difference and both choices", 
 
 test("the writer routes only the folio targets the person chose", () => {
   assert.match(html, /const adopt = folioPlan\.targets/);
-  assert.match(html, /casRoute\(cas, await store\.listAccounts\(\), \{ adopt \}\)/);
+  assert.match(html,
+    /casRoute\(cas, await bpCasFundAccounts\(await store\.listAccounts\(\), store\)\)/);
   assert.match(html, /const folioChoices = \{\}/);
   assert.match(html, /casRoute\(cas, accounts, \{ adopt: folioChoices \}\)/);
   assert.match(html, /folioChoices\[target\.offer\.key\] = target\.targetId/);
@@ -226,10 +311,20 @@ test("the old CAS card offers adoption and keeps the choice", () => {
   assert.match(html, /const adopt = folioPlan\.targets/);
 });
 
+test("the old CAS card waits for an exact folio answer before Import", () => {
+  assert.match(html, /const undecidedFolio = \(cardState\.folioPlan\?\.offers \|\| \[\]\)/);
+  assert.match(html, /offer\.state !== "adopt" && offer\.state !== "kept"/);
+  assert.match(html, /&& hasTarget && !safety\.blocked && !undecidedFolio;/);
+});
+
 test("adoption replaces the manual total and writes the folio on the account", () => {
-  assert.match(html, /if \(isFolioAccount\(asset\)\) \{\s*\n\s*delete meta\.current_value_paise;/);
+  // The manual total goes only when this write actually stored rows: an empty
+  // plan must not erase a total it did not replace.
+  assert.match(html, /if \(folioAccount && holdings\.length\) \{\s*\n\s*delete meta\.current_value_paise;/);
   assert.match(html, /nextMeta\.folios = \[\.\.\.new Set\(\[\.\.\.known, \.\.\.folios\]\)\]/);
   assert.match(html, /if \(nextNumber\) patch\.number = nextNumber;/);
+  // A demat never answers to a folio: only a fund account collects the numbers.
+  assert.match(html, /const folios = folioAccount \? \[\.\.\.new Set\(holdings/);
 });
 
 test("a statement with no printed total offers keep or a named removal, never a default replace", () => {
@@ -256,4 +351,84 @@ test("the printed-total dialog keeps its replace path", () => {
   assert.match(html, /} else if \(replaceGate\) \{/);
   assert.match(html, /onclick="bpCasImportConfirm\('\$\{key\}'\)"/);
   assert.match(html, /Replace and import<\/button>/);
+});
+
+test("a kept folio keeps its movements out of the preview and the write", () => {
+  const resolver = between("function bpImportResolveCas", "function bpImportPlanFiles");
+  // The preview list drops the folio's ISIN before any target plans a sale.
+  assert.match(resolver, /const withheldRows = \(base\?\.parsed\?\.holdings \|\| \[\]\)\.filter/);
+  assert.match(resolver, /const movements = casManualTargetEvents\(base\?\.parsed\?\.transactions \|\| \[\], withheldRows\)/);
+  assert.match(resolver, /if \(target\.folio && \(target\.action === "kept" \|\| target\.action === "decide"/);
+  assert.match(resolver, /holdings: rows, events: movements,/);
+  assert.match(resolver, /assetId: target\.targetId, asOf: bundle\.asOf \|\| "", confirmed: false/);
+  // The writer reads the statement's full list, not the scoped subset it was
+  // handed by the inbox.
+  assert.match(html, /const withheldRows = \(card\.allHoldings \|\| cas\.holdings \|\| \[\]\)\.filter/);
+  assert.match(html, /allHoldings: parsed\.holdings/);
+});
+
+test("a kept folio does not stop an unrelated movement or manual target", () => {
+  assert.match(html, /const writable = \(card\.eventAssets \|\| \[\]\)\.length > 0 \|\| !!manualTarget/);
+  assert.match(html, /if \(!window\.bpCasRoute\.groups\.length && !writable\) \{/);
+});
+
+test("a choice never carries into a different statement", () => {
+  // Both the success path and the drop path clear every prefixed key.
+  const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
+  assert.match(apply, /choice\.startsWith\(`\$\{bundle\.key\}:`\)/);
+  const drop = between("window.bpImportDropPlan", "function bpImportScrollBehavior");
+  assert.match(drop, /choice\.startsWith\(`\$\{bundle\.key\}:`\)/);
+  // The old card keeps its answers only for the file that asked the question.
+  assert.match(html, /const sameFile = !!prior\.file && prior\.file === file/);
+  assert.match(html, /const priorChoices = sameFile \? \(prior\.folioChoices \|\| \{\}\) : \{\}/);
+  assert.match(html, /folioChoices: priorChoices, owner: sameFile \? prior\.owner : undefined/);
+});
+
+test("a manual target is a demat, never a fund account", () => {
+  assert.match(html, /const manualTargets = assets\.filter\(\(a\) => categoryOf\(a\) === "demat"\s*\n\s*&& !isFolioAccount\(a\)\)/);
+});
+
+test("an adopted folio account gets no synthetic DP", () => {
+  assert.match(html, /if \(target\.dpName && !target\.folio\) meta\.dp = target\.dpName/);
+});
+
+test("the inbox counts and writes the zero-unit folio row with its demat", () => {
+  const resolver = between("function bpImportResolveCas", "function bpImportPlanFiles");
+  // The zero-unit row is not a folio position, so it is not in the folio group.
+  assert.match(resolver, /if \(!\(Number\(row\.quantity\) > 0\)\) continue/);
+  // It stays in the demat's rows, which is the account that stores it.
+  assert.match(resolver, /!\(row\.category === "mf" && row\.folio && Number\(row\.quantity\) > 0\)/);
+});
+
+test("a zero-unit-only statement creates the demat instead of claiming it did", () => {
+  // A non-folio mutual-fund group is demat history, not a folio. The create
+  // loop must route it to the demat branch or the zero-unit-only statement
+  // creates no account while the card says it did.
+  assert.match(html, /if \(group\.folio\) \{/);
+  assert.equal((html.match(/createdCount \+= 1;/g) || []).length, 2,
+    "the folio and demat create branches both count a new account");
+  assert.match(html, /if \(!movements && createdCount\) \{/);
+});
+
+test("a kept folio does not finish while a movement has no home", () => {
+  assert.match(html, /if \(messages\.length && !movementEvents\.length\) \{/);
+  // The writer asks the same scoping question per target before any write.
+  assert.match(html, /const unhomed = casUnhomedMovements\(\{ events, targets: writeTargets,/);
+  assert.match(html, /const reason = `The statement's \$\{one \? "movement has" : "movements have"\} no `/);
+});
+
+test("a depository target can never be a fund folio", () => {
+  const resolver = between("function bpImportResolveCas", "function bpImportPlanFiles");
+  assert.match(resolver, /if \(chosen && isFolioAccount\(chosen\)\) targetId = ""/);
+  assert.match(html, /if \(account && isFolioAccount\(account\)\) \{/);
+  assert.match(html, /A depository statement cannot attach to a mutual fund/);
+  // The movement target list excludes a fund account, by ISIN overlap too.
+  assert.match(html, /String\(account\.category \|\| ""\) !== "demat"\s*\n\s*\|\| isFolioAccount\(account\)\) continue;/);
+});
+
+test("dropping an entry clears the answers that belonged to it", () => {
+  const drop = between("window.bpImportDropEntry", "window.bpImportDropPlan");
+  assert.match(drop, /state\.bundles \|\| \[\]\)\.filter/);
+  assert.match(drop, /choice\.startsWith\(`\$\{bundle\.key\}:`\)/);
+  assert.match(drop, /delete state\.acceptAsk\[bundle\.key\]/);
 });

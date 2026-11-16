@@ -743,7 +743,10 @@ test("the card counts the net plan change, not the sum of its files", () => {
 
 test("the card and the receipt count every account the plan writes", () => {
   const plans = between("function bpImportPlanForBundles", "function bpImportPlans");
-  assert.match(plans, /statementAccounts\(head\.casTargets\)/);
+  // A folio that is kept or still undecided writes no account, so it must not
+  // inflate the count.
+  assert.match(plans, /statementAccounts\(\(head\.casTargets \|\| \[\]\)\.filter/);
+  assert.match(plans, /target\.action !== "kept" && target\.action !== "decide"/);
   assert.match(html, /plan\.accountCount > 1/);
   const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
   assert.match(apply, /plan\.accountCount > 1/);
@@ -819,4 +822,31 @@ test("a buy-only movement card says movements, not disposals", () => {
   assert.match(plans, /hasDebit/);
   assert.match(plans, /This statement records movements/);
   assert.match(plans, /This statement records disposals/);
+});
+
+test("a demat identity never matches a fund folio by ISIN overlap", () => {
+  const folio = account({ id: "folio-1", label: "Test Mutual Fund",
+    subtype: "mutual fund", type: "mf", number: "99990000001",
+    meta: meta({ folios: ["99990000001"] }), holdings: [row(1)] });
+  const file = { accountKey: "1200000012345678", accountKind: "bo",
+    rows: [row(1)] };
+  assert.deepEqual(accountMatches(file, [folio], { forCas: true }).matches, []);
+  // A broker report is a custody report too, so its BO ID cannot land there.
+  assert.deepEqual(accountMatches(file, [folio]).matches, []);
+});
+
+test("a fund identity never matches a custody account that carries the number", () => {
+  const demat = account({ id: "demat-1", subtype: "equity", type: "equity",
+    number: "1200000012345678",
+    meta: meta({ folios: ["99990000001"] }), holdings: [row(1)] });
+  const file = { accountKey: "99990000001", accountKind: "folio",
+    rows: [row(1)] };
+  assert.deepEqual(accountMatches(file, [demat], { forCas: true }).matches, []);
+});
+
+test("a CAS with no readable account number does not attach to a fund account", () => {
+  const folio = account({ id: "folio-1", subtype: "mutual fund", type: "mf",
+    number: "99990000001", holdings: [row(1)] });
+  assert.deepEqual(accountMatches({ rows: [row(1)] }, [folio],
+    { forCas: true }).matches, []);
 });

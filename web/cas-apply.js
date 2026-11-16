@@ -217,6 +217,33 @@ export function casImportUnits({ accounts = [], routeAccounts = [], groups = [],
 }
 
 /**
+ * The movements no write target can record.
+ *
+ * The writer scopes each target's events through `casMovementEvents`, so an
+ * event outside every target's scope is dropped without a trace. A kept or
+ * contested folio made that silent drop look like a completed import while the
+ * file left the inbox. This asks the same scoping question for every target
+ * before anything is written: a named movement needs a target carrying that BO
+ * ID, and an unnamed one needs a target whose rows hold its ISIN or an explicit
+ * manual target.
+ * @param {{events?: Array<object>, targets?: Array<{assetId?: string,
+ *   accounts?: Array<string>, rows?: Array<object>}>, manualTarget?: string}} input
+ * @returns {Array<object>} the events with no home, in statement order
+ */
+export function casUnhomedMovements({ events = [], targets = [], manualTarget = "" } = {}) {
+  const list = events || [];
+  if (!list.length) return [];
+  return list.filter((event) => !(targets || []).some((target) =>
+    casMovementEvents([event], {
+      accounts: target?.accounts || [],
+      route: true,
+      rows: target?.rows || [],
+      manualTarget: !!manualTarget
+        && String(target?.assetId || "") === String(manualTarget),
+    }).length));
+}
+
+/**
  * The fund holdings a folio card can show. A zero-unit fund keeps a value but
  * is not a folio the route or the writer can place, so the card must not show a
  * phantom unit for it.
@@ -303,6 +330,40 @@ export function casDematRows(holdings = [], bo = "") {
  */
 export function casWritableHoldings(holdings, importDay = new Date().toISOString().slice(0, 10)) {
   return (holdings || []).filter((holding) => !casClosedRow(holding, importDay));
+}
+
+/**
+ * The rows a manual demat target may take. A positive-unit folio row belongs to
+ * its folio account, never to a demat: writing it there would put the same fund
+ * position under a different identity. A zero-unit folio row is closed history,
+ * not a position, and stays with the demat the statement printed. Used by the
+ * manual preview and the manual write so they cannot disagree.
+ * @param {Array<object>} holdings
+ * @param {string} [importDay]
+ * @returns {Array<object>}
+ */
+export function casManualTargetRows(holdings,
+  importDay = new Date().toISOString().slice(0, 10)) {
+  return casWritableHoldings(holdings, importDay).filter((holding) =>
+    !(holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0));
+}
+
+/**
+ * The movements a manual demat target may apply. A movement whose ISIN belongs
+ * to a positive-unit folio row is the folio's event, not the demat's: a kept or
+ * contested folio contributes no events anywhere.
+ * @param {Array<object>} events
+ * @param {Array<object>} holdings the statement's rows
+ * @returns {Array<object>}
+ */
+export function casManualTargetEvents(events = [], holdings = []) {
+  const withheld = new Set((holdings || [])
+    .filter((holding) => holding.kind === "mf" && holding.folio
+      && Number(holding.quantity) > 0)
+    .map((holding) => String(holding.isin || "").toUpperCase()).filter(Boolean));
+  if (!withheld.size) return events || [];
+  return (events || []).filter((event) =>
+    !withheld.has(String(event?.isin || "").toUpperCase()));
 }
 
 const SALE_WORD = /\b(sale|sold|sell|selling|redemption|redeemed|switch\s*out|withdrawal|withdrawn)\b/i;
