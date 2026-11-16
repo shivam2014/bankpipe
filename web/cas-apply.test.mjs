@@ -405,9 +405,9 @@ test("a closed row is dropped but a matured zero row is history", () => {
 });
 
 test("a manual demat target never takes a positive folio row or its movement", () => {
-  const holding = { isin: ISIN_A, kind: "mf", category: "mf", folio: "99990001/0",
+  const holding = { isin: ISIN_A, kind: "mf", category: "mf", folio: "90000001234/0",
     quantity: 100, valuePaise: 32453600 };
-  const history = { isin: ISIN_B, kind: "mf", category: "mf", folio: "99990001/0",
+  const history = { isin: ISIN_B, kind: "mf", category: "mf", folio: "90000001234/0",
     quantity: 0, valuePaise: 500 };
   const equity = { isin: "INE000000033", kind: "equity", quantity: 10, valuePaise: 1000 };
   const rows = casManualTargetRows([holding, history, equity], "2026-09-30");

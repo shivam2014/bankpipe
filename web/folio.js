@@ -5,7 +5,7 @@
 // folio of the same fund house.
 //
 // The slash suffix a registrar prints is a check digit, not a sub-folio. A
-// zero check digit is the same folio, so `99990000001` and `99990001/0` are
+// zero check digit is the same folio, so `90000001234` and `90000001234/0` are
 // one position; every other suffix stays distinct, because without the
 // registrar's table a non-zero digit cannot be proven non-identifying and a
 // wrong merge is worse than a duplicate. The printed spelling stays in storage;

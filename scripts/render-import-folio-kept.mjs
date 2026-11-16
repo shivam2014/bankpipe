@@ -38,8 +38,8 @@ const HELP = `usage: node scripts/render-import-folio-kept.mjs [--out-dir build/
 
 const AS_OF = "2026-09-30";
 const DEMAT = "1200000012345678";
-const BASE = "99990000001";
-const PRINTED = "99990001/0";
+const BASE = "90000001234";
+const PRINTED = "90000001234/0";
 const FUND = "INF000000901";
 const FUND_ZERO = "INF000000902";
 const REDEEMED = "INF999900253";

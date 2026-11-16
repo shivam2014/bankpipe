@@ -59,8 +59,8 @@ a broker client code. A source that offers only a client code is still a source;
 on that code and do not refuse it for lacking a BO ID.
 
 A mutual fund folio's slash suffix is the registrar's check digit, not a sub-folio. A
-trailing `/0` is the zero check digit and does not change identity, so `99990000001`
-and `99990001/0` are one position. Every other suffix stays distinct (`/1`, `/68`,
+trailing `/0` is the zero check digit and does not change identity, so `90000001234`
+and `90000001234/0` are one position. Every other suffix stays distinct (`/1`, `/68`,
 `/00`): without the registrar's table a non-zero digit cannot be proven
 non-identifying, and a wrong merge costs more than a duplicate. Exactly one suffix is
 stripped, so `/0/0` normalises to `/0`; the printed spelling stays on the account and

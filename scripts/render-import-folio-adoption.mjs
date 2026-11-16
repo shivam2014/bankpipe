@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The import card when a value-only mutual fund account already carries the
-// statement's folio. A CDSL row prints `99990001/0`; the stored manual
-// account prints `99990000001` with a current value and no units. The card must
+// statement's folio. A CDSL row prints `90000001234/0`; the stored manual
+// account prints `90000001234` with a current value and no units. The card must
 // say the folio is already on that account, offer Adopt or Keep the manual
 // total, and never call it a new account. Adopt writes one position under the
 // same id and removes the manual total; the printed `/0` stays in storage.
@@ -27,8 +27,8 @@ const HELP = `usage: node scripts/render-import-folio-adoption.mjs [--out-dir bu
 
 const AS_OF = "2026-09-30";
 const DEMAT = "1200000012345678";
-const BASE = "99990000001";
-const PRINTED = "99990001/0";
+const BASE = "90000001234";
+const PRINTED = "90000001234/0";
 const ISIN = "INF000000901";
 const MANUAL_PAISE = 31000000;
 const STATEMENT_PAISE = 32453600;
@@ -461,7 +461,7 @@ try {
   }
   console.log(keepOut);
   console.log("import folio adoption: the card offers the exact account, Adopt keeps its id "
-    + "and writes one 3,24,536 position, and the printed 99990001/0 stays in storage; "
+    + "and writes one 3,24,536 position, and the printed 90000001234/0 stays in storage; "
     + "Keep writes no rows and leaves 3,10,000 · 390/1280 light and dark");
 } finally {
   server.child.kill();

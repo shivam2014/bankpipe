@@ -12,9 +12,9 @@ import { folioAdoptionPlan, folioKey, folioOwnership } from "../web/folio.js";
 import { accountMatches } from "../web/import-flow.js";
 
 const DEMAT = "IN99990001344321";
-const BASE = "99990000001";
-const PRINTED = "99990001/0";
-const NEAR = "99990000001/1";
+const BASE = "90000001234";
+const PRINTED = "90000001234/0";
+const NEAR = "90000001234/1";
 const ISIN = "INF000000777";
 const MANUAL_PAISE = 31000000;
 const STATEMENT_PAISE = 32453600;

@@ -10,8 +10,8 @@ import { accountFolios, folioAdoptedHome, folioHome, folioKey,
 // is the same folio; every other suffix is a different position. Synthetic
 // values only.
 const DEMAT = "IN99990001344321";
-const BASE = "99990000001";
-const PRINTED = "99990001/0";
+const BASE = "90000001234";
+const PRINTED = "90000001234/0";
 const ISIN = "INF000000777";
 
 const demat = {
@@ -74,16 +74,16 @@ test("a zero check digit is the same folio and every other suffix is not", () =>
   assert.equal(normalizeFolio(PRINTED), BASE);
   assert.equal(normalizeFolio(" X / 0 "), "x");
   // One suffix is stripped, not a chain of them.
-  assert.equal(normalizeFolio("99990001/0/0"), "99990001/0");
-  assert.equal(normalizeFolio("99990000001/1"), "99990000001/1");
+  assert.equal(normalizeFolio("90000001234/0/0"), "90000001234/0");
+  assert.equal(normalizeFolio("90000001234/1"), "90000001234/1");
   assert.equal(normalizeFolio("12345/68"), "12345/68");
-  assert.equal(normalizeFolio("99990001/00"), "99990001/00");
-  assert.notEqual(normalizeFolio("99990000001/1"), normalizeFolio(BASE));
-  assert.notEqual(normalizeFolio("99990000001/68"), normalizeFolio(BASE));
-  assert.notEqual(normalizeFolio("99990001/00"), normalizeFolio(BASE));
+  assert.equal(normalizeFolio("90000001234/00"), "90000001234/00");
+  assert.notEqual(normalizeFolio("90000001234/1"), normalizeFolio(BASE));
+  assert.notEqual(normalizeFolio("90000001234/68"), normalizeFolio(BASE));
+  assert.notEqual(normalizeFolio("90000001234/00"), normalizeFolio(BASE));
   // The existing PDF clean-up still applies before the check digit is read.
   assert.equal(normalizeFolio("123\u00AD/4\u200B"), "123/4");
-  assert.equal(normalizeFolio("99990000001/\u00AD0"), BASE);
+  assert.equal(normalizeFolio("90000001234/\u00AD0"), BASE);
 });
 
 test("an account that prints one folio two ways answers to one identity", () => {
@@ -179,7 +179,7 @@ test("a nil holdings list fails closed: no automatic write into a manual total",
 });
 
 test("one suffix away from zero is a different folio and no offer", () => {
-  const holding = casFund({ folio: "99990000001/1" });
+  const holding = casFund({ folio: "90000001234/1" });
   const assets = [demat, valueOnly()];
   const plan = folioAdoptionPlan({ holdings: [holding], accounts: assets,
     rowsOf: () => [] });
@@ -265,7 +265,7 @@ test("the adopted home accepts this folio and refuses a different one", () => {
   const assets = [demat, valueOnly()];
   assert.equal(folioAdoptedHome(casFund(), assets,
     { [folioKey(casFund())]: "axis-value" })?.id, "axis-value");
-  const near = casFund({ folio: "99990000001/1" });
+  const near = casFund({ folio: "90000001234/1" });
   assert.equal(folioAdoptedHome(near, assets, { [folioKey(near)]: "axis-value" }), null);
   // A manual record that has since gained rows is no longer value-only.
   const gained = valueOnly({ holdings: [{ security_id: ISIN, quantity: 1 }] });
