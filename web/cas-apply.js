@@ -305,6 +305,40 @@ export function casWritableHoldings(holdings, importDay = new Date().toISOString
   return (holdings || []).filter((holding) => !casClosedRow(holding, importDay));
 }
 
+/**
+ * The rows a manual demat target may take. A positive-unit folio row belongs to
+ * its folio account, never to a demat: writing it there would put the same fund
+ * position under a different identity. A zero-unit folio row is closed history,
+ * not a position, and stays with the demat the statement printed. Used by the
+ * manual preview and the manual write so they cannot disagree.
+ * @param {Array<object>} holdings
+ * @param {string} [importDay]
+ * @returns {Array<object>}
+ */
+export function casManualTargetRows(holdings,
+  importDay = new Date().toISOString().slice(0, 10)) {
+  return casWritableHoldings(holdings, importDay).filter((holding) =>
+    !(holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0));
+}
+
+/**
+ * The movements a manual demat target may apply. A movement whose ISIN belongs
+ * to a positive-unit folio row is the folio's event, not the demat's: a kept or
+ * contested folio contributes no events anywhere.
+ * @param {Array<object>} events
+ * @param {Array<object>} holdings the statement's rows
+ * @returns {Array<object>}
+ */
+export function casManualTargetEvents(events = [], holdings = []) {
+  const withheld = new Set((holdings || [])
+    .filter((holding) => holding.kind === "mf" && holding.folio
+      && Number(holding.quantity) > 0)
+    .map((holding) => String(holding.isin || "").toUpperCase()).filter(Boolean));
+  if (!withheld.size) return events || [];
+  return (events || []).filter((event) =>
+    !withheld.has(String(event?.isin || "").toUpperCase()));
+}
+
 const SALE_WORD = /\b(sale|sold|sell|selling|redemption|redeemed|switch\s*out|withdrawal|withdrawn)\b/i;
 const TRANSFER_OUT_WORD = /\b(transfer(?:red|s)?\s*(?:out|to)|transferred\s+out|off.?market|debit\s+transfer|inter.?depository|remateriali[sz](?:ed|ation)?|remat)\b/i;
 const TRANSFER_IN_WORD = /\b(transfer(?:red|s)?\s*(?:in|from)|credit\s+transfer|remateriali[sz]ed\s+in)\b/i;

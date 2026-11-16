@@ -151,8 +151,9 @@ test("a value-only account carrying the same folio is offered, not silently adop
   const holding = casFund();
   const same = valueOnly({ number: FOLIO,
     meta: JSON.stringify({ amc: "axis", current_value_paise: 32100000 }) });
-  // The folio number is the identity, so the account is the exact home.
-  assert.equal(folioHome(holding, [same])?.id, "axis-value");
+  // A manual total is a candidate, not a home: the exact offer is the only way
+  // in and the number is the identity that offer is keyed on.
+  assert.equal(folioHome(holding, [same]), null);
   const plan = folioAdoptionPlan({ holdings: [holding], accounts: [same],
     rowsOf: () => [] });
   assert.equal(plan.offers.length, 1);

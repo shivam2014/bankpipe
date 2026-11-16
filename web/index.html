@@ -1377,12 +1377,13 @@ import { reconCardHtml, reconEligible, reconHasCard, reconDismissKey,
 import { reconShape, reconShapeText } from "./recon-diagnostics.js";
 import { casRoute, cleanFundLabel, fundHouseFromLabel, fullAmcName, shortAmcName } from "./cas.js";
 import { casClosedRow, casCostedImportHoldings, casDematRows, casGroupByAsset,
-  casHoldingLabel, casImportHoldings, casImportUnits, casMovementAccountBos,
+  casHoldingLabel, casImportHoldings, casImportUnits, casManualTargetEvents,
+  casManualTargetRows, casMovementAccountBos,
   casPreviewAccounts, casReplacePlan, casSafety, casWritableHoldings,
   linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
 import { casSoldLines, soldHoldingsHtml, splitHoldings } from "./sold-view.js";
 import { boId } from "./bo-id.js";
-import { folioAdoptionPlan, folioHome, folioKey, folioTail, isFolioAccount,
+import { folioAdoptionPlan, folioKey, folioOwnership, folioTail, isFolioAccount,
   normalizeFolio } from "./folio.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, planMerge,
@@ -7202,11 +7203,21 @@ function bpImportResolveCas(bundle) {
     }, accounts, { forCas: true });
     const folio = folioKey(group);
     const offer = folioPlan.offers.find((item) => item.key === folio) || null;
+    const home = folioPlan.homes.find((item) => item.key === folio) || null;
+    const conflict = folioPlan.contested.find((item) => item.key === folio) || null;
     const choiceKey = `${bundle.key}:${folioKey(group)}`;
     const choice = String(state.choices[choiceKey] || "");
     const exact = offer?.basis === "folio";
     let targetId = "";
-    if (exact) {
+    if (home) {
+      // The plan's home is the account casRoute writes, so the preview cannot
+      // name a manual total that the writer routes past.
+      targetId = bpImportAccountRow(home.id) ? home.id : "";
+    } else if (conflict) {
+      // More than one settled owner and no unique AMC. No safe pick exists, and
+      // a manual total is never the answer, so nothing is targeted.
+      targetId = "";
+    } else if (exact) {
       // An exact folio has one owner: the account the plan found. It is never
       // reached through the generic identity match or a create fallback, because
       // a second account with the same canonical folio is the duplicate this
@@ -7221,19 +7232,25 @@ function bpImportResolveCas(bundle) {
       if (targetId && offer && !offer.choosable.some((candidate) => candidate.id === targetId)) {
         targetId = "";
       }
+      // Only a guess may fall back to the generic matcher: no account carries
+      // this folio, so no manual total or settled position can be picked over
+      // another through the label sort.
       if (!targetId && !match.tie) targetId = match.identityId || match.bestId || "";
     }
     const targetRow = targetId ? bpImportAccountRow(targetId) : null;
-    // Keeping an exact folio writes none of its rows, so the plan must not claim
-    // them as additions. The card still shows the statement's row count.
-    const held = exact && !targetId;
+    // Keeping or contesting a folio writes none of its rows, so the plan must
+    // not claim them as additions. The card still shows the statement's count.
+    const held = !!conflict || (exact && !targetId);
     const plan = bpImportPlanFor(bundle, targetRow, held ? [] : group.rows, null);
     return { boId: folioKey(group),
       dpName: `${group.amc} mutual fund · folio …${folioTail(group.folioNo)}`,
       rows: group.rows, match, targetId, plan, offer, folioChoice: choice,
-      action: exact
-        ? (targetId ? "update" : (offer.state === "kept" ? "kept" : "decide"))
-        : (targetRow ? "update" : "create"),
+      home, contested: conflict,
+      action: conflict ? "conflict"
+        : home ? "update"
+          : exact
+            ? (targetId ? "update" : (offer.state === "kept" ? "kept" : "decide"))
+            : (targetRow ? "update" : "create"),
       folio: true, amc: group.amc,
       amcFull: group.amcFull, folioNo: group.folioNo };
   });
@@ -7243,6 +7260,15 @@ function bpImportResolveCas(bundle) {
   bundle.accounts = bundle.casTargets.map((target) => target.targetId).filter(Boolean);
   bundle.plans = bundle.casTargets.map((target) => target.plan);
   bundle.plan = bpImportAggregatePlans(bundle.plans);
+  // A contested folio has no safe target. Say which one and that its rows stay
+  // here, so "Ready" never hides a fund position the import did not carry.
+  const contestedNotes = folioTargets.filter((target) => target.action === "conflict")
+    .map((target) => `Folio …${folioTail(target.folioNo)} is on ${
+      target.contested.accounts.length} accounts that already hold units; none of its rows `
+      + "were imported. Remove one duplicate, then import again.");
+  if (contestedNotes.length) {
+    bundle.plan.warnings = [...new Set([...(bundle.plan.warnings || []), ...contestedNotes])];
+  }
   // A movement can name a demat that is on file but absent from the holdings
   // table. Its sale is still written by the writer, so the preview must show it.
   const routedAccounts = casAccounts.map((account) => {
@@ -7354,7 +7380,8 @@ function bpImportResolveCas(bundle) {
     target.action === "decide"
     || (target.match.tie && !target.targetId && !target.createChoice));
   bundle.create = bundle.casTargets.some((target) => !target.targetId
-    && target.action !== "kept" && target.action !== "decide");
+    && target.action !== "kept" && target.action !== "decide"
+    && target.action !== "conflict");
   bundle.ready = !safety.blocked && !bundle.movementBlocked && bundle.casTargets.length > 0
     && bundle.casTargets.every((target) => target.action !== "decide" && target.plan
       && !["invalid", "future"].includes(target.plan.incomingDateState)
@@ -7465,7 +7492,8 @@ function bpImportPlanForBundles(group, bundles) {
       .test(String(event.type || "")));
   const accountCount = head.family === "cas"
     ? statementAccounts((head.casTargets || []).filter((target) =>
-      target.action !== "kept" && target.action !== "decide")).count : 1;
+      target.action !== "kept" && target.action !== "decide"
+      && target.action !== "conflict")).count : 1;
   if (head.family === "cas") {
     for (const target of head.casTargets || []) {
       const attached = extraBundles.filter((bundle) =>
@@ -7687,19 +7715,22 @@ function bpImportCasAccountsHtml(bundle) {
     <div class="import-account-list">${targets.map((target) => {
       const status = target.targetId
         ? `Update ${esc(bpImportAccountRow(target.targetId)?.account?.label || "the account")}`
-        : target.action === "decide"
-          ? "Existing folio · choose below"
-          : target.action === "kept"
-            ? "Kept the manual total"
-            : target.folio ? "New mutual fund folio account" : "New demat account";
+        : target.action === "conflict"
+          ? "Two accounts hold this folio · not imported"
+          : target.action === "decide"
+            ? "Existing folio · choose below"
+            : target.action === "kept"
+              ? "Kept the manual total"
+              : target.folio ? "New mutual fund folio account" : "New demat account";
       const matchLine = target.match?.matches?.length
         ? `${target.match.matches[0].hits} of ${target.match.matches[0].of} ISINs match`
         : "";
       // An exact folio offer carries the money copy (manual total, statement
       // value, adopt or keep). The generic identity buttons would let a person
-      // adopt without that copy, so they are hidden for this target.
+      // adopt without that copy or pick one of two settled owners, so they are
+      // hidden for both the exact offer and a contested folio.
       const showMatches = !target.targetId && !!target.match?.matches?.length
-        && target.offer?.basis !== "folio";
+        && target.offer?.basis !== "folio" && target.action !== "conflict";
       const createSelected = !target.targetId
         && (!target.match?.tie || target.createChoice);
       const offerHtml = target.offer
@@ -7737,7 +7768,8 @@ function bpImportCasAccountsHtml(bundle) {
             ${target.plan?.identityOnly ? " · older than the data on file; identity only" : ""}</span>
         </span>
         <span class="import-choice-hits">${target.rows.length} holding${target.rows.length === 1 ? "" : "s"}${
-          target.action === "decide" || target.action === "kept" ? " · not imported" : ""}</span>
+          target.action === "decide" || target.action === "kept"
+            || target.action === "conflict" ? " · not imported" : ""}</span>
       </div>${offerHtml}`;
     }).join("")}</div>
     <div class="muted import-note">The account number in the statement decides where its holdings
@@ -7939,10 +7971,12 @@ function bpImportPlanHtml(plan) {
   // the answer, so the button says what it does instead of "Attach identity".
   const heldFolio = bundle.family === "cas" && !planned && !sales
     ? (bundle.casTargets || []).some((target) => target.action === "decide") ? "decide"
-      : (bundle.casTargets || []).some((target) => target.action === "kept") ? "kept" : ""
+      : (bundle.casTargets || []).some((target) => target.action === "kept") ? "kept"
+        : (bundle.casTargets || []).some((target) => target.action === "conflict")
+          ? "conflict" : ""
     : "";
   const primary = heldFolio === "decide" ? "Choose below"
-    : heldFolio === "kept" ? "Finish without importing"
+    : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
       : importPlanPrimary({
         family: bundle.family,
         identityOnly: !!bundle.plan?.identityOnly,
@@ -8697,6 +8731,9 @@ async function bpImportApplyCas(bundle, opts = {}) {
       units.delete(target.offer.key);
     }
   }
+  // A contested folio has no target and no create answer; keep its unit out of
+  // the picked set so the writer cannot make a third account carrying it.
+  for (const group of bundle.folioPlan?.contested || []) units.delete(group.key);
   const key = `inbox-${String(bundle.key).replace(/[^a-z0-9]+/gi, "-")}`;
   window.bpCasCards = window.bpCasCards || {};
   window.bpCasCards[key] = {
@@ -9035,6 +9072,17 @@ function bpCasFolioPlan(holdings, accounts, choices = {}) {
   });
 }
 
+// An exact folio is a question, not a default. The card's button gates it and
+// the writers re-check, so a direct call cannot write past an unanswered choice.
+function bpCasPendingFolioMessage(plan) {
+  const pending = (plan?.offers || []).filter((offer) => offer.basis === "folio"
+    && offer.state !== "adopt" && offer.state !== "kept");
+  if (!pending.length) return "";
+  const tails = pending.map((offer) => `…${folioTail(offer.folioNo)}`).join(", ");
+  return `Folio${pending.length === 1 ? "" : "s"} ${tails} still need the adopt-or-keep `
+    + "choice; nothing was written.";
+}
+
 async function bpCasFundAccounts(accounts, store) {
   const out = [];
   for (const account of accounts || []) {
@@ -9224,11 +9272,15 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     if (!cardState.picked) cardState.picked = new Set(units.map((u) => u.key));
     // An exact folio that is not adopted contributes nothing: its row is shown
     // with a disabled checkbox and its key stays out of the picked set. Choosing
-    // adopt puts it back; choosing keep or making no choice leaves it out.
+    // adopt puts it back; choosing keep or making no choice leaves it out. A
+    // contested folio has no safe owner, so it stays out too.
     for (const offer of cardState.folioPlan?.offers || []) {
       if (offer.basis !== "folio") continue;
       if (offer.state === "adopt") cardState.picked.add(offer.key);
       else cardState.picked.delete(offer.key);
+    }
+    for (const group of cardState.folioPlan?.contested || []) {
+      cardState.picked.delete(group.key);
     }
     // The preview and the writer both call casReplacePlan with the same event
     // list. What is shown here is the row set the import will store.
@@ -9239,10 +9291,20 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       }
     }
     const rowsOf = (id) => linkRows.get(id) || [];
+    // A folio the card will not write (kept, contested, unticked) contributes no
+    // movement either. The preview and the writer read one event list.
+    const cardWrittenFolios = new Set([...route.groups, ...route.homeless]
+      .filter((group) => group.kind === "mf" && group.folio
+        && cardState.picked.has(folioKey(group)))
+      .map((group) => normalizeFolio(group.folioNo)));
+    const cardWithheldRows = writableHoldings.filter((holding) =>
+      holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0
+      && !cardWrittenFolios.has(normalizeFolio(holding.folio)));
+    const movements = casManualTargetEvents(cas.transactions, cardWithheldRows);
     const salePlans = [];
     const linkedLines = [];
     const linkedWarnings = [];
-    if ((cas.transactions || []).length) {
+    if (movements.length) {
       // A demat target, including one that does not exist yet. The writer
       // creates the account and runs the same plan, so the preview must plan it
       // too instead of hiding a sale the import will store.
@@ -9251,7 +9313,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         const existing = account.assetId ? rowsOf(account.assetId) : [];
         const mine = dematRowsOf(account.boId);
         const plan = casReplacePlan({ parsed: cas, existing, holdings: mine,
-          events: cas.transactions, assetId: account.assetId || account.boId,
+          events: movements, assetId: account.assetId || account.boId,
           asOf: cas.asOf || "", confirmed: false,
           accounts: [account.boId], route: true });
         salePlans.push(plan);
@@ -9280,15 +9342,15 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
           && normalizeFolio(holding.folio) === normalizeFolio(group.folioNo));
         const plan = casReplacePlan({ parsed: cas,
           existing: group.assetId ? rowsOf(group.assetId) : [], holdings,
-          events: cas.transactions, assetId: group.assetId || key,
+          events: movements, assetId: group.assetId || key,
           asOf: cas.asOf || "", confirmed: false, accounts: [], route: true });
         salePlans.push(plan);
       }
     }
     // No account matched and the statement printed no holdings: still show its
     // movements, so a manual target can record them instead of "did not parse".
-    const movementLines = (cas.transactions || []).length && !salePlans.length
-      ? (cas.transactions || []).map((event) => {
+    const movementLines = movements.length && !salePlans.length
+      ? movements.map((event) => {
         const debit = Math.abs(Number(event.debitPaise) || 0) > 0 || event.side === "debit";
         const what = debit ? "Sold" : event.side === "credit" ? "Bought" : "Moved";
         return `${what} ${event.quantity} units of ${event.isin} on ${event.date}`;
@@ -9306,15 +9368,21 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const heldFolioOffers = new Map((cardState.folioPlan?.offers || [])
       .filter((offer) => offer.basis === "folio" && offer.state !== "adopt")
       .map((offer) => [offer.key, offer]));
+    const contestedFolios = new Map((cardState.folioPlan?.contested || [])
+      .map((group) => [group.key, group]));
     const unitRows = units.map((u) => {
       const held = heldFolioOffers.get(u.key) || null;
-      const note = held
-        ? ` · <i>${held.state === "kept" ? "kept the manual total" : "choose below"}</i>`
-        : u.assetId ? "" : " · <i>new account</i>";
+      const conflict = contestedFolios.get(u.key) || null;
+      const note = conflict
+        ? ` · <i>two accounts hold this folio · not imported</i>`
+        : held
+          ? ` · <i>${held.state === "kept" ? "kept the manual total" : "choose below"}</i>`
+          : u.assetId ? "" : " · <i>new account</i>";
       return `<label style="display:flex;gap:8px;align-items:baseline;
         font-size:12.5px;margin-top:6px;cursor:pointer">
         <input type="checkbox" data-unit="${esc(u.key)}" style="margin-top:2px"
-          ${cardState.picked.has(u.key) && !held ? "checked" : ""} ${held ? "disabled" : ""}
+          ${cardState.picked.has(u.key) && !held && !conflict ? "checked" : ""} ${
+          held || conflict ? "disabled" : ""}
           onchange="bpCasPick('${hostId}')">
         <span><b style="color:var(--ink)">${esc(u.label)}</b> · ${u.count} holding${
           u.count === 1 ? "" : "s"} · ${money(u.valuePaise)}${note}</span></label>`;
@@ -9326,9 +9394,18 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         onChoose: (item, accountId) =>
           `bpCasAdoptChoice(${jsArg(hostId)}, ${jsArg(item.key)}, ${jsArg(accountId)})`,
       })).join("");
+    // A contested folio has no adopt-or-keep answer to offer. Say why its rows
+    // are staying out, so the disabled tick is not mistaken for a bug.
+    const folioConflicts = (cardState.folioPlan?.contested || []).map((group) =>
+      `<div class="muted import-note">Folio …${
+        folioTail(group.folioNo)} is on ${group.accounts.length} accounts that already hold
+        units. None of its rows will be imported; remove one duplicate, then import again.
+      </div>`).join("");
     const rows = "";
     const folioRows = "";
-    const missing = route.homeless.reduce((t, g) => t + g.count, 0);
+    const missing = route.homeless
+      .filter((group) => !contestedFolios.has(folioKey(group)))
+      .reduce((t, g) => t + g.count, 0);
     const picked = cardState.picked;
     const unitKey = (g) => (g.kind === "mf" && g.folio)
       ? folioKey(g) : `bo:${String(g.boId || "")}`;
@@ -9408,6 +9485,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
         account on file. Add the demat account, then import it again.</div></div>` : ""}
       ${unitRows}
       ${folioOffers}
+      ${folioConflicts}
       <div id="cas-sold-${hostId}">${casSaleHtml(saleLines, saleConflicts, saleWarnings)}</div>
       ${missing && !canImport ? `<div class="muted" style="font-size:12px;margin-top:6px;${
         route.demat ? "" : "color:var(--red)"}">${route.demat
@@ -10687,10 +10765,12 @@ window.bpCasManualPreview = async (hostId, assetId) => {
   const store = await import("./db.js");
   const existing = await store.listHoldings(assetId);
   const importDay = new Date().toISOString().slice(0, 10);
-  const holdings = (card.cas.holdings || []).filter((holding) =>
-    !casClosedRow(holding, importDay));
+  // A positive-unit folio row is never the manual demat's row, and its movement
+  // is not the manual demat's event. The writer reads the same two lists.
+  const holdings = casManualTargetRows(card.cas.holdings, importDay);
+  const events = casManualTargetEvents(card.cas.transactions, card.cas.holdings);
   const plan = casReplacePlan({ parsed: card.cas, existing, holdings,
-    events: card.cas.transactions, assetId, asOf: card.cas.asOf || "",
+    events, assetId, asOf: card.cas.asOf || "",
     confirmed: false, accounts: [], route: true, manualTarget: true });
   host.innerHTML = casSaleHtml(casEventLines(plan), plan.conflicts || [],
     plan.warnings || []);
@@ -10713,16 +10793,46 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
   const owner = String(card.owner || cas.holder || "").trim();
   // The preview and the writer read one plan. Only a folio the person chose is
   // in `adopt`; every other folio is still a new position, never an AMC merge.
-  const folioPlan = bpCasFolioPlan(cas.holdings,
-    await bpCasFundAccounts(await store.listAccounts(), store),
-    card.folioChoices || {});
-  if (!(cas.holdings || []).length && (card.folioPlan?.offers || []).length) {
-    // The inbox scoped a kept folio's rows away, so there is nothing left to
-    // offer. The offer that recorded the choice is still the one the create
-    // guard and the receipt must read.
-    folioPlan.offers = card.folioPlan.offers;
+  const enriched = await bpCasFundAccounts(await store.listAccounts(), store);
+  const folioPlan = bpCasFolioPlan(cas.holdings, enriched, card.folioChoices || {});
+  // The inbox scoped a kept, contested or unanswered folio's rows away, so the
+  // recomputed plan cannot see those folios. Carry the exact offer back while
+  // the folio is still a manual total: `kept` when the person kept it, otherwise
+  // still pending, so the boundary refuses instead of writing past it. An adopted
+  // offer's rows are present and its plan is recomputed above.
+  for (const offer of card.folioPlan?.offers || []) {
+    if (offer.basis !== "folio") continue;
+    if (folioPlan.offers.some((item) => item.key === offer.key)) continue;
+    const ownership = folioOwnership({ folio: offer.folioNo, amc: offer.amc },
+      enriched, (account) => account.holdings || []);
+    if (ownership.state !== "manual") continue;
+    const kept = String(card.folioChoices?.[offer.key] || "") === "__skip__";
+    folioPlan.offers.push({ ...offer, state: kept ? "kept" : "offer",
+      chosen: kept ? "__skip__" : "" });
   }
+  // A contested folio's rows were scoped away too. Recompute the ownership from
+  // the current accounts; carry the state only while it is still contested, so
+  // a duplicate removed between preview and write is not withheld forever.
+  const contestedNow = [];
+  for (const group of card.folioPlan?.contested || []) {
+    const ownership = folioOwnership({ folio: group.folioNo, amc: group.amc },
+      enriched, (account) => account.holdings || []);
+    if (ownership.state !== "contested") continue;
+    contestedNow.push({ ...group,
+      accounts: ownership.settled.map((account) => ({
+        id: String(account.id || ""),
+        label: String(account.label || account.id || ""),
+      })) });
+  }
+  if (contestedNow.length) folioPlan.contested = contestedNow;
   card.folioPlan = folioPlan;
+  const pendingFolio = bpCasPendingFolioMessage(folioPlan);
+  if (pendingFolio) {
+    const host = document.getElementById(key);
+    if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
+      <div class="muted">${esc(pendingFolio)}</div></div>`;
+    return { ok: false, reason: pendingFolio };
+  }
   const adopt = folioPlan.targets;
   // A consolidated statement can name more than one demat. Each becomes its own
   // account; a legacy account that only ever held the same securities under a
@@ -10745,15 +10855,9 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
     const done = new Set();
     const unitKey = (g) => (g.kind === "mf" && g.folio)
       ? folioKey(g) : `bo:${String(g.boId || "")}`;
-    // An exact folio that is undecided or kept has no create answer. The offer
-    // is the decision; making an account behind it would be the duplicate.
-    const exactHeld = new Set((card.folioPlan?.offers || [])
-      .filter((offer) => offer.basis === "folio" && offer.state !== "adopt")
-      .map((offer) => offer.key));
     for (const group of homeless) {
       // Only the accounts the person ticked are created.
       if (card.picked && !card.picked.has(unitKey(group))) continue;
-      if (exactHeld.has(unitKey(group))) continue;
       // A folio gets an account of its own. The number is the identity; the AMC
       // only names it. Two folios of one AMC are two accounts, and an existing
       // account that carries a different folio is not this folio's home.
@@ -10764,7 +10868,11 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
         const folio = normalizeFolio(folioNo);
         if (!amc || !folio || done.has(folioKey(group))) continue;
         done.add(folioKey(group));
-        if (folioHome({ folio: folioNo, amc }, all)) continue;
+        // An account carrying the folio already is the position or the
+        // adopt-or-keep question, and two of them are contested. Only a folio
+        // with no owner at all is a new account; creating behind any of the
+        // other states is the duplicate this rule exists to prevent.
+        if (folioOwnership({ folio: folioNo, amc }, all).state !== "new") continue;
         const name = amc.replace(/\b\w/g, (c) => c.toUpperCase());
         const base = `mf-${folio.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
         let id = base;
@@ -10851,24 +10959,40 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
     }
   }
   card.eventAssets = eventAssets;
-  if (!window.bpCasRoute.groups.length && !(cas.transactions || []).length) {
+  if (!window.bpCasRoute.groups.length) {
     const kept = (card.folioPlan?.offers || []).filter((offer) =>
       offer.basis === "folio" && card.folioChoices?.[offer.key] === "__skip__");
+    const contested = card.folioPlan?.contested || [];
+    const movements = (cas.transactions || []).length > 0;
+    const messages = [];
     if (kept.length) {
       // Keeping the manual total is a completed decision, not a missing account:
       // no rows, no events and no account are written, and the receipt says so.
       const tails = kept.map((offer) => `…${folioTail(offer.folioNo)}`).join(", ");
-      const message = `Folio${kept.length === 1 ? "" : "s"} ${tails} kept: `
-        + "the manual total stays and none of its rows were imported.";
+      messages.push(`Folio${kept.length === 1 ? "" : "s"} ${tails} kept: `
+        + "the manual total stays and none of its rows were imported"
+        + `${movements ? " and none of its movements were recorded" : ""}.`);
+    }
+    if (contested.length) {
+      const tails = contested.map((group) => `…${folioTail(group.folioNo)}`).join(", ");
+      messages.push(`Folio${contested.length === 1 ? "" : "s"} ${tails} ${
+        contested.length === 1 ? "is" : "are"} on more than one account that already `
+        + "holds units: none of its rows or movements were imported. Remove one "
+        + "duplicate, then import again.");
+    }
+    if (messages.length) {
+      const message = messages.join(" ");
       const host = document.getElementById(key);
       if (host) host.innerHTML = `<div class="muted">${esc(message)}</div>`;
       return { ok: true, written: 0, places: 0, sold: 0, linkedSold: 0,
         kept: true, conflicts: [message], warnings: [] };
     }
-    const host = document.getElementById(key);
-    if (host) host.innerHTML = `<div class="muted" style="font-size:12.5px">Created the
-      demat account. Import again to write the holdings.</div>`;
-    return { ok: false, reason: "Created the demat account. Import again to write the holdings." };
+    if (!movements) {
+      const host = document.getElementById(key);
+      if (host) host.innerHTML = `<div class="muted">Created the
+        demat account. Import again to write the holdings.</div>`;
+      return { ok: false, reason: "Created the demat account. Import again to write the holdings." };
+    }
   }
   return window.bpCasImport(key, confirmed);
 };
@@ -10883,6 +11007,22 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
       <div class="muted">${esc(safety.reasons.join(" "))}</div></div>`;
     return { ok: false, reason: safety.reasons.join(" ") };
+  }
+  // The button gates an unanswered exact folio; this boundary must too, so no
+  // direct call writes past the choice while the preview shows it undecided.
+  let folioPlan = card.folioPlan;
+  if (!folioPlan) {
+    const storeForPlan = await import("./db.js");
+    folioPlan = bpCasFolioPlan(cas.holdings,
+      await bpCasFundAccounts(await storeForPlan.listAccounts(), storeForPlan),
+      card.folioChoices || {});
+    card.folioPlan = folioPlan;
+  }
+  const pendingFolio = bpCasPendingFolioMessage(folioPlan);
+  if (pendingFolio) {
+    if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
+      <div class="muted">${esc(pendingFolio)}</div></div>`;
+    return { ok: false, reason: pendingFolio };
   }
   // Removing a row the statement does not name is destructive. Only the explicit
   // "Replace and import" answer allows it, and only for a complete statement. A
@@ -10907,7 +11047,10 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     }
   } else {
     const id = document.getElementById(`cas-target-${key}`)?.value || "";
-    if (id) byAsset.set(id, cas.holdings.filter((h) => !casClosedRow(h, importDay)));
+    // A manual demat target takes the statement's own rows, never a positive
+    // folio position: that belongs to its folio account even when the folio is
+    // kept or contested.
+    if (id) byAsset.set(id, casManualTargetRows(cas.holdings, importDay));
   }
   // An account whose only movement is a sale has no holdings group. Add the
   // accounts the statement names so the event pass can record the disposal there.
@@ -10941,6 +11084,18 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     const boIdsOf = casMovementAccountBos({ accounts,
       routeAccounts: route.accounts, movements: cas.transactions });
     const manualTargetId = document.getElementById(`cas-target-${key}`)?.value || "";
+    // A folio that is kept, contested or unticked has no group, so its rows and
+    // its movements belong to no account in this write. Drop its movements
+    // before any plan sees them, so a demat cannot record a sale that the fund
+    // position owns.
+    const writtenFolios = new Set((route.groups || [])
+      .filter((group) => group.kind === "mf" && group.folio
+        && (!card.picked || card.picked.has(folioKey(group))))
+      .map((group) => normalizeFolio(group.folioNo)));
+    const withheldRows = (cas.holdings || []).filter((holding) =>
+      holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0
+      && !writtenFolios.has(normalizeFolio(holding.folio)));
+    const events = casManualTargetEvents(cas.transactions, withheldRows);
     const today = new Date().toISOString().slice(0, 10);
     const asOf = cas.asOf || today;
     // The preview and the writer call the same planner. Count what the file adds
@@ -10956,7 +11111,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       const asset = assetOf(assetId);
       const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
       const preview = casReplacePlan({ parsed: cas, existing, holdings, asOf,
-        events: cas.transactions, assetId, merge: folioAccount,
+        events, assetId, merge: folioAccount,
         accounts: boIdsOf.get(assetId) || [], route: true, safety,
         manualTarget: !!manualTargetId && manualTargetId === assetId });
       replacing += existing.length;
@@ -11052,7 +11207,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       // from several statements and AMCs, so it always merges.
       const folioAccount = /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
       const plan = casReplacePlan({ parsed: cas, existing, holdings, asOf,
-        events: cas.transactions, assetId,
+        events, assetId,
         confirmed: allowAbsentRemoval && confirmed && !movementsOnly, merge: folioAccount,
         accounts: boIdsOf.get(assetId) || [], route: true, safety,
         replaceWithoutTotal: allowAbsentRemoval && !!opts.replaceWithoutTotal,
@@ -11140,8 +11295,10 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
         await store.updateAccount(assetId, patch);
       }
     }
+    // A statement whose only movements belong to a kept or contested folio has
+    // nothing this write may record. That is the decision, not a missing account.
     if (!written && !soldCount && !linkedSold && !appliedEvents && !alreadyEvents
-      && (cas.transactions || []).length) {
+      && events.length) {
       if (host) host.innerHTML = `<div class="import-wrong"><b>Nothing was written.</b>
         <div class="muted">The statement's movements found no holding or account to record
         against. Add the account the statement names, then import it again.</div></div>`;
@@ -11178,11 +11335,19 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
             choosable[0]?.label || "the existing account"}.`);
       }
     }
+    for (const group of card.folioPlan?.contested || []) {
+      conflictMessages.push(`Folio …${folioTail(group.folioNo)} is on ${
+        group.accounts.length} accounts that already hold units; none of its rows were
+        imported. Remove one duplicate, then import again.`);
+    }
     const keptKeys = new Set((card.folioPlan?.offers || [])
       .filter((offer) => offer.basis === "folio"
         && card.folioChoices?.[offer.key] === "__skip__")
       .map((offer) => offer.key));
-    const skipped = route.homeless.filter((group) => !keptKeys.has(folioKey(group)))
+    const contestedKeys = new Set((card.folioPlan?.contested || [])
+      .map((group) => group.key));
+    const skipped = route.homeless.filter((group) => !keptKeys.has(folioKey(group))
+      && !contestedKeys.has(folioKey(group)))
       .reduce((t, g) => t + g.count, 0);
     // A statement says what is held; a portfolio says what it cost. Attaching
     // happens on import, so a later statement still picks up the cost already on

@@ -6,8 +6,10 @@
 
 import { assetMetrics } from "../web/finance.js";
 import { casRoute } from "../web/cas.js";
-import { casGroupByAsset, casReplacePlan } from "../web/cas-apply.js";
-import { folioAdoptionPlan, folioKey } from "../web/folio.js";
+import { casGroupByAsset, casManualTargetEvents, casManualTargetRows,
+  casReplacePlan } from "../web/cas-apply.js";
+import { folioAdoptionPlan, folioKey, folioOwnership } from "../web/folio.js";
+import { accountMatches } from "../web/import-flow.js";
 
 const DEMAT = "IN99990001344321";
 const BASE = "99990000001";
@@ -139,3 +141,55 @@ line("duplicate manual first", `home ${manualFirstRoute.groups[0]?.assetId || "n
 line("duplicate settled first", `home ${settledFirstRoute.groups[0]?.assetId || "none"}`
   + ` · offers ${settledFirstPlan.offers.length}`
   + ` · homeless ${settledFirstRoute.homeless.length}`);
+
+// One clone deeper: a manual total and two accounts that carry the folio and
+// already hold units, neither declaring the AMC. There is no safe pick, so no
+// manual total is offered, the route writes nothing, and no account is created.
+const SECOND_ISIN = "INF000000888";
+const silentTwin = (id, label, isin, units) => ({
+  id, label, category: "demat", subtype: "mutual fund", type: "mf", number: PRINTED,
+  holdings: [{ security_id: isin, quantity: units, value_paise: 2500000 }],
+  meta: JSON.stringify({ folios: [PRINTED] }),
+});
+const neutralManual = {
+  ...valueOnly, id: "axis-manual-neutral", label: "Fund total", bank: "",
+  meta: JSON.stringify({ current_value_paise: MANUAL_PAISE }),
+};
+const multiAccounts = [demat, neutralManual,
+  silentTwin("axis-a", "Fund folio A", SECOND_ISIN, 90),
+  silentTwin("axis-b", "Fund folio B", SECOND_ISIN, 10)];
+const multiPlan = folioAdoptionPlan({ holdings: [holding], accounts: multiAccounts,
+  rowsOf: (id) => multiAccounts.find((account) => account.id === id)?.holdings || [] });
+const multiRoute = casRoute(parsed(), multiAccounts);
+const multiState = folioOwnership(holding, multiAccounts).state;
+console.log("");
+line("multi-owner plan", `offers ${multiPlan.offers.length}`
+  + ` · contested ${multiPlan.contested.length}`
+  + ` · owners ${multiPlan.contested[0]?.accounts.length || 0}`
+  + ` · create ${multiState === "new" ? "yes" : "no"}`);
+line("multi-owner route", `groups ${multiRoute.groups.length}`
+  + ` · homeless ${multiRoute.homeless.length}`
+  + ` · home ${multiPlan.homes[0]?.id || "none"}`);
+
+// Preview and write name one account. The generic matcher sorts by label and can
+// name the manual total; the plan's home is what the inbox preview and casRoute
+// both read, so the write lands where the preview pointed.
+const agreeManual = { ...duplicateManual, label: "Axis mutual fund" };
+const agreeSettled = { ...silentTwin("axis-settled-agree", "Axis mutual fund · folio …8993",
+  SECOND_ISIN, 90) };
+const agreeAccounts = [demat, agreeManual, agreeSettled];
+const agreePlan = folioAdoptionPlan({ holdings: [holding], accounts: agreeAccounts,
+  rowsOf: (id) => agreeAccounts.find((account) => account.id === id)?.holdings || [] });
+const agreeRoute = casRoute(parsed(), agreeAccounts);
+const agreeMatch = accountMatches({ accountKey: PRINTED, accountKind: "folio",
+  amc: "Axis", rows: [holding] }, agreeAccounts, { forCas: true });
+const previewId = agreePlan.homes[0]?.id || "";
+const writeId = agreeRoute.groups[0]?.assetId || "";
+line("preview vs write", `matchIdentity ${agreeMatch.identityId || "none"}`
+  + ` · preview ${previewId || "none"} · route ${writeId || "none"}`
+  + ` · agree ${previewId && previewId === writeId ? "yes" : "no"}`);
+
+// A kept folio and a manual demat target: the row and its movement are withheld.
+const keptMovement = [{ isin: ISIN, side: "debit", quantity: 10 }];
+line("kept manual target", `rows ${casManualTargetRows([holding]).length}`
+  + ` · events ${casManualTargetEvents(keptMovement, [holding]).length}`);

@@ -4,7 +4,7 @@ import { casRoute } from "./cas.js";
 import { casGroupByAsset, casReplacePlan } from "./cas-apply.js";
 import { assetMetrics } from "./finance.js";
 import { accountFolios, folioAdoptedHome, folioHome, folioKey,
-  folioAdoptionPlan, isValueOnlyFolioAccount, normalizeFolio } from "./folio.js";
+  folioAdoptionPlan, folioOwnership, normalizeFolio } from "./folio.js";
 
 // A registrar prints a check digit after the folio number. A zero check digit
 // is the same folio; every other suffix is a different position. Synthetic
@@ -271,7 +271,8 @@ test("the adopted home accepts this folio and refuses a different one", () => {
   const gained = valueOnly({ holdings: [{ security_id: ISIN, quantity: 1 }] });
   assert.equal(folioAdoptedHome(casFund(), [demat, gained],
     { [folioKey(casFund())]: "axis-value" }), null);
-  assert.equal(folioHome(casFund(), assets)?.id, "axis-value");
+  // A manual total is never the home on its own; the exact choice is.
+  assert.equal(folioHome(casFund(), assets), null);
   assert.equal(folioHome(near, assets), null);
 });
 
@@ -305,15 +306,71 @@ test("a settled owner wins over a manual total whatever the account order", () =
   }
 });
 
-test("the exclude option removes a manual total from the owner set", () => {
+test("a settled owner beats a manual total without a caller-supplied predicate", () => {
   const holding = casFund();
-  const exclude = (account) => isValueOnlyFolioAccount(account, account.holdings || []);
-  assert.equal(folioHome(holding, [valueOnly(), settled()], { exclude })?.id, "axis-settled");
-  assert.equal(folioHome(holding, [settled(), valueOnly()], { exclude })?.id, "axis-settled");
-  // Without the predicate the first owner wins, which is the order dependence
-  // the callers that know the shape must remove.
-  assert.equal(folioHome(holding, [valueOnly(), settled()])?.id, "axis-value");
+  assert.equal(folioHome(holding, [valueOnly(), settled()])?.id, "axis-settled");
   assert.equal(folioHome(holding, [settled(), valueOnly()])?.id, "axis-settled");
   // A manual total is not a home on its own; the offer is still the only way in.
-  assert.equal(folioHome(holding, [valueOnly()], { exclude }), null);
+  assert.equal(folioHome(holding, [valueOnly()]), null);
+});
+
+test("two settled owners with no AMC tie are contested, not picked by order", () => {
+  const holding = casFund();
+  const second = settled({ id: "axis-settled-2", label: "Axis folio two" });
+  const accounts = [demat, valueOnly(), settled(), second];
+  const rowsOf = (id) => (accounts.find((account) => account.id === id)?.holdings || []);
+  assert.equal(folioHome(holding, accounts), null);
+  const plan = folioAdoptionPlan({ holdings: [holding], accounts, rowsOf });
+  // A manual total is not offered over two positions, and neither position is
+  // picked by label or array order.
+  assert.equal(plan.offers.length, 0);
+  assert.deepEqual(plan.targets, {});
+  assert.equal(plan.contested.length, 1);
+  assert.equal(plan.contested[0].key, folioKey(holding));
+  assert.deepEqual(plan.contested[0].accounts.map((account) => account.id),
+    ["axis-settled", "axis-settled-2"]);
+  const route = casRoute(parsed([holding]), accounts);
+  assert.equal(route.groups.length, 0);
+  assert.equal(route.homeless.length, 1);
+  // A stale adoption of the manual total is refused while two owners exist.
+  const stale = casRoute(parsed([holding]), accounts,
+    { adopt: { [folioKey(holding)]: "axis-value" } });
+  assert.equal(stale.groups.length, 0);
+  assert.equal(stale.homeless.length, 1);
+});
+
+test("a unique AMC tie names one of two settled owners", () => {
+  const holding = casFund();
+  const other = settled({ id: "axis-other", label: "Axis folio two",
+    meta: JSON.stringify({ amc: "other", folios: [PRINTED] }) });
+  const accounts = [demat, settled(), other];
+  const plan = folioAdoptionPlan({ holdings: [holding], accounts,
+    rowsOf: (id) => accounts.find((account) => account.id === id)?.holdings || [] });
+  assert.equal(plan.offers.length, 0);
+  assert.equal(plan.contested.length, 0);
+  assert.equal(plan.homes.length, 1);
+  assert.equal(plan.homes[0].id, "axis-settled");
+  const route = casRoute(parsed([holding]), accounts);
+  assert.equal(route.groups[0]?.assetId, "axis-settled");
+});
+
+test("two settled owners that both name the AMC are still contested", () => {
+  const holding = casFund();
+  const twin = settled({ id: "axis-settled-2", label: "Axis mutual fund two" });
+  const accounts = [demat, settled(), twin];
+  const plan = folioAdoptionPlan({ holdings: [holding], accounts,
+    rowsOf: (id) => accounts.find((account) => account.id === id)?.holdings || [] });
+  assert.equal(plan.offers.length, 0);
+  assert.equal(plan.contested.length, 1);
+  assert.equal(casRoute(parsed([holding]), accounts).groups.length, 0);
+});
+
+test("a folio with no owner at all is the only state that creates an account", () => {
+  const holding = casFund();
+  const ownership = (accounts) => folioOwnership(holding, accounts);
+  assert.equal(ownership([demat]).state, "new");
+  assert.equal(ownership([demat, valueOnly()]).state, "manual");
+  assert.equal(ownership([demat, valueOnly(), settled()]).state, "home");
+  assert.equal(ownership([demat, settled(), settled({ id: "axis-settled-2",
+    label: "Axis folio two" })]).state, "contested");
 });
