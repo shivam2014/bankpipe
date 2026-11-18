@@ -7,7 +7,8 @@
 // of appending a second copy.
 
 import { findHeaderRow, headerMessage, cellText, readDate, readNumber,
-  readMoney, refusalResult } from "./table-schema.js";
+  readMoney, refusalResult, refusalOf, columnLetter,
+  isBlank } from "./table-schema.js";
 
 const MONTHS = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
   JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
@@ -175,32 +176,59 @@ export function parseCashflow(text, fileName = "", today = new Date().toISOStrin
       && n.includes("frequency") && n.includes("maturity");
   });
   if (header < 1) return null;
+  const headerRow = rows[header] || [];
   const names = rows[header - 1] || [];
   const values = rows[header + 1] || [];
-  const invest = rows[header + 2] || [];
+  const where = { file: fileName, table: "Cashflow" };
   const starts = [];
-  rows[header].forEach((cell, i) => {
+  headerRow.forEach((cell, i) => {
     if (norm(cell) === "yield" && cleanCell(names[i])) starts.push(i);
   });
   if (!starts.length) return null;
-  const groups = starts.map((c, i) => {
-    const name = cleanCell(names[c]);
-    const isin = (name.match(/\b(IN[A-Z0-9]{10})\b/) || [])[1] || "";
-    return {
-      index: i,
-      name,
-      isin: isin.toUpperCase(),
-      yieldPct: (() => {
-        const v = parseNumber(values[c]);
-        return v === null ? null : Math.round(v * 10000) / 100;
-      })(),
-      frequency: cleanCell(values[c + 1]),
-      maturity: parseDate(values[c + 2]),
-      investment_paise: parseMoney(invest[c + 1]),
-      investment_date: parseDate(invest[c + 3]),
-      source_col: c + 1,
-    };
-  });
+
+  // A group is the columns between one `Yield` label and the next. Every fact
+  // the group carries is read by its own name inside that span: frequency and
+  // maturity from the header row, the money and the date from the investment
+  // row, and the gross/net/principal/total split from the schedule header. The
+  // real exports print all of these labels; a group that does not is refused
+  // rather than read at a guessed offset.
+  const spans = starts.map((c, i) => ({ start: c, end: (starts[i + 1] ?? headerRow.length) - 1 }));
+  const labelIndex = (row, span, name) => {
+    const cells = row || [];
+    const last = Math.min(cells.length - 1, span.end);
+    for (let i = span.start; i <= last; i++) if (norm(cells[i]) === name) return i;
+    return -1;
+  };
+  const refuse = (detail) => {
+    const refusal = refusalOf(where, detail);
+    return { kind: "cashflow", fileName, groups: [], rows: 0,
+      error: refusal.message, refusal };
+  };
+
+  const groupLabels = spans.map((span) => ({
+    frequency: labelIndex(headerRow, span, "frequency"),
+    maturity: labelIndex(headerRow, span, "maturity"),
+  }));
+  for (let i = 0; i < groupLabels.length; i++) {
+    const labels = groupLabels[i];
+    if (labels.frequency >= 0 && labels.maturity >= 0) continue;
+    const missing = labels.frequency < 0 ? "Frequency" : "Maturity";
+    return refuse({ column: missing, row: header + 1,
+      reason: `is not named inside the group at column ${columnLetter(spans[i].start)}` });
+  }
+
+  // The investment row names its own cells in both exports. It sits within a
+  // few rows of the value row; a file without it simply carries no cost.
+  let investRow = null;
+  let investRowIndex = -1;
+  for (let r = header + 1; r < Math.min(rows.length, header + 6); r++) {
+    if ((rows[r] || []).some((cell) => norm(cell) === "investment value")) {
+      investRow = rows[r];
+      investRowIndex = r;
+      break;
+    }
+  }
+
   // The future-cashflow export starts its table at a "Month" column; the
   // older cashflow file has no header row and puts the date in column 2.
   let dateCol = -1;
@@ -215,20 +243,78 @@ export function parseCashflow(text, fileName = "", today = new Date().toISOStrin
     if (dateCol < 0 && row.some((cell) => parseDate(cell))) break;
     dataStart++;
   }
-  for (const g of groups) {
-    const totalCol = starts[g.index] + 3;
-    const interestCol = starts[g.index];
+
+  // The row above the schedule names the four money columns of each group.
+  let moneyRow = null;
+  for (let r = dataStart - 1; r >= Math.max(header + 1, dataStart - 4); r--) {
+    if (spans.some((span) => labelIndex(rows[r], span, "total") >= 0)) {
+      moneyRow = rows[r];
+      break;
+    }
+  }
+
+  const groups = [];
+  let scheduleTotal = 0;
+  for (let i = 0; i < starts.length; i++) {
+    const c = starts[i];
+    const span = spans[i];
+    const labels = groupLabels[i];
+    const name = cleanCell(names[c]);
+    const isin = (name.match(/\b(IN[A-Z0-9]{10})\b/) || [])[1] || "";
+    const investAt = investRow ? labelIndex(investRow, span, "investment value") : -1;
+    const dateAt = investRow ? labelIndex(investRow, span, "investment date") : -1;
+    const rawInvest = investAt < 0 ? undefined : investRow[investAt + 1];
+    const rawDate = dateAt < 0 ? undefined : investRow[dateAt + 1];
+    if (rawInvest !== undefined && !isBlank(rawInvest) && parseMoney(rawInvest) === null) {
+      return refuse({ column: "Investment Value", row: investRowIndex + 1,
+        reason: "is not a number", value: rawInvest });
+    }
+    if (rawDate !== undefined && !isBlank(rawDate) && !parseDate(rawDate)) {
+      return refuse({ column: "Investment date", row: investRowIndex + 1,
+        reason: "is not a readable date", value: rawDate });
+    }
+    const interestCol = moneyRow ? labelIndex(moneyRow, span, "interest") : -1;
+    const principalCol = moneyRow ? labelIndex(moneyRow, span, "principal") : -1;
+    const totalCol = moneyRow ? labelIndex(moneyRow, span, "total") : -1;
+    const grossCol = interestCol >= 0 ? interestCol : c;
+    const backCol = principalCol >= 0 ? principalCol : c + 2;
+    const flowCol = totalCol >= 0 ? totalCol : c + 3;
+    const group = {
+      index: i,
+      name,
+      isin: isin.toUpperCase(),
+      yieldPct: (() => {
+        const v = parseNumber(values[c]);
+        return v === null ? null : Math.round(v * 10000) / 100;
+      })(),
+      frequency: cleanCell(values[labels.frequency]),
+      maturity: parseDate(values[labels.maturity]),
+      investment_paise: parseMoney(rawInvest),
+      investment_date: parseDate(rawDate),
+      source_col: c + 1,
+    };
+    let first = null;
+    let firstFuture = null;
     for (let r = dataStart; r < rows.length; r++) {
       const row = rows[r] || [];
-      const total = parseMoney(row[totalCol]);
+      const total = parseMoney(row[flowCol]);
       if (total === null || total <= 0) continue;
-      const dcol = dateCol >= 0 ? dateCol : row.findIndex((cell) => parseDate(cell));
-      g.next_payout_date = dcol >= 0 ? parseDate(row[dcol]) : "";
+      const when = dateCol >= 0 ? parseDate(row[dateCol])
+        : parseDate(row[row.findIndex((cell) => parseDate(cell))]);
+      if (!first) first = { when, row };
+      // The paid-cashflow export carries history, so its first row can be a
+      // payout already made. The next one is the first row still ahead.
+      if (!firstFuture && when && when >= today) firstFuture = { when, row };
+      if (firstFuture) break;
+    }
+    const next = firstFuture || first;
+    if (next) {
+      group.next_payout_date = next.when || "";
       // The Total column is post-TDS. This app keeps every bond figure gross, so
       // the gross interest wins; a redemption month with no interest uses Total.
-      const gross = parseMoney(row[interestCol]);
-      g.next_payout_paise = gross !== null && gross > 0 ? gross : total;
-      break;
+      const gross = parseMoney(next.row[grossCol]);
+      const total = parseMoney(next.row[flowCol]);
+      group.next_payout_paise = gross !== null && gross > 0 ? gross : total;
     }
     // The rest of the sheet is the whole future schedule, one row per payment.
     // Interest here is gross: tax is deliberately out of scope in this app.
@@ -240,17 +326,37 @@ export function parseCashflow(text, fileName = "", today = new Date().toISOStrin
       const dcol = dateCol >= 0 ? dateCol : row.findIndex((cell) => parseDate(cell));
       const when = dcol >= 0 ? parseDate(row[dcol]) : "";
       if (!when || when < today) continue;
-      const i = parseMoney(row[starts[g.index]]);
-      const p = parseMoney(row[starts[g.index] + 2]);
+      const i = parseMoney(row[grossCol]);
+      const p = parseMoney(row[backCol]);
       if (i === null && p === null) continue;
       seen++;
       if (i && i > 0) interest += i;
       if (p && p > 0) { principal += p; principalDates.push(when); }
     }
-    g.future_interest_paise = seen ? interest : null;
-    g.future_principal_paise = seen ? principal : null;
-    g.principal_dates = principalDates;
+    group.future_interest_paise = seen ? interest : null;
+    group.future_principal_paise = seen ? principal : null;
+    group.principal_dates = principalDates;
+    for (let r = dataStart; r < rows.length; r++) {
+      const cash = parseMoney((rows[r] || [])[flowCol]);
+      if (cash && cash > 0) scheduleTotal += cash;
+    }
+    groups.push(group);
   }
+
+  // The sheet prints its own Total Cashflow. A layout change inside a group
+  // would still produce rows, so the printed total is what catches a wrong
+  // read: if the schedule does not add up to it, the file is refused by name.
+  let stated = null;
+  for (let r = 0; r < header; r++) {
+    const at = (rows[r] || []).findIndex((cell) => norm(cell) === "total cashflow");
+    if (at >= 0) { stated = parseMoney((rows[r + 1] || [])[at + 1]); break; }
+  }
+  if (stated !== null && Math.abs(scheduleTotal - stated) > Math.max(100, Math.round(stated * 0.0001))) {
+    const rupees = (paise) => `₹${(paise / 100).toFixed(2)}`;
+    return refuse({ column: "Total Cashflow",
+      reason: `does not match the schedule: the sheet says ${rupees(stated)}, the rows add up to ${rupees(scheduleTotal)}` });
+  }
+
   return { kind: "cashflow", fileName, groups, rows: groups.length };
 }
 

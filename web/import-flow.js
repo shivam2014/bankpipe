@@ -143,6 +143,15 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
   if (/portfolio\s*cash\s*flow|cash\s*flow\s+future|cashflow\s+future|total\s+futureexpected\s+interest/i.test(bodyText)) {
     return info("digifinn-cashflow", "content", date);
   }
+  // The paid-cashflow export prints the same wide matrix without the "future"
+  // wording, so the shape itself is the signal: one row that names Yield,
+  // Frequency and Maturity. No other report prints all three.
+  const cashflowMatrix = bodyRows.some((row) => {
+    const keys = row.map(norm);
+    return keys.includes("yield") && keys.includes("frequency")
+      && keys.includes("maturity");
+  });
+  if (cashflowMatrix) return info("digifinn-cashflow", "content", date);
   // A transactions report also prints a price and a quantity, so it is read
   // before the tradebook shape. Its "Transaction Type" name is the giveaway.
   if (headerIn(TRANSACTIONS_DETECTION_SCHEMA)) return info("digifinn-transactions", "content", date);
@@ -181,6 +190,7 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
   }
   if (/tradebook|contract/.test(lower)) return info("zerodha-tradebook", "name");
   if (/holdings?[-_ ]report/.test(lower)) return info("digifinn-portfolio", "name");
+  if (/cash\s*-?flow/.test(lower)) return info("digifinn-cashflow", "name");
   if (/portfolio|holding/.test(lower)) return info("digifinn-portfolio", "name");
   if (/statement|stmt/.test(lower)) return info("bank", "name");
   return info("unknown", "none");

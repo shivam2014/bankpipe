@@ -293,6 +293,10 @@ export function parsePayoutReport(text, fileName = "") {
 export function parseCashflowReport(text, fileName = "") {
   const flow = parseCashflow(text, fileName);
   if (!flow) return null;
+  if (flow.error) {
+    return { kind: "payouts", fileName, source: "cashflow", groups: [],
+      error: flow.error, refusal: flow.refusal };
+  }
   const groups = flow.groups.map((g) => ({
     isin: g.isin,
     units: null,
@@ -326,10 +330,29 @@ export function parseTransactionReport(text, fileName = "") {
   const out = [];
   let skipped = 0;
   let unidentified = 0;
+  let cancelled = 0;
   let ambiguousDates = 0;
+  // The report stacks sections: ORDER SETTLED, then ORDER CANCELLED, each with
+  // its own header row. A cancelled order is not a trade, so its rows are
+  // counted and left out instead of becoming a purchase.
+  let inCancelled = false;
   try {
     for (let r = header.index + 1; r < rows.length; r++) {
       const row = rows[r] || [];
+      const rowText = row.map(cleanCell).filter(Boolean).join(" ");
+      const carriesIsin = row.some((cell) => /^IN[A-Z0-9]{10}$/.test(cleanCell(cell).toUpperCase()));
+      if (!carriesIsin && /^[A-Z][A-Z /]+$/.test(cleanCell(row[0] || ""))
+        && /\b(settled|cancell?ed)\b/i.test(rowText)) {
+        inCancelled = /\bcancell?ed\b/i.test(rowText);
+        skipped++;
+        continue;
+      }
+      // A second section repeats the column header before its rows start.
+      if (row.some((cell) => headerKey(cell) === "transaction type")) {
+        skipped++;
+        continue;
+      }
+      if (inCancelled) { cancelled++; skipped++; continue; }
       const isin = cellText(row, cols, "isin").toUpperCase();
       const type = cellText(row, cols, "type").toUpperCase();
       if (!/^IN[A-Z0-9]{10}$/.test(isin) || !type) { skipped++; unidentified++; continue; }
@@ -357,14 +380,16 @@ export function parseTransactionReport(text, fileName = "") {
       });
     }
   } catch (error) {
-    return { kind: "transactions", fileName, rows: [], skipped, ...refusalResult(error) };
+    return { kind: "transactions", fileName, rows: [], skipped, cancelled,
+      ...refusalResult(error) };
   }
   if (!out.length && unidentified) {
-    return { kind: "transactions", fileName, rows: [], skipped, ambiguousDates,
+    return { kind: "transactions", fileName, rows: [], skipped, cancelled, ambiguousDates,
       error: `${tableWhere(where)}: ${unidentified} row${unidentified === 1 ? " has" : "s have"} `
         + "no readable ISIN or transaction type, so no trade could be identified." };
   }
-  return { kind: "transactions", fileName, rows: out, skipped, ambiguousDates, error: null };
+  return { kind: "transactions", fileName, rows: out, skipped, cancelled,
+    ambiguousDates, error: null };
 }
 
 export function parseReportFile(text, fileName = "") {

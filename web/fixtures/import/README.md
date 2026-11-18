@@ -22,6 +22,14 @@ Run the synthetic tests from the repository root:
 `samples.mjs` holds the corpus. `import-regression.test.mjs` walks it through
 detection, parsing, bundle grouping and the XLSX round-trip the page performs.
 
+`digifinn/` holds the DigiFInn shapes as plain CSV files: the holdings,
+investment, transactions (both sections), upcoming payouts, and both cashflow
+matrices. They are copies of the shape, never of a statement: the names, account
+number, PAN, ISINs and amounts are invented. `digifinn-report-shapes.test.mjs`
+reads them so a change to any report's layout fails a named test.
+
+    node --test web/digifinn-report-shapes.test.mjs
+
 ## Private harness
 
 Point the harness at a directory of real statements:
@@ -30,8 +38,9 @@ Point the harness at a directory of real statements:
 
 The directory is read-only and symlinked files are fine. Without the variable
 the test is skipped. A PDF is listed but not parsed here, because the page owns
-PDF text extraction. The DigiFInn paid-cashflow export is not recognised; the
-future-cashflow export is.
+PDF text extraction. Both DigiFInn cashflow exports are recognised: the shape
+is a row that names Yield, Frequency and Maturity, so detection no longer
+depends on the "future" wording or the file name.
 
 ## Render pair
 
