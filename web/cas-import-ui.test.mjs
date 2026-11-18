@@ -275,11 +275,13 @@ test("the writer boundary refuses an unanswered folio offer", () => {
   assert.match(html, /still need the adopt-or-keep/);
 });
 
-test("a guess offer says it is by fund house and waits for the choice", () => {
+test("a guess offer says why it is a guess and waits for the choice", () => {
   // The real shape: the number column holds "Payment From …", not a folio. The
   // offer must label the guess and still ask before adopting.
-  assert.match(html, /by fund house, not by folio/);
+  assert.match(html, /Same fund\?/);
   assert.match(html, /class="import-pill">Guess<\/span>/);
+  assert.match(html, /<div class="import-folio-head"><b>Same fund\?<\/b>\$\{guess\}<\/div>/);
+  assert.match(html, /The existing row has no folio on file\./);
   assert.match(html, /offer\.chosen === "__create__"/);
   assert.match(html, /offer\.basis !== "folio" && offer\.chosen === "__create__"/);
   assert.match(html, /target\.offer\?\.basis === "guess"/);
@@ -289,17 +291,27 @@ test("a guess offer says it is by fund house and waits for the choice", () => {
   assert.match(html, /folioChoices\[target\.offer\.key\] = "__create__"/);
 });
 
-test("a value-only folio offer is shown, with the difference and both choices", () => {
+test("a value-only folio offer compares the manual total and the statement", () => {
   assert.match(html, /const folioPlan = folioAdoptionPlan\(\{/);
   assert.match(html, /bundle\.folioPlan = folioPlan/);
   assert.match(html, /const offerHtml = target\.offer/);
   assert.match(html, /casFolioOfferHtml\(target\.offer,/);
-  assert.match(html, /looks like your existing/);
-  assert.match(html, /They differ by/);
+  assert.match(html, /row\(`Existing \$\{candidate\.label\}`, money\(candidate\.valuePaise\)\)/);
+  assert.match(html, /row\("This statement", money\(offer\.valuePaise\)\)/);
+  assert.match(html, /diff \? row\("Difference"/);
   assert.match(html, /Adopt into \$\{esc\(candidate\.label\)\}/);
   assert.match(html, /Keep both/);
   assert.match(html, /market movement/);
-  assert.match(html, /keeping both\s+leaves both totals counting/);
+  assert.match(html, /Keep both counts both\./);
+});
+
+test("the exact folio offer keeps the same structure without the guess", () => {
+  assert.match(html, /const guess = exact \? ""/);
+  assert.match(html, /const guessWhy = exact \? ""/);
+  assert.match(html, /const diff = Number\(candidate\?\.diffPaise\) \|\| 0/);
+  assert.match(html, /diff \? row\("Difference"/);
+  assert.match(html, /Adopt replaces the manual total\./);
+  assert.match(html, /Keep the manual total\. No rows are imported\./);
 });
 
 test("the writer routes only the folio targets the person chose", () => {
