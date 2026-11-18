@@ -12,9 +12,9 @@ import { importAccountGaps } from "./import-flow.js";
 // sections are valued at different dates, which is why the duplicate used to
 // hide: the same ISIN arrived twice with two different numbers.
 const DEMAT = "IN99990001344321";
-const FOLIO_ADITYA = "900000006290";
-const FOLIO_AXIS = "900000003856";
-const FOLIO_MIRAE = "900000004666";
+const FOLIO_ADITYA = "999900006290";
+const FOLIO_AXIS = "999900003856";
+const FOLIO_MIRAE = "999900004666";
 const ISIN_ADITYA = "INF000000290";
 const ISIN_AXIS = "INF000000385";
 const ISIN_MIRAE = "INF000000466";
