@@ -77,7 +77,7 @@ function entry() {
   };
 }
 
-function pageScript({ write = false, keep = false } = {}) {
+function pageScript({ write = false, keep = false, manualPaise = MANUAL_PAISE } = {}) {
   return `(async () => {
   const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
   const store = await import("./db.js");
@@ -91,7 +91,7 @@ function pageScript({ write = false, keep = false } = {}) {
     category: "demat", subtype: "mutual fund", type: "mf",
     number: ${JSON.stringify(BASE)},
     meta: JSON.stringify({ amc: "testmutual", amc_full: "Test Mutual Fund",
-      current_value_paise: ${MANUAL_PAISE} }),
+      current_value_paise: ${manualPaise} }),
   });
   go("import");
   await sleep(900);
@@ -117,12 +117,16 @@ function pageScript({ write = false, keep = false } = {}) {
   const folio = folioTargetOf();
   const offerNode = () => card.querySelector(".import-folio");
   const buttons = () => [...(offerNode()?.querySelectorAll("button") || [])].map(text);
+  const rect = offerNode()?.getBoundingClientRect();
   const summary = {
     ready: !!planOf().ready,
     pill: text(card.querySelector(".import-pill")),
     statusLines: [...card.querySelectorAll(".import-account-choice .import-choice-meta")].map(text),
     offer: text(offerNode()),
     offerButtons: buttons(),
+    offerHeight: rect ? Math.round(rect.height * 10) / 10 : 0,
+    offerWidth: rect ? Math.round(rect.width * 10) / 10 : 0,
+    pageOverflow: document.documentElement.scrollWidth > window.innerWidth,
     accountChrome: [...card.querySelectorAll(".import-account-choice")].map(text),
     folioAction: folio?.action || "",
     folioBasis: folio?.offer?.basis || "",
@@ -231,12 +235,14 @@ function pageScript({ write = false, keep = false } = {}) {
 }
 
 const SHOTS = [
+  { width: 320, height: 3000 },
   { width: 390, height: 3000 },
   { width: 1280, height: 2100 },
 ];
 
 function verifyCard(state) {
   const wrong = [];
+  if (state.pageOverflow) wrong.push("the page scrolls sideways");
   if (state.ready) wrong.push("the card is Ready before the adopt-or-keep choice");
   if (state.pill !== "Choose an account") {
     wrong.push(`pill: want "Choose an account", got ${JSON.stringify(state.pill)}`);
@@ -247,10 +253,17 @@ function verifyCard(state) {
   if (state.accountChrome.some((line) => /New mutual fund folio account/.test(line))) {
     wrong.push(`the card still calls the folio a new account: ${JSON.stringify(state.accountChrome)}`);
   }
-  for (const want of ["is already on Test Mutual Fund", "3,10,000", "3,24,536",
-    "current value with no units", "Keeping the manual total imports none of these rows"]) {
+  for (const want of ["Same fund?", "TEST FUND GROWTH PLAN · folio …1234",
+    "Existing Test Mutual Fund", "3,10,000.00", "This statement", "3,24,536.00",
+    "Difference", "+₹ 14,536.00", "4.7%", "Adopt replaces the manual total.",
+    "Keep the manual total. No rows are imported."]) {
     if (!state.offer.includes(want)) {
       wrong.push(`offer is missing ${JSON.stringify(want)}: ${JSON.stringify(state.offer)}`);
+    }
+  }
+  for (const stale of ["current value with no units", "Guess", "looks like your existing"]) {
+    if (state.offer.includes(stale)) {
+      wrong.push(`the exact offer still carries ${JSON.stringify(stale)}: ${JSON.stringify(state.offer)}`);
     }
   }
   if (!state.offerButtons.includes("Adopt into Test Mutual Fund")) {
@@ -428,9 +441,37 @@ try {
           + "asked for.\n  " + wrong.join("\n  ")
           + "\n  full state: " + JSON.stringify(state));
       }
-      console.log(out);
+      console.log(`${out} · offer ${state.offerWidth}×${state.offerHeight}`);
     }
   }
+  // Equal totals: the exact offer is still a question, but a ₹0 difference row
+  // would be noise, so the comparison stops after the statement.
+  const equalScript = join(dir, "page-equal.js");
+  writeFileSync(equalScript, pageScript({ manualPaise: STATEMENT_PAISE }));
+  const equalOut = join(args.outDir, "import-folio-adoption-equal-390-light.png");
+  const equal = await capture({
+    page, out: equalOut, script: equalScript, wait: 2600,
+    width: 390, height: 1800, theme: "light",
+  });
+  const equalState = JSON.parse(equal.value);
+  const equalWrong = [];
+  for (const want of ["Same fund?", "Existing Test Mutual Fund", "This statement",
+    "3,24,536.00", "Adopt replaces the manual total.",
+    "Keep the manual total. No rows are imported."]) {
+    if (!equalState.offer.includes(want)) {
+      equalWrong.push(`equal-value offer is missing ${JSON.stringify(want)}: `
+        + JSON.stringify(equalState.offer));
+    }
+  }
+  if (equalState.offer.includes("Difference")) {
+    equalWrong.push(`an equal-value offer still shows a difference: ${JSON.stringify(equalState.offer)}`);
+  }
+  if (equalWrong.length) {
+    throw new Error("render-import-folio-adoption: the equal-value card is not the card that "
+      + "was asked for.\n  " + equalWrong.join("\n  ")
+      + "\n  full state: " + JSON.stringify(equalState));
+  }
+  console.log(`${equalOut} · offer ${equalState.offerWidth}×${equalState.offerHeight} · no difference row`);
   // The real proof: press Adopt, then Import, and read the store back.
   const writeScript = join(dir, "page-write.js");
   writeFileSync(writeScript, pageScript({ write: true }));
@@ -462,7 +503,7 @@ try {
   console.log(keepOut);
   console.log("import folio adoption: the card offers the exact account, Adopt keeps its id "
     + "and writes one 3,24,536 position, and the printed 90000001234/0 stays in storage; "
-    + "Keep writes no rows and leaves 3,10,000 · 390/1280 light and dark");
+    + "Keep writes no rows and leaves 3,10,000 · 320/390/1280 light and dark");
 } finally {
   server.child.kill();
   rmSync(dir, { recursive: true, force: true });

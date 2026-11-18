@@ -690,8 +690,19 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-actions .btn,.import-batch-actions .btn{min-height:44px}
 .import-folio{margin-top:8px;padding:10px 11px;border:1px solid var(--hair);
  border-radius:9px;background:var(--bg)}
+.import-folio-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .import-folio b{font-size:13.5px}
-.import-folio .muted{font-size:12px;margin-top:3px;line-height:1.5}
+.import-folio-id{font-size:12px;margin-top:2px;overflow-wrap:anywhere}
+.import-folio-note{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.5}
+.import-folio-compare{margin-top:8px;border-top:1px solid var(--hair);padding-top:5px}
+.import-folio-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;
+ align-items:baseline;padding:2px 0;font-size:12px}
+.import-folio-row .v{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;
+ font-weight:560}
+.import-folio-row.diff{border-top:1px solid var(--hair);margin-top:3px;padding-top:5px}
+.import-folio-row.diff .v{font-weight:640}
+.import-folio-warn{font-size:12px;color:var(--amber);margin-top:6px;line-height:1.5}
+.import-folio-why{font-size:12px;margin-top:6px;line-height:1.5}
 .import-folio .import-actions{margin-top:7px}
 .import-help summary{display:flex;align-items:center;min-height:44px}
 .import-wrong{margin-top:10px;border:1px solid var(--amber);border-radius:10px;padding:12px}
@@ -7769,7 +7780,6 @@ function bpImportCasAccountsHtml(bundle) {
       const offerHtml = target.offer
         ? casFolioOfferHtml(target.offer, {
           chosen: target.targetId || (target.action === "kept" ? "__skip__" : ""),
-          where: bundle.base?.parsed?.depository || "CAS",
           onChoose: (offer, accountId) =>
             `bpImportChoose(${jsArg(`${bundle.key}:${offer.key}`)}, ${jsArg(accountId)})`,
         })
@@ -9192,48 +9202,50 @@ async function bpCasFundAccounts(accounts, store) {
   return out;
 }
 
-function casFolioOfferHtml(offer, { chosen = "", where = "", onChoose } = {}) {
+function casFolioOfferHtml(offer, { chosen = "", onChoose } = {}) {
   if (!offer) return "";
   const tail = folioTail(offer.folioNo);
   const choosable = offer.choosable || [];
   const first = choosable[0] || offer.candidates[0] || null;
-  const accountLabel = first?.label || "the existing account";
-  const source = where ? `${where} ` : "";
   const exact = offer.basis === "folio";
-  const diff = first && Number.isFinite(first.diffPct)
-    ? ` They differ by ${money(Math.abs(first.diffPaise))} (${Math.abs(first.diffPct * 100).toFixed(1)}%).`
-    : first ? ` They differ by ${money(Math.abs(first.diffPaise))}.` : "";
-  const large = first && Number.isFinite(first.diffPct) && Math.abs(first.diffPct) >= 0.25;
-  const scheme = offer.label ? ` for ${offer.label}` : "";
-  const balances = choosable.length > 1
-    ? ` ${choosable.map((candidate) => `${candidate.label} holds ${
-      money(candidate.valuePaise)}`).join("; ")}.` : "";
-  // A guess is a fund-house resemblance, not identity. Say so before the money
-  // copy, so the person never reads the offer as "the folio is already on this
-  // account".
-  const guessWhy = " The folio is not on file, so this is a guess by fund house, not by folio.";
-  const head = exact
-    ? choosable.length > 1
-      ? `This ${source}folio …${tail}${scheme} is already on ${choosable.length} accounts.`
-      : `This ${source}folio …${tail}${scheme} is already on ${accountLabel}, which holds ${
-        money(first?.valuePaise || 0)} as a current value with no units.`
-    : choosable.length > 1
-      ? `${choosable.length} accounts look like this ${source}folio …${tail}${scheme}.${guessWhy}`
-      : `This ${source}folio …${tail}${scheme} looks like your existing ${accountLabel}, which holds ${
-        money(first?.valuePaise || 0)} as a current value with no units.${guessWhy}`;
-  const copy = exact
-    ? choosable.length
-      ? `The statement holds ${money(offer.valuePaise)}.${balances}${diff}${large
-        ? " That is more than market movement; check that this is the same holding before adopting."
-        : ""} Adopting replaces that manual total with the statement's units, cost and folio.
-        Keeping the manual total imports none of these rows.`
-      : `${offer.reason}. Keeping the manual total imports none of these rows.`
-    : choosable.length
-      ? `The statement holds ${money(offer.valuePaise)}.${balances}${diff}${large
-        ? " That is more than market movement; check that this is the same holding before adopting."
-        : ""} Adopting replaces that manual total with the statement's units; keeping both
-        leaves both totals counting.`
-      : `${offer.reason}. Nothing will be linked; keeping both is the safe choice.`;
+  const scheme = offer.label || first?.label || "This fund";
+  // A guess is a fund-house resemblance, not identity. The pill and the one
+  // plain line say why before the money, so the person never reads the offer as
+  // "the folio is already on this account".
+  const guess = exact ? ""
+    : `<span class="import-pill">Guess</span>`;
+  const guessWhy = exact ? ""
+    : `<div class="import-folio-note">The existing row has no folio on file.</div>`;
+  const signed = (paise) => `${paise < 0 ? "−" : "+"}${money(Math.abs(paise))}`;
+  const row = (label, value, cls = "") =>
+    `<div class="import-folio-row${cls ? ` ${cls}` : ""}"><span>${esc(label)}</span>
+      <span class="v">${esc(value)}</span></div>`;
+  // One comparison per adoptable account. The common case is one; two accounts
+  // that look like the same folio keep their own figures and their own button.
+  const compare = (candidate) => {
+    const diff = Number(candidate?.diffPaise) || 0;
+    const pct = Number.isFinite(candidate?.diffPct)
+      ? ` · ${Math.abs(candidate.diffPct * 100).toFixed(1)}%` : "";
+    return `<div class="import-folio-compare">
+      ${row(`Existing ${candidate.label}`, money(candidate.valuePaise))}
+      ${row("This statement", money(offer.valuePaise))}
+      ${diff ? row("Difference", `${signed(diff)}${pct}`, "diff") : ""}
+    </div>`;
+  };
+  const tables = choosable.map(compare).join("");
+  const large = choosable.length > 0 && Number.isFinite(first?.diffPct)
+    && Math.abs(first.diffPct) >= 0.25;
+  const reason = !choosable.length && offer.reason
+    ? `<div class="import-folio-note">${esc(offer.reason.charAt(0).toUpperCase()
+      + offer.reason.slice(1))}.</div>` : "";
+  const consequences = choosable.length
+    ? exact
+      ? ["Adopt replaces the manual total.",
+        "Keep the manual total. No rows are imported."]
+      : ["Adopt replaces the manual total.", "Keep both counts both."]
+    : exact
+      ? ["Keep the manual total. No rows are imported."]
+      : ["Nothing is linked; keeping both is the safe choice."];
   const buttons = choosable.map((candidate) => `<button type="button" class="btn${
     chosen === candidate.id ? " primary" : ""}" onclick="${
     onChoose(offer, candidate.id)}">Adopt into ${esc(candidate.label)}</button>`).join("");
@@ -9245,8 +9257,15 @@ function casFolioOfferHtml(offer, { chosen = "", where = "", onChoose } = {}) {
       !chosen || chosen === "__create__" ? " primary" : ""}" onclick="${
       onChoose(offer, "__create__")}">Keep both</button>`;
   return `<div class="import-folio" data-folio="${esc(offer.key)}">
-    <b>${esc(head)}${exact ? "" : ' <span class="import-pill">Guess</span>'}</b>
-    <div class="muted">${esc(copy)}</div>
+    <div class="import-folio-head"><b>Same fund?</b>${guess}</div>
+    <div class="import-folio-id">${esc(scheme)} · folio …${esc(tail)}</div>
+    ${guessWhy}
+    ${reason}
+    ${tables}
+    ${large ? `<div class="import-folio-warn">The gap is more than market movement;
+      check this is the same holding.</div>` : ""}
+    <div class="import-folio-why">${consequences.map((line) =>
+      `<div>${esc(line)}</div>`).join("")}</div>
     <div class="import-actions">${buttons}${keep}</div>
   </div>`;
 }
@@ -9498,7 +9517,6 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
     const folioOffers = (cardState.folioPlan?.offers || []).map((offer) =>
       casFolioOfferHtml(offer, {
         chosen: cardState.folioChoices?.[offer.key] || "",
-        where: cas.depository || "CAS",
         onChoose: (item, accountId) =>
           `bpCasAdoptChoice(${jsArg(hostId)}, ${jsArg(item.key)}, ${jsArg(accountId)})`,
       })).join("");
