@@ -4,13 +4,15 @@ import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
   parseTradebookMatrix, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, normalizeAccount, mergeRowsFromPlan, planStateAfter,
   planImportChains, movementGate, statementAccounts, movementAccountGap,
-  importWarningDigest } from "./import-flow.js";
+  importWarningDigest, dedupeImportFiles, duplicateFileLabel, brokerDematAccounts,
+  importNoWorkCopy } from "./import-flow.js";
 import { casReplacePlan } from "./cas-apply.js";
 import { casRoute } from "./cas.js";
 
 // Synthetic identifiers only. The real files are never committed.
 const isin = (n) => `INE${String(n).padStart(9, "0")}`;
 const other = (n) => `INE${String(n).padStart(9, "0")}`;
+const meta = (value) => JSON.stringify(value);
 
 const holding = (over = {}) => ({
   security_id: isin(1), label: "9.00% TEST BOND 31 Dec 2026", category: "bond",
@@ -143,6 +145,83 @@ test("a tradebook spreadsheet is detected from its matrix, not rejected as a hol
   assert.equal(parsed.rows[1].type, "sell");
 });
 
+// --- one tradebook in two formats ------------------------------------------
+
+const SAME_TRADEBOOK_MATRIX = [
+  ["Symbol", "ISIN", "Trade Date", "Exchange", "Trade Type", "Quantity", "Price"],
+  ["TESTSTOCKIND", "INE000000010", "2025-11-13", "NSE", "buy", 5, 3811.5],
+  ["TESTSTOCKIND", "INE000000010", "2025-11-14", "NSE", "buy", 4, 3900],
+  ["TESTSTOCKIND", "INE000000010", "2025-11-15", "NSE", "sell", 2, 4000],
+];
+
+const tradebookFile = (over = {}) => {
+  const parsed = parseTradebook(TRADEBOOK);
+  return bundleFile("zerodha-tradebook", {
+    name: "tradebook-EQ.csv", asOf: "", trades: parsed.rows,
+    firstBuyByIsin: parsed.firstBuyByIsin, firstBuyBySymbol: parsed.firstBuyBySymbol, ...over,
+  });
+};
+
+test("the same tradebook as CSV and XLSX is one file, decided by its rows", () => {
+  const xlsx = tradebookFile({ name: "tradebook-EQ.xlsx",
+    trades: parseTradebookMatrix(SAME_TRADEBOOK_MATRIX).rows });
+  const csv = tradebookFile();
+  const base = bundleFile("zerodha-holdings", { name: "holdings.xlsx", base: true,
+    rows: [{ isin: isin(10), label: "TESTSTOCKIND", category: "equity", quantity: 5 }] });
+  const bundle = groupBundles([base, csv, xlsx])[0];
+  const tradebooks = bundle.files.filter((file) => file.kind === "zerodha-tradebook");
+  assert.equal(tradebooks.length, 1);
+  assert.equal(tradebooks[0].duplicates.length, 1);
+  assert.equal(duplicateFileLabel(tradebooks[0]), "CSV and XLSX of the same tradebook");
+  assert.equal(bundle.rows[0].purchaseDate, "2025-11-13");
+});
+
+test("two tradebooks whose rows differ both stay, with a warning", () => {
+  const changed = parseTradebook(TRADEBOOK.replace("3811.50", "3812.50"));
+  const base = bundleFile("zerodha-holdings", { name: "holdings.xlsx", base: true,
+    rows: [{ isin: other(3), label: "TESTSTOCKIND", category: "equity", quantity: 5 }] });
+  const bundle = groupBundles([base, tradebookFile(),
+    tradebookFile({ name: "tradebook-EQ.xlsx", trades: changed.rows })])[0];
+  assert.equal(bundle.files.filter((file) => file.kind === "zerodha-tradebook").length, 2);
+  assert.match(bundle.warnings.join(" "), /tradebooks are in this set and their rows differ/);
+});
+
+test("a renamed copy is one file, but a different account or a different snapshot is not", () => {
+  const csv = tradebookFile({ name: "first.csv" });
+  const renamed = tradebookFile({ name: "second.csv" });
+  assert.equal(dedupeImportFiles([csv, renamed]).length, 1);
+  const separateAccount = tradebookFile({ name: "first.csv", accountKey: "AB1234567" });
+  assert.equal(dedupeImportFiles([csv, separateAccount]).length, 2);
+  const holdings = bundleFile("zerodha-holdings", { name: "holdings.csv", base: true,
+    rows: [{ isin: other(3), quantity: 5 }] });
+  const sameHoldings = bundleFile("zerodha-holdings", { name: "holdings-copy.csv", base: true,
+    rows: [{ isin: other(3), quantity: 5 }] });
+  assert.equal(dedupeImportFiles([holdings, sameHoldings]).length, 2);
+});
+
+test("a tradebook with no holdings report says what to import next", () => {
+  const copy = importNoWorkCopy({ hasBase: false, tradebook: true });
+  assert.equal(copy.reason,
+    "Nothing to import yet — this tradebook only fills dates on holdings that are not on file.");
+  assert.equal(copy.next, "Import the holdings report first.");
+  assert.match(importNoWorkCopy({ hasBase: true }).reason, /already on file/);
+});
+
+test("a broker file with no match finds the demat already filed under that broker", () => {
+  const zerodha = { id: "z", label: "Demat · Zerodha · …8054", category: "demat",
+    subtype: "equity", number: "1200000012348054",
+    meta: meta({ dp: "Zerodha Broking Ltd", holdings_source: "cas" }), holdings: [] };
+  const motilal = { id: "m", label: "Demat · Motilal Oswal · …5678", category: "demat",
+    subtype: "equity", number: "1200000012345678",
+    meta: meta({ dp: "Motilal Oswal" }), holdings: [] };
+  const folio = { id: "f", label: "Test Fund folio", category: "mf", subtype: "mutual fund",
+    number: "90000001234", meta: meta({ dp: "Zerodha", folios: ["90000001234"] }),
+    holdings: [] };
+  assert.deepEqual(brokerDematAccounts("zerodha", [zerodha, motilal, folio]).map((a) => a.id),
+    ["z"]);
+  assert.deepEqual(brokerDematAccounts("motilal", [zerodha, motilal]).map((a) => a.id), ["m"]);
+});
+
 // --- account matching -------------------------------------------------------
 
 const accountsForMatch = [
@@ -262,8 +341,9 @@ test("Zerodha's 28 equities match the 13 the CAS account already holds", () => {
 const bundleFile = (kind, extra = {}) => ({
   kind, name: extra.name || `${kind}.csv`, accountKey: extra.accountKey || "",
   accountKind: extra.accountKind || "", asOf: extra.asOf || "2026-10-26",
-  rows: extra.rows || [], base: extra.base,
+  rows: extra.rows || [], trades: extra.trades || [], base: extra.base,
   firstBuyByIsin: extra.firstBuyByIsin || {},
+  firstBuyBySymbol: extra.firstBuyBySymbol || {},
   termsByIsin: extra.termsByIsin || [], termsByLabel: extra.termsByLabel || [],
 });
 const DIGIFINN_FILES = () => [
