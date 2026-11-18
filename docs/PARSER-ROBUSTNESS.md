@@ -49,7 +49,9 @@ has an impossible day.
 | `motilal.js` `roleFor` (before) | Column roles were regex branches in code, not an alias table; a new printed spelling needed a code edit. | A report that printed "Units" instead of "Qty" would lose the quantity column. | `motilal: a renamed quantity header, an extra column and item order agree` |
 | `motilal.js` `parseSection` (before) | A section with a header but no usable quantity or amount column returned `[]`, and the file still reported success with fewer rows. | A changed section header imported only part of the portfolio. | `motilal: a header with neither quantity nor amount refuses the section by name` |
 | `motilal.js` `rowFromBand` | A band could map two numbers to one role and `parseAmount` would fuse `10` and `1,00,000` into `10100000` by reading the space as grouping. | A wide or misaligned number cell created a holding with a hundredfold quantity. | `motilal: two numbers in one column refuse instead of fusing into a value` |
-| `digifinn.js` `parseCashflow` | Reads `values[c+1]`, `values[c+2]` and `invest[c+1]`, `invest[c+3]` relative to each `Yield` group start. | A column inserted inside a cashflow group shifts frequency, maturity or investment date. **Still positional; not changed in this pass.** | Not covered by the matrix; see "Remaining assumptions". |
+| `digifinn.js` `parseCashflow` (before) | Read frequency, maturity and the investment row at fixed offsets inside each `Yield` group (`values[c+1]`, `values[c+2]`, `invest[c+1]`, `invest[c+3]`), because `docs/PARSER-ROBUSTNESS.md` recorded the investment row as unlabelled. | A column inserted or reordered inside a group shifts frequency, maturity or the investment date. The real exports do label every group cell (`Yield`, `Frequency`, `Maturity`, `Investment Value`, `Investment date`, and the `Interest`/`Principal`/`Total` split), so the offsets were never needed. | `a cashflow group that reorders its labels still reads by name`; `the Cashflow Future sheet reads every group by its own labels` |
+| `digifinn.js` `parseCashflow` totals | Nothing compared the schedule with the sheet's own printed total. | A layout change that still produced rows would import a wrong schedule without a word. | `a cashflow sheet whose rows do not add up to its printed total refuses` |
+| `digifinn-reports.js` `parseTransactionReport` (before) | Every row after the first header was read as a trade, so the `ORDER CANCELLED` section's orders were imported as buys, and its repeated header row counted as unidentified. | Two cancelled orders were imported as purchases; the trade total did not match the portfolio. | `a transactions report stacks ORDER SETTLED and ORDER CANCELLED` |
 | `cas.js` | Geometry: a number is assigned to the last header column whose x is left of its right edge; a bond/equity value is the rightmost money column "whatever the header calls it". | A new rightmost money column could be read as value. Documented fragility; the printed Grand Total check catches a wrong sum. | Existing `cas-*` tests; `casTotals` refuses a mismatch. Not rewritten by design. |
 | `parse.js` `findHeader` | A fallback for a hand-kept passbook reads `debit-2`, `debit-1`, `credit+1` when date and description are unlabelled. | A sheet with labelled Debit/Credit but a different layout could read the wrong columns. Guarded: it only runs when the labelled pass fails the three-name threshold, and the comment names the case. | `parse.test.mjs` headerless-sheet tests |
 | `parse.js` `auditStatement` | Scans the first four preamble rows for `number CR/DR`. | A closing balance elsewhere is missed; the result is an audit flag, never imported data. | `parse.test.mjs` audit tests |
@@ -86,6 +88,7 @@ DigiFInn and the inbox all read the same shapes through one implementation.
 | Zerodha tradebook | `import-flow.js` `TRADEBOOK_SCHEMA` | Trade Date, Trade Type, Quantity, Price, ISIN, Symbol |
 | DigiFInn portfolio / investment / transactions | `digifinn-reports.js` `PORTFOLIO_SCHEMA`, `INVESTMENT_SCHEMA`, `TRANSACTIONS_SCHEMA` | ISIN, Bond Name, Qty, Investment Value; Issuer, Coupon, Yield, Maturity, Invested; Transaction Type, Quantity, Price, Total/Face Value, Coupon, Maturity |
 | DigiFInn payouts | `digifinn.js` `PAYOUTS_SCHEMA` (and a stricter `PAYOUTS_DETECTION_SCHEMA`) | ISIN, Units, Date, Issuer, Amount, Frequency |
+| DigiFInn cashflow groups | `digifinn.js` `parseCashflow` group spans | Yield, Frequency, Maturity, Investment Value, Investment date, Interest, Principal, Total, Month/Date |
 | Motilal | `motilal.js` `MOTILAL_COLUMNS` | ISIN, Instrument, Principle, Maturity, Coupon, Frequency, Investment Date, Last, Market Value/Price, Rating, Qty, Avg Price, Investment Amount |
 | Generic holdings | `holding-import.js` `HOLDINGS_SCHEMA` | ISIN/Symbol, Security name, Quantity, Buy/Current value, dates, rating, frequency, yield, payout |
 
@@ -132,11 +135,16 @@ statement, and `Quantity` in a generic holdings sheet all refuse by name.
   cannot create units. A section with a header but no usable quantity/amount now
   refuses instead of importing a partial portfolio, and a band that maps two
   numbers to one column refuses rather than fusing them into one value.
-- **DigiFInn cashflow column groups.** The group start is named (`Yield`), but
-  frequency, maturity and the investment row are read at fixed offsets inside
-  the group. A column inserted inside a group would shift them. The export is a
-  wide sheet with no per-column labels for the investment row, so there is no
-  name to read; it is left as a documented assumption rather than guessed at.
+- **DigiFInn cashflow column groups.** A group is the span between one `Yield`
+  label and the next, and every field inside it is read by its own name:
+  `Frequency` and `Maturity` from the header row, `Investment Value` and
+  `Investment date` from the investment row, and `Interest`, `Principal` and
+  `Total` from the schedule header. A group that does not name them is refused.
+  The two real exports (Future and All) print the same matrix; the All export
+  adds two paid-to-date summary blocks and history rows, and its next payout is
+  the first row still ahead rather than the first row on the sheet. The printed
+  `Total Cashflow` is compared with the schedule's sum and a mismatch refuses,
+  which is what catches a wrong read even when every group still resolves.
 - **Bank statement headerless fallback.** The positional read runs only when
   Debit and Credit are labelled but Date and Description are not, which is the
   hand-kept passbook case the comment names. Any labelled file takes the
