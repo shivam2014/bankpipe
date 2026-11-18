@@ -826,13 +826,42 @@ test("the batch closes through the ready flag and reports the net", () => {
 
 test("the batch offers Import all only when every plan can run", () => {
   // A dead primary that keeps the accent fill competes with the gate message.
-  // The bar keeps its explanation; only the action is absent until it can act.
+  // Only the action is absent until it can act.
   const render = between("function bpImportInboxRender", "async function bpImportInboxReadOne");
   assert.match(render, /\$\{allReady\s*\n?\s*\? `<button class="btn primary"/,
     "the button is rendered by the ready flag, not disabled by it");
   assert.doesNotMatch(render, /class="btn primary" disabled[\s\S]{0,60}Import all/,
     "there is no disabled Import all left in the batch");
-  assert.match(render, /Import all appears when every plan is ready/);
+  assert.match(render, /bpImportBatchState\(plans\)/);
+  assert.doesNotMatch(render, /Selection order does not matter|Import all appears when/,
+    "the bar states its state and explains nothing about itself");
+});
+
+test("the batch says ready or names the choice", () => {
+  const state = between("function bpImportBatchState", "// One password gate");
+  assert.match(state, /Ready to import/);
+  assert.match(state, /\$\{choices === 1 \? "" : "s"\} need\$\{choices === 1 \? "s" : ""\} a choice/);
+  assert.match(state, /nothing to import/);
+});
+
+test("the page status names the first missing thing and counts the rest", () => {
+  const settle = between("function bpImportPlanMissing", "function bpImportInboxRender");
+  assert.match(settle, /Choose an account for \$\{title\}/);
+  assert.match(settle, /and \$\{waiting\.length - 1\} more/);
+  assert.match(settle, /Add a file to start\./);
+  assert.doesNotMatch(settle, /Check the file messages above/,
+    "the page never sends the person hunting for a message");
+});
+
+test("the card leads with its title, one metric line and one state line", () => {
+  const card = between("function bpImportPlanHtml", "function bpImportPlanMissing");
+  assert.doesNotMatch(card, /Selection order does not matter|No CAS is needed/,
+    "self-description is gone from the card");
+  assert.doesNotMatch(card, /plan\.files\.length[\s\S]{0,40}file/,
+    "the file count moved behind More");
+  assert.match(card, /Nothing is written until you press Import\./,
+    "consent stays visible beside the primary action");
+  assert.match(card, /<details class="import-change-more"><summary>More<\/summary>/);
 });
 
 test("a plan of one holding says holding, not holdings", () => {

@@ -1526,20 +1526,20 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   const flags = [];
   const warnings = [];
   if (incomingState.state === "invalid") {
-    warnings.push("The report's date cannot be read. It will not overwrite dated data.");
+    warnings.push("The report's date cannot be read. Dated data stays.");
   } else if (incomingState.state === "future") {
-    warnings.push(`The report is dated ${incomingState.date}, which is in the future. Check the file before importing.`);
+    warnings.push(`The report is dated ${incomingState.date}, in the future. Check it before importing.`);
   } else if (incomingState.state === "undated") {
-    warnings.push("The report has no date. It will fill empty fields and add new rows, but it will not overwrite dated data.");
+    warnings.push("No date on the report: empty fields fill, new rows add, dated data stays.");
   }
   if (casQuantityTake) {
-    warnings.push("This CAS is older than the broker data on file. Its quantity and value replace the broker's; cost and terms stay from the newer broker report.");
+    warnings.push("Older CAS: its quantity and value replace the broker's; cost and terms stay from the newer report.");
   } else if (identityOnly) {
-    warnings.push("This CAS is older than the broker data on file. Its identity will attach; the newer holdings stay.");
+    warnings.push("Older CAS: identity attaches; the newer holdings stay.");
   } else if (olderWithData) {
-    warnings.push("This snapshot is older than the data on file. It will only fill empty fields.");
+    warnings.push("Older snapshot: only empty fields fill.");
   }
-  if (sameDate) warnings.push("This report has the same date as the data on file. Review each difference before importing.");
+  if (sameDate) warnings.push("Same date as the data on file. Review each difference first.");
 
   // The cost group: broker terms belong to the latest broker report. Manual
   // cost is never overwritten silently.
