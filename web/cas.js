@@ -29,7 +29,8 @@
 // DOM, no storage, no network.
 
 import { boId } from "./bo-id.js";
-import { folioAdoptedHome, folioOwnership, normalizeFolio } from "./folio.js";
+import { folioAdoptedHome, folioOwnership, isFolioAccount,
+  normalizeFolio } from "./folio.js";
 
 const ISIN = /^IN[A-Z0-9]{10}$/;
 const DATE = /^\d{1,2}-[A-Za-z]{3}-\d{4}$/;
@@ -465,19 +466,24 @@ function readTables(items, tables, headers = []) {
             : /half[- ]yearly|twice a year|two times/i.test(freqText) ? "Half-yearly"
               : /annual|annually|once a year|yearly/i.test(freqText) ? "Annual" : "";
       const folio = folioText;
-      const fullAmc = table.kind === "mf"
+      // A demat holdings table has no Folio column, so its header reads as
+      // equity and a fund printed inside it used to become an equity row in the
+      // demat. An INF ISIN is a fund wherever it prints; the label still comes
+      // from the demat row's own columns.
+      const isin = anchor.str.toUpperCase().replace(/\s+/g, "");
+      const fundIsin = /^INF/.test(isin);
+      const fullAmc = table.kind === "mf" || fundIsin
         ? fullAmcName(amcFor(table, items) || amcMap.get(folio) || fundHouseFromLabel(label))
         : "";
-      const amc = table.kind === "mf"
+      const amc = table.kind === "mf" || fundIsin
         ? (fullAmc ? shortAmcName(fullAmc)
           : (label.match(/[A-Za-z]{3,}/g) || []).find((w) =>
             !/^(cfgp|fund|plan|direct|regular|growth|scheme|name|asset|equity|liquid|cash|formerly|the|and)$/i.test(w)) || "")
         : "";
-      const isin = anchor.str.toUpperCase();
       out.push({
         isin,
         label,
-        kind: table.kind,
+        kind: fundIsin ? "mf" : table.kind,
         account: owner?.boId || "",
         dpName: owner?.dpName || "",
         folio,
@@ -1108,16 +1114,56 @@ export function parseCas(pdf) {
     result = readBands(items);
   }
 
+  // A folio is printed once in its own fund table and, in an NSDL CAS, the same
+  // fund ISIN can print again inside the demat's holdings table with no folio
+  // beside it. The statement's fund table is the one that names the home, so
+  // attach that printed folio to the demat copy before the two are merged.
+  const printedFolio = new Set(result.holdings.filter((holding) =>
+    holding.kind === "mf" && !!holding.folio));
+  const folioByIsin = new Map();
+  for (const holding of printedFolio) {
+    const isin = String(holding.isin || "").toUpperCase();
+    if (!folioByIsin.has(isin)) folioByIsin.set(isin, []);
+    const list = folioByIsin.get(isin);
+    const folio = normalizeFolio(holding.folio);
+    if (!list.some((item) => normalizeFolio(item.folio) === folio)) list.push(holding);
+  }
+  for (const holding of result.holdings) {
+    if (holding.kind !== "mf" || holding.folio) continue;
+    const list = folioByIsin.get(String(holding.isin || "").toUpperCase()) || [];
+    // Two folios holding the same scheme are two positions. With two printed
+    // folios there is no safe pick, so the demat copy stays unfolioed and the
+    // route withholds it instead of guessing one.
+    if (list.length !== 1) continue;
+    holding.folio = list[0].folio;
+    holding.amc = holding.amc || list[0].amc;
+    holding.amcFull = holding.amcFull || list[0].amcFull;
+  }
   // The same ISIN can appear in a transaction table and again in the holdings
-  // table, and a page break can repeat a row. One holding per account, ISIN and
-  // folio: two folios of one AMC can hold the same scheme, and they are two
-  // positions. A row without a folio keeps the account-and-ISIN key.
+  // table, and a page break can repeat a row. One holding per folio: two folios
+  // of one AMC can hold the same scheme, and they are two positions. A fund row
+  // without a folio keeps the account-and-ISIN key so it cannot steal another
+  // account's row, and a non-fund row keeps account, ISIN and folio as before.
   const byAccountIsin = new Map();
   for (const holding of result.holdings) {
-    const key = `${holding.account || ""}|${holding.isin}|${
-      holding.folio ? normalizeFolio(holding.folio) : ""}`;
+    const folio = holding.folio ? normalizeFolio(holding.folio) : "";
+    const key = holding.kind === "mf" && folio
+      ? `mf|${holding.isin}|${folio}`
+      : `${holding.account || ""}|${holding.isin}|${folio}`;
     const prev = byAccountIsin.get(key);
-    if (!prev || (holding.valuePaise || 0) > (prev.valuePaise || 0)) {
+    if (!prev) {
+      byAccountIsin.set(key, holding);
+      continue;
+    }
+    // The row from the fund table wins over the demat copy even when the demat
+    // printed a larger valuation: the folio is the position's home.
+    const prevPrinted = printedFolio.has(prev);
+    const nowPrinted = printedFolio.has(holding);
+    if (prevPrinted !== nowPrinted) {
+      if (nowPrinted) byAccountIsin.set(key, holding);
+      continue;
+    }
+    if ((holding.valuePaise || 0) > (prev.valuePaise || 0)) {
       byAccountIsin.set(key, holding);
     }
   }
@@ -1185,20 +1231,35 @@ export function casRoute(parsed, assets = [], { adopt = {} } = {}) {
     const key = id.kind === "bo" ? id.boId : "";
     const asset = key
       ? (assets || []).find((a) => String(a.category || "") === "demat"
-        && !/mutual\s*fund|^mf$/i.test(String(a.subtype || ""))
+        && !isFolioAccount(a)
         && boId(a.number).boId === key) || null
       : null;
     if (key) {
+      // The demat count is the rows the demat will hold. A live fund row belongs
+      // to its folio, so it is not one of them even when the statement printed
+      // it under this account.
+      const count = account.holdings.filter((holding) => {
+        const fund = holding.kind === "mf"
+          || /^INF/i.test(String(holding.isin || "").toUpperCase());
+        return !(fund && Number(holding.quantity) > 0);
+      }).length;
       homes.push({ boId: key, dpName: account.dpName || "", assetId: asset?.id || "",
-        assetLabel: asset?.label || "", count: account.holdings.length });
+        assetLabel: asset?.label || "", count });
     }
     for (const holding of account.holdings) {
+      // A fund ISIN is a fund wherever it printed, even inside a demat table
+      // whose header had no folio column. A live fund row belongs to its folio
+      // and never to the demat; with no printed folio it stays homeless instead
+      // of being written under the demat identity.
+      const isFund = holding.kind === "mf"
+        || /^INF/i.test(String(holding.isin || "").toUpperCase());
+      const live = Number(holding.quantity) > 0;
       // Route a folio only when the row is complete enough to stand alone: a
-      // folio number and units. An NSDL row whose units did not parse stays in
-      // the demat, where its value still sums to the account's total, instead of
-      // being written into a folio account with a value picked from the wrong cell.
-      const isFolio = holding.kind === "mf" && !!holding.folio
-        && Number(holding.quantity) > 0;
+      // folio number and units. A zero-unit history row stays with the demat
+      // that printed it, the settled product rule, and an NSDL row whose units
+      // did not parse is left homeless rather than written into a folio account
+      // with a value picked from the wrong cell.
+      const isFolio = isFund && live && !!holding.folio;
       // The ownership shape decides the folio once: one settled owner (or one
       // named by the AMC) is the home; two settled owners with no unique AMC
       // are contested and get no write; a manual total is never a home and only
@@ -1213,21 +1274,27 @@ export function casRoute(parsed, assets = [], { adopt = {} } = {}) {
       // A home wins over a stale adopt, so a manual total chosen before the
       // settled owner arrived cannot take the rows, and a contested folio
       // cannot be forced into one of its owners by a stale choice either.
-      const target = isFolio ? (home || adopted) : asset;
+      const target = isFund && live ? (home || adopted) : asset;
       const bucket = target ? groups : homeless;
+      const folioNo = isFund && holding.folio ? String(holding.folio || "") : "";
       // One group per folio, even when one account carries two of them: the card
       // ticks and the writer group by position, not by fund house.
       const bucketKey = target
-        ? `${holding.kind}|${target.id}|${isFolio ? normalizeFolio(holding.folio) : ""}`
+        ? `${isFund ? "mf" : holding.kind}|${target.id}|${
+          isFolio ? normalizeFolio(holding.folio) : ""}`
         : (isFolio ? `mf|folio:${String(holding.amc || "").trim().toLowerCase()}|${
           normalizeFolio(holding.folio)}`
-          : `${holding.kind}|${key || "folio"}`);
+          : isFund && live
+            ? `mf|isin:${String(holding.isin || "")}|${
+              String(holding.amc || "").trim().toLowerCase()}`
+            : `${holding.kind}|${key || "folio"}`);
       if (!bucket.has(bucketKey)) {
-        bucket.set(bucketKey, { kind: holding.kind, assetId: target?.id || "",
-          assetLabel: target?.label || "", boId: isFolio ? "" : key,
-          amc: isFolio ? holding.amc || "" : "", folio: isFolio,
-          amcFull: isFolio ? holding.amcFull || "" : "",
-          folioNo: isFolio ? String(holding.folio || "") : "",
+        bucket.set(bucketKey, { kind: isFund ? "mf" : holding.kind,
+          assetId: target?.id || "",
+          assetLabel: target?.label || "", boId: isFolio || (isFund && live) ? "" : key,
+          amc: isFund ? holding.amc || "" : "", folio: isFolio,
+          amcFull: isFund ? holding.amcFull || "" : "",
+          folioNo,
           dpName: account.dpName || "", count: 0, valuePaise: 0 });
       }
       const row = bucket.get(bucketKey);

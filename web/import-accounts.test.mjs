@@ -590,7 +590,7 @@ test("the disclosure prints the account sentences before the bond rows", () => {
   const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const card = html.slice(html.indexOf("function holdingsCard"),
     html.indexOf("// A demat account's holdings arrive"));
-  assert.match(card, /const importGaps = importAccountGaps\(account, rows, dateLabel\)/);
+  assert.match(card, /const importGaps = importAccountGaps\(account, rows, dateLabel,\n\s*new Date\(\)\.toISOString\(\)\.slice\(0, 10\),\n\s*\{ accounts: window\.bpGapAccountRows \|\| \[\],/);
   assert.match(card, /importGaps\.gaps\.map\(\(gap\) =>/);
   assert.match(card, /esc\(gap\.text\)/);
 });
@@ -665,7 +665,7 @@ test("the guide names three reports and claims nothing live", () => {
 
 test("the accounts card names gaps and holds one closed guide", () => {
   const render = between("function bpImportAccountsHtml", "function bpImportAccountsRender");
-  assert.match(render, /importAccountGaps\(row\.account, row\.holdings, dateLabel\)/);
+  assert.match(render, /importAccountGaps\(row\.account, row\.holdings, dateLabel,\n\s*new Date\(\)\.toISOString\(\)\.slice\(0, 10\),\n\s*\{ accounts: state\.accountRows,/);
   assert.match(render, /import-account-gap/);
   assert.match(render, /<summary>Which report\?<\/summary>/);
   assert.match(render, /IMPORT_REPORT_GUIDE\.sources/);

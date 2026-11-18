@@ -7054,7 +7054,9 @@ function bpImportAccountsHtml() {
   // nothing missing renders no line at all; a typed account says what it could
   // add and never reads like breakage.
   const gaps = state.accountRows.map((row) =>
-    importAccountGaps(row.account, row.holdings, dateLabel));
+    importAccountGaps(row.account, row.holdings, dateLabel,
+      new Date().toISOString().slice(0, 10),
+      { accounts: state.accountRows, formatMoney: (paise) => money(paise) }));
   const rows = state.accountRows.map((row, index) => {
     const status = bpImportAccountState(row);
     const label = row.account.label || row.account.bank || row.account.id;
@@ -9632,7 +9634,7 @@ function bpCasPendingFolioMessage(plan) {
 async function bpCasFundAccounts(accounts, store) {
   const out = [];
   for (const account of accounts || []) {
-    if (!/mutual\s*fund|^mf$/i.test(String(account.subtype || account.type || ""))) {
+    if (!isFolioAccount(account)) {
       out.push(account);
       continue;
     }
@@ -12259,7 +12261,7 @@ function assetRow(a, onclick, overrideShown) {
   // A demat row has to say where it is held: the depository and the DP are the
   // identity, and a bare account number cannot tell NSDL from CDSL or one DP
   // from another. A folio says which AMC keeps it.
-  const isMf = cat === "demat" && /mutual\s*fund|^mf$/i.test(String(a.subtype || ""));
+  const isMf = isFundAccount(a);
   const depository = String(meta.depository || "").trim();
   const dp = isMf
     ? (String(meta.amc || "").trim() || shortAmcName(a.bank || ""))
@@ -13019,7 +13021,10 @@ function holdingsCard(allRows, assetId, account) {
   // The two gap lists share one origin: the account's stored provenance and the
   // shared bond rule. The banner counts lots; the disclosure prints the account
   // sentences first and then the per-bond face, name and rating rows.
-  const importGaps = importAccountGaps(account, rows, dateLabel);
+  const importGaps = importAccountGaps(account, rows, dateLabel,
+    new Date().toISOString().slice(0, 10),
+    { accounts: window.bpGapAccountRows || [],
+      formatMoney: (paise) => money(paise) });
   const banner = bondGapBanner(account, rows);
   const views = rows.map(bondRowView).sort((a, b) => {
     const va = bondSortValue(a, state.key);
@@ -13168,7 +13173,7 @@ function holdingsCard(allRows, assetId, account) {
       </div></div>
     ${statusLine}
     ${needsFetch || importGaps.gaps.length ? `<details class="needs-details">
-      <summary>Which bonds need details?</summary>
+      <summary>${needsFetch ? "Which bonds need details?" : "What needs attention?"}</summary>
       <div class="needs-list">${importGaps.gaps.map((gap) =>
         `<div class="import-account-gap${importGaps.manual ? " optional" : ""}">${
           esc(gap.text)}</div>`).join("")}${needsRows.map(({ h, missing }) =>
@@ -13663,7 +13668,7 @@ function assetDetailCard(a) {
   // IFSC, branch, city, state, address — are five empty rows on such a page.
   // A folio-held fund is not a demat: its number is a folio and Mirae is the AMC,
   // not a broker, so it gets its own labels.
-  const isMf = cat === "demat" && /mutual\s*fund|^mf$/i.test(String(a.subtype || ""));
+  const isMf = isFundAccount(a);
   const atDemat = (cat === "bonds" || cat === "demat") && !isMf;
   // A BO ID is a DP ID and a client ID run together; the account page shows the
   // parts so the number can be checked against the statement.
@@ -13881,7 +13886,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
   const heading = a ? (a.label || a.bank || a.id) : "Add an asset";
   return `<h1>${esc(heading)}</h1>
   ${a ? `<div class="muted" style="margin:-10px 0 14px;font-size:12px">Editing
-    ${esc(/mutual\s*fund|^mf$/i.test(String(a?.subtype || "")) ? "mutual fund"
+    ${esc(isFundAccount(a) ? "mutual fund"
       : cat === "bonds" ? "bond portfolio" : categoryLabel(cat).toLowerCase())} · changes stay on this device</div>` : ""}
   ${!a ? `<div id="s-bond-hint" class="card pad" style="margin-bottom:14px;background:var(--hair);font-size:13px;display:${cat === "bonds" ? "" : "none"}">
     <b>A demat bond portfolio is part of a demat account.</b> Import the CDSL/NSDL CAS
@@ -14723,8 +14728,7 @@ function renderAsset() {
     // the first word of the scheme ("Mirae") where a broker would sit. Name the
     // fund house from the holdings once, so the card says Mirae Asset Mutual
     // Fund and the label says Mirae Asset.
-    if (enriched && categoryOf(enriched) === "demat"
-      && /mutual\s*fund|^mf$/i.test(String(enriched.subtype || ""))) {
+    if (enriched && isFundAccount(enriched)) {
       const current = String(enriched.bank || "").trim();
       if (!/mutual fund$/i.test(current)) {
         const sample = holdings.map((h) => h.label).find(Boolean) || "";
@@ -14739,6 +14743,17 @@ function renderAsset() {
       }
     }
     window.bpAssetsForFocus = accounts;
+    // A demat's gap line names a fund row that its folio already holds, so the
+    // folio rows have to be on hand. Only a demat needs them; a folio page does
+    // not compare against itself.
+    const gapRows = [{ account: enriched || account, holdings }];
+    if (categoryOf(account) === "demat" && !isFolioAccount(account)) {
+      for (const other of accounts) {
+        if (other.id === id || !isFolioAccount(other)) continue;
+        gapRows.push({ account: other, holdings: await store.listHoldings(other.id) });
+      }
+    }
+    window.bpGapAccountRows = gapRows;
     host.innerHTML = assetForm(enriched ? { ...account, ...enriched } : account,
       totals?.n || 0, undefined, holdings);
     // An asset that already has an IFSC opens with the derived block, so the

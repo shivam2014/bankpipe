@@ -4,7 +4,8 @@
 // here: the page owns the preview, the confirmation and the database.
 
 import { boId } from "./bo-id.js";
-import { accountFolios, isFolioAccount, normalizeFolio } from "./folio.js";
+import { accountFolios, duplicateFundPositions, isFolioAccount,
+  normalizeFolio } from "./folio.js";
 import { categoryOf, isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
@@ -1112,8 +1113,12 @@ export const IMPORT_REPORT_GUIDE = {
  */
 export function importAccountGaps(account, holdings = [],
   formatDate = (value) => String(value || ""),
-  today = new Date().toISOString().slice(0, 10)) {
+  today = new Date().toISOString().slice(0, 10), options = {}) {
   const rows = holdings || [];
+  const accounts = Array.isArray(options.accounts) ? options.accounts : [];
+  const formatMoney = typeof options.formatMoney === "function" ? options.formatMoney
+    : (paise) => `₹${(Number(paise || 0) / 100).toLocaleString("en-IN",
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const meta = safeMeta(account);
   const state = accountFieldState(account, rows);
   // Nothing on this account names a file, so a file is not what it is missing.
@@ -1153,6 +1158,20 @@ export function importAccountGaps(account, holdings = [],
     gaps.push({ kind: "terms", text: manual
       ? `Could add the missing coupon or maturity for ${termless} bond${plural(termless)}`
       : `A coupon or maturity is missing on ${termless} bond${plural(termless)}` });
+  }
+  // A fund row belongs to its folio, never to the demat that also printed it.
+  // An older import wrote both, so the demat page shows the same position twice
+  // in net worth. Name both amounts and leave the deletion to the person.
+  const duplicates = duplicateFundPositions(account, rows, accounts);
+  if (duplicates.length) {
+    const here = duplicates.reduce((total, item) => total + item.dematPaise, 0);
+    const there = duplicates.reduce((total, item) => total + item.folioPaise, 0);
+    const labels = [...new Set(duplicates.map((item) => item.folioLabel))];
+    const count = duplicates.reduce((total, item) => total + item.count, 0);
+    gaps.push({ kind: "duplicate-fund",
+      text: `This demat also holds ${count} fund row${plural(count)} already in `
+        + `${labels.join(", ")}: ${formatMoney(here)} here and ${formatMoney(there)} `
+        + "in the folio. Remove the demat copy so the position is counted once." });
   }
   return { manual, gaps };
 }
