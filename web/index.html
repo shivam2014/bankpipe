@@ -722,7 +722,6 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-old-card{border-top:1px solid var(--hair);margin-top:12px;padding-top:12px}
 .import-pick{display:inline-flex;align-items:center;cursor:pointer}
 .import-note{font-size:11px;margin-top:7px;line-height:1.55}
-@media (min-width:720px){.import-change-grid{grid-template-columns:1fr 1fr}}
 @media (max-width:520px){.import-account-btn{align-items:flex-start;flex-direction:column;gap:3px}
  .import-account-status{text-align:left;white-space:normal}
  .import-file{flex-wrap:wrap}
@@ -7813,19 +7812,13 @@ function bpImportMatchHtml(bundle) {
           <span class="import-choice-meta">${esc(bundle.createLabel)} · no CAS to check against</span>
         </span>
         <span class="import-choice-hits">New</span>
-      </div></div>
-    <div class="muted import-note">No CAS is needed. The account stays marked broker-only
-      until a depository statement arrives.</div>` : "";
+      </div></div>` : "";
   const noMatch = !matches.length && !bundle.targetId
-    ? `<div class="import-empty-state">No account matches this file by BO ID, UCID, client ID
-      or ISIN. Add it as a broker-only account, or choose the CAS above if you have one.</div>`
+    ? `<div class="import-empty-state">No account matches this file.</div>`
     : "";
   return `<div class="import-section">
     <div class="import-section-title">Account</div>
     ${rows ? `<div class="import-account-list">${rows}</div>` : noMatch}
-    ${chosen ? `<div class="muted import-note">Only
-      ${esc(bpImportAccountRow(chosen)?.account?.label || bundle.createLabel || "this account")}
-      changes. Other accounts with overlapping ISINs are untouched.</div>` : ""}
     ${create}
   </div>`;
 }
@@ -7897,9 +7890,6 @@ function bpImportCasAccountsHtml(bundle) {
             || target.action === "conflict" ? " · not imported" : ""}</span>
       </div>${offerHtml}`;
     }).join("")}</div>
-    <div class="muted import-note">The account number in the statement decides where its holdings
-      go. A new number creates a new account. A folio already printed on a value-only account
-      is adopted, or its manual total kept, only after you choose.</div>
   </div>`;
 }
 
@@ -8092,29 +8082,46 @@ function bpImportPlanHtml(plan) {
             ? `<span class="import-pill warn">Review the differences</span>`
             : `<span class="import-pill good">Ready</span>`;
   const title = bpImportBundleLabel(bundle);
+  const kicker = bundle.family === "cas"
+    ? "Depository statement"
+    : bundle.base ? "Broker holdings report" : "Broker tradebook";
   const where = bundle.family === "cas" ? bpImportCasAccountsHtml(bundle) : bpImportMatchHtml(bundle);
+  // Only an unanswered account question belongs in the card's first read. A
+  // chosen account stays behind More, where it can still be changed.
+  const showWhere = plan.needsChoice || !bundle.targetId;
   const countText = bpImportCategoryText(bundle.rows);
   const sub = [countText, bundle.asOf
     ? `as on ${dateLabel(bundle.asOf)}`
-    : bundle.base ? "No date on the file" : "No holdings report",
-  `${plan.files.length} file${plan.files.length === 1 ? "" : "s"}`,
-    plan.accountCount > 1 ? `${plan.accountCount} accounts` : ""]
+    : bundle.base ? "No date on the file" : "No holdings report"]
     .filter(Boolean).join(" · ");
   const askLines = bpImportPlanAskLines(plan);
+  // A sold bond is the one accept whose consequence is not obvious from the
+  // numbers: the file prices the disposal, it does not revive the units.
+  const askDecisions = bundle.family === "cas"
+    ? (bundle.casTargets || []).flatMap((target) => target.plan?.decisions || [])
+    : (bundle.plan?.decisions || []);
+  const soldAsk = askDecisions.some((decision) => decision.action === "ask"
+    && (decision.flags || []).includes("sold-conflict"));
   const ask = summary.ask && !plan.acceptAsk
     ? `<div class="import-wrong"><b>${summary.ask} difference${summary.ask === 1 ? "" : "s"}
         need${summary.ask === 1 ? "s" : ""} your decision.</b>
-      <div class="muted">The report and the data on file carry the same date, or the difference
-        would replace a cost you entered by hand, or a newer report disagrees with a quantity
-        or value a CAS set, or it names a bond the statement recorded as sold. Using the file
-        prices that sale and keeps it; it does not put the units back. Choose what to keep.</div>
-      ${askLines.length ? `<ul class="muted import-ask-list">${askLines
-        .map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
+      ${askLines.length === 1 ? `<div class="muted">${esc(askLines[0])}</div>` : ""}
+      ${soldAsk ? `<div class="muted">The sale stays recorded; the file does not put the
+        units back.</div>` : ""}
       <div class="import-actions">
         <button class="btn" onclick="bpImportAccept(${jsArg(plan.key)})">Use the file's values</button>
       </div></div>` : "";
-  const warning = !plan.noWork && (plan.warnings || []).length
-    ? `<div class="muted import-note">${esc(plan.warnings.join(" "))}</div>` : "";
+  const warnings = plan.noWork ? [] : (plan.warnings || []);
+  // A gate or a missing account already has its own pill and button. Only a
+  // warning with no other visible carrier earns a sentence on the card.
+  const gated = !plan.gate && !bundle.movementBlocked
+    && (bpImportPlanDateBlocked(plan) || bundle.casSafety?.blocked
+      || (summary.ask && !plan.acceptAsk) || (bundle.saleConflicts || []).length);
+  // Only a warning that stops the import earns a visible sentence. The rest are
+  // consequences and sit with the record behind More.
+  const warning = gated && warnings.length
+    ? `<div class="muted import-note">${esc(warnings[0])}</div>` : "";
+  const moreWarnings = warning ? warnings.slice(1) : warnings;
   const net = plan.net || {};
   const planned = (net.added || 0) + (net.updated || 0) + (net.history || 0);
   const sales = bundle.saleEvents?.length || 0;
@@ -8142,39 +8149,54 @@ function bpImportPlanHtml(plan) {
         categories,
       });
   const noWork = plan.noWorkCopy || null;
-  const noWorkHtml = noWork ? `<div class="import-nowork">
-    <div class="muted import-note">${esc(noWork.reason)}</div>
-    ${noWork.next ? `<div class="muted import-note">${esc(noWork.next)}</div>` : ""}</div>` : "";
+  // The pill already says nothing can be imported. The line carries the reason
+  // and the next action, once.
+  const noWorkLine = noWork
+    ? [String(noWork.reason).replace(/^Nothing to import yet\s*[—–-]\s*/, ""), noWork.next]
+      .filter(Boolean).join(" ").replace(/^./, (char) => char.toUpperCase())
+    : "";
+  const noWorkHtml = noWork
+    ? `<div class="import-nowork"><div class="muted import-note">${esc(noWorkLine)}</div></div>`
+    : "";
   const still = [...changes.still, ...(changes.stillMore || [])]
-    .filter((item) => !(plan.noWork && /^Nothing is written until you press Import$/.test(item)));
+    .filter((item) => !/^Nothing is written until you press Import$/.test(item));
   const changeBlock = plan.noWork ? "" : `<div class="import-change">
       <b>What will change</b><ul>${changes.change.map((item) =>
         `<li>${esc(item)}</li>`).join("")}</ul></div>`;
+  const differenceBlock = askLines.length > 1 ? `<div class="import-change">
+      <b>Differences</b><ul class="import-ask-list">${askLines.map((line) =>
+        `<li>${esc(line)}</li>`).join("")}</ul></div>` : "";
   const accountMore = plan.noWork ? bpImportNoWorkAccountHtml(bundle) : "";
   const moreBlock = `<div class="import-change">
       <details class="import-change-more"><summary>More</summary>
+        <div class="import-kicker">${esc(kicker)}</div>
+        <div class="import-files">${files}</div>
+        ${showWhere ? "" : where}
+        ${bpImportReceiptsHtml(plan)}
+        ${plan.noWork ? "" : casSaleHtml(bundle.saleLines || [], bundle.saleConflicts || [],
+          bundle.saleWarnings || [])}
+        ${changeBlock}
+        ${differenceBlock}
         ${accountMore ? `<ul>${accountMore}</ul>` : ""}
         <b>What will not change</b>
         <ul>${still.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
+        ${moreWarnings.length ? `<b>Notes</b>
+          <ul>${moreWarnings.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}
       </details></div>`;
+  const consent = plan.noWork ? "" : `<div class="muted import-note import-consent">
+    Nothing is written until you press Import.</div>`;
   return `<div class="card pad import-bundle" data-plan="${esc(plan.key)}">
     <div class="import-bundle-head">
-      <div><div class="import-kicker">${bundle.family === "cas"
-        ? "Depository statement"
-        : bundle.base ? "Broker holdings report" : "Broker tradebook"}</div>
-        <div class="import-title">${esc(title)}</div>
+      <div><div class="import-title">${esc(title)}</div>
         <div class="import-sub">${esc(sub)}</div></div>
       ${pill}
     </div>
-    <div class="import-files">${files}</div>
     ${noWorkHtml}
-    ${where}
-    ${bpImportReceiptsHtml(plan)}
-    ${plan.noWork ? "" : casSaleHtml(bundle.saleLines || [], bundle.saleConflicts || [],
-      bundle.saleWarnings || [])}
-    <div class="import-change-grid">${changeBlock}${moreBlock}</div>
+    ${showWhere ? where : ""}
     ${ask}
     ${warning}
+    <div class="import-change-grid">${moreBlock}</div>
+    ${consent}
     <div class="import-actions">
       <button class="btn primary" ${plan.ready && !state.applying && !plan.noWork
         ? "" : "disabled"}
@@ -8191,11 +8213,41 @@ function bpImportPlanHtml(plan) {
   </div>`;
 }
 
+// The one thing standing between this plan and its import, in the plan's own
+// name. Every line starts with the action, never with a description of the page.
+function bpImportPlanMissing(plan) {
+  const title = bpImportBundleLabel(plan.head);
+  if (plan.gate) return `Import the ${plan.gate.label} report for ${title} first`;
+  if (plan.head.movementBlocked) return `Add the demat account for ${title}`;
+  if (plan.needsChoice) return `Choose an account for ${title}`;
+  if ((plan.summary?.ask || 0) > 0 && !plan.acceptAsk) {
+    const count = plan.summary.ask;
+    return `Review ${count} difference${count === 1 ? "" : "s"} in ${title}`;
+  }
+  if (bpImportPlanDateBlocked(plan)) return `Check the date in ${title}`;
+  if (plan.noWork) {
+    const next = String(plan.noWorkCopy?.next || "").replace(/\.$/, "");
+    return next || `${title} has nothing to import`;
+  }
+  return `${title} is not ready`;
+}
+
 function bpImportInboxSettleStatus() {
   const state = bpImportInboxState();
-  const ready = (state.plans || []).filter((plan) => plan.ready).length;
+  const plans = state.plans || [];
+  // A plan that can act on something comes before one that only says it has no
+  // work, so the line names the plan that moves.
+  const waiting = plans.filter((plan) => !plan.ready)
+    .sort((a, b) => Number(!!a.noWork) - Number(!!b.noWork));
+  const ready = plans.length - waiting.length;
+  if (waiting.length) {
+    const first = bpImportPlanMissing(waiting[0]);
+    const more = waiting.length > 1 ? ` and ${waiting.length - 1} more` : "";
+    bpImportInboxStatus(`${first}${more}.`, waiting[0].noWork ? "" : "bad");
+    return;
+  }
   if (ready) {
-    bpImportInboxStatus(`${ready} plan${ready === 1 ? "" : "s"} ready. Nothing is saved until you confirm.`);
+    bpImportInboxStatus(`Ready to import ${ready} plan${ready === 1 ? "" : "s"}.`);
     return;
   }
   // readOne already announced a bank handoff, and that line is the outcome.
@@ -8203,8 +8255,28 @@ function bpImportInboxSettleStatus() {
   // The locked entry states the password failure and its two actions. The page
   // line must not repeat it.
   if (state.entries.some(offersPasswordRetry)) { bpImportInboxStatus(""); return; }
-  bpImportInboxStatus("No plan is ready yet. Check the file messages above.", "bad");
+  const failed = state.entries.filter((entry) => entry.error && entry.status !== "bank");
+  if (failed.length) {
+    const more = failed.length > 1 ? ` and ${failed.length - 1} more` : "";
+    bpImportInboxStatus(`Fix ${failed[0].name}${more}.`, "bad");
+    return;
+  }
+  bpImportInboxStatus("Add a file to start.");
 }
+
+// The render harness seeds plans through the public inbox state; settling the
+// line is the same step the add path runs after the planner lands.
+window.bpImportInboxSettleStatus = bpImportInboxSettleStatus;
+
+window.bpImportInboxGoToUnready = () => {
+  const plans = bpImportInboxState().plans || [];
+  const plan = plans.find((item) => !item.ready) || plans[0];
+  if (!plan) return;
+  window.bpImportGoToPlan(plan.key);
+  const card = document.querySelector(`[data-plan="${CSS.escape(String(plan.key))}"]`);
+  const target = card?.querySelector(".import-account-choice, .btn.primary");
+  target?.focus?.({ preventScroll: true });
+};
 
 function bpImportInboxRender() {
   const host = document.getElementById("import-inbox-host");
@@ -8235,16 +8307,32 @@ function bpImportInboxRender() {
   const batch = plans.length ? `<div class="import-batch">
     <div class="import-batch-copy"><b>${totalFiles} file${totalFiles === 1 ? "" : "s"} ·
       ${plans.length} plan${plans.length === 1 ? "" : "s"}</b>
-      <span class="muted">Selection order does not matter. Each plan is matched by its contents.
-        ${allReady || plans.every((plan) => plan.noWork)
-          ? "" : "Import all appears when every plan is ready."}</span></div>
+      <span class="muted">${bpImportBatchState(plans)}</span></div>
     <div class="import-batch-actions">
+      ${allReady ? "" : `<button class="btn"
+        onclick="bpImportInboxGoToUnready()">Go to it</button>`}
       ${reviewable ? `<button class="btn"
         onclick="bpImportReviewAll()">Review differences</button>` : ""}
       ${allReady ? `<button class="btn primary" ${state.applying ? "disabled" : ""}
         onclick="bpImportApplyAll()">Import all</button>` : ""}
     </div></div>` : "";
   host.innerHTML = `${looseHtml}${batch}${plans.map(bpImportPlanHtml).join("")}`;
+}
+
+// One state line for the whole batch: ready, or what the first plan still needs.
+function bpImportBatchState(plans) {
+  const waiting = plans.filter((plan) => !plan.ready);
+  if (!waiting.length) return "Ready to import";
+  const choices = waiting.filter((plan) => plan.needsChoice).length;
+  if (choices === waiting.length) {
+    return `${choices} plan${choices === 1 ? "" : "s"} need${choices === 1 ? "s" : ""} a choice`;
+  }
+  const idle = waiting.filter((plan) => plan.noWork).length;
+  if (idle === waiting.length) {
+    return `${idle} plan${idle === 1 ? " has" : "s have"} nothing to import`;
+  }
+  return waiting.length === 1 ? "1 plan needs attention"
+    : `${waiting.length} plans need attention`;
 }
 
 // One password gate exists, so only one file may be reading at a time: a
@@ -8573,6 +8661,7 @@ window.bpImportChoose = async (key, accountId) => {
   if (!bundle) return;
   state.choices[choiceKey] = accountId;
   await bpImportInboxPrepare();
+  bpImportInboxSettleStatus();
 };
 
 window.bpImportAccept = async (key) => {
@@ -8581,9 +8670,10 @@ window.bpImportAccept = async (key) => {
   for (const bundle of plan?.bundles || []) state.acceptAsk[bundle.key] = true;
   state.acceptAsk[key] = true;
   await bpImportInboxPrepare();
+  bpImportInboxSettleStatus();
 };
 
-window.bpImportDropEntry = (id) => {
+window.bpImportDropEntry = async (id) => {
   const state = bpImportInboxState();
   // A choice belongs to the statement that asked for it. Dropping the entry
   // must clear every prefixed answer, or a later file with the same bundle key
@@ -8604,7 +8694,8 @@ window.bpImportDropEntry = (id) => {
     }
     delete state.acceptAsk[bundle.key];
   }
-  bpImportInboxPrepare();
+  await bpImportInboxPrepare();
+  bpImportInboxSettleStatus();
 };
 
 // A retry is the same entry read again: same id, same file, same plan. The
@@ -8622,7 +8713,7 @@ window.bpImportInboxRetry = async (id) => {
   bpImportInboxSettleStatus();
 };
 
-window.bpImportDropPlan = (key) => {
+window.bpImportDropPlan = async (key) => {
   const state = bpImportInboxState();
   const plan = (state.plans || []).find((item) => item.key === key);
   const bundles = plan?.bundles || state.bundles.filter((item) => item.key === key);
@@ -8639,7 +8730,8 @@ window.bpImportDropPlan = (key) => {
     delete state.acceptAsk[bundle.key];
   }
   delete state.acceptAsk[key];
-  bpImportInboxPrepare();
+  await bpImportInboxPrepare();
+  bpImportInboxSettleStatus();
 };
 
 function bpImportScrollBehavior() {
@@ -8655,6 +8747,8 @@ window.bpImportOpenTypes = () => {
 
 window.bpImportReview = (key) => {
   const card = document.querySelector(`[data-plan="${CSS.escape(String(key))}"]`);
+  const details = card?.querySelector("details");
+  if (details) details.open = true;
   const target = card?.querySelector(".import-change-grid");
   if (target) {
     target.scrollIntoView({ block: "center", behavior: bpImportScrollBehavior() });

@@ -290,7 +290,7 @@ const SCENARIOS = [
       if (!state.accountLines.some((line) => /Zerodha · …4321 New demat account 12 holdings/.test(line))) {
         wrong.push(`the moved demat is not offered as a new account: ${JSON.stringify(state.accountLines)}`);
       }
-      if (state.warnings.some((line) => /No demat on file/.test(line))) {
+      if (state.changeLines.some((line) => /No demat on file/.test(line))) {
         wrong.push("the card still refuses to import until the account exists");
       }
       for (const line of ["Add 31 holdings", "Record 4 sales or transfers as sold",
@@ -333,8 +333,8 @@ const SCENARIOS = [
       if (state.ready) wrong.push("the card is ready without a holdings row for the movement account");
       if (state.pill !== "Add the account first") wrong.push(`pill: ${JSON.stringify(state.pill)}`);
       if (!state.primaryDisabled) wrong.push("the primary action is enabled");
-      if (!state.warnings.some((line) => /No demat on file for the movement account …4321\. Add that account, then import again\./.test(line))) {
-        wrong.push(`blocked footer: ${JSON.stringify(state.warnings)}`);
+      if (!state.changeLines.some((line) => /No demat on file for the movement account …4321\. Add that account, then import again\./.test(line))) {
+        wrong.push(`blocked footer: ${JSON.stringify(state.changeLines)}`);
       }
       if (state.accountLines.some((line) => /…4321/.test(line))) {
         wrong.push(`the card offers to create the account it refuses to move: ${JSON.stringify(state.accountLines)}`);

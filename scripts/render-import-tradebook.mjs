@@ -120,11 +120,9 @@ const SCENARIOS = [
       if (state.accountChoices.length) {
         wrong.push(`the card offers an account it cannot use: ${JSON.stringify(state.accountChoices)}`);
       }
-      if (!state.lines.includes("Nothing to import yet — this tradebook only fills dates on holdings that are not on file.")) {
-        wrong.push(`reason line: ${JSON.stringify(state.lines)}`);
-      }
-      if (!state.lines.includes("Import the holdings report first.")) {
-        wrong.push(`next line: ${JSON.stringify(state.lines)}`);
+      if (!state.lines.includes("This tradebook only fills dates on holdings that are not "
+        + "on file. Import the holdings report first.")) {
+        wrong.push(`state line: ${JSON.stringify(state.lines)}`);
       }
       if (state.reviewButton) wrong.push("Review differences is offered on a zero-work card");
       if (!state.more?.detail.some((line) => /Attach to Demat · Zerodha · …8054 is already on file/.test(line))) {
