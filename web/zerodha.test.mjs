@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseZerodhaHoldings, parseZerodhaHoldingsSheets } from "./zerodha.js";
+import { KITE_CONSOLE_SHEETS } from "./fixtures/import/samples.mjs";
 
 const matrix = [
   ["Client ID", "TEST500"],
@@ -23,7 +24,7 @@ test("reads the Zerodha equity holdings columns", () => {
   assert.deepEqual(p.rows[0], {
     symbol: "TESTPOWER", isin: "INE000000028", sector: "ENERGY",
     quantity: 70, pledged: 0, averagePrice: 191.2386,
-    previousClose: 208, pnl: 1173.3,
+    previousClose: 208, pnl: 1173.3, longTerm: 0,
   });
   assert.equal(p.rows[1].pnl, -657);
 });
@@ -72,4 +73,53 @@ test("reads the 28-equity statement with its Client ID and date", () => {
   assert.equal(p.asOf, "2026-11-12");
   assert.equal(p.rows.length, 28);
   assert.equal(p.rows[27].quantity, 37);
+});
+
+test("reads Kite Console's Equity and Mutual Funds sheets, not Combined", () => {
+  const names = Object.keys(KITE_CONSOLE_SHEETS);
+  const p = parseZerodhaHoldingsSheets(names.map((name) => KITE_CONSOLE_SHEETS[name]), names);
+  assert.equal(p.error, null);
+  assert.equal(p.asOf, "2026-11-12");
+  assert.equal(p.clientId, "TEST500");
+  assert.equal(p.rows.length, 5);
+  assert.equal(new Set(p.rows.map((row) => row.isin)).size, 5);
+  assert.equal(p.rows.filter((row) => row.category === "equity").length, 3);
+  assert.equal(p.rows.filter((row) => row.category === "mf").length, 2);
+  const power = p.rows.find((row) => row.symbol === "TESTPOWER");
+  assert.equal(power.quantity, 77);
+  assert.equal(power.pledged, 7);
+  assert.equal(power.longTerm, 0);
+  const fund = p.rows.find((row) => row.isin === "INF000000031");
+  assert.equal(fund.category, "mf");
+  assert.equal(fund.sector, "EQUITY");
+  assert.equal(fund.longTerm, undefined);
+  assert.equal(fund.quantity, 100);
+});
+
+test("reads Combined only when neither named sheet has rows", () => {
+  const p = parseZerodhaHoldingsSheets([KITE_CONSOLE_SHEETS.Combined], ["Combined"]);
+  assert.equal(p.error, null);
+  assert.equal(p.rows.length, 5);
+  assert.equal(p.rows.filter((row) => row.category === "mf").length, 2);
+  assert.equal(p.rows.find((row) => row.isin === "INE000000028").quantity, 77);
+});
+
+test("finds a holdings header below a preamble longer than a dozen rows", () => {
+  const rows = Array.from({ length: 20 }, (_, i) => [`Summary line ${i}`]);
+  rows.push(["Symbol", "ISIN", "Quantity Available", "Average Price"]);
+  rows.push(["TESTLATE", "INE000000099", 3, 10]);
+  const p = parseZerodhaHoldings(rows);
+  assert.equal(p.error, null);
+  assert.equal(p.rows.length, 1);
+  assert.equal(p.rows[0].symbol, "TESTLATE");
+});
+
+test("a three-sheet workbook with no holdings header still fails closed", () => {
+  const p = parseZerodhaHoldingsSheets([
+    [["Summary", "Invested Value"]],
+    [["Portfolio", "Notes"]],
+    [["Combined", "Totals"]],
+  ], ["Equity", "Mutual Funds", "Combined"]);
+  assert.match(p.error, /No equity holdings sheet/);
+  assert.equal(p.rows.length, 0);
 });

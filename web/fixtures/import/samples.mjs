@@ -4,9 +4,10 @@
 // repo instead.
 //
 // The shapes mirror the files the parsers actually receive: a CAS text layer, a
-// Motilal holdings summary, a Zerodha holdings workbook, a Zerodha tradebook,
-// the five DigiFInn reports and a bank statement. Keep them small; the test
-// asserts counts and fields, not the contents of a statement.
+// Motilal holdings summary, a Zerodha holdings workbook, Kite Console's
+// three-sheet export, a Zerodha tradebook, the five DigiFInn reports and a bank
+// statement. Keep them small; the test asserts counts and fields, not the
+// contents of a statement.
 
 export const CAS_TEXT = [
   "Central Depository Services (India) Limited",
@@ -54,6 +55,48 @@ export const ZERODHA_HOLDINGS_MATRIX = [
   ["TESTSTOCK", "INE000000001", "Test", 5, 100.5, 110, 47.5],
   ["TESTFUND", "INF000000001", "Test", 10, 20, 21, 10],
 ];
+
+// Kite Console's three-sheet export. Equity and Mutual Funds carry the same
+// preamble and differ by one column (Sector versus Instrument Type). Combined
+// repeats both with an extra leading column, so reading it as well would count
+// every row twice. The pledged pair on the first equity is 5 + 2 units.
+export const KITE_CONSOLE_SHEETS = {
+  Equity: [
+    ["Client ID", "TEST500"],
+    ["Equity Holdings Statement as on 2026-11-12"],
+    ["Summary", "Invested Value", "Present Value", "Unrealized P&L"],
+    ["", 100000, 120000, 20000],
+    ["Symbol", "ISIN", "Sector", "Quantity Available", "Quantity Discrepant",
+      "Quantity Long Term", "Quantity Pledged (Margin)", "Quantity Pledged (Loan)",
+      "Average Price", "Previous Closing Price", "Unrealized P&L",
+      "Unrealized P&L Pct."],
+    ["TESTPOWER", "INE000000028", "ENERGY", 70, 0, 0, 5, 2, 191.2386, 208, 1173.3, 8.7647],
+    ["TESTGAS", "INE000000026", "ENERGY", 80, 0, 40, 0, 0, 590.9125, 582.7, -657, -1.3898],
+    ["TESTBANK", "INE000000024", "FINANCE", 25, 0, 25, 0, 0, 400, 410, 250, 2.5],
+  ],
+  "Mutual Funds": [
+    ["Client ID", "TEST500"],
+    ["Mutual Funds Holdings Statement as on 2026-11-12"],
+    ["Summary", "Invested Value", "Present Value", "Unrealized P&L"],
+    ["", 3000, 3150, 150],
+    ["Symbol", "ISIN", "Instrument Type", "Quantity Available", "Quantity Discrepant",
+      "Quantity Pledged (Margin)", "Quantity Pledged (Loan)", "Average Price",
+      "Previous Closing Price", "Unrealized P&L", "Unrealized P&L Pct."],
+    ["TESTFUNDGROWTH", "INF000000031", "EQUITY", 100, 0, 0, 0, 20, 21, 100, 5],
+    ["TESTFUNDDEBT", "INF000000032", "DEBT", 50, 0, 0, 0, 10, 10.2, 10, 1],
+  ],
+  Combined: [
+    ["Asset Type", "Symbol", "ISIN", "Sector", "Quantity Available",
+      "Quantity Discrepant", "Quantity Long Term", "Quantity Pledged (Margin)",
+      "Quantity Pledged (Loan)", "Average Price", "Previous Closing Price",
+      "Unrealized P&L", "Unrealized P&L Pct."],
+    ["Equity", "TESTPOWER", "INE000000028", "ENERGY", 70, 0, 0, 5, 2, 191.2386, 208, 1173.3, 8.7647],
+    ["Equity", "TESTGAS", "INE000000026", "ENERGY", 80, 0, 40, 0, 0, 590.9125, 582.7, -657, -1.3898],
+    ["Equity", "TESTBANK", "INE000000024", "FINANCE", 25, 0, 25, 0, 0, 400, 410, 250, 2.5],
+    ["Mutual Fund", "TESTFUNDGROWTH", "INF000000031", "EQUITY", 100, 0, 0, 0, 0, 20, 21, 100, 5],
+    ["Mutual Fund", "TESTFUNDDEBT", "INF000000032", "DEBT", 50, 0, 0, 0, 0, 10, 10.2, 10, 1],
+  ],
+};
 
 const DIGIFINN_HOLDINGS = [
   "DIGIFINN - HOLDINGS REPORT",

@@ -797,6 +797,12 @@ test("a plan of one holding says holding, not holdings", () => {
   assert.equal(importPlanPrimary({ family: "motilal", planned: 1 }), "Import 1 holding");
   assert.equal(importPlanPrimary({ family: "zerodha", planned: 1 }), "Import 1 equity");
   assert.equal(importPlanPrimary({ family: "zerodha", planned: 2 }), "Import 2 equities");
+  assert.equal(importPlanPrimary({ family: "zerodha", planned: 1,
+    categories: ["mf"] }), "Import 1 fund");
+  assert.equal(importPlanPrimary({ family: "zerodha", planned: 2,
+    categories: ["mf"] }), "Import 2 funds");
+  assert.equal(importPlanPrimary({ family: "zerodha", planned: 5,
+    categories: ["equity", "mf"] }), "Import 5 holdings");
   assert.equal(importPlanPrimary({ family: "motilal", planned: 1, create: true }),
     "Create account and import 1 holding");
   assert.equal(importPlanPrimary({ family: "cas", planned: 0, sales: 1 }), "Record 1 sale");
