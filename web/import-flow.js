@@ -267,7 +267,13 @@ function parseTradebookRows(rows) {
     if (!date) continue;
     const type = norm(row[cols.type]);
     const quantity = asNumber(row[cols.quantity]);
-    const pricePaise = asMoney(row[cols.price]);
+    // A spreadsheet hands the Price column in as a number of rupees. asMoney
+    // reads numbers as paise because stored rows already are; a tradebook cell
+    // is not stored, so it is converted here or the same CSV and XLSX would
+    // disagree about the trade.
+    const rawPrice = row[cols.price];
+    const pricePaise = typeof rawPrice === "number"
+      ? Math.round(rawPrice * 100) : asMoney(rawPrice);
     if (quantity === null || pricePaise === null) continue;
     const isin = cols.isin === undefined ? "" : upper(row[cols.isin]);
     const symbol = cols.symbol === undefined ? "" : text(row[cols.symbol]);
@@ -356,6 +362,70 @@ function enrichRows(baseRows, optional) {
   return rows;
 }
 
+const fileExtension = (name) => {
+  const match = String(name || "").match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toUpperCase() : "";
+};
+
+/**
+ * The trade rows an optional report carries. A parsed tradebook has them under
+ * `parsed.rows`; callers that hand the parsed result in directly use `trades`.
+ * A holdings report answers with its holdings, so its kind is checked too.
+ */
+function tradebookRows(file) {
+  if (!/tradebook/i.test(String(file?.kind || ""))) return "";
+  const rows = Array.isArray(file?.trades) && file.trades.length
+    ? file.trades : (Array.isArray(file?.rows) ? file.rows : []);
+  if (!rows.length) return "";
+  return rows.map((row) => [upper(row?.symbol || ""), upper(row?.isin || ""),
+    String(row?.date || ""), norm(row?.type || ""), String(row?.quantity ?? ""),
+    String(row?.pricePaise ?? "")].join("|")).sort().join("\n");
+}
+
+function duplicateKey(file) {
+  if (baseKind(file?.kind)) return "";
+  const rows = tradebookRows(file);
+  if (!rows) return "";
+  return [file.kind, upper(file.accountKey || ""), upper(file.accountKind || ""),
+    String(file.asOf || ""), rows].join("\n");
+}
+
+/** The one line a file that arrived in two formats carries instead of its name. */
+export function duplicateFileLabel(file) {
+  const formats = [...new Set((file?.formats || []).filter(Boolean))];
+  if (formats.length > 1) return `${formats.join(" and ")} of the same tradebook`;
+  const format = formats[0] || "file";
+  const count = Math.max((file?.duplicates || []).length + 1, 2);
+  return `${count} ${format} copies of the same tradebook`;
+}
+
+/**
+ * Collapse the same optional report supplied twice, in two formats. The parsed
+ * trade rows decide, never the file name: a renamed copy is still one file, and
+ * two tradebooks whose rows differ are two files and both stay. A holdings
+ * snapshot is never folded into another, because two snapshots are two dates.
+ */
+export function dedupeImportFiles(files = []) {
+  const out = [];
+  const seen = new Map();
+  for (const original of files || []) {
+    const key = duplicateKey(original);
+    if (!key) { out.push(original); continue; }
+    if (!seen.has(key)) {
+      const file = { ...original,
+        formats: [...new Set([fileExtension(original.name)].filter(Boolean))] };
+      seen.set(key, file);
+      out.push(file);
+      continue;
+    }
+    const kept = seen.get(key);
+    kept.duplicates = [...(kept.duplicates || []), original];
+    kept.formats = [...new Set([...(kept.formats || []),
+      fileExtension(original.name)].filter(Boolean))];
+  }
+  return out;
+}
+
 /**
  * One bundle per account. The base holdings file decides the account; optional
  * reports ride along and only fill the facts they carry. Files are sorted by
@@ -363,7 +433,7 @@ function enrichRows(baseRows, optional) {
  * plan.
  */
 export function groupBundles(files = []) {
-  const list = (files || []).filter((file) => IMPORT_KINDS[file?.kind]?.family
+  const list = dedupeImportFiles(files).filter((file) => IMPORT_KINDS[file?.kind]?.family
     && IMPORT_KINDS[file.kind].family !== "bank");
   const bases = list.filter((file) => baseKind(file.kind));
   const optional = list.filter((file) => !baseKind(file.kind));
@@ -420,6 +490,11 @@ export function groupBundles(files = []) {
     }
     if (base && !base.asOf) {
       bundle.warnings.push("The holdings report has no date. It will fill empty fields but will not overwrite dated data.");
+    }
+    const tradebooks = optionals.filter((file) => file.kind === "zerodha-tradebook");
+    if (tradebooks.length > 1) {
+      bundle.warnings.push(`${tradebooks.length} tradebooks are in this set and their rows differ. `
+        + "All are used; the earliest purchase date wins.");
     }
     if (base && base.asOf && base.asOf !== base.asOf.slice(0, 10)) { /* already normalised */ }
     bundle.files = filesInBundle;
@@ -856,6 +931,32 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
   };
 }
 
+const BROKER_TOKEN = {
+  zerodha: /zerodha/i,
+  motilal: /motilal/i,
+  digifinn: /digifinn/i,
+};
+
+/**
+ * Every depository account already filed under a broker, whether or not the
+ * report can prove it is the same one. A report with no identity match and no
+ * ISIN overlap must attach to one of these instead of creating a second
+ * account for the same broker.
+ * @param {string} family broker family from IMPORT_KINDS
+ * @param {Array<object>} accounts raw accounts from the store
+ * @returns {Array<object>} the same shape normalizeAccount() returns
+ */
+export function brokerDematAccounts(family, accounts = []) {
+  const token = BROKER_TOKEN[String(family || "")];
+  if (!token) return [];
+  return (accounts || []).filter((raw) => {
+    if (!isDepositoryAccount(raw)) return false;
+    const meta = safeMeta(raw);
+    return token.test([raw.label, raw.bank, meta.dp, meta.broker_source]
+      .filter(Boolean).join(" "));
+  }).map((raw) => normalizeAccount(raw, raw?.holdings || []));
+}
+
 /** The key an account was identified by, from the fields already on it. */
 function storedIdentityValue(account, source, meta) {
   if (source === "cas") {
@@ -1116,6 +1217,32 @@ export function importPlanPrimary({ family = "", identityOnly = false, planned =
   if (!planned && attachIdentity && !create) return "Attach the account identity";
   if (!planned && !create) return "Nothing to change";
   return `${create ? "Create account and import " : "Import "}${planned} ${noun}`;
+}
+
+/**
+ * What a card says when its plan would write nothing. A tradebook alone is the
+ * common case: it can only fill a purchase date on a holding another file
+ * names, so the next step is that file, never an account to create.
+ * @param {{hasBase?: boolean, tradebook?: boolean}} input
+ * @returns {{reason: string, next: string}}
+ */
+export function importNoWorkCopy({ hasBase = true, tradebook = false } = {}) {
+  if (hasBase) {
+    return {
+      reason: "Nothing to import yet — every fact in this file is already on file.",
+      next: "",
+    };
+  }
+  if (tradebook) {
+    return {
+      reason: "Nothing to import yet — this tradebook only fills dates on holdings that are not on file.",
+      next: "Import the holdings report first.",
+    };
+  }
+  return {
+    reason: "Nothing to import yet — this report only adds detail to a holdings report that is not on file.",
+    next: "Import the holdings report first.",
+  };
 }
 
 // --- the merge plan ---------------------------------------------------------

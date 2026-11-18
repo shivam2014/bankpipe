@@ -35,6 +35,7 @@ so every "automated" path needs a manual equivalent that lands in the same table
 |----|-------|-----|--------|
 | C1 | The DigiFInn sync card lives on the Import page, away from the portfolio it writes to. | Move the card into the bond portfolio page (and keep a pointer on Import). Same three reports, same guards. | done |
 | C2 | The Import page is a flat dump: DigiFInn, whole-workbook re-import, bank statement, CAS, bonds — all equal weight, no grouping. | One card for the bank statement, a single upload control, the file name and counts reduced to `Last import 25 Oct 2026 · 13,895 transactions`, the workbook replacement collapsed under Advanced, and the bond/CAS pointer cards replaced by two lines of text with a link. | done |
+| C3 | A tradebook with no holdings report was a paragraph to read and a primary button that said `Create account and import 0 equities`; the same tradebook as CSV and XLSX appeared twice; a broker-only account was offered beside a demat for the same broker. | The parsed trades, not the file name, fold the two formats into one line (`CSV and XLSX of the same tradebook`). A plan with nothing to write disables its primary, says why in one line and names the next report; `What will not change` moves behind `More`. A demat already filed under the broker is an `Attach to Demat · …` choice, and a tradebook alone creates no account. | done |
 
 ## D. Asset and fixed-deposit form
 

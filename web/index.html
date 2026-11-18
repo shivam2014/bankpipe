@@ -577,6 +577,8 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .field-source-fields{font-size:11px;line-height:1.5}
 .field-source-summary{cursor:pointer;font-size:12px;color:var(--muted)}
 .import-note{font-size:11px;margin-top:7px;line-height:1.55}
+.import-nowork{display:grid;gap:2px;margin-top:8px}
+.import-nowork .import-note{margin-top:0;font-size:12px}
 .import-step-title{font-size:13.5px;font-weight:600}
 .import-step-sub{font-weight:400;font-size:12px}
 .import-step-note{font-size:12px;margin-top:5px}
@@ -1402,7 +1404,7 @@ import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, pla
   movementAccountGap, importWarningDigest,
   planHasWork, planNetChange,
   importAccountSummary, importAccountGaps, bondGapBanner, bondImportOf,
-  importPlanPrimary,
+  importPlanPrimary, importNoWorkCopy, duplicateFileLabel, brokerDematAccounts,
   IMPORT_REPORT_GUIDE,
   normalizeAccount, parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
@@ -6951,7 +6953,7 @@ function bpImportBundleLabel(bundle) {
   return bundle.family === "cas" ? (bundle.base?.parsed?.depository
     ? `${bundle.base.parsed.depository} CAS` : "Depository statement (CAS)")
     : bundle.family === "motilal" ? "Motilal Oswal holdings report"
-      : bundle.family === "zerodha" ? "Zerodha holdings"
+      : bundle.family === "zerodha" ? (bundle.base ? "Zerodha holdings" : "Zerodha tradebook")
         : bundle.family === "digifinn" ? "DigiFInn bundle" : "Holdings report";
 }
 
@@ -6975,6 +6977,21 @@ function bpImportAccountName(account) {
   const id = boId(account?.number || "");
   if (id.kind === "bo") return `…${id.boId.slice(-4)}`;
   return String(account?.number || "").trim();
+}
+
+function bpImportAttachLabel(match) {
+  const account = match?.account || {};
+  const label = match?.label || account.label || "Demat";
+  const number = bpImportAccountName(account);
+  return `Attach to ${label}${number && !String(label).includes(number) ? ` · ${number}` : ""}`;
+}
+
+function bpImportAttachWhy(bundle) {
+  const tradebookOnly = !bundle.base
+    && (bundle.files || []).some((file) => file.kind === "zerodha-tradebook");
+  return tradebookOnly
+    ? "The tradebook carries no client ID that matches"
+    : "No client ID or ISIN matches yet";
 }
 
 function bpImportAccountState(row) {
@@ -7114,6 +7131,21 @@ function bpImportResolveBroker(bundle) {
   bundle.match = accountMatches({
     accountKey: bundle.accountKey, accountKind: bundle.accountKind, rows: bundle.rows,
   }, accounts);
+  // A demat already filed under this broker is a candidate even when the file
+  // carries no client ID and no ISIN it names is on that account. Creating a
+  // broker-only account beside it is the duplicate this offer prevents. The
+  // match is not automatic: the person still chooses it.
+  if (!bundle.match.matches.length) {
+    for (const account of brokerDematAccounts(bundle.family, accounts)) {
+      if (bundle.match.matches.some((match) => match.id === account.id)) continue;
+      bundle.match.matches.push({
+        id: account.id, label: account.label, identity: false, identityKind: "",
+        amcMatch: false, hits: 0, of: bundle.match.total, isins: account.isins,
+        brokerOnly: account.brokerOnly, boId: account.boId, clientId: account.clientId,
+        ucid: account.ucid, account, brokerAccount: true,
+      });
+    }
+  }
   let targetId = state.choices[bundle.key] || "";
   if (targetId && !bpImportAccountRow(targetId)) targetId = "";
   if (!targetId && bundle.match.identityId) targetId = bundle.match.identityId;
@@ -7122,7 +7154,9 @@ function bpImportResolveBroker(bundle) {
   bundle.canCreate = bundle.match.matches.length === 0;
   // A weak overlap is a question, not a default. Only a file that matches
   // nothing on file may create an account; a near miss would be a duplicate.
-  bundle.create = bundle.canCreate;
+  // A report with no holdings snapshot has nothing to create an account from,
+  // so it never offers one.
+  bundle.create = bundle.canCreate && !!bundle.base;
   bundle.createLabel = bpImportBrokerOnlyLabel(bundle);
   const identity = bundle.accountKey
     ? { kind: bundle.accountKind || "bo", value: bundle.accountKey } : null;
@@ -7450,6 +7484,19 @@ function bpImportPlanFiles(bundles) {
   return out;
 }
 
+// Every entry a bundle owns, including the copies folded into one file line.
+function bpImportBundleEntryIds(bundles) {
+  const ids = new Set();
+  for (const bundle of bundles || []) {
+    for (const file of bundle.files || []) {
+      for (const item of [file, ...(file.duplicates || [])]) {
+        if (item?.entryId) ids.add(item.entryId);
+      }
+    }
+  }
+  return ids;
+}
+
 function bpImportBrokerContribution(bundle, attributed) {
   return {
     key: bundle.key,
@@ -7577,6 +7624,28 @@ function bpImportPlanForBundles(group, bundles) {
   const extraBlocked = extras.some((receipt) =>
     ["invalid", "future"].includes(receipt.plan?.incomingDateState)
     || ((receipt.plan?.summary.ask || 0) > 0 && !acceptAsk));
+  const dateBlocked = ["invalid", "future"].includes(head.plan?.incomingDateState)
+    || extras.some((receipt) =>
+      ["invalid", "future"].includes(receipt.plan?.incomingDateState));
+  // An identity attach is work only when it lands on an account that already
+  // exists. A file with no rows cannot create one, so its attach is not a
+  // reason to offer a primary the writer would refuse.
+  const identityChange = composed.chains.some((chain) => !!chain.accountId
+    && (chain.receipts || []).some((receipt) => !!receipt.plan?.identityChange));
+  const writes = (composed.net.added || 0) + (composed.net.updated || 0)
+    + (composed.net.history || 0) + (composed.net.soldCost || 0)
+    + (composed.summary.ask || 0);
+  // A plan with no row, no ask and no identity to attach is not an import. A
+  // tradebook alone is the common case: it can only fill a date on a holding
+  // another file names.
+  const noWork = !splitCas && !extraBlocked && !dateBlocked && !head.movementBlocked
+    && writes === 0 && !identityChange;
+  const noWorkCopy = noWork ? importNoWorkCopy({
+    hasBase: !!head.base,
+    tradebook: !head.base
+      && (head.files || []).some((file) => file.kind === "zerodha-tradebook"),
+  }) : null;
+  for (const bundle of bundles) bundle.noWork = noWork;
   return {
     key: group.key,
     head,
@@ -7598,7 +7667,9 @@ function bpImportPlanForBundles(group, bundles) {
       ...(splitCas ? ["Two depository statements name the same account. "
         + "Import one, then the other."] : [])])],
     extras,
-    ready: !!head.ready && !splitCas && !extraBlocked,
+    noWork,
+    noWorkCopy,
+    ready: !!head.ready && !splitCas && !extraBlocked && !noWork,
     needsChoice: !!head.needsChoice,
     splitCas,
   };
@@ -7668,7 +7739,8 @@ async function bpImportInboxPrepare(force = false) {
     state.bundles = groupBundles(ready.map((entry) => ({
       kind: entry.kind, name: entry.name, asOf: entry.asOf,
       accountKey: entry.accountKey, accountKind: entry.accountKind,
-      rows: entry.rows, firstBuyByIsin: entry.firstBuyByIsin,
+      rows: entry.rows, trades: entry.parsed?.rows || [],
+      firstBuyByIsin: entry.firstBuyByIsin,
       termsByIsin: entry.termsByIsin, termsByLabel: entry.termsByLabel,
       parsed: entry.parsed, accounts: entry.casAccounts, file: entry.file,
       entryId: entry.id,
@@ -7676,8 +7748,12 @@ async function bpImportInboxPrepare(force = false) {
     for (const entry of state.entries) entry.bundleKey = "";
     for (const bundle of state.bundles) {
       for (const file of bundle.files) {
-        const entry = state.entries.find((item) => item.id === file.entryId);
-        if (entry) entry.bundleKey = bundle.key;
+        // A file folded into another format stays in the entry list but belongs
+        // to the same plan, so dropping the plan drops it too.
+        for (const item of [file, ...(file.duplicates || [])]) {
+          const entry = state.entries.find((candidate) => candidate.id === item.entryId);
+          if (entry) entry.bundleKey = bundle.key;
+        }
       }
       bundle.choice = state.choices[bundle.key] || "";
       bundle.acceptAsk = !!state.acceptAsk[bundle.key];
@@ -7704,24 +7780,30 @@ function bpImportInboxEntryError(entry) {
 }
 
 function bpImportMatchHtml(bundle) {
-  const state = bpImportInboxState();
+  // A plan with nothing to write has no account to choose. Its reason line and
+  // the More disclosure say why, instead of offering an account it cannot use.
+  if (bundle.noWork) return "";
   const matches = bundle.match?.matches || [];
   const chosen = bundle.targetId || "";
   const rows = matches.map((match) => {
     const chosenNow = match.id === chosen;
-    const best = bundle.match.attachId === match.id;
-    const meta = [
-      match.identityKind ? `${match.identityKind} match` : "ISIN overlap",
-      match.brokerOnly ? "broker-only · no CAS to check against" : "",
-    ].filter(Boolean).join(" · ");
+    const best = !match.brokerAccount && bundle.match.attachId === match.id;
+    const meta = match.brokerAccount
+      ? bpImportAttachWhy(bundle)
+      : [
+        match.identityKind ? `${match.identityKind} match` : "ISIN overlap",
+        match.brokerOnly ? "broker-only · no CAS to check against" : "",
+      ].filter(Boolean).join(" · ");
     return `<button type="button" class="import-account-choice${chosenNow ? " on" : ""}"
       aria-pressed="${chosenNow}" onclick="bpImportChoose(${jsArg(bundle.key)}, ${jsArg(match.id)})">
       <span class="import-choice-main">
-        <span class="import-choice-name">${esc(match.label)}${best
+        <span class="import-choice-name">${esc(match.brokerAccount
+          ? bpImportAttachLabel(match) : match.label)}${best
           ? ' <span class="import-pill good">Best match</span>' : ""}</span>
         <span class="import-choice-meta">${esc(meta)}</span>
       </span>
-      <span class="import-choice-hits">${match.hits} of ${match.of}</span>
+      <span class="import-choice-hits">${match.brokerAccount
+        ? "Attach" : `${match.hits} of ${match.of}`}</span>
     </button>`;
   }).join("");
   const create = bundle.create ? `<div class="import-account-list">
@@ -7949,7 +8031,7 @@ function bpImportPlanItems(plan) {
 
 function bpImportReceiptsHtml(plan) {
   const extras = plan.extras || [];
-  if (!extras.length) return "";
+  if (!extras.length || plan.noWork) return "";
   return `<div class="import-section">
     <div class="import-section-title">Also in this plan</div>
     ${extras.map((receipt) => `<div class="import-file">
@@ -7957,6 +8039,23 @@ function bpImportReceiptsHtml(plan) {
       <span class="import-file-meta">${esc(bpImportReceiptRole(receipt))}</span>
     </div>`).join("")}
   </div>`;
+}
+
+// Why a zero-work card cannot use the demat it already has. The choice is not
+// offered because choosing it would still write nothing until another report
+// names the holdings.
+function bpImportNoWorkAccountHtml(bundle) {
+  const lines = [];
+  if (bundle.family === "cas") return "";
+  const broker = (bundle.match?.matches || []).find((match) => match.brokerAccount);
+  if (broker) {
+    lines.push(`${bpImportAttachLabel(broker)} is already on file, but attaching it now `
+      + "would change nothing: the tradebook carries no client ID that matches, and it "
+      + "names no holding by itself. Import a holdings report first.");
+  } else if (!bundle.base) {
+    lines.push("No account is created: this tradebook names no holding to create one from.");
+  }
+  return lines.map((line) => `<li>${esc(line)}</li>`).join("");
 }
 
 function bpImportPlanHtml(plan) {
@@ -7970,26 +8069,35 @@ function bpImportPlanHtml(plan) {
     const info = INBOX_KINDS[file.kind] || {};
     const optional = (owner.optional || []).includes(file);
     const adds = optional ? (owner.adds || []).find((item) => item.kind === file.kind)?.adds || "" : "";
+    // The parsed trades, not the name, decided that these two files are one.
+    // The line says so in place of the repeat of what a tradebook does.
+    const meta = (file.duplicates || []).length
+      ? duplicateFileLabel(file)
+      : [info.label || file.kind, file.asOf ? dateLabel(file.asOf) : "",
+        adds].filter(Boolean).join(" · ");
     return `<div class="import-file">
       <span class="import-file-name">${esc(file.name || info.label || file.kind)}</span>
-      <span class="import-file-meta">${esc(info.label || file.kind)}${file.asOf
-        ? ` · ${esc(dateLabel(file.asOf))}` : ""}${adds ? ` · ${esc(adds)}` : ""}</span>
+      <span class="import-file-meta">${esc(meta)}</span>
     </div>`;
   }).join("");
   const pill = plan.gate
     ? `<span class="import-pill warn">Import the ${esc(plan.gate.label)} report first</span>`
     : bundle.movementBlocked
       ? `<span class="import-pill warn">Add the account first</span>`
-      : !plan.ready
-        ? `<span class="import-pill warn">${plan.needsChoice ? "Choose an account" : "Check the file"}</span>`
-        : summary.ask && !plan.acceptAsk
-          ? `<span class="import-pill warn">Review the differences</span>`
-          : `<span class="import-pill good">Ready</span>`;
+      : plan.noWork
+        ? `<span class="import-pill">Nothing to import yet</span>`
+        : !plan.ready
+          ? `<span class="import-pill warn">${plan.needsChoice ? "Choose an account" : "Check the file"}</span>`
+          : summary.ask && !plan.acceptAsk
+            ? `<span class="import-pill warn">Review the differences</span>`
+            : `<span class="import-pill good">Ready</span>`;
   const title = bpImportBundleLabel(bundle);
   const where = bundle.family === "cas" ? bpImportCasAccountsHtml(bundle) : bpImportMatchHtml(bundle);
   const countText = bpImportCategoryText(bundle.rows);
-  const sub = [countText, bundle.asOf ? `as on ${dateLabel(bundle.asOf)}` : "No date on the file",
-    `${plan.files.length} file${plan.files.length === 1 ? "" : "s"}`,
+  const sub = [countText, bundle.asOf
+    ? `as on ${dateLabel(bundle.asOf)}`
+    : bundle.base ? "No date on the file" : "No holdings report",
+  `${plan.files.length} file${plan.files.length === 1 ? "" : "s"}`,
     plan.accountCount > 1 ? `${plan.accountCount} accounts` : ""]
     .filter(Boolean).join(" · ");
   const askLines = bpImportPlanAskLines(plan);
@@ -8005,7 +8113,7 @@ function bpImportPlanHtml(plan) {
       <div class="import-actions">
         <button class="btn" onclick="bpImportAccept(${jsArg(plan.key)})">Use the file's values</button>
       </div></div>` : "";
-  const warning = (plan.warnings || []).length
+  const warning = !plan.noWork && (plan.warnings || []).length
     ? `<div class="muted import-note">${esc(plan.warnings.join(" "))}</div>` : "";
   const net = plan.net || {};
   const planned = (net.added || 0) + (net.updated || 0) + (net.history || 0);
@@ -8020,9 +8128,10 @@ function bpImportPlanHtml(plan) {
         : (bundle.casTargets || []).some((target) => target.action === "conflict")
           ? "conflict" : ""
     : "";
-  const primary = heldFolio === "decide" ? "Choose below"
-    : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
-      : importPlanPrimary({
+  const primary = plan.noWork ? "Nothing to import yet"
+    : heldFolio === "decide" ? "Choose below"
+      : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
+        : importPlanPrimary({
         family: bundle.family,
         identityOnly: !!bundle.plan?.identityOnly,
         planned,
@@ -8032,39 +8141,51 @@ function bpImportPlanHtml(plan) {
         create: bundle.create && !bundle.targetId,
         categories,
       });
+  const noWork = plan.noWorkCopy || null;
+  const noWorkHtml = noWork ? `<div class="import-nowork">
+    <div class="muted import-note">${esc(noWork.reason)}</div>
+    ${noWork.next ? `<div class="muted import-note">${esc(noWork.next)}</div>` : ""}</div>` : "";
+  const still = [...changes.still, ...(changes.stillMore || [])]
+    .filter((item) => !(plan.noWork && /^Nothing is written until you press Import$/.test(item)));
+  const changeBlock = plan.noWork ? "" : `<div class="import-change">
+      <b>What will change</b><ul>${changes.change.map((item) =>
+        `<li>${esc(item)}</li>`).join("")}</ul></div>`;
+  const accountMore = plan.noWork ? bpImportNoWorkAccountHtml(bundle) : "";
+  const moreBlock = `<div class="import-change">
+      <details class="import-change-more"><summary>More</summary>
+        ${accountMore ? `<ul>${accountMore}</ul>` : ""}
+        <b>What will not change</b>
+        <ul>${still.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
+      </details></div>`;
   return `<div class="card pad import-bundle" data-plan="${esc(plan.key)}">
     <div class="import-bundle-head">
       <div><div class="import-kicker">${bundle.family === "cas"
-        ? "Depository statement" : "Broker holdings report"}</div>
+        ? "Depository statement"
+        : bundle.base ? "Broker holdings report" : "Broker tradebook"}</div>
         <div class="import-title">${esc(title)}</div>
         <div class="import-sub">${esc(sub)}</div></div>
       ${pill}
     </div>
     <div class="import-files">${files}</div>
+    ${noWorkHtml}
     ${where}
     ${bpImportReceiptsHtml(plan)}
-    ${casSaleHtml(bundle.saleLines || [], bundle.saleConflicts || [],
+    ${plan.noWork ? "" : casSaleHtml(bundle.saleLines || [], bundle.saleConflicts || [],
       bundle.saleWarnings || [])}
-    <div class="import-change-grid">
-      <div class="import-change"><b>What will change</b><ul>${changes.change.map((item) =>
-        `<li>${esc(item)}</li>`).join("")}</ul></div>
-      <div class="import-change"><b>What will not change</b><ul>${changes.still.map((item) =>
-        `<li>${esc(item)}</li>`).join("")}</ul>
-        ${changes.stillMore?.length ? `<details class="import-change-more">
-          <summary>More</summary><ul>${changes.stillMore.map((item) =>
-            `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}</div>
-    </div>
+    <div class="import-change-grid">${changeBlock}${moreBlock}</div>
     ${ask}
     ${warning}
     <div class="import-actions">
-      <button class="btn primary" ${plan.ready && !state.applying ? "" : "disabled"}
+      <button class="btn primary" ${plan.ready && !state.applying && !plan.noWork
+        ? "" : "disabled"}
         onclick="bpImportApplyPlan(${jsArg(plan.key)})">${esc(primary)}</button>
       ${plan.gate ? `<button class="btn" onclick="bpImportGoToPlan(${jsArg(plan.gate.key)})">
         Go to the ${esc(plan.gate.label)} report</button>` : ""}
       ${bundle.movementMissing?.length ? `<button class="btn"
         onclick="bpAssetNew('demat', { number: ${jsArg(bundle.movementMissing[0])} })">
         Add the demat account</button>` : ""}
-      <button class="btn" onclick="bpImportReview(${jsArg(plan.key)})">Review differences</button>
+      ${plan.noWork ? "" : `<button class="btn"
+        onclick="bpImportReview(${jsArg(plan.key)})">Review differences</button>`}
       <button class="btn ghost" onclick="bpImportDropPlan(${jsArg(plan.key)})">Remove</button>
     </div>
   </div>`;
@@ -8109,14 +8230,17 @@ function bpImportInboxRender() {
   }).join("");
   const plans = state.plans || [];
   const allReady = plans.length > 0 && plans.every((plan) => plan.ready);
+  const reviewable = plans.some((plan) => !plan.noWork);
   const totalFiles = plans.reduce((total, plan) => total + plan.files.length, 0);
   const batch = plans.length ? `<div class="import-batch">
     <div class="import-batch-copy"><b>${totalFiles} file${totalFiles === 1 ? "" : "s"} ·
       ${plans.length} plan${plans.length === 1 ? "" : "s"}</b>
       <span class="muted">Selection order does not matter. Each plan is matched by its contents.
-        ${allReady ? "" : "Import all appears when every plan is ready."}</span></div>
+        ${allReady || plans.every((plan) => plan.noWork)
+          ? "" : "Import all appears when every plan is ready."}</span></div>
     <div class="import-batch-actions">
-      <button class="btn" onclick="bpImportReviewAll()">Review differences</button>
+      ${reviewable ? `<button class="btn"
+        onclick="bpImportReviewAll()">Review differences</button>` : ""}
       ${allReady ? `<button class="btn primary" ${state.applying ? "disabled" : ""}
         onclick="bpImportApplyAll()">Import all</button>` : ""}
     </div></div>` : "";
@@ -8460,8 +8584,13 @@ window.bpImportDropEntry = (id) => {
   // must clear every prefixed answer, or a later file with the same bundle key
   // starts with a decision the person made for a different statement.
   const bundles = (state.bundles || []).filter((bundle) =>
-    (bundle.files || []).some((file) => file.entryId === id));
-  state.entries = state.entries.filter((entry) => entry.id !== id);
+    (bundle.files || []).some((file) => file.entryId === id
+      || (file.duplicates || []).some((duplicate) => duplicate.entryId === id)));
+  // Removing either format removes the copy it was folded into, or the kept
+  // entry would resurrect as a one-file plan the moment the card re-rendered.
+  const ids = bpImportBundleEntryIds(bundles);
+  ids.add(id);
+  state.entries = state.entries.filter((entry) => !ids.has(entry.id));
   for (const bundle of bundles) {
     for (const choice of Object.keys(state.choices || {})) {
       if (choice === bundle.key || choice.startsWith(`${bundle.key}:`)) {
@@ -8492,8 +8621,7 @@ window.bpImportDropPlan = (key) => {
   const state = bpImportInboxState();
   const plan = (state.plans || []).find((item) => item.key === key);
   const bundles = plan?.bundles || state.bundles.filter((item) => item.key === key);
-  const ids = new Set(bundles.flatMap((bundle) =>
-    (bundle.files || []).map((file) => file.entryId)));
+  const ids = bpImportBundleEntryIds(bundles);
   state.entries = state.entries.filter((entry) => !ids.has(entry.id));
   for (const bundle of bundles) {
     // A choice belongs to the statement that was dropped. Every per-offer key
@@ -8643,14 +8771,18 @@ async function bpImportCreateBrokerAccount(bundle) {
 
 async function bpImportApplyBroker(bundle, opts = {}) {
   const store = await import("./db.js");
-  let targetId = bundle.targetId || "";
-  if (!targetId) targetId = await bpImportCreateBrokerAccount(bundle);
-  const account = (await store.listAccounts()).find((item) => item.id === targetId);
-  if (!account) throw new Error("That account is no longer here.");
-  const holdings = await store.listHoldings(targetId);
   const identity = bundle.accountKey
     ? { kind: bundle.accountKind || "bo", value: bundle.accountKey } : null;
-  const plan = bpImportPlanFor(bundle, { account, holdings }, bundle.rows, identity);
+  let targetId = bundle.targetId || "";
+  let account = targetId
+    ? (await store.listAccounts()).find((item) => item.id === targetId) : null;
+  if (targetId && !account) throw new Error("That account is no longer here.");
+  let holdings = targetId ? await store.listHoldings(targetId) : [];
+  // Plan against the account that exists, or against an empty one when the
+  // account would be created. The write check runs before any account exists,
+  // so a file with nothing to write can never leave a new account behind.
+  let plan = bpImportPlanFor(bundle, account ? { account, holdings } : null,
+    bundle.rows, identity);
   if (["invalid", "future"].includes(plan.incomingDateState)) {
     bpImportInboxStatus("The file's date needs checking before it can be imported.", "bad");
     return { ok: false };
@@ -8659,8 +8791,8 @@ async function bpImportApplyBroker(bundle, opts = {}) {
     bpImportInboxStatus("Review the differences and choose what to keep first.", "bad");
     return { ok: false };
   }
-  const meta = metaOf(account);
-  const aliasMissing = !!bundle.accountKey && (
+  let meta = account ? metaOf(account) : {};
+  let aliasMissing = !!bundle.accountKey && (
     bundle.family === "motilal" ? String(meta.ucid || "") !== bundle.accountKey
       : bundle.family === "zerodha" ? String(meta.client_id || "") !== bundle.accountKey
         : bundle.family === "digifinn" ? String(meta.demat || "") !== bundle.accountKey
@@ -8668,9 +8800,35 @@ async function bpImportApplyBroker(bundle, opts = {}) {
   // The rows are projected before the guard so the guard asks the same question
   // the card does: does this file change any row? An accepted recovery changes a
   // disposal's cost basis and nothing else, and it is still work.
-  const rows = bpImportPlanRows(holdings, plan, bundle);
-  const net = planNetChange(holdings, rows);
-  const writes = net.added + net.updated + net.history + net.soldCost;
+  let rows = bpImportPlanRows(holdings, plan, bundle);
+  let net = planNetChange(holdings, rows);
+  let writes = net.added + net.updated + net.history + net.soldCost;
+  if (!writes && !plan.identityChange && !aliasMissing) {
+    bpImportInboxStatus("Nothing to change: every fact in this file is already on the account.");
+    return { ok: false };
+  }
+  if (!targetId) {
+    // Creating an account is a row import or nothing. An identity-only file
+    // that adds no holding is not a reason to open one.
+    if (!writes) {
+      bpImportInboxStatus("Nothing to import yet: this report adds no holding.");
+      return { ok: false };
+    }
+    targetId = await bpImportCreateBrokerAccount(bundle);
+    account = (await store.listAccounts()).find((item) => item.id === targetId);
+    if (!account) throw new Error("That account is no longer here.");
+    holdings = await store.listHoldings(targetId);
+    plan = bpImportPlanFor(bundle, { account, holdings }, bundle.rows, identity);
+    meta = metaOf(account);
+    aliasMissing = !!bundle.accountKey && (
+      bundle.family === "motilal" ? String(meta.ucid || "") !== bundle.accountKey
+        : bundle.family === "zerodha" ? String(meta.client_id || "") !== bundle.accountKey
+          : bundle.family === "digifinn" ? String(meta.demat || "") !== bundle.accountKey
+            : false);
+    rows = bpImportPlanRows(holdings, plan, bundle);
+    net = planNetChange(holdings, rows);
+    writes = net.added + net.updated + net.history + net.soldCost;
+  }
   if (!writes && !plan.identityChange && !aliasMissing) {
     bpImportInboxStatus("Nothing to change: every fact in this file is already on the account.");
     return { ok: false };

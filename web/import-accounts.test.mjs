@@ -687,6 +687,50 @@ test("the inbox groups resolved files into plans, not family bundles", () => {
   assert.match(html, /function bpImportPlanForBundles\(/);
 });
 
+test("a plan with nothing to write says why and disables its primary", () => {
+  assert.match(html, /const noWork = plan\.noWorkCopy \|\| null/);
+  assert.match(html, /plan\.noWork \? "Nothing to import yet"/);
+  assert.match(html, /plan\.ready && !state\.applying && !plan\.noWork/);
+  assert.match(html, /bpImportNoWorkAccountHtml\(bundle\)/);
+  assert.match(html, /noWork\.next/);
+  assert.match(html, /const noWork = !splitCas && !extraBlocked/);
+  assert.match(html, /writes === 0 && !identityChange/);
+  assert.match(html, /const reviewable = plans\.some\(\(plan\) => !plan\.noWork\)/);
+});
+
+test("what will not change sits behind the one More disclosure", () => {
+  const card = between("function bpImportPlanHtml", "function bpImportInboxSettleStatus");
+  assert.match(card, /<summary>More<\/summary>/);
+  assert.match(card, /<b>What will not change<\/b>/);
+  assert.doesNotMatch(card, /<b>What will not change<\/b><ul>/,
+    "the list is inside the disclosure, not beside it");
+  assert.equal((card.match(/<details/g) || []).length, 1);
+});
+
+test("a broker file with no match attaches to its broker's demat instead of creating one", () => {
+  const resolve = between("function bpImportResolveBroker", "function bpImportResolveCas");
+  assert.match(resolve, /brokerDematAccounts\(bundle\.family, accounts\)/);
+  assert.match(resolve, /brokerAccount: true/);
+  assert.match(resolve, /bundle\.create = bundle\.canCreate && !!bundle\.base/);
+  assert.match(html, /Attach to \$\{label\}/);
+});
+
+test("the file line names both formats when one tradebook arrived twice", () => {
+  assert.match(html, /duplicateFileLabel\(file\)/);
+  assert.match(html, /const meta = \(file\.duplicates \|\| \[\]\)\.length/);
+});
+
+test("dropping one format drops the copy it was folded into", () => {
+  const helper = between("function bpImportBundleEntryIds",
+    "function bpImportBrokerContribution");
+  assert.match(helper, /file\.duplicates/);
+  const drop = between("window.bpImportDropPlan", "function bpImportScrollBehavior");
+  assert.match(drop, /bpImportBundleEntryIds\(bundles\)/);
+  const entry = between("window.bpImportDropEntry", "window.bpImportInboxRetry");
+  assert.match(entry, /bpImportBundleEntryIds\(bundles\)/);
+  assert.match(entry, /duplicate\.entryId/);
+});
+
 test("the inbox renders one card per plan and one confirmation per card", () => {
   assert.match(html, /const plans = state\.plans \|\| \[\]/);
   assert.match(html, /\$\{plans\.map\(bpImportPlanHtml\)\.join\(""\)\}/);
