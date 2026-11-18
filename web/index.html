@@ -15,7 +15,7 @@ try {
 <style>
 :root{--bg:#f5f3ee;--card:#fff;--ink:#0f1216;--muted:#6d6960;--line:#e9e5dc;
  --hair:#f0ece4;--green:#0b6b4f;--amber:#9a5b12;--red:#a32b22;--blue:#24597f;
- --r:16px;--sh:0 1px 2px rgba(15,18,22,.05),0 12px 30px -18px rgba(15,18,22,.25);
+ --r:16px;--gutter:18px;--sh:0 1px 2px rgba(15,18,22,.05),0 12px 30px -18px rgba(15,18,22,.25);
  --control-font:16px;--tabbar-h:0px;--kb:0px;
  --fab-safe:calc(var(--tabbar-h) + 44px + 12px + env(safe-area-inset-bottom));
  --s1:#0b6b4f;--s2:#24597f;--s3:#9a5b12;--s4:#7a5c9e;--s5:#a32b22;--s6:#0e7c86;--gold:#a8801f;
@@ -65,7 +65,7 @@ nav button{border:0;background:none;font:inherit;font-size:13.5px;color:var(--mu
  padding:7px 12px;border-radius:9px;cursor:pointer;white-space:nowrap}
 nav button[aria-current="page"]{background:var(--card);color:var(--ink);font-weight:620;
  box-shadow:0 1px 2px rgba(0,0,0,.06)}
-.wrap{max-width:1040px;margin:0 auto;padding:24px 18px calc(12px + var(--fab-safe) + var(--kb))}
+.wrap{max-width:1040px;margin:0 auto;padding:24px var(--gutter) calc(12px + var(--fab-safe) + var(--kb))}
 /* The tab bar, the privacy toggle and the help control are fixed. Both the end
    of the page and a control scrolled into view stop above that band. */
 html{scroll-padding-bottom:calc(12px + var(--fab-safe) + var(--kb))}
@@ -778,6 +778,9 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 textarea.inline-input{resize:vertical;min-height:48px}
 @media (max-width:600px){.kv-row{grid-template-columns:1fr;gap:2px}.kv-row .k{margin-top:7px}}
 .timeline{margin-top:2px}
+.tl-bleed{margin-left:calc(var(--gutter) * -1);margin-right:calc(var(--gutter) * -1);border-radius:initial;box-shadow:none}
+.tl-bleed .tl-row{padding-left:var(--gutter);padding-right:var(--gutter)}
+.tl-bleed .tl-row:hover{border-radius:initial}
 .tl-row{display:grid;grid-template-columns:16px 54px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 0;text-decoration:none;color:inherit;border-bottom:1px solid var(--hair)}
 .tl-row:last-child{border-bottom:0}
 .tl-row:hover{background:var(--hair);border-radius:10px}
@@ -834,7 +837,7 @@ textarea.inline-input{resize:vertical;min-height:48px}
   .tabbar button{border:0;background:none;font:inherit;font-size:9.5px;color:var(--muted);
     padding:6px 1px;border-radius:8px;white-space:nowrap}
   .tabbar button[aria-current="page"]{color:var(--green);font-weight:700}
-  .wrap{padding:18px 14px calc(12px + var(--fab-safe) + var(--kb))}
+  .wrap{--gutter:14px;padding:18px var(--gutter) calc(12px + var(--fab-safe) + var(--kb))}
   h1{font-size:21px}
   .hero{padding:20px 18px}
   .hero .num{font-size:32px;white-space:normal;word-break:break-word}
@@ -15949,7 +15952,7 @@ async function renderRealUpcoming(host) {
     const rowsFor = (g) => `<h2 style="display:flex;justify-content:space-between;
       align-items:baseline;gap:12px;margin:18px 0 6px">${monthName(g.key)}
       <span class="muted" style="font-size:12px;font-weight:400">${money(g.total)}</span></h2>
-      <div class="card"><div class="timeline">${g.items.map((x) => {
+      <div class="card tl-bleed"><div class="timeline">${g.items.map((x) => {
         const d = new Date(x.date + "T00:00:00Z");
         const mon = d.toLocaleString("en-IN", { month: "short", timeZone: "UTC" }).toUpperCase();
         const label = x.cat === "insurance" ? "policy amount" : "at maturity";
