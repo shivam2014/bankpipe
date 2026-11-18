@@ -1,53 +1,53 @@
 // Holdings file import. Broker and depository exports vary, so this reads the
-// header row it finds and maps the usual aliases. Pure functions: the caller
-// owns the file, the preview and the database write.
+// header row it finds and resolves columns by name through the alias table
+// below. A required number that cannot be read refuses the file with the row
+// and column, rather than importing a partial ledger. Pure functions: the
+// caller owns the file, the preview and the database write.
 
-const FIELDS = [
-  ["security_id", ["isin", "isin code", "security id", "scrip code", "symbol", "ticker"]],
-  ["label", ["security name", "security", "instrument", "scrip", "company", "scheme",
-    "description", "name"]],
-  ["quantity", ["quantity", "qty", "units", "holding qty", "balance"]],
-  ["cost", ["buy value", "cost value", "amount invested", "total cost", "acquisition cost",
-    "purchase value", "invested", "cost"]],
-  ["value", ["current value", "market value", "present value", "current amount",
-    "valuation", "value"]],
-  ["purchase_date", ["purchase date", "date of purchase", "buy date", "acquisition date"]],
-  ["interest_date", ["next payout date", "interest date", "coupon date"]],
-  ["rating", ["rating", "credit rating"]],
-  ["frequency", ["frequency", "payout frequency", "interest frequency",
-    "coupon frequency", "payment frequency"]],
-  ["yield_pct", ["yield", "ytm", "yield to maturity", "purchase yield"]],
-  ["payout", ["next payout amount", "payout amount", "coupon amount", "payout"]],
-];
+import { resolveColumns, readNumber, parseAmount, parseDate,
+  refusalResult } from "./table-schema.js";
 
-const norm = (v) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+// Every spelling a holdings table may print for a field. `loose` accepts a
+// header that starts or ends with the alias, for "Quantity (Units)" and
+// "Holding Quantity"; a field without it must match its alias exactly.
+export const HOLDINGS_SCHEMA = {
+  security_id: { label: "ISIN or Symbol", loose: true,
+    aliases: ["isin", "isin code", "security id", "scrip code", "symbol", "ticker"] },
+  label: { label: "Security name", loose: true,
+    aliases: ["security name", "security", "instrument", "scrip", "company", "scheme",
+      "description", "name"] },
+  quantity: { label: "Quantity", loose: true,
+    aliases: ["quantity", "qty", "units", "holding qty", "balance"] },
+  cost: { label: "Buy value", loose: true,
+    aliases: ["buy value", "cost value", "amount invested", "total cost", "acquisition cost",
+      "purchase value", "invested", "cost"] },
+  value: { label: "Current value", loose: true,
+    aliases: ["current value", "market value", "present value", "current amount",
+      "valuation", "value"] },
+  purchase_date: { label: "Purchase date", loose: true,
+    aliases: ["purchase date", "date of purchase", "buy date", "acquisition date"] },
+  interest_date: { label: "Interest date", loose: true,
+    aliases: ["next payout date", "interest date", "coupon date"] },
+  rating: { label: "Rating", loose: true, aliases: ["rating", "credit rating"] },
+  frequency: { label: "Frequency", loose: true,
+    aliases: ["frequency", "payout frequency", "interest frequency",
+      "coupon frequency", "payment frequency"] },
+  yield_pct: { label: "Yield", loose: true,
+    aliases: ["yield", "ytm", "yield to maturity", "purchase yield"] },
+  payout: { label: "Next payout", loose: true,
+    aliases: ["next payout amount", "payout amount", "coupon amount", "payout"] },
+};
 
-function fieldForHeader(text) {
-  const n = norm(text);
-  if (!n) return null;
-  for (const [field, names] of FIELDS) {
-    if (names.includes(n)) return field;
-  }
-  for (const [field, names] of FIELDS) {
-    if (names.some((x) => n === x || n.startsWith(x + " ") || n.endsWith(" " + x))) {
-      return field;
-    }
-  }
-  return null;
-}
+export { parseDate };
 
-export function parseHoldingsMatrix(matrix) {
+export function parseHoldingsMatrix(matrix, source = {}) {
   const rows = Array.isArray(matrix) ? matrix : [];
   let best = null;
   for (let r = 0; r < Math.min(rows.length, 30); r++) {
-    const map = {};
-    let hits = 0;
-    (rows[r] || []).forEach((cell, c) => {
-      const field = fieldForHeader(cell);
-      if (field && map[field] === undefined) { map[field] = c; hits++; }
-    });
-    const usable = hits >= 3 && (map.label !== undefined || map.security_id !== undefined);
-    if (usable && (!best || hits > best.hits)) best = { row: r, map, hits };
+    const { columns, labels } = resolveColumns(rows[r], HOLDINGS_SCHEMA);
+    const hits = Object.keys(columns).length;
+    const usable = hits >= 3 && (columns.label !== undefined || columns.security_id !== undefined);
+    if (usable && (!best || hits > best.hits)) best = { row: r, columns, labels, hits };
   }
   if (!best) {
     return { rows: [], headerRow: -1, columns: {}, skipped: 0,
@@ -56,89 +56,58 @@ export function parseHoldingsMatrix(matrix) {
   }
   const out = [];
   let skipped = 0;
-  for (let r = best.row + 1; r < rows.length; r++) {
-    const row = rows[r] || [];
-    const cell = (field) => best.map[field] === undefined ? "" : row[best.map[field]];
-    const label = String(cell("label") || "").replace(/\s+/g, " ").trim();
-    const securityId = String(cell("security_id") || "").replace(/\s+/g, " ").trim();
-    if (!label && !securityId) { skipped++; continue; }
-    if (/^(grand\s*)?total$/i.test(label) || /^(grand\s*)?total$/i.test(securityId)) {
-      skipped++;
-      continue;
+  const where = { file: source.file || "", table: source.table || "holdings" };
+  try {
+    for (let r = best.row + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const cell = (field) => best.columns[field] === undefined ? "" : row[best.columns[field]];
+      const label = String(cell("label") || "").replace(/\s+/g, " ").trim();
+      const securityId = String(cell("security_id") || "").replace(/\s+/g, " ").trim();
+      if (!label && !securityId) { skipped++; continue; }
+      if (/^(grand\s*)?total$/i.test(label) || /^(grand\s*)?total$/i.test(securityId)) {
+        skipped++;
+        continue;
+      }
+      const quantity = readNumber(row, best.columns, "quantity",
+        { where, schema: HOLDINGS_SCHEMA, rowNumber: r + 1 });
+      const cost = readNumber(row, best.columns, "cost",
+        { where, schema: HOLDINGS_SCHEMA, rowNumber: r + 1 });
+      const value = readNumber(row, best.columns, "value",
+        { where, schema: HOLDINGS_SCHEMA, rowNumber: r + 1 });
+      const yieldPct = readNumber(row, best.columns, "yield_pct",
+        { where, schema: HOLDINGS_SCHEMA, rowNumber: r + 1 });
+      // A zero-quantity line is a closed position, not a holding.
+      if (quantity !== null && quantity <= 0) { skipped++; continue; }
+      if (quantity === null && value === null && cost === null) { skipped++; continue; }
+      out.push({
+        security_id: securityId,
+        label,
+        category: "",
+        rating: String(cell("rating") || "").replace(/\s+/g, " ").trim(),
+        frequency: String(cell("frequency") || "").replace(/\s+/g, " ").trim(),
+        yield_bps: yieldPct === null ? null : Math.round(yieldPct * 100),
+        payout_paise: parseMoney(cell("payout")),
+        quantity,
+        cost_paise: cost === null ? null : Math.round(cost * 100),
+        value_paise: value === null ? null : Math.round(value * 100),
+        purchase_date: parseDate(cell("purchase_date")),
+        interest_date: parseDate(cell("interest_date")),
+        source_row: r + 1,
+      });
     }
-    const quantity = parseNumber(cell("quantity"));
-    const cost = parseMoney(cell("cost"));
-    const value = parseMoney(cell("value"));
-    const yieldPct = parseNumber(cell("yield_pct"));
-    // A zero-quantity line is a closed position, not a holding.
-    if (quantity !== null && quantity <= 0) { skipped++; continue; }
-    if (quantity === null && value === null && cost === null) { skipped++; continue; }
-    out.push({
-      security_id: securityId,
-      label,
-      category: "",
-      rating: String(cell("rating") || "").replace(/\s+/g, " ").trim(),
-      frequency: String(cell("frequency") || "").replace(/\s+/g, " ").trim(),
-      yield_bps: yieldPct === null ? null : Math.round(yieldPct * 100),
-      payout_paise: parseMoney(cell("payout")),
-      quantity,
-      cost_paise: cost,
-      value_paise: value,
-      purchase_date: parseDate(cell("purchase_date")),
-      interest_date: parseDate(cell("interest_date")),
-      source_row: r + 1,
-    });
+  } catch (error) {
+    return { rows: [], headerRow: best.row, columns: best.columns, skipped, ...refusalResult(error) };
   }
-  return { rows: out, headerRow: best.row, columns: best.map, skipped };
+  return { rows: out, headerRow: best.row, columns: best.columns, skipped };
 }
 
 export function parseNumber(raw) {
-  if (raw === null || raw === undefined || raw === "") return null;
-  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
-  const s = String(raw).replace(/[,\s]/g, "").replace(/[₹$]/g, "");
-  if (!/^\(?-?\d+(\.\d+)?\)?$/.test(s)) return null;
-  const negative = /^\(.*\)$/.test(s);
-  const v = Number(s.replace(/[()]/g, ""));
-  if (!Number.isFinite(v)) return null;
-  return negative ? -v : v;
+  return parseAmount(raw);
 }
 
 export function parseMoney(raw) {
-  const v = parseNumber(raw);
-  return v === null ? null : Math.round(v * 100);
-}
-
-export function parseDate(raw) {
-  if (raw === null || raw === undefined || raw === "") return "";
-  if (raw instanceof Date && !isNaN(raw)) return raw.toISOString().slice(0, 10);
-  if (typeof raw === "number" && raw > 20000) {
-    const d = new Date(Date.UTC(1899, 11, 30) + raw * 86400000);
-    return d.toISOString().slice(0, 10);
-  }
-  const s = String(raw).trim();
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
-  if (m) {
-    const year = Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]);
-    // Indian files are day-first unless the first number cannot be a day.
-    let day = Number(m[1]), month = Number(m[2]);
-    if (day > 12 && month <= 12) { /* day-first */ }
-    else if (month > 12) { [day, month] = [month, day]; }
-    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  }
-  m = s.match(/^(\d{1,2})[\s-]+([A-Za-z]{3,9})[\s-]+(\d{2,4})$/);
-  if (m) {
-    const months = ["jan", "feb", "mar", "apr", "may", "jun",
-      "jul", "aug", "sep", "oct", "nov", "dec"];
-    const month = months.indexOf(m[2].slice(0, 3).toLowerCase()) + 1;
-    // A two-digit year must not reach `new Date`, which reads it in local time and
-    // then shifts the day when it is turned back into UTC.
-    const year = Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]);
-    if (month) return `${year}-${String(month).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-  }
-  const d = new Date(s);
-  return isNaN(d) ? "" : d.toISOString().slice(0, 10);
+  const value = parseAmount(raw);
+  return value === null ? null : Math.round(value * 100);
 }
 
 const keyOf = (r) => String(r.security_id || r.label || "").trim().toLowerCase();

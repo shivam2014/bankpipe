@@ -193,7 +193,7 @@ test("the page routes a tradebook XLSX through parseTradebookMatrix", () => {
     html.indexOf("} else {", html.indexOf('} else if (ext === "xlsx"')));
   assert.match(xlsxBranch, /detected\.kind === "zerodha-tradebook"/,
     "the XLSX branch accepts a tradebook");
-  assert.match(xlsxBranch, /parseTradebookMatrix\(sheet\)/,
+  assert.match(xlsxBranch, /parseTradebookMatrix\(sheet, \{ file: entry\.name \}\)/,
     "the XLSX branch parses the matrix, not a missing text body");
 });
 

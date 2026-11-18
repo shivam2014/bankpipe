@@ -12,6 +12,7 @@
 // the parser working when a section prints a different set of columns.
 
 import { parseDate as parseAnyDate, parseMoney, parseNumber } from "./holding-import.js";
+import { tableWhere } from "./table-schema.js";
 import { parseBondLabel, bondLabelName } from "./bonds.js";
 
 const ISIN_RE = /^IN[A-Z0-9]{10}$/;
@@ -97,26 +98,46 @@ function reportClientUcid(items) {
   return "";
 }
 
+// Every spelling Motilal has printed for a column, in the order a role wins.
+// Matching is a plain substring on the compacted label, so "Investment Amount",
+// "Amount Invested" and "Investment" all reach cost. A new spelling is one
+// entry here plus the test that reads it.
+export const MOTILAL_COLUMNS = [
+  { role: "isin", aliases: ["isin"] },
+  { role: "name", aliases: ["instrument", "scheme", "security", "scrip", "description",
+    "company", "symbol"] },
+  { role: "face", aliases: ["principle", "principal", "facevalue", "faceamount"] },
+  { role: "maturity", aliases: ["maturity"] },
+  { role: "coupon", aliases: ["coupon", "interestrate", "ratepercent", "rate"] },
+  { role: "frequency", aliases: ["frequency"] },
+  { role: "purchaseDate", aliases: ["investmentdate", "purchasedate", "buydate",
+    "dateofinvestment", "dateofpurchase", "dateofbuy", "dateinvestment", "datepurchase",
+    "datebuy"] },
+  { role: "last", aliases: ["lastprice"] },
+  { role: "marketValue", aliases: ["marketvalue", "currentvalue"] },
+  { role: "marketPrice", aliases: ["marketprice", "marketnav", "currentprice",
+    "currentnav", "navprice", "nav"] },
+  { role: "rating", aliases: ["rating"] },
+  { role: "qty", aliases: ["qty", "quantity", "units", "holding", "balance"] },
+  { role: "avgPrice", aliases: ["avg", "average", "buyprice", "purchaseprice",
+    "purchasecost", "costprice"] },
+  { role: "cost", aliases: ["investmentamount", "investedamount", "amountinvested",
+    "investmentvalue", "costvalue", "costamount", "totalcost", "buyvalue", "buyamount",
+    "buycost", "investment", "invested", "amount", "cost"] },
+];
+
+const ROLE_LABEL = {
+  isin: "ISIN", name: "Instrument", face: "Principle", maturity: "Maturity",
+  coupon: "Coupon", frequency: "Frequency", purchaseDate: "Investment Date",
+  last: "Last Price", marketValue: "Market Value", marketPrice: "Market Price",
+  rating: "Rating", qty: "Qty", avgPrice: "Avg Price", cost: "Investment Amount",
+};
+
 function roleFor(label) {
   const key = compact(label);
   if (!key) return "";
-  if (key === "isin") return "isin";
-  if (/instrument|scheme|security|scrip|description|company|symbol/.test(key)) return "name";
-  if (/principl|principal|facevalue|faceamount/.test(key)) return "face";
-  if (/maturity/.test(key)) return "maturity";
-  if (/coupon|interestrate|ratepercent|rate/.test(key)) return "coupon";
-  if (/frequency/.test(key)) return "frequency";
-  if (/(investment|purchase|buy)date|dateof(investment|purchase|buy)|date(investment|purchase|buy)/.test(key)) {
-    return "purchaseDate";
-  }
-  if (/lastprice/.test(key)) return "last";
-  if (/marketvalue|currentvalue/.test(key)) return "marketValue";
-  if (/marketprice|marketnav|currentprice|currentnav|^nav$|navprice/.test(key)) return "marketPrice";
-  if (/rating/.test(key)) return "rating";
-  if (/^(qty|quantity|units|holding|balance)/.test(key)) return "qty";
-  if (/avg|average|buyprice|purchaseprice|purchasecost|costprice/.test(key)) return "avgPrice";
-  if (/investmentamount|investedamount|amountinvested|investmentvalue|costvalue|costamount|totalcost|buyvalue|buyamount|buycost|^investment$|^invested$|^amount$/.test(key)) {
-    return "cost";
+  for (const { role, aliases } of MOTILAL_COLUMNS) {
+    if (aliases.some((alias) => key.includes(alias))) return role;
   }
   return "";
 }
@@ -298,10 +319,34 @@ function rowFromBand(band, columns, section, sourceRow) {
   const value = (role) => (byRole.has(role) ? cellText(byRole.get(role)) : "");
   const isin = value("isin").toUpperCase();
   if (!ISIN_RE.test(isin)) return null;
+  // Two numbers in one column is a geometry error, not a value. Joining them
+  // would fuse "10" and "1,00,000" into 10100000, so the row is refused.
+  for (const role of ["qty", "cost", "face"]) {
+    const items = byRole.get(role) || [];
+    const numbered = items.filter((item) => /\d/.test(item.str));
+    if (numbered.length > 1) {
+      return { problem: { column: ROLE_LABEL[role], row: sourceRow,
+        value: cellText(items),
+        reason: "holds more than one number, so the column is ambiguous" } };
+    }
+  }
   const label = value("name").replace(/\s*-\s*/g, "-");
-  const cost = parseMoney(value("cost"));
-  const face = parseMoney(value("face"));
-  const quantity = parseNumber(value("qty"));
+  const rawCost = value("cost");
+  const rawFace = value("face");
+  const rawQty = value("qty");
+  const cost = parseMoney(rawCost);
+  const face = parseMoney(rawFace);
+  const quantity = parseNumber(rawQty);
+  // A cell that holds digits and still does not parse is a broken column, not
+  // a blank. Saying which column and which row is better than a holding with a
+  // missing quantity or cost.
+  for (const [role, raw, parsed] of [["cost", rawCost, cost], ["face", rawFace, face],
+    ["qty", rawQty, quantity]]) {
+    if (parsed === null && /\d/.test(raw)) {
+      return { problem: { column: ROLE_LABEL[role], row: sourceRow, value: raw,
+        reason: "is not a number" } };
+    }
+  }
   if (cost === null && !label && quantity === null) return null;
   return {
     isin,
@@ -320,31 +365,48 @@ function rowFromBand(band, columns, section, sourceRow) {
   };
 }
 
-function parseSection(items, heading, bottom) {
+function parseSection(items, heading, bottom, { first = false } = {}) {
   const section = SECTION_OF[plain(heading.str)];
-  if (!section) return [];
+  if (!section) return { rows: [], problem: null };
   const after = items.filter((item) => item.page === heading.page
     && item.y < heading.y && item.y > bottom);
   const header = after
     .filter((item) => compact(item.str) === "isin")
     .sort((a, b) => b.y - a.y)[0];
-  if (!header) return [];
+  // A section with no table is legitimate: it may be empty, or say so. A
+  // section that holds ISIN rows but no readable header is a changed layout,
+  // and that is the case worth refusing.
+  const hasRows = after.some((item) => ISIN_RE.test(plain(item.str)));
+  const saysEmpty = after.some((item) =>
+    /no\s+records?\s+found|no\s+holdings?|nothing\s+to\s+report/i.test(item.str));
+  if (!header) {
+    return { rows: [], problem: first && hasRows && !saysEmpty
+      ? { column: "ISIN", row: null,
+        reason: "no table header under the section heading names an ISIN column" }
+      : null };
+  }
   const headerItems = after.filter((item) => item.y <= header.y + HEADER_ABOVE
     && item.y >= header.y - HEADER_BELOW);
   const columns = headerColumns(headerItems);
-  if (!columns.some((column) => column.role === "isin")) return [];
-  if (!columns.some((column) => column.role === "qty")
-      && !columns.some((column) => column.role === "cost")) return [];
   const headerBottom = Math.min(...headerItems.map((item) => item.y));
   const anchors = after
     .filter((item) => item.y < header.y - 10 && ISIN_RE.test(plain(item.str)))
     .sort((a, b) => b.y - a.y);
-  if (!anchors.length) return [];
+  if (!anchors.length) return { rows: [], problem: null };
+  if (!columns.some((column) => column.role === "isin")) {
+    return { rows: [], problem: { column: "ISIN", row: null,
+      reason: "the table header does not name an ISIN column" } };
+  }
+  if (!columns.some((column) => column.role === "qty")
+      && !columns.some((column) => column.role === "cost")) {
+    return { rows: [], problem: { column: "Qty or Investment Amount", row: null,
+      reason: "the table header names neither a quantity nor an investment amount column" } };
+  }
   const total = buildLines(after)
     .filter((line) => /^total\b/i.test(line.text) && line.y < anchors[anchors.length - 1].y)
     .sort((a, b) => b.y - a.y)[0];
   const rows = [];
-  anchors.forEach((anchor, index) => {
+  for (const [index, anchor] of anchors.entries()) {
     const top = index === 0
       ? (headerBottom + anchor.y) / 2
       : (anchors[index - 1].y + anchor.y) / 2;
@@ -353,13 +415,14 @@ function parseSection(items, heading, bottom) {
       : (total ? (anchor.y + total.y) / 2 : anchor.y - 15);
     const band = after.filter((item) => item.y <= top && item.y > bottomY);
     const row = rowFromBand(band, columns, section, index + 1);
+    if (row?.problem) return { rows: [], problem: row.problem };
     if (row) rows.push(row);
-  });
-  return rows;
+  }
+  return { rows, problem: null };
 }
 
 // `pages` is the shape returned by extractPdf: [{ items: [{ str, x, y, width }] }].
-export function parseMotilalPages(pages) {
+export function parseMotilalPages(pages, source = {}) {
   const items = itemsOf(pages);
   if (!items.length) {
     return { rows: [], sections: [], asOf: "", clientUcid: "",
@@ -381,13 +444,28 @@ export function parseMotilalPages(pages) {
   // so a table that spills over is read page by page.
   const rows = [];
   const sections = [];
+  const seen = new Set();
   for (const heading of headings) {
-    if (!sections.includes(SECTION_OF[heading.title])) sections.push(SECTION_OF[heading.title]);
+    const section = SECTION_OF[heading.title];
+    if (!sections.includes(section)) sections.push(section);
     const later = headings
       .filter((other) => other.page === heading.page && other.y < heading.y)
       .sort((a, b) => b.y - a.y)[0];
     const bottom = later ? later.y : -1;
-    rows.push(...parseSection(items, heading, bottom));
+    const first = !seen.has(section);
+    seen.add(section);
+    const parsed = parseSection(items, heading, bottom, { first });
+    if (parsed.problem) {
+      const at = tableWhere({ file: source.file || "", table: heading.title });
+      const detail = parsed.problem.row === null || parsed.problem.row === undefined
+        ? `${parsed.problem.column}: ${parsed.problem.reason}`
+        : `${parsed.problem.column} ${parsed.problem.reason} on row ${parsed.problem.row} `
+          + `(${JSON.stringify(parsed.problem.value)})`;
+      return { rows: [], sections, asOf: reportAsOf(items),
+        clientUcid: reportClientUcid(items),
+        error: `${at}: ${detail}. The section cannot be read, so nothing was imported.` };
+    }
+    rows.push(...parsed.rows);
   }
   const byIsin = new Map();
   for (const row of rows) {
