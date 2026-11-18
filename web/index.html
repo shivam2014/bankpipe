@@ -2675,7 +2675,7 @@ window.bpHoldingsFile = async (file) => {
     const wb = XLSX.read(buf, { type: "array" });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
-    const parsed = parseHoldingsMatrix(matrix);
+    const parsed = parseHoldingsMatrix(matrix, { file: file.name, table: "holdings" });
     if (!parsed.rows.length) throw new Error(parsed.error || "No holdings found in this file.");
     window.bpHoldingsRows = parsed.rows;
     window.bpHoldingsFileName = file.name;
@@ -8276,7 +8276,7 @@ async function bpImportInboxReadOne(entry) {
       detected = detectImportFile({ name: entry.name, text: body });
       if (detected.kind === "motilal") {
         const { parseMotilalPages } = await import("./motilal.js");
-        const parsed = parseMotilalPages(pdf.pages);
+        const parsed = parseMotilalPages(pdf.pages, { file: entry.name });
         if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = "motilal";
@@ -8343,6 +8343,7 @@ async function bpImportInboxReadOne(entry) {
       if (detected.kind === "digifinn-portfolio") {
         const parsed = parsePortfolioReport(body, entry.name);
         if (!parsed) throw new Error("That is not the DigiFInn holdings report.");
+        if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
         entry.broker = "digifinn";
@@ -8357,6 +8358,7 @@ async function bpImportInboxReadOne(entry) {
       } else if (detected.kind === "digifinn-investment") {
         const parsed = parseInvestmentReport(body, entry.name);
         if (!parsed) throw new Error("That is not the DigiFInn investment report.");
+        if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
         entry.broker = "digifinn";
@@ -8367,6 +8369,7 @@ async function bpImportInboxReadOne(entry) {
       } else if (detected.kind === "digifinn-transactions") {
         const parsed = parseTransactionReport(body, entry.name);
         if (!parsed) throw new Error("That is not the DigiFInn transactions report.");
+        if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
         entry.broker = "digifinn";
@@ -8380,6 +8383,7 @@ async function bpImportInboxReadOne(entry) {
       } else if (detected.kind === "digifinn-payouts") {
         const parsed = parsePayoutReport(body, entry.name);
         if (!parsed) throw new Error("That is not the DigiFInn payouts report.");
+        if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
         entry.broker = "digifinn";
@@ -8390,6 +8394,7 @@ async function bpImportInboxReadOne(entry) {
       } else if (detected.kind === "digifinn-cashflow") {
         const parsed = parseCashflowReport(body, entry.name);
         if (!parsed) throw new Error("That is not the DigiFInn cashflow report.");
+        if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
         entry.broker = "digifinn";
@@ -8401,7 +8406,7 @@ async function bpImportInboxReadOne(entry) {
           investmentDate: group.investment_date,
         }));
       } else if (detected.kind === "zerodha-tradebook") {
-        const parsed = parseTradebook(body);
+        const parsed = parseTradebook(body, { file: entry.name });
         if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
@@ -8426,7 +8431,7 @@ async function bpImportInboxReadOne(entry) {
         if (found.kind !== "unknown") { detected = found; break; }
       }
       if (detected.kind === "zerodha-tradebook") {
-        const parsed = sheets.map((sheet) => parseTradebookMatrix(sheet))
+        const parsed = sheets.map((sheet) => parseTradebookMatrix(sheet, { file: entry.name }))
           .find((result) => !result.error);
         if (!parsed) throw new Error("The tradebook has no readable trades.");
         entry.parsed = parsed;
@@ -8438,7 +8443,7 @@ async function bpImportInboxReadOne(entry) {
         if (detected.kind !== "zerodha-holdings") {
           throw new Error("This spreadsheet is not a Zerodha holdings export. Nothing was read.");
         }
-        const parsed = parseZerodhaHoldingsSheets(sheets, wb.SheetNames);
+        const parsed = parseZerodhaHoldingsSheets(sheets, wb.SheetNames, { file: entry.name });
         if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = "zerodha-holdings";
@@ -9454,7 +9459,7 @@ window.bpCasFile = async (file, hostId = "cas-host") => {
       .map((item) => item.str).join(" ");
     const detected = detectImportFile({ name: file.name, text: body });
     if (detected.kind === "motilal") {
-      const parsed = parseMotilalPages(pdf.pages);
+      const parsed = parseMotilalPages(pdf.pages, { file: file.name });
       window.bpCasWrongFile = { file, pdf, parsed };
       host.innerHTML = `<div class="import-wrong">
         <b>This is a Motilal holdings report, not a CAS.</b>
@@ -10009,6 +10014,10 @@ window.bpCostFile = async (file, opts = {}) => {
         with ISIN, Bond Name, Purchase date, Qty and Investment Value.`);
       return;
     }
+    if (parsed.error) {
+      fail(esc(parsed.error));
+      return;
+    }
     if (!parsed.rows.length) {
       fail(`The ${esc(broker.label)} Portfolio Report has no rows. Download it again.`);
       return;
@@ -10181,6 +10190,10 @@ window.bpCashflowFile = async (file, opts = {}) => {
       fail(`That is not the ${esc(broker.label)} Upcoming Payouts report. Open
         ${esc(broker.page?.where || "Reports")} on ${esc(broker.label)} and download
         <code>upcoming-payouts.csv</code>.`);
+      return;
+    }
+    if (parsed.error) {
+      fail(esc(parsed.error));
       return;
     }
     if (!parsed.groups?.length) {
@@ -10611,7 +10624,7 @@ window.bpMotilalFile = async (file, opts = {}) => {
     const extracted = await extractPdf(await file.arrayBuffer(), {
       onPassword: (attempt) => motilalPrompt(host, file.name, attempt?.wrong),
     });
-    const parsed = parseMotilalPages(extracted.pages);
+    const parsed = parseMotilalPages(extracted.pages, { file: file.name });
     if (parsed.error) {
       host.innerHTML = `<div class="card pad eq-error">${esc(parsed.error)}</div>`;
       return;
@@ -10752,6 +10765,7 @@ window.bpImportBroker = async (slot, brokerId, file) => {
           <code>${esc((brokerReport(broker.id, "payouts")?.files || [])[0] || "the CSV")}</code>.`);
       return;
     }
+    if (parsed.error) { fail(esc(parsed.error)); return; }
     const store = await import("./db.js");
     const demats = (await store.listAccounts()).filter((a) => categoryOf(a) === "demat");
     if (!demats.length) {
@@ -13244,7 +13258,7 @@ window.bpBondCsvImport = (id) => {
       const sheet = book.Sheets[book.SheetNames[0]];
       const matrix = window.XLSX.utils.sheet_to_json(sheet,
         { header: 1, raw: true, defval: "" });
-      const parsed = parseHoldingsMatrix(matrix);
+      const parsed = parseHoldingsMatrix(matrix, { file: file.name, table: "holdings" });
       if (!parsed.rows.length) throw new Error(parsed.error || "No holdings found.");
       window.bpBondCsvRows = parsed.rows;
       window.bpBondCsvName = file.name;

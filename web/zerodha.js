@@ -3,18 +3,58 @@
 // quantity and value from the CAS and uses this file only for cost.
 //
 // Kite prints three sheets: Equity, Mutual Funds and a Combined duplicate. A
-// sheet is holdings only when its header row carries ISIN and Quantity
-// Available; everything above it is preamble. Columns are found by name, so a
-// shifted Combined sheet and a renamed sheet still read.
+// sheet is holdings only when a row carries ISIN and a quantity name; the
+// header is found by those names, so a shifted Combined sheet, a preamble of
+// any length and a renamed sheet still read. Every column is resolved through
+// ZERODHA_HOLDINGS_SCHEMA: a spelling the table does not list is a named
+// refusal, never a silently empty import.
+
+import { findHeaderRow, headerMessage, cellText, readNumber,
+  refusalResult, parseDate, tableWhere } from "./table-schema.js";
 
 const text = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
-const num = (v) => {
-  const n = Number(String(v ?? "").replace(/,/g, "").replace(/%$/, "").trim());
-  return Number.isFinite(n) ? n : null;
-};
-const key = (v) => text(v).toLowerCase().replace(/[^a-z0-9]/g, "");
 const ISIN = /^IN[A-Z0-9]{10}$/;
 const FUND_ISIN = /^INF/i;
+
+// Every spelling Kite has printed for a holdings column. Only ISIN, quantity
+// and average price are required: without any one of them a row cannot become
+// a holding, and the refusal names the one that is missing.
+export const ZERODHA_HOLDINGS_SCHEMA = {
+  isin: { label: "ISIN", aliases: ["ISIN", "ISIN Code"], required: true },
+  qty: { label: "Quantity Available", required: true,
+    aliases: ["Quantity Available", "Quantity", "Qty", "Units",
+      "Quantity Available for Trading"] },
+  avg: { label: "Average Price", required: true,
+    aliases: ["Average Price", "Avg Price", "Average Cost", "Avg Cost",
+      "Buy Avg", "Average Buy Price", "Buy Average"] },
+  symbol: { label: "Symbol",
+    aliases: ["Symbol", "Trading Symbol", "Scrip", "Instrument"] },
+  sector: { label: "Sector",
+    aliases: ["Sector", "Instrument Type", "Asset Type"] },
+  longTerm: { label: "Quantity Long Term",
+    aliases: ["Quantity Long Term", "Long Term Quantity", "Qty Long Term"] },
+  pledgeMargin: { label: "Quantity Pledged (Margin)",
+    aliases: ["Quantity Pledged (Margin)", "Pledged Margin", "Quantity Pledged for Margin"] },
+  pledgeLoan: { label: "Quantity Pledged (Loan)",
+    aliases: ["Quantity Pledged (Loan)", "Pledged Loan", "Quantity Pledged for Loan"] },
+  close: { label: "Previous Closing Price",
+    aliases: ["Previous Closing Price", "Previous Close", "Closing Price", "LTP",
+      "Last Price", "Last Traded Price"] },
+  pnl: { label: "Unrealised P&L",
+    aliases: ["Unrealized P&L", "Unrealised P&L", "Unrealized PNL", "Unrealised PNL",
+      "P&L", "PNL"] },
+};
+
+// Detection asks only for the two names that make a sheet a holdings table, so
+// a workbook is not rejected because one optional column moved.
+export const ZERODHA_DETECTION_SCHEMA = {
+  isin: ZERODHA_HOLDINGS_SCHEMA.isin,
+  qty: ZERODHA_HOLDINGS_SCHEMA.qty,
+};
+
+export function looksLikeZerodhaHoldings(matrix) {
+  return Array.isArray(matrix) && findHeaderRow(matrix, ZERODHA_DETECTION_SCHEMA).index >= 0;
+}
 
 // The Client ID is a label, not a demat number, but it is the only identity a
 // holdings export carries. Keep it so a file with no CAS can become a
@@ -36,80 +76,110 @@ function clientIdFrom(rows, header) {
   return "";
 }
 
+// A date printed in prose above the table. The label decides where to look;
+// the shared date reader decides what the text means.
+function dateIn(line) {
+  const match = String(line || "").match(
+    /\b\d{4}-\d{1,2}-\d{1,2}\b|\b\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}\b|\b\d{1,2}[\s\-][A-Za-z]{3,9}[\s\-]\d{2,4}\b/);
+  return match ? parseDate(match[0]) : "";
+}
+
 function asOfFrom(rows, header) {
-  const cell = rows.slice(0, header).flat().map(text)
-    .find((line) => /statement\s+as\s+on/i.test(line));
-  return (cell?.match(/\d{4}-\d{2}-\d{2}/) || [])[0] || "";
+  const line = rows.slice(0, header).flat().map(text)
+    .find((cell) => /statement\s+as\s+on|as\s+on/i.test(cell));
+  return line ? dateIn(line) : "";
 }
 
-// One header row to column positions. Two names are enough to call it a
-// holdings table; every other column is optional and read only when present.
-function holdingsColumns(cells) {
-  const map = {};
-  for (const [c, cell] of (cells || []).entries()) {
-    const k = key(cell);
-    if (!k) continue;
-    if (k === "symbol") map.symbol = c;
-    else if (k === "isin") map.isin = c;
-    else if (k === "sector") map.sector = c;
-    else if (k === "instrumenttype" && map.sector === undefined) map.sector = c;
-    else if (k === "quantityavailable") map.qty = c;
-    else if (k === "quantitylongterm") map.longTerm = c;
-    else if (k === "averageprice" || k === "buyavg" || k === "averagecost") map.avg = c;
-    else if (k === "previousclosingprice" || k === "ltp" || k === "lastprice") map.close = c;
-    else if (k === "unrealizedpl" || k === "unrealisedpl" || k === "pnl") map.pnl = c;
-    else if (k === "quantitypledgedmargin") map.pledgeMargin = c;
-    else if (k === "quantitypledgedloan") map.pledgeLoan = c;
-  }
-  return map;
-}
-
-export function parseZerodhaHoldings(matrix) {
+/**
+ * Read one sheet of Kite holdings.
+ * @param {Array<Array<unknown>>} matrix
+ * @param {{file?: string, sheet?: string}} [source] where the sheet came from,
+ *   for a refusal a person can act on.
+ */
+export function parseZerodhaHoldings(matrix, source = {}) {
   const rows = Array.isArray(matrix) ? matrix : [];
-  let header = -1;
-  let cols = {};
-  for (let r = 0; r < rows.length; r++) {
-    const map = holdingsColumns(rows[r]);
-    if (map.isin !== undefined && map.qty !== undefined) {
-      header = r;
-      cols = map;
-      break;
-    }
+  const where = { file: source.file || "", sheet: source.sheet || "" };
+  const header = findHeaderRow(rows, ZERODHA_HOLDINGS_SCHEMA);
+  if (header.index < 0) {
+    const detail = headerMessage(where, ZERODHA_HOLDINGS_SCHEMA, header);
+    // Keep the file name's own case; only the generic "this file" opener needs
+    // a capital after the sentence before it.
+    const tail = detail.startsWith("this file")
+      ? `${detail.charAt(0).toUpperCase()}${detail.slice(1)}` : detail;
+    return { rows: [], asOf: "", clientId: "", skipped: 0,
+      error: `No holdings header found. ${tail}` };
   }
-  if (header < 0) {
-    return { rows: [], asOf: "", clientId: "", error: "No holdings header found in this file." };
-  }
+  const cols = header.columns;
   const out = [];
-  for (let r = header + 1; r < rows.length; r++) {
-    const cells = rows[r] || [];
-    const isin = text(cells[cols.isin]).toUpperCase();
-    if (!ISIN.test(isin)) continue;
-    const available = num(cells[cols.qty]) || 0;
-    const pledged = (num(cells[cols.pledgeMargin]) || 0)
-      + (num(cells[cols.pledgeLoan]) || 0);
-    // Kite's Quantity Available already excludes shares pledged for margin or
-    // a loan. Those shares are still owned, so the holding is available plus
-    // pledged, and pledged stays on the row for display. Subtracting it again
-    // would drop it from net worth.
-    const quantity = available + pledged;
-    const averagePrice = num(cells[cols.avg]);
-    if (!quantity || averagePrice === null || averagePrice <= 0) continue;
-    const row = {
-      symbol: cols.symbol === undefined ? "" : text(cells[cols.symbol]),
-      isin,
-      sector: cols.sector === undefined ? "" : text(cells[cols.sector]),
-      quantity,
-      pledged,
-      averagePrice,
-      previousClose: cols.close === undefined ? null : num(cells[cols.close]),
-      pnl: cols.pnl === undefined ? null : num(cells[cols.pnl]),
-    };
-    // Long term is a subset of the quantity already counted, never extra units.
-    if (cols.longTerm !== undefined) row.longTerm = num(cells[cols.longTerm]) || 0;
-    out.push(row);
+  let skipped = 0;
+  let unidentified = 0;
+  try {
+    for (let r = header.index + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const isin = cellText(row, cols, "isin").toUpperCase();
+      if (!ISIN.test(isin)) {
+        // A total, a subtitle or a blank line is not a holding. A row that
+        // carries numbers but no readable ISIN is a changed column, and the
+        // empty result at the end names that instead of importing nothing.
+        if (row.some((cell) => text(cell))) unidentified++;
+        else skipped++;
+        continue;
+      }
+      const available = readNumber(row, cols, "qty",
+        { where, schema: ZERODHA_HOLDINGS_SCHEMA, rowNumber: r + 1, required: true });
+      const averagePrice = readNumber(row, cols, "avg",
+        { where, schema: ZERODHA_HOLDINGS_SCHEMA, rowNumber: r + 1, required: true });
+      if (averagePrice < 0) {
+        return { rows: [], asOf: "", clientId: "", skipped,
+          error: `${tableWhere(where)}, row ${r + 1}: "Average Price" is negative (${averagePrice}), `
+            + "so the cost cannot be read." };
+      }
+      const pledged = (readNumber(row, cols, "pledgeMargin",
+        { where, schema: ZERODHA_HOLDINGS_SCHEMA, rowNumber: r + 1 }) || 0)
+        + (readNumber(row, cols, "pledgeLoan",
+          { where, schema: ZERODHA_HOLDINGS_SCHEMA, rowNumber: r + 1 }) || 0);
+      // Kite's Quantity Available already excludes shares pledged for margin or
+      // a loan. Those shares are still owned, so the holding is available plus
+      // pledged, and pledged stays on the row for display. Subtracting it again
+      // would drop it from net worth.
+      const quantity = available + pledged;
+      // A zero-quantity line is a closed position, not a holding. It is
+      // counted, so the drop is visible even though it is not a failure.
+      if (!quantity) { skipped++; continue; }
+      const row_ = {
+        symbol: cols.symbol === undefined ? "" : cellText(row, cols, "symbol"),
+        isin,
+        sector: cols.sector === undefined ? "" : cellText(row, cols, "sector"),
+        quantity,
+        pledged,
+        averagePrice,
+        previousClose: cols.close === undefined ? null
+          : readNumber(row, cols, "close",
+            { where, schema: ZERODHA_HOLDINGS_SCHEMA, rowNumber: r + 1 }),
+        pnl: cols.pnl === undefined ? null
+          : readNumber(row, cols, "pnl",
+            { where, schema: ZERODHA_HOLDINGS_SCHEMA, rowNumber: r + 1 }),
+      };
+      // Long term is a subset of the quantity already counted, never extra units.
+      if (cols.longTerm !== undefined) {
+        row_.longTerm = readNumber(row, cols, "longTerm",
+          { where, schema: ZERODHA_HOLDINGS_SCHEMA, rowNumber: r + 1 }) || 0;
+      }
+      out.push(row_);
+    }
+  } catch (error) {
+    return { rows: [], asOf: "", clientId: "", skipped, ...refusalResult(error) };
   }
-  return { rows: out, asOf: asOfFrom(rows, header), clientId: clientIdFrom(rows, header),
-    error: out.length ? null : "No holdings rows found in this file." };
+  const asOf = asOfFrom(rows, header.index);
+  const clientId = clientIdFrom(rows, header.index);
+  if (!out.length) {
+    const error = unidentified
+      ? `${tableWhere(where)}: ${unidentified} data row${unidentified === 1 ? " has" : "s have"} `
+        + "no readable ISIN, so no holding could be identified. The ISIN column may have been renamed."
+      : "No holdings rows found in this file.";
+    return { rows: [], asOf, clientId, skipped, headerRow: header.index, error };
+  }
+  return { rows: out, asOf, clientId, skipped, headerRow: header.index, error: null };
 }
 
 function sheetRole(name) {
@@ -130,14 +200,16 @@ function sheetEntry(item, index, names) {
 // The browser reads the XLSX into matrices; the sheet names say which table is
 // which. Combined repeats Equity and Mutual Funds, so it is read only when
 // neither of those produced a row. It never adds a second copy of an ISIN.
-export function parseZerodhaHoldingsSheets(sheets, names = []) {
+export function parseZerodhaHoldingsSheets(sheets, names = [], source = {}) {
   const list = Array.isArray(sheets) ? sheets : [];
   const sheetNames = Array.isArray(names) ? names : [];
   const entries = list.map((item, index) => sheetEntry(item, index, sheetNames))
     .filter(Boolean);
   const parsed = entries.map((entry) => {
     const role = sheetRole(entry.name);
-    return { ...entry, role, parsed: parseZerodhaHoldings(entry.rows) };
+    return { ...entry, role,
+      parsed: parseZerodhaHoldings(entry.rows,
+        { file: source.file || "", sheet: entry.name }) };
   });
   const usable = parsed.filter((entry) => !entry.parsed.error);
   const primary = usable.filter((entry) => entry.role === "equity" || entry.role === "fund");
@@ -149,6 +221,11 @@ export function parseZerodhaHoldingsSheets(sheets, names = []) {
   if (!chosen.length) {
     const sawHeader = parsed.some((entry) =>
       entry.parsed.error === "No holdings rows found in this file.");
+    // A sheet that has the names but a broken cell says so; the first refusal
+    // is the most specific explanation and is better than a generic one.
+    const refusal = parsed.find((entry) => entry.parsed.refusal);
+    if (refusal) return { rows: [], asOf: "", clientId: "", error: refusal.parsed.error,
+      refusal: refusal.parsed.refusal };
     return { rows: [], asOf: "", clientId: "",
       error: sawHeader ? "No holdings rows found in this file."
         : "No equity holdings sheet found in this file." };

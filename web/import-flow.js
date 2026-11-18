@@ -9,6 +9,12 @@ import { categoryOf, isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
 import { bondInputsMissing, bondMaturity, isDisposed, termSourceRank } from "./bonds.js";
+import { findHeaderRow, headerMessage, readDate, readNumber, cellText,
+  refusalResult, tableWhere } from "./table-schema.js";
+import { looksLikeZerodhaHoldings } from "./zerodha.js";
+import { PAYOUTS_DETECTION_SCHEMA } from "./digifinn.js";
+import { PORTFOLIO_DETECTION_SCHEMA, INVESTMENT_SCHEMA,
+  TRANSACTIONS_DETECTION_SCHEMA } from "./digifinn-reports.js";
 
 const norm = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const text = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -79,39 +85,34 @@ function dateInText(value) {
 }
 
 // A Kite holdings sheet is identified by its header, not by where the header
-// sits. The summary block above it can be any length, and the Combined sheet
-// shifts every column by one, so only the two required names matter.
+// sits. The summary block above it can be any length, the Combined sheet
+// shifts every column by one, and a renamed quantity column still counts; only
+// the two names that make a table a holdings table matter.
 function matrixLooksLikeHoldings(matrix) {
-  const rows = Array.isArray(matrix) ? matrix : [];
-  for (const row of rows) {
-    const cells = (row || []).map(norm);
-    if (cells.includes("isin") && cells.includes("quantity available")) return true;
-  }
-  return false;
+  return looksLikeZerodhaHoldings(matrix);
 }
 
 // A tradebook workbook uses the same first columns as a holdings export. Its
-// header lives in the matrix because there is no text body to scan, and the four
-// columns below are the ones parseTradebookRows needs.
+// header lives in the matrix because there is no text body to scan, and the
+// schema below is the same one the row reader uses.
+export const TRADEBOOK_SCHEMA = {
+  date: { label: "Trade Date", required: true,
+    aliases: ["Trade Date", "Date", "Order Date", "Trade Date & Time"] },
+  type: { label: "Trade Type", required: true,
+    aliases: ["Trade Type", "Type", "Order Type", "Buy/Sell"] },
+  quantity: { label: "Quantity", required: true,
+    aliases: ["Quantity", "Qty", "Units", "Quantity (Units)"] },
+  price: { label: "Price", required: true,
+    aliases: ["Price", "Trade Price", "Average Price", "Avg Price",
+      "Execution Price", "Price / Unit"] },
+  isin: { label: "ISIN", aliases: ["ISIN", "ISIN Code"] },
+  symbol: { label: "Symbol",
+    aliases: ["Symbol", "Stock", "Scrip", "Trading Symbol", "Instrument"] },
+};
+
 function matrixLooksLikeTradebook(matrix) {
   const rows = Array.isArray(matrix) ? matrix : [];
-  for (let i = 0; i < Math.min(rows.length, 40); i++) {
-    const cells = (rows[i] || []).map(norm);
-    if (cells.includes("trade date")
-      && (cells.includes("trade type") || cells.includes("type"))
-      && (cells.includes("quantity") || cells.includes("qty"))
-      && (cells.includes("price") || cells.includes("trade price"))) return true;
-  }
-  return false;
-}
-
-function headerRow(textBody, required) {
-  const rows = parseCsv(String(textBody || ""));
-  for (let i = 0; i < Math.min(rows.length, 40); i++) {
-    const cells = (rows[i] || []).map(norm);
-    if (required.every((name) => cells.includes(name))) return cells;
-  }
-  return null;
+  return findHeaderRow(rows, TRADEBOOK_SCHEMA).index >= 0;
 }
 
 /**
@@ -126,30 +127,36 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
     kind, family: IMPORT_KINDS[kind]?.family || "", broker: IMPORT_KINDS[kind]?.broker || "",
     label: IMPORT_KINDS[kind]?.label || "", confidence, asOf,
   });
-  if (matrixLooksLikeHoldings(matrix)) return info("zerodha-holdings", "content", "");
+  // A tradebook carries a date, a trade type and a price beside the ISIN; a
+  // holdings sheet has none of those names. Reading the more specific shape
+  // first keeps a tradebook from being taken for a holdings export.
   if (matrixLooksLikeTradebook(matrix)) return info("zerodha-tradebook", "content");
+  if (matrixLooksLikeHoldings(matrix)) return info("zerodha-holdings", "content", "");
 
   const bodyText = String(body || "");
-  const headers = (...required) => headerRow(bodyText, required);
   const date = dateInText(bodyText);
-
-  const tradebook = headers("trade date", "type", "quantity", "price")
-    || headers("trade date", "trade type", "quantity", "price");
-  if (tradebook) return info("zerodha-tradebook", "content");
+  const bodyRows = parseCsv(bodyText);
+  const headerIn = (schema) => findHeaderRow(bodyRows, schema).index >= 0;
 
   // Cashflow exports also carry an ISIN table that looks like a holdings
   // report. The cashflow wording is the only reliable first signal.
   if (/portfolio\s*cash\s*flow|cash\s*flow\s+future|cashflow\s+future|total\s+futureexpected\s+interest/i.test(bodyText)) {
     return info("digifinn-cashflow", "content", date);
   }
-  if (headers("transaction type", "isin")) return info("digifinn-transactions", "content", date);
-  if (headers("isin", "units", "amount", "frequency")) {
+  // A transactions report also prints a price and a quantity, so it is read
+  // before the tradebook shape. Its "Transaction Type" name is the giveaway.
+  if (headerIn(TRANSACTIONS_DETECTION_SCHEMA)) return info("digifinn-transactions", "content", date);
+
+  const tradebook = findHeaderRow(bodyRows, TRADEBOOK_SCHEMA);
+  if (tradebook.index >= 0) return info("zerodha-tradebook", "content");
+
+  if (headerIn(PAYOUTS_DETECTION_SCHEMA)) {
     return info("digifinn-payouts", "content", date);
   }
-  if (headers("bond name", "isin", "qty", "investment value")) {
+  if (headerIn(PORTFOLIO_DETECTION_SCHEMA)) {
     return info("digifinn-portfolio", "content", date);
   }
-  if (headers("bond name", "issuer", "coupon", "yield")) {
+  if (headerIn(INVESTMENT_SCHEMA)) {
     return info("digifinn-investment", "content", date);
   }
   if (/portfolio\s+holding\s+summary/i.test(bodyText)
@@ -224,70 +231,79 @@ export function compareAsOf(left, right, { today = isoToday() } = {}) {
  * that. The first buy of each ISIN supplies a purchase date when the holdings
  * file has none.
  */
-export function parseTradebook(body) {
-  return parseTradebookRows(parseCsv(String(body || "")));
+export function parseTradebook(body, source = {}) {
+  return parseTradebookRows(parseCsv(String(body || "")), source);
 }
 
 /**
  * The same tradebook, already a spreadsheet matrix. An XLSX has no text body,
  * so the inbox hands the sheet rows in directly.
  */
-export function parseTradebookMatrix(matrix) {
-  return parseTradebookRows(Array.isArray(matrix) ? matrix : []);
+export function parseTradebookMatrix(matrix, source = {}) {
+  return parseTradebookRows(Array.isArray(matrix) ? matrix : [], source);
 }
 
-function parseTradebookRows(rows) {
-  let header = -1;
-  let cols = null;
-  for (let i = 0; i < rows.length; i++) {
-    const cells = (rows[i] || []).map(norm);
-    const at = (names) => names.map((name) => cells.indexOf(name)).find((n) => n >= 0);
-    const date = at(["trade date", "date"]);
-    const type = at(["trade type", "type"]);
-    const quantity = at(["quantity", "qty"]);
-    const price = at(["price", "trade price"]);
-    if (date !== undefined && type !== undefined && quantity !== undefined
-      && price !== undefined) {
-      header = i;
-      cols = { date, type, quantity, price,
-        isin: at(["isin"]), symbol: at(["symbol", "stock"]) };
-      break;
-    }
-  }
-  if (header < 0) {
+// Kite prints "buy" and "sell"; some exports shorten them to one letter.
+function tradeType(value) {
+  const key = norm(value);
+  if (/^b(?:uy|ought)?$/.test(key)) return "buy";
+  if (/^s(?:ell|ale)?$/.test(key)) return "sell";
+  return "";
+}
+
+const tradebookBlank = (row) => (row || []).every((cell) => String(cell ?? "").trim() === "");
+
+function parseTradebookRows(rows, source = {}) {
+  const where = { file: source.file || "", sheet: source.sheet || "" };
+  const header = findHeaderRow(rows, TRADEBOOK_SCHEMA);
+  if (header.index < 0) {
     return { rows: [], firstBuyByIsin: {}, firstBuyBySymbol: {},
-      error: "No tradebook header found in this file." };
+      error: `No tradebook header found. ${headerMessage(where, TRADEBOOK_SCHEMA, header)}` };
   }
+  const cols = header.columns;
   const out = [];
   const firstBuyByIsin = {};
   const firstBuyBySymbol = {};
-  for (let i = header + 1; i < rows.length; i++) {
-    const row = rows[i] || [];
-    const date = parseDate(row[cols.date]);
-    if (!date) continue;
-    const type = norm(row[cols.type]);
-    const quantity = asNumber(row[cols.quantity]);
-    // A spreadsheet hands the Price column in as a number of rupees. asMoney
-    // reads numbers as paise because stored rows already are; a tradebook cell
-    // is not stored, so it is converted here or the same CSV and XLSX would
-    // disagree about the trade.
-    const rawPrice = row[cols.price];
-    const pricePaise = typeof rawPrice === "number"
-      ? Math.round(rawPrice * 100) : asMoney(rawPrice);
-    if (quantity === null || pricePaise === null) continue;
-    const isin = cols.isin === undefined ? "" : upper(row[cols.isin]);
-    const symbol = cols.symbol === undefined ? "" : text(row[cols.symbol]);
-    const trade = { isin, symbol, date, type, quantity, pricePaise };
-    out.push(trade);
-    if (!/buy/.test(type)) continue;
-    if (isIsin(isin) && (!firstBuyByIsin[isin] || date < firstBuyByIsin[isin])) {
-      firstBuyByIsin[isin] = date;
+  let skipped = 0;
+  let ambiguousDates = 0;
+  try {
+    for (let i = header.index + 1; i < rows.length; i++) {
+      const row = rows[i] || [];
+      if (tradebookBlank(row)) { skipped++; continue; }
+      const parsed = readDate(row, cols, "date",
+        { where, schema: TRADEBOOK_SCHEMA, rowNumber: i + 1, required: true });
+      if (parsed.ambiguous) ambiguousDates++;
+      const type = tradeType(cellText(row, cols, "type"));
+      if (!type) {
+        return { rows: [], firstBuyByIsin: {}, firstBuyBySymbol: {}, skipped,
+          error: `${tableWhere(where)}, row ${i + 1}: "Trade Type" is `
+            + `"${cellText(row, cols, "type")}", which is neither a buy nor a sell.` };
+      }
+      const quantity = readNumber(row, cols, "quantity",
+        { where, schema: TRADEBOOK_SCHEMA, rowNumber: i + 1, required: true });
+      const price = readNumber(row, cols, "price",
+        { where, schema: TRADEBOOK_SCHEMA, rowNumber: i + 1, required: true });
+      // The price arrives as rupees whether the file is CSV or XLSX. Stored
+      // money is paise, so both shapes convert here and agree on the trade.
+      const pricePaise = Math.round(price * 100);
+      const isin = cols.isin === undefined ? "" : upper(cellText(row, cols, "isin"));
+      const symbol = cols.symbol === undefined ? "" : cellText(row, cols, "symbol");
+      const trade = { isin, symbol, date: parsed.iso, type, quantity, pricePaise };
+      out.push(trade);
+      if (type !== "buy") continue;
+      if (isIsin(isin) && (!firstBuyByIsin[isin] || parsed.iso < firstBuyByIsin[isin])) {
+        firstBuyByIsin[isin] = parsed.iso;
+      }
+      if (symbol && (!firstBuyBySymbol[symbol] || parsed.iso < firstBuyBySymbol[symbol])) {
+        firstBuyBySymbol[symbol] = parsed.iso;
+      }
     }
-    if (symbol && (!firstBuyBySymbol[symbol] || date < firstBuyBySymbol[symbol])) {
-      firstBuyBySymbol[symbol] = date;
-    }
+  } catch (error) {
+    return { rows: [], firstBuyByIsin: {}, firstBuyBySymbol: {},
+      skipped, ...refusalResult(error) };
   }
-  return { rows: out, firstBuyByIsin, firstBuyBySymbol,
+  return { rows: out, firstBuyByIsin, firstBuyBySymbol, skipped, ambiguousDates,
+    headerRow: header.index,
     error: out.length ? null : "The tradebook has no readable trades." };
 }
 

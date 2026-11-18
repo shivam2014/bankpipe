@@ -6,29 +6,107 @@
 // Everything above the table header is ignored, so PAN/name/phone/email never
 // enter the parsed rows.
 
-import { parseCsv, cleanCell, parseNumber, parseMoney, parseDate,
-  parsePayouts, parseCashflow } from "./digifinn.js";
+import { parseCsv, cleanCell, parsePayouts, parseCashflow } from "./digifinn.js";
 import { parseBondLabel, inferFace } from "./bonds.js";
-import { parseDate as parseAnyDate } from "./holding-import.js";
+import { findHeaderRow, headerKey, headerMessage, cellText, readDate,
+  readNumber, readMoney, refusalResult, tableWhere, parseDate } from "./table-schema.js";
 
 const norm = (s) => cleanCell(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-const pct = (v) => {
-  const n = parseNumber(cleanCell(v).replace("%", ""));
-  return n === null ? null : n;
-};
-const int = (v) => {
-  const n = parseNumber(v);
-  return n === null ? null : Math.round(n);
-};
-const money = (v) => parseMoney(cleanCell(v));
 
-function headerIndex(rows, required) {
-  for (let i = 0; i < rows.length; i++) {
-    const n = (rows[i] || []).map(norm);
-    if (required.every((x) => n.includes(x))) return i;
-  }
-  return -1;
-}
+// A report's header is found by its names, and every column is read through
+// the schema beside it. `signature` names the two or three columns that make a
+// file *this* report: when they are present and a required column is not, the
+// file is refused with the missing name instead of falling through as unknown.
+export const PORTFOLIO_SCHEMA = {
+  isin: { label: "ISIN", aliases: ["ISIN", "ISIN Code"], required: true },
+  label: { label: "Bond Name", required: true,
+    aliases: ["Bond Name", "Security Name", "Instrument", "Security"] },
+  quantity: { label: "Qty", required: true,
+    aliases: ["Qty", "Quantity", "Units"] },
+  purchase_date: { label: "Purchase date",
+    aliases: ["Purchase date", "Purchase Date", "Date of Purchase", "Buy Date"] },
+  cost: { label: "Investment Value",
+    aliases: ["Investment Value", "Investment Value (₹)", "Invested Amount",
+      "Amount Invested", "Cost"] },
+};
+
+// Detection asks for the canonical name, not the parser's wider aliases: a
+// generic holdings sheet that happens to print "Security Name" must not become
+// a DigiFInn bond report merely because it also has an ISIN and a quantity.
+export const PORTFOLIO_DETECTION_SCHEMA = {
+  isin: PORTFOLIO_SCHEMA.isin,
+  label: { label: "Bond Name", required: true, aliases: ["Bond Name"] },
+  quantity: PORTFOLIO_SCHEMA.quantity,
+};
+
+export const INVESTMENT_SCHEMA = {
+  label: { label: "Bond Name", required: true,
+    aliases: ["Bond Name", "Security Name", "Instrument", "Security"] },
+  issuer: { label: "Issuer", required: true,
+    aliases: ["Issuer", "Issuer Name"] },
+  coupon_pct: { label: "Coupon", required: true,
+    aliases: ["Coupon", "Coupon Rate", "Interest Rate"] },
+  yield_pct: { label: "Yield", required: true,
+    aliases: ["Yield", "Yield to Maturity", "YTM", "Purchase Yield"] },
+  maturity: { label: "Maturity Date",
+    aliases: ["Maturity Date", "Maturity", "Redemption Date"] },
+  purchase_date: { label: "Purchase Date",
+    aliases: ["Purchase Date", "Date of Purchase", "Buy Date"] },
+  invested: { label: "Invested Amount",
+    aliases: ["Invested Amount", "Investment Amount", "Amount Invested", "Cost"] },
+};
+
+export const TRANSACTIONS_SCHEMA = {
+  isin: { label: "ISIN", aliases: ["ISIN", "ISIN No", "ISIN Code"], required: true },
+  type: { label: "Transaction Type", required: true,
+    aliases: ["Transaction Type", "Type"] },
+  label: { label: "Bond Name",
+    aliases: ["Bond Name", "Security Name", "Instrument", "Security"] },
+  date: { label: "Date", aliases: ["Date", "Transaction Date", "Trade Date"] },
+  quantity: { label: "Quantity",
+    aliases: ["Quantity", "Quantity (Units)", "Units", "Qty"] },
+  price: { label: "Price",
+    aliases: ["Price", "Price / Unit", "Price / Unit (INR)", "Price per Unit"] },
+  value: { label: "Total Value",
+    aliases: ["Total Value", "Total Value (INR)", "Value", "Amount"] },
+  face: { label: "Face Value",
+    aliases: ["Face Value", "Face Value (INR)", "Face Amount"] },
+  coupon_pct: { label: "Coupon Rate",
+    aliases: ["Coupon Rate", "Coupon Rate (%)", "Coupon"] },
+  maturity: { label: "Maturity Date",
+    aliases: ["Maturity Date", "Maturity", "Redemption Date"] },
+};
+
+// Detection asks only for the canonical transaction name. A Kite tradebook
+// prints a "Trade Type" and its own date, quantity and price, so a wider alias
+// here would take a tradebook for a bond transactions report.
+export const TRANSACTIONS_DETECTION_SCHEMA = {
+  isin: TRANSACTIONS_SCHEMA.isin,
+  type: { label: "Transaction Type", required: true, aliases: ["Transaction Type"] },
+};
+
+const hasKey = (keys, ...names) => names.some((name) =>
+  keys.some((key) => key === name || key.startsWith(`${name} `)));
+
+const portfolioSignature = (rows) => rows.some((row) => {
+  const keys = (row || []).map(headerKey);
+  return keys.includes("isin") && keys.includes("bond name")
+    && !keys.includes("transaction type");
+});
+const investmentSignature = (rows) => rows.some((row) => {
+  const keys = (row || []).map(headerKey);
+  return keys.includes("bond name") && (keys.includes("issuer") || keys.includes("coupon"));
+});
+const transactionSignature = (rows) => rows.some((row) => {
+  const keys = (row || []).map(headerKey);
+  return keys.includes("isin") && (keys.includes("transaction type")
+    || hasKey(keys, "total value") || hasKey(keys, "face value") || hasKey(keys, "price"));
+});
+
+// Values are read from the same cleaned cells the header was found in, so a
+// spreadsheet's quoted field and a CSV's BOM behave alike.
+const cleanRows = (rows) => (Array.isArray(rows) ? rows : [])
+  .map((row) => (row || []).map(cleanCell));
 
 function dematFrom(rows, header) {
   for (let i = 0; i < header; i++) {
@@ -71,7 +149,7 @@ function metaDate(rows, header, label) {
     for (let c = 0; c < row.length; c++) {
       if (norm(row[c]) !== label) continue;
       for (let k = c + 1; k < row.length; k++) {
-        const d = parseAnyDate(row[k]);
+        const d = parseDate(row[k]);
         if (d) return d;
       }
     }
@@ -84,7 +162,7 @@ function asOfFrom(rows, header) {
     const text = (rows[i] || []).map(cleanCell).join(" ");
     const m = text.match(/(\d{1,2}\s+[A-Za-z]+\s+\d{4})/);
     if (m) {
-      const d = parseAnyDate(m[1]);
+      const d = parseDate(m[1]);
       if (d) return d;
     }
   }
@@ -92,71 +170,107 @@ function asOfFrom(rows, header) {
 }
 
 export function parsePortfolioReport(text, fileName = "") {
-  const rows = parseCsv(text);
-  const header = headerIndex(rows, ["isin", "bond name", "qty"]);
-  if (header < 0) return null;
-  const map = {};
-  rows[header].forEach((cell, i) => { const k = norm(cell); if (k) map[k] = i; });
-  const col = (row, ...names) => {
-    for (const n of names) if (map[n] !== undefined) return row[map[n]];
-    return "";
-  };
+  const rows = cleanRows(parseCsv(text));
+  const where = { file: fileName, table: "Portfolio Report" };
+  const header = findHeaderRow(rows, PORTFOLIO_SCHEMA);
+  if (header.index < 0) {
+    if (!portfolioSignature(rows)) return null;
+    return { kind: "portfolio", fileName, rows: [], skipped: 0,
+      error: headerMessage(where, PORTFOLIO_SCHEMA, header) };
+  }
+  const cols = header.columns;
   const out = [];
   let skipped = 0;
-  for (let r = header + 1; r < rows.length; r++) {
-    const row = rows[r] || [];
-    const isin = cleanCell(col(row, "isin")).toUpperCase();
-    const label = cleanCell(col(row, "bond name"));
-    if (!isin && !label) { skipped++; continue; }
-    if (!/^IN[A-Z0-9]{10}$/.test(isin)) { skipped++; continue; }
-    out.push({
-      isin,
-      label,
-      purchase_date: parseAnyDate(col(row, "purchase date")),
-      quantity: parseNumber(col(row, "qty", "quantity")),
-      cost_paise: money(col(row, "investment value", "investment value (₹)")),
-      source_row: r + 1,
-    });
+  let unidentified = 0;
+  let ambiguousDates = 0;
+  try {
+    for (let r = header.index + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const isin = cellText(row, cols, "isin").toUpperCase();
+      const label = cellText(row, cols, "label");
+      if (!isin && !label) { skipped++; continue; }
+      if (!/^IN[A-Z0-9]{10}$/.test(isin)) { skipped++; unidentified++; continue; }
+      const purchase = readDate(row, cols, "purchase_date",
+        { where, schema: PORTFOLIO_SCHEMA, rowNumber: r + 1 });
+      if (purchase.ambiguous) ambiguousDates++;
+      out.push({
+        isin,
+        label,
+        purchase_date: purchase.iso,
+        quantity: readNumber(row, cols, "quantity",
+          { where, schema: PORTFOLIO_SCHEMA, rowNumber: r + 1, required: true }),
+        cost_paise: readMoney(row, cols, "cost",
+          { where, schema: PORTFOLIO_SCHEMA, rowNumber: r + 1 }),
+        source_row: r + 1,
+      });
+    }
+  } catch (error) {
+    return { kind: "portfolio", fileName, rows: [], skipped, ...refusalResult(error) };
   }
-  return { kind: "portfolio", fileName, demat: dematFrom(rows, header),
-    identity: identityFrom(rows, header),
-    asOf: metaDate(rows, header, "as of"), generated: metaDate(rows, header, "report generation date"),
-    rows: out, skipped };
+  if (!out.length && unidentified) {
+    return { kind: "portfolio", fileName, rows: [], skipped, ambiguousDates,
+      error: `${tableWhere(where)}: ${unidentified} row${unidentified === 1 ? " has" : "s have"} `
+        + "no readable ISIN. The ISIN column may have been renamed." };
+  }
+  return { kind: "portfolio", fileName, demat: dematFrom(rows, header.index),
+    identity: identityFrom(rows, header.index),
+    asOf: metaDate(rows, header.index, "as of"),
+    generated: metaDate(rows, header.index, "report generation date"),
+    rows: out, skipped, ambiguousDates, error: null };
 }
 
 export function parseInvestmentReport(text, fileName = "") {
-  const rows = parseCsv(text);
-  const header = headerIndex(rows, ["bond name", "issuer", "coupon", "yield"]);
-  if (header < 0) return null;
-  const map = {};
-  rows[header].forEach((cell, i) => { const k = norm(cell); if (k) map[k] = i; });
-  const col = (row, ...names) => {
-    for (const n of names) if (map[n] !== undefined) return row[map[n]];
-    return "";
-  };
-  const out = [];
-  for (let r = header + 1; r < rows.length; r++) {
-    const row = rows[r] || [];
-    const label = cleanCell(col(row, "bond name"));
-    if (!label || norm(label) === "total") continue;
-    const parsed = parseBondLabel(label);
-    out.push({
-      label,
-      issuer: cleanCell(col(row, "issuer")),
-      coupon_pct: pct(col(row, "coupon")),
-      maturity: parsed ? parsed.maturity : "",
-      purchase_date: parseAnyDate(col(row, "purchase date")),
-      yield_pct: pct(col(row, "yield")),
-      invested_paise: money(col(row, "invested amount")),
-      source_row: r + 1,
-    });
+  const rows = cleanRows(parseCsv(text));
+  const where = { file: fileName, table: "Investment Report" };
+  const header = findHeaderRow(rows, INVESTMENT_SCHEMA);
+  if (header.index < 0) {
+    if (!investmentSignature(rows)) return null;
+    return { kind: "investment", fileName, rows: [],
+      error: headerMessage(where, INVESTMENT_SCHEMA, header) };
   }
-  return { kind: "investment", fileName, asOf: asOfFrom(rows, header), rows: out };
+  const cols = header.columns;
+  const out = [];
+  let ambiguousDates = 0;
+  try {
+    for (let r = header.index + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const label = cellText(row, cols, "label");
+      if (!label || norm(label) === "total") continue;
+      const parsed = parseBondLabel(label);
+      const purchase = readDate(row, cols, "purchase_date",
+        { where, schema: INVESTMENT_SCHEMA, rowNumber: r + 1 });
+      if (purchase.ambiguous) ambiguousDates++;
+      const stated = readDate(row, cols, "maturity",
+        { where, schema: INVESTMENT_SCHEMA, rowNumber: r + 1 });
+      out.push({
+        label,
+        issuer: cellText(row, cols, "issuer"),
+        coupon_pct: readNumber(row, cols, "coupon_pct",
+          { where, schema: INVESTMENT_SCHEMA, rowNumber: r + 1 }),
+        // The name is the broker's own label; a printed date column is the
+        // fallback when the name does not carry one.
+        maturity: parsed?.maturity || stated.iso,
+        purchase_date: purchase.iso,
+        yield_pct: readNumber(row, cols, "yield_pct",
+          { where, schema: INVESTMENT_SCHEMA, rowNumber: r + 1 }),
+        invested_paise: readMoney(row, cols, "invested",
+          { where, schema: INVESTMENT_SCHEMA, rowNumber: r + 1 }),
+        source_row: r + 1,
+      });
+    }
+  } catch (error) {
+    return { kind: "investment", fileName, rows: [], ...refusalResult(error) };
+  }
+  return { kind: "investment", fileName, asOf: asOfFrom(rows, header.index),
+    rows: out, ambiguousDates, error: null };
 }
 
 export function parsePayoutReport(text, fileName = "") {
   const payouts = parsePayouts(text, fileName);
   if (!payouts) return null;
+  if (payouts.error) {
+    return { kind: "payouts", fileName, source: "payouts", groups: [], error: payouts.error };
+  }
   const groups = new Map();
   for (const row of payouts.rows) {
     if (!row.isin) continue;
@@ -200,40 +314,57 @@ export function parseCashflowReport(text, fileName = "") {
 }
 
 export function parseTransactionReport(text, fileName = "") {
-  const rows = parseCsv(text);
-  const header = headerIndex(rows, ["isin", "transaction type"]);
-  if (header < 0) return null;
-  const head = rows[header].map(norm);
-  const at = (re) => head.findIndex((c) => re.test(c));
-  const cols = {
-    isin: at(/^isin/), name: at(/^bond name/), date: at(/^date$/),
-    type: at(/^transaction type/), qty: at(/^quantity/), price: at(/^price/),
-    value: at(/^total value/), face: at(/^face value/), coupon: at(/^coupon/),
-    maturity: at(/^maturity/),
-  };
-  const cell = (row, i) => (i >= 0 ? row[i] : "");
+  const rows = cleanRows(parseCsv(text));
+  const where = { file: fileName, table: "Transactions Report" };
+  const header = findHeaderRow(rows, TRANSACTIONS_SCHEMA);
+  if (header.index < 0) {
+    if (!transactionSignature(rows)) return null;
+    return { kind: "transactions", fileName, rows: [], skipped: 0,
+      error: headerMessage(where, TRANSACTIONS_SCHEMA, header) };
+  }
+  const cols = header.columns;
   const out = [];
   let skipped = 0;
-  for (let r = header + 1; r < rows.length; r++) {
-    const row = rows[r] || [];
-    const isin = cleanCell(cell(row, cols.isin)).toUpperCase();
-    const type = cleanCell(cell(row, cols.type)).toUpperCase();
-    if (!/^IN[A-Z0-9]{10}$/.test(isin) || !type) { skipped++; continue; }
-    out.push({
-      isin,
-      label: cleanCell(cell(row, cols.name)),
-      date: parseAnyDate(cell(row, cols.date)),
-      type,
-      quantity: parseNumber(cell(row, cols.qty)),
-      price_paise: money(cell(row, cols.price)),
-      value_paise: money(cell(row, cols.value)),
-      face_paise: money(cell(row, cols.face)),
-      coupon_pct: parseNumber(cell(row, cols.coupon)),
-      maturity: parseAnyDate(cell(row, cols.maturity)),
-      source_row: r + 1,
-    });
+  let unidentified = 0;
+  let ambiguousDates = 0;
+  try {
+    for (let r = header.index + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const isin = cellText(row, cols, "isin").toUpperCase();
+      const type = cellText(row, cols, "type").toUpperCase();
+      if (!/^IN[A-Z0-9]{10}$/.test(isin) || !type) { skipped++; unidentified++; continue; }
+      const date = readDate(row, cols, "date",
+        { where, schema: TRANSACTIONS_SCHEMA, rowNumber: r + 1 });
+      if (date.ambiguous) ambiguousDates++;
+      out.push({
+        isin,
+        label: cellText(row, cols, "label"),
+        date: date.iso,
+        type,
+        quantity: readNumber(row, cols, "quantity",
+          { where, schema: TRANSACTIONS_SCHEMA, rowNumber: r + 1 }),
+        price_paise: readMoney(row, cols, "price",
+          { where, schema: TRANSACTIONS_SCHEMA, rowNumber: r + 1 }),
+        value_paise: readMoney(row, cols, "value",
+          { where, schema: TRANSACTIONS_SCHEMA, rowNumber: r + 1 }),
+        face_paise: readMoney(row, cols, "face",
+          { where, schema: TRANSACTIONS_SCHEMA, rowNumber: r + 1 }),
+        coupon_pct: readNumber(row, cols, "coupon_pct",
+          { where, schema: TRANSACTIONS_SCHEMA, rowNumber: r + 1 }),
+        maturity: readDate(row, cols, "maturity",
+          { where, schema: TRANSACTIONS_SCHEMA, rowNumber: r + 1 }).iso,
+        source_row: r + 1,
+      });
+    }
+  } catch (error) {
+    return { kind: "transactions", fileName, rows: [], skipped, ...refusalResult(error) };
   }
-  return { kind: "transactions", fileName, rows: out, skipped };
+  if (!out.length && unidentified) {
+    return { kind: "transactions", fileName, rows: [], skipped, ambiguousDates,
+      error: `${tableWhere(where)}: ${unidentified} row${unidentified === 1 ? " has" : "s have"} `
+        + "no readable ISIN or transaction type, so no trade could be identified." };
+  }
+  return { kind: "transactions", fileName, rows: out, skipped, ambiguousDates, error: null };
 }
 
 export function parseReportFile(text, fileName = "") {

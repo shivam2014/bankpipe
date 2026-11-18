@@ -236,6 +236,7 @@ the CAS import cards and press Import to check the rows the writer stores.
 | `.github/workflows/deploy.yml` | builds and deploys the Pages project on `main` |
 | `docs/DEPLOY.md` | deploy workflow, secrets, rollback and database notes |
 | `docs/UI-REVIEW.md` | running UI issue log |
+| `docs/PARSER-ROBUSTNESS.md` | how every file parser resolves columns by name, and what it refuses |
 | `BACKUP.md` | backup format, restore path and failure modes |
 | `DEMAT_INTEGRATION.md` | proposal for CAS import, not built |
 | `worker/` | OAuth broker for the optional Drive backup |

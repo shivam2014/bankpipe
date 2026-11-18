@@ -6,6 +6,9 @@
 // upserts by ISIN so a repeated download updates quantities and dates instead
 // of appending a second copy.
 
+import { findHeaderRow, headerMessage, cellText, readDate, readNumber,
+  readMoney, refusalResult } from "./table-schema.js";
+
 const MONTHS = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
   JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
 
@@ -100,39 +103,68 @@ export function labelMaturity(label) {
   return dates.length ? parseDate(dates[dates.length - 1]) : "";
 }
 
-export function isPayouts(row) {
-  const n = row.map(norm);
-  return n.includes("isin") && n.includes("units");
-}
+// The Upcoming Payouts table. Its units column has been printed as "Units",
+// "Quantity" and "Qty"; the detection schema asks for the two columns that no
+// other DigiFInn report carries, so a portfolio row is never taken for a payout.
+export const PAYOUTS_SCHEMA = {
+  isin: { label: "ISIN", required: true, aliases: ["ISIN", "ISIN Code"] },
+  units: { label: "Units", required: true, aliases: ["Units", "Quantity", "Qty"] },
+  date: { label: "Date", aliases: ["Date", "Payout Date"] },
+  issuer: { label: "Issuer", aliases: ["Issuer", "Security Name", "Security"] },
+  amount: { label: "Amount", aliases: ["Amount", "Payout Amount"] },
+  frequency: { label: "Frequency", aliases: ["Frequency", "Payout Frequency"] },
+};
+
+export const PAYOUTS_DETECTION_SCHEMA = {
+  isin: PAYOUTS_SCHEMA.isin,
+  amount: { ...PAYOUTS_SCHEMA.amount, required: true },
+  frequency: { ...PAYOUTS_SCHEMA.frequency, required: true },
+};
+
+const payoutSignature = (rows) => (rows || []).some((row) => {
+  const keys = (row || []).map(norm);
+  return keys.includes("isin") && (keys.includes("amount") || keys.includes("frequency"));
+});
 
 export function parsePayouts(text, fileName = "") {
   const rows = parseCsv(text);
-  const header = rows.findIndex(isPayouts);
-  if (header < 0) return null;
-  const map = {};
-  rows[header].forEach((cell, i) => { const k = norm(cell); if (k) map[k] = i; });
-  const col = (row, ...names) => {
-    for (const n of names) if (map[n] !== undefined) return row[map[n]];
-    return "";
-  };
+  const where = { file: fileName, table: "Upcoming Payouts" };
+  const header = findHeaderRow(rows, PAYOUTS_SCHEMA);
+  if (header.index < 0) {
+    if (!payoutSignature(rows)) return null;
+    return { kind: "payouts", fileName, rows: [], skipped: 0,
+      error: headerMessage(where, PAYOUTS_SCHEMA, header) };
+  }
+  const cols = header.columns;
   const out = [];
   let skipped = 0;
-  for (let r = header + 1; r < rows.length; r++) {
-    const row = rows[r] || [];
-    const isin = cleanCell(col(row, "isin", "isin code")).toUpperCase();
-    const issuer = cleanCell(col(row, "issuer", "security name", "security"));
-    if (!isin && !issuer) { skipped++; continue; }
-    out.push({
-      date: parseDate(col(row, "date", "payout date")),
-      issuer,
-      isin,
-      amount_paise: parseMoney(col(row, "amount", "payout amount")),
-      frequency: cleanCell(col(row, "frequency", "payout frequency")),
-      units: parseNumber(col(row, "units", "quantity")),
-      source_row: r + 1,
-    });
+  let ambiguousDates = 0;
+  try {
+    for (let r = header.index + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const isin = cellText(row, cols, "isin").toUpperCase();
+      const issuer = cellText(row, cols, "issuer");
+      if (!isin && !issuer) { skipped++; continue; }
+      const date = readDate(row, cols, "date",
+        { where, schema: PAYOUTS_SCHEMA, rowNumber: r + 1 });
+      if (date.ambiguous) ambiguousDates++;
+      out.push({
+        date: date.iso,
+        issuer,
+        isin,
+        amount_paise: readMoney(row, cols, "amount",
+          { where, schema: PAYOUTS_SCHEMA, rowNumber: r + 1 }),
+        frequency: cellText(row, cols, "frequency"),
+        units: readNumber(row, cols, "units",
+          { where, schema: PAYOUTS_SCHEMA, rowNumber: r + 1 }),
+        source_row: r + 1,
+      });
+    }
+  } catch (error) {
+    return { kind: "payouts", fileName, rows: [], skipped, ...refusalResult(error) };
   }
-  return { kind: "payouts", fileName, rows: out.filter((x) => x.isin), skipped };
+  return { kind: "payouts", fileName, rows: out.filter((x) => x.isin), skipped,
+    ambiguousDates, error: null };
 }
 
 export function parseCashflow(text, fileName = "", today = new Date().toISOString().slice(0, 10)) {
