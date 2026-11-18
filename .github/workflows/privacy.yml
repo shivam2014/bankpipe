@@ -4,20 +4,44 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      history:
+        description: Scan every blob on every ref after a history rewrite
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
-  private-repository:
+  tracked:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Require a private repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          private="$(gh api "repos/${GITHUB_REPOSITORY}" --jq .private)"
-          if [ "$private" != "true" ]; then
-            echo "::error::This repository must stay private."
-            exit 1
-          fi
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: No personal-data shapes in tracked content
+        run: node scripts/check-privacy.mjs
+
+      - name: No database, workbook or CSV in the code tree
+        run: bash check-no-data.sh
+
+  history:
+    if: github.event_name == 'workflow_dispatch' && inputs.history
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Scan every blob on every ref
+        run: node scripts/check-history-privacy.mjs --messages

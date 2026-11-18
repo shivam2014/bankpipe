@@ -254,9 +254,12 @@ node scripts/docs/generate.mjs --check
 node scripts/docs/render.mjs --check
 ```
 
-`./check-no-data.sh` is the gate against real data: it fails on a data file anywhere
-in the tree, or on a real identifier in a fixture, test or doc. Do not commit
-statements, account numbers or personal data.
+`./check-no-data.sh` is the local gate against real data: it fails on a data file
+anywhere in the tree, then runs `node scripts/check-privacy.mjs` for PAN, Aadhaar,
+account/demat, IFSC, email and phone shapes. CI runs the same checker. Synthetic
+fixtures are cleared only by `scripts/privacy-allowlist.json`. Do not commit
+statements, account numbers or personal data. The history rewrite and backup
+procedure is in [`docs/PUBLIC-REPO.md`](docs/PUBLIC-REPO.md).
 
 ## License
 

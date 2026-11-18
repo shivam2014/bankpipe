@@ -698,13 +698,40 @@ test("a plan with nothing to write says why and disables its primary", () => {
   assert.match(html, /const reviewable = plans\.some\(\(plan\) => !plan\.noWork\)/);
 });
 
-test("what will not change sits behind the one More disclosure", () => {
+test("the pending card has one reason, one row per decision, and no not-change block", () => {
   const card = between("function bpImportPlanHtml", "function bpImportInboxSettleStatus");
   assert.match(card, /<summary>More<\/summary>/);
-  assert.match(card, /<b>What will not change<\/b>/);
-  assert.doesNotMatch(card, /<b>What will not change<\/b><ul>/,
-    "the list is inside the disclosure, not beside it");
-  assert.equal((card.match(/<details/g) || []).length, 1);
+  assert.doesNotMatch(card, /What will not change/,
+    "the not-change block is gone from the card");
+  assert.doesNotMatch(card, /Other accounts with overlapping ISINs/,
+    "the chosen account row already says which account changes");
+  assert.match(card, /bpImportDecisionsHtml\(askItems\)/);
+  assert.match(card, /import-reason/);
+  assert.match(card, /Use the file's values · \$\{summary\.ask\}/);
+});
+
+test("a decision row is a structured line with its evidence behind it", () => {
+  const fields = between("function bpImportDecisionField", "function bpImportDecisionRow");
+  assert.match(fields, /qty/);
+  assert.match(fields, /cost/);
+  assert.match(fields, /date/);
+  const row = between("function bpImportDecisionRow", "function bpImportDecisionDetail");
+  assert.match(row, /import-decision-line/);
+  assert.match(row, /import-decision-facts/);
+  const detail = between("function bpImportDecisionParts", "function bpImportDecisionRow");
+  assert.match(detail, /source/);
+  assert.match(detail, /fromSource/);
+  assert.match(detail, /asOf/);
+  assert.match(detail, /label/);
+});
+
+test("a small update set names the rows instead of a bare count", () => {
+  const names = between("function bpImportPlanUpdateNames", "function bpImportReceiptsHtml");
+  assert.match(names, /names\.length <= 3/);
+  assert.match(names, /Update \$\{count\}: \$\{names\.join\(", "\)\}/);
+  assert.match(names, /length <= 48/);
+  assert.match(names, /names.join\(", "\)/,
+    "a hidden list is still spelled out in the disclosure");
 });
 
 test("a broker file with no match attaches to its broker's demat instead of creating one", () => {
@@ -767,9 +794,9 @@ test("the inbox locks a statement that records movements", () => {
 });
 
 test("the card shows every ask it can accept", () => {
-  const asks = between("function bpImportAskLines", "function bpImportPlanAskLines");
+  const asks = between("function bpImportAskDecisions", "function bpImportPlanAskItems");
   assert.doesNotMatch(asks, /\.slice\(/, "the head's ask list is not truncated");
-  const planAsks = between("function bpImportPlanAskLines", "function bpImportReceiptRole");
+  const planAsks = between("function bpImportPlanAskItems", "function bpImportDecisionsHtml");
   assert.doesNotMatch(planAsks, /\.slice\(/, "the extras' ask list is not truncated");
 });
 
@@ -864,11 +891,13 @@ test("the card leads with its title, one metric line and one state line", () => 
   assert.match(card, /<details class="import-change-more"><summary>More<\/summary>/);
 });
 
-test("a sold-sale ask keeps its consequence on the card", () => {
-  const card = between("function bpImportPlanHtml", "function bpImportPlanMissing");
-  assert.match(card, /const soldAsk = askDecisions\.some/);
-  assert.match(card, /The sale stays recorded; the file does not put the\s+units back\./,
-    "the accept cannot re-add units a statement already sold");
+test("a sold-sale ask keeps its consequence behind the decision", () => {
+  const reason = between("function bpImportAskReason", "function bpImportReceiptRole");
+  assert.match(reason, /or a recorded sale/);
+  const parts = between("function bpImportDecisionParts", "function bpImportDecisionRow");
+  assert.match(parts, /sold-conflict/);
+  assert.match(parts, /decision\.reason/,
+    "the row detail keeps the consequence of accepting a sold decision");
 });
 
 test("a plan of one holding says holding, not holdings", () => {
@@ -935,4 +964,16 @@ test("a CAS with no readable account number does not attach to a fund account", 
     number: "90000001234", holdings: [row(1)] });
   assert.deepEqual(accountMatches({ rows: [row(1)] }, [folio],
     { forCas: true }).matches, []);
+});
+
+test("the Import intro is the three file types, not a reassurance paragraph", () => {
+  const intro = between('<div class="import-intro">', '<div class="card pad import-inbox-card">');
+  assert.match(intro, /Files you can add/);
+  assert.match(intro, /Depository statement \(CAS\) — CDSL or NSDL, after month end/);
+  assert.match(intro, /Broker holdings report — Zerodha, Motilal Oswal, DigiFInn/);
+  assert.match(intro, /Bank statement — CSV, XLSX or PDF/);
+  assert.doesNotMatch(intro, /logins, OTPs and PINs/i);
+  assert.doesNotMatch(intro, /Nothing is saved until you confirm/);
+  assert.equal((html.match(/Bank and broker logins, OTPs and PINs are never\s+requested\./g) || [])
+    .length, 1, "the login line survives once, inside What can I add?");
 });

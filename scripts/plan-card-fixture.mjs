@@ -37,7 +37,7 @@ const account = (name, meta, hits) => `<div class="import-account-choice">
 const action = (label, primary = false, disabled = false) =>
   `<button class="btn${primary ? " primary" : ""}"${disabled ? " disabled" : ""}>${esc(label)}</button>`;
 
-function card({ kicker, title, sub, pill, files, where, also = "", change, still,
+function card({ kicker, title, sub, pill, files, where, also = "", change,
   ask = "", warning = "", primary, primaryDisabled = false }) {
   return `<div class="card pad import-bundle">
     <div class="import-bundle-head">
@@ -52,13 +52,12 @@ function card({ kicker, title, sub, pill, files, where, also = "", change, still
     <div class="import-change-grid">
       <div class="import-change"><b>What will change</b><ul>${change
         .map((item) => `<li>${esc(item)}</li>`).join("")}</ul></div>
-      <div class="import-change"><b>What will not change</b><ul>${still
-        .map((item) => `<li>${esc(item)}</li>`).join("")}</ul></div>
     </div>
     ${ask}
     ${warning}
     <div class="import-actions">
       ${action(primary, true, primaryDisabled)}
+      <span class="muted import-note import-consent">Nothing is written until you press Import.</span>
       ${action("Review differences")}
       ${action("Remove")}
     </div>
@@ -68,14 +67,18 @@ function card({ kicker, title, sub, pill, files, where, also = "", change, still
 const ready = '<span class="import-pill good">Ready</span>';
 const review = '<span class="import-pill warn">Review the differences</span>';
 
-const askBox = (count, lines) => `<div class="import-wrong">
+const decisionRow = (name, facts) => `<div class="import-decision">
+  <span class="import-decision-line">
+    <span class="import-decision-name">${esc(name)}</span>
+    <span class="import-decision-facts">${facts.map((fact) =>
+      `<span>${esc(fact)}</span>`).join("")}</span>
+  </span>
+</div>`;
+
+const askBox = (count, reason, rows) => `<div class="import-wrong">
   <b>${count} difference${count === 1 ? "" : "s"} need${count === 1 ? "s" : ""} your decision.</b>
-  <div class="muted">The report and the data on file carry the same date, or the difference
-    would replace a cost you entered by hand, or a newer report disagrees with a quantity
-    or value a CAS set, or it names a bond the statement recorded as sold. Using the file
-    prices that sale and keeps it; it does not put the units back. Choose what to keep.</div>
-  <ul class="muted import-ask-list">${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>
-  <div class="import-actions">${action("Use the file's values")}</div>
+  <div class="muted import-reason">${esc(reason)}</div>
+  <div class="import-decisions">${rows.join("")}</div>
 </div>`;
 
 const merged = card({
@@ -104,28 +107,22 @@ const merged = card({
   </div>`,
   change: [
     "Add 3 holdings",
-    "Update 2 holdings",
+    "Update 2: TESTSTOCK1, TESTSTOCK2",
     "Motilal Oswal holdings report: fills cost and terms",
     "Zerodha holdings: adds the holdings it names",
     "Attach the CAS identity",
   ],
-  still: [
-    "Nothing is written until you press Import",
-    "Other accounts with overlapping ISINs are untouched",
-    "Quantity and value come from the newest safe statement; the latest broker keeps cost and terms",
-  ],
-  ask: askBox(8, [
-    "TESTBOND1: cost empty → 200000 (Motilal Oswal holdings report 5 Nov 2026)",
-    "TESTBOND2: cost empty → 250000 (Motilal Oswal holdings report 5 Nov 2026)",
-    "TESTBOND3: cost empty → 300000 (Motilal Oswal holdings report 5 Nov 2026)",
-    "TESTSTOCK1: quantity 10 → 12 (Zerodha holdings 12 Nov 2026)",
-    "TESTSTOCK2: quantity 8 → 10 (Zerodha holdings 12 Nov 2026)",
-    "TESTSTOCK3: value 100000 → 120000 (Zerodha holdings 12 Nov 2026)",
-    "TESTFUND1: cost empty → 50000 (Motilal Oswal holdings report 5 Nov 2026)",
-    "TESTFUND2: label changed (Zerodha holdings 12 Nov 2026)",
+  ask: askBox(8, "Same date, or the report disagrees with a CAS quantity.", [
+    decisionRow("TESTBOND1", ["cost —→₹2,000", "date →5 Nov 26"]),
+    decisionRow("TESTBOND2", ["cost —→₹2,500", "date →5 Nov 26"]),
+    decisionRow("TESTBOND3", ["cost —→₹3,000", "date →5 Nov 26"]),
+    decisionRow("TESTSTOCK1", ["qty 10→12"]),
+    decisionRow("TESTSTOCK2", ["qty 8→10"]),
+    decisionRow("TESTSTOCK3", ["value ₹1,000→₹1,200"]),
+    decisionRow("TESTFUND1", ["cost —→₹500"]),
+    decisionRow("TESTFUND2", ["label TEST FUND 2→TESTFUND2"]),
   ]),
-  primary: "Import 5 holdings",
-  primaryDisabled: true,
+  primary: "Use the file's values · 8",
 });
 
 const movementCas = card({
@@ -140,12 +137,7 @@ const movementCas = card({
       ${account("CDSL · …4321", "Update the account · 1 of 1 ISIN matches", "1 holding")}
     </div>
   </div>`,
-  change: ["Update 1 holding", "Record 1 sale or transfer as sold"],
-  still: [
-    "Nothing is written until you press Import",
-    "Other accounts with overlapping ISINs are untouched",
-    "Quantity and value come from the newest safe statement; the latest broker keeps cost and terms",
-  ],
+  change: ["Update 1: TESTBOND1", "Record 1 sale or transfer as sold"],
   warning: `<div class="muted import-note">This statement records disposals. A broker report for the
     same account stays its own card; import it first to keep its cost on the disposal.</div>`,
   primary: "Import 1 holding",
@@ -163,20 +155,12 @@ const movementBroker = card({
       ${account("CDSL · …4321", "UCID match · 1 holding in the report", "1 of 1")}
     </div>
   </div>`,
-  change: ["Record the sold cost basis on 1 disposal", "Update 1 holding",
+  change: ["Record the sold cost basis on 1 disposal", "Update 1: TESTBOND1",
     "Attach the account identity"],
-  still: [
-    "Nothing is written until you press Import",
-    "Other accounts with overlapping ISINs are untouched",
-    "Quantity and value come from the newest safe statement; the latest broker keeps cost and terms",
-  ],
-  ask: askBox(1, [
-    "8.00% SOLD BOND 31 Dec 2028: sold cost empty → ₹ 2,000.00 "
-      + "(Motilal Oswal holdings report 2026-11-05) · the CAS records 10 units sold on "
-      + "2026-10-10; the sale stays and this report fills its cost basis",
+  ask: askBox(1, "Same date, a report that disagrees with a CAS quantity, or a recorded sale.", [
+    decisionRow("8.00% SOLD BOND 31 Dec 2028", ["sold cost —→₹2,000"]),
   ]),
-  primary: "Record the sold cost basis",
-  primaryDisabled: true,
+  primary: "Use the file's values · 1",
 });
 
 // A disposal that already carries a basis keeps it. Nothing is asked, and the
@@ -194,11 +178,6 @@ const keptBasis = card({
     </div>
   </div>`,
   change: ["Nothing to change"],
-  still: [
-    "Nothing is written until you press Import",
-    "Other accounts with overlapping ISINs are untouched",
-    "Quantity and value come from the newest safe statement; the latest broker keeps cost and terms",
-  ],
   warning: `<div class="muted import-note">INE000000201: the recorded sale already carries
     1,900.00; Motilal Oswal holdings report prices the same units at 2,000.00. The recorded
     cost is kept.</div>`,

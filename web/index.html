@@ -582,7 +582,11 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-step-title{font-size:13.5px;font-weight:600}
 .import-step-sub{font-weight:400;font-size:12px}
 .import-step-note{font-size:12px;margin-top:5px}
-.import-intro{font-size:13.5px;margin:-6px 0 14px}
+.import-intro{font-size:13.5px;line-height:1.5;margin:-6px 0 14px}
+.import-intro b{display:block;font-weight:620;margin-bottom:3px}
+.import-intro ul{margin:0;padding-left:17px}
+.import-intro li{margin:1px 0}
+.import-help-note{font-size:12px;line-height:1.5}
 .import-report-title{font-size:12px}
 .motilal-note{font-size:12px;margin-top:12px}
 .eq-error{font-size:13.5px;color:var(--red)}
@@ -712,6 +716,38 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-wrong .muted{font-size:12px;margin-top:4px;line-height:1.5}
 .import-ask-list{font-size:12px;margin:6px 0 0;padding-left:16px;line-height:1.5}
 .import-ask-list li{overflow-wrap:anywhere}
+.import-decisions{display:grid;margin-top:8px}
+.import-decisions-head{display:none}
+.import-decision{border-top:1px solid var(--hair);padding:3px 0;min-width:0;
+ font-size:12px;line-height:1.35}
+.import-decision:first-child{border-top:0;padding-top:0}
+.import-decision-line{display:grid;grid-template-columns:minmax(0,78px) minmax(0,1fr);
+ gap:1px 6px;align-items:baseline}
+.import-decision-name{font-weight:620;overflow-wrap:anywhere}
+.import-decision-facts{display:flex;flex-wrap:wrap;gap:1px 8px;color:var(--muted);
+ font-size:11px;font-variant-numeric:tabular-nums}
+.import-decision-facts span{white-space:nowrap}
+.import-decision-details{display:grid;gap:3px;margin-top:4px}
+.import-decision-detail{font-size:11px;line-height:1.45;color:var(--muted);
+ overflow-wrap:anywhere}
+.import-decision-detail-name{font-weight:620;color:var(--ink)}
+.import-change-note{font-size:11px;line-height:1.5;color:var(--muted);margin-top:4px;
+ overflow-wrap:anywhere}
+.import-actions .import-consent{margin-top:0}
+@media (max-width:520px){
+ .import-decisions-head{display:grid;grid-template-columns:minmax(0,76px) minmax(0,1fr);
+  gap:0 8px;align-items:baseline;padding-bottom:2px;border-bottom:1px solid var(--hair);
+  font-size:11px;font-weight:640;letter-spacing:.04em;color:var(--muted);
+  text-transform:uppercase}
+ .import-decisions-head-facts{display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.35fr) minmax(0,1.2fr);gap:0 10px}
+ .import-decisions.with-head .import-decision{padding:1px 0}
+ .import-decisions.with-head .import-decision-line{grid-template-columns:minmax(0,76px) minmax(0,1fr);
+  gap:0 8px}
+ .import-decisions.with-head .import-decision-facts{display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.35fr) minmax(0,1.2fr);gap:0 10px}
+ .import-decisions.with-head .import-decision-label{display:none}
+}
 .import-password{margin-top:10px;border:1px solid var(--amber);border-radius:10px;padding:12px}
 .import-password b{font-size:13.5px}
 .import-password .muted{font-size:12px;margin-top:4px}
@@ -3021,9 +3057,14 @@ function renderImport() {
   window.bpImportTargetOnce = false;
   setTimeout(() => window.bpZerodhaTargetNote?.(), 0);
   return `<h1>Import</h1>
-  <p class="muted import-intro">Add a depository statement (CAS), a broker holdings report,
-  or a bank statement. Bank and broker logins, OTPs and PINs are never requested. Nothing is
-  saved until you confirm.</p>
+  <div class="import-intro">
+    <b>Files you can add</b>
+    <ul>
+      <li>Depository statement (CAS) — CDSL or NSDL, after month end</li>
+      <li>Broker holdings report — Zerodha, Motilal Oswal, DigiFInn</li>
+      <li>Bank statement — CSV, XLSX or PDF</li>
+    </ul>
+  </div>
 
   <div class="card pad import-inbox-card">
     <label class="import-drop" id="import-inbox-drop" for="import-inbox-files"
@@ -3048,6 +3089,8 @@ function renderImport() {
         <div class="import-help-row"><b>Bank statement</b>
           PDF, CSV or Excel. Creates or updates the bank account and its transactions.
           <span class="muted">Get it from your bank's statement download.</span></div>
+        <div class="muted import-help-note">Bank and broker logins, OTPs and PINs are never
+          requested.</div>
       </div>
     </details>
     <div id="import-inbox-status" class="import-status" role="status" aria-live="polite"></div>
@@ -7907,42 +7950,162 @@ function bpImportFieldLabel(field) {
 const IMPORT_MONEY_FIELDS = new Set(["cost", "soldCost", "value", "facePaise",
   "payoutPaise", "futureInterestPaise", "futurePrincipalPaise"]);
 
-function bpImportChangeValue(change, value) {
-  if (value === null || value === undefined) return "empty";
-  return IMPORT_MONEY_FIELDS.has(change.field) ? money(value) : String(value);
+// The summary rounds to the rupee so a row stays one line; the row's detail in
+// More carries the exact paise when there are any.
+function bpImportMoneyShort(paise) {
+  if (paise === null || paise === undefined) return "—";
+  const rupees = Math.trunc(Number(paise) / 100);
+  return `${rupees < 0 ? "-" : ""}${currency()}${Math.abs(rupees)
+    .toLocaleString("en-IN")}`;
 }
 
-function bpImportDecisionLine(decision) {
-  const changes = (decision.changes || []).map((change) => {
-    const from = `${bpImportChangeValue(change, change.from)}${change.fromSource
-      ? ` (${change.fromSource}${change.fromAsOf ? ` ${change.fromAsOf}` : ""})` : ""}`;
-    const to = `${bpImportChangeValue(change, change.to)}${change.source
-      ? ` (${change.source}${change.asOf ? ` ${change.asOf}` : ""})` : ""}`;
-    return `${bpImportFieldLabel(change.field)} ${from} → ${to}`;
-  }).join(", ");
-  // A sold conflict is the one ask the numbers alone do not explain: the line
-  // must say that the sale stays and what the file would be used for.
-  const why = (decision.flags || []).includes("sold-conflict") && decision.reason
-    ? ` · ${decision.reason}` : "";
-  return `${decision.label || decision.isin}: ${changes}${why}`;
+function bpImportDecisionField(field) {
+  return ({
+    quantity: "qty", cost: "cost", purchase: "date", value: "value",
+    soldCost: "sold cost", couponPct: "coupon", maturity: "maturity",
+    frequency: "frequency", facePaise: "face", yieldPct: "yield",
+    interestDate: "interest", payoutPaise: "payout",
+    futureInterestPaise: "future interest", futurePrincipalPaise: "future principal",
+    label: "label",
+  })[field] || field;
 }
 
-function bpImportAskLines(bundle) {
+function bpImportDecisionFact(change) {
+  const label = bpImportDecisionField(change.field);
+  const isDate = ["purchase", "maturity", "interestDate"].includes(change.field);
+  if (isDate) {
+    const from = change.from ? shortDateLabel(change.from) : "";
+    const to = change.to ? shortDateLabel(change.to) : "—";
+    return { label, value: `${from ? `${from}→` : "→"}${to}` };
+  }
+  const format = (value) => {
+    if (value === null || value === undefined || value === "") return "—";
+    return IMPORT_MONEY_FIELDS.has(change.field)
+      ? bpImportMoneyShort(value) : String(value);
+  };
+  return { label, value: `${format(change.from)}→${format(change.to)}` };
+}
+
+function bpImportDecisionFactText(fact) {
+  return fact ? `${fact.label} ${fact.value}` : "";
+}
+
+// A decision is read in one glance: quantity, cost and date first, then any
+// other field. The label and the sources are not repeated in the line; they sit
+// in the row's detail behind More.
+function bpImportDecisionParts(decision) {
+  const changes = decision.changes || [];
+  const order = [
+    ["snapshot", "quantity"], ["cost", "cost"], ["cost", "purchase"],
+    ["snapshot", "value"], ["disposal", "soldCost"], ["cost", "couponPct"],
+    ["cost", "maturity"], ["cost", "facePaise"], ["cost", "yieldPct"],
+    ["cost", "interestDate"], ["label", "label"],
+  ];
+  const ordered = [];
+  for (const [group, field] of order) {
+    const change = changes.find((item) => item.group === group && item.field === field);
+    if (change && !ordered.includes(change)) ordered.push(change);
+  }
+  for (const change of changes) if (!ordered.includes(change)) ordered.push(change);
+  const isLabel = (change) => change.field === "label" || change.group === "label";
+  let summary = ordered.filter((change) => !isLabel(change)).slice(0, 3);
+  if (!summary.length) summary = ordered.slice(0, 1);
+  const rest = ordered.filter((change) => !summary.includes(change));
+  const detail = rest.map((change) => bpImportDecisionFactText(bpImportDecisionFact(change)));
+  for (const change of summary) {
+    if (IMPORT_MONEY_FIELDS.has(change.field) && change.to !== null
+      && change.to !== undefined && Number(change.to) % 100 !== 0) {
+      detail.push(`${bpImportDecisionField(change.field)} ${money(change.to)}`);
+    }
+  }
+  const sourceName = (source, asOf) =>
+    [source, asOf ? dateLabel(asOf) : ""].filter(Boolean).join(" ");
+  const sources = [];
+  for (const change of changes) {
+    const pair = [sourceName(change.fromSource, change.fromAsOf),
+      sourceName(change.source, change.asOf)].filter(Boolean).join(" → ");
+    if (pair && !sources.includes(pair)) sources.push(pair);
+  }
+  if (sources.length) detail.push(`source ${sources.join(" · ")}`);
+  // A sold conflict is the one ask the numbers alone do not explain.
+  if ((decision.flags || []).includes("sold-conflict") && decision.reason) {
+    detail.push(decision.reason);
+  }
+  return { summary: summary.map(bpImportDecisionFact), detail };
+}
+
+function bpImportDecisionRow(item) {
+  const decision = item?.decision || item;
+  const source = item?.source || "";
+  const name = decision.label || decision.isin || "Holding";
+  const parts = bpImportDecisionParts(decision);
+  return `<div class="import-decision">
+    <span class="import-decision-line">
+      <span class="import-decision-name">${esc(source ? `${source}: ${name}` : name)}</span>
+      <span class="import-decision-facts">${parts.summary.map((fact) =>
+        `<span>${fact.label ? `<span class="import-decision-label">${esc(fact.label)} </span>` : ""
+        }${esc(fact.value)}</span>`).join("")}</span>
+    </span>
+  </div>`;
+}
+
+function bpImportDecisionDetail(item) {
+  const decision = item?.decision || item;
+  const name = decision.label || decision.isin || "Holding";
+  const text = bpImportDecisionParts(decision).detail.join(" · ");
+  return text ? { name, text } : null;
+}
+
+function bpImportAskDecisions(bundle) {
   const decisions = bundle.family === "cas"
     ? (bundle.casTargets || []).flatMap((target) => target.plan?.decisions || [])
     : (bundle.plan?.decisions || []);
-  return decisions.filter((decision) => decision.action === "ask")
-    .map(bpImportDecisionLine);
+  return decisions.filter((decision) => decision.action === "ask");
 }
 
-function bpImportPlanAskLines(plan) {
-  const lines = bpImportAskLines(plan.head);
+function bpImportPlanAskItems(plan) {
+  const items = bpImportAskDecisions(plan.head)
+    .map((decision) => ({ decision, source: "" }));
   for (const receipt of plan.extras || []) {
     const asks = (receipt.plan?.decisions || []).filter((decision) =>
       decision.action === "ask");
-    for (const decision of asks) lines.push(`${receipt.label}: ${bpImportDecisionLine(decision)}`);
+    for (const decision of asks) {
+      items.push({ decision, source: receipt.label || "" });
+    }
   }
-  return lines;
+  return items;
+}
+
+// A phone drops the repeated field labels and prints one header instead, so
+// every decision stays one line. A desktop keeps the labels in the row.
+function bpImportDecisionsHead(items) {
+  const labels = items.map((item) => bpImportDecisionParts(item.decision).summary
+    .map((fact) => fact.label).join("\u0000"));
+  const first = labels[0] || "";
+  if (!first || labels.some((line) => line !== first)) return "";
+  const fields = first.split("\u0000").filter(Boolean);
+  if (!fields.length || fields.length > 3) return "";
+  return `<div class="import-decisions-head"><span>Holding</span>
+    <span class="import-decisions-head-facts">${fields.map((field) =>
+      `<span>${esc(field)}</span>`).join("")}</span></div>`;
+}
+
+function bpImportDecisionsHtml(items) {
+  if (!items.length) return "";
+  const head = bpImportDecisionsHead(items);
+  return `<div class="import-decisions${head ? " with-head" : ""}">${head}${
+    items.map(bpImportDecisionRow).join("")}</div>`;
+}
+
+// One reason line stands for the block. The rest of the evidence stays in each
+// row's detail, not in a paragraph above it.
+function bpImportAskReason(decisions) {
+  const sold = decisions.some((decision) =>
+    (decision.flags || []).includes("sold-conflict")
+    || (decision.changes || []).some((change) => change.group === "disposal"));
+  return sold
+    ? "Same date, a report that disagrees with a CAS quantity, or a recorded sale."
+    : "Same date, or the report disagrees with a CAS quantity.";
 }
 
 function bpImportReceiptRole(receipt) {
@@ -7962,13 +8125,57 @@ function bpImportReceiptRole(receipt) {
   return parts.join(" and ");
 }
 
+function bpImportPlanDecisions(plan) {
+  const bundle = plan.head;
+  const head = bundle.family === "cas"
+    ? (bundle.casTargets || []).flatMap((target) => target.plan?.decisions || [])
+    : (bundle.plan?.decisions || []);
+  return [...head, ...(plan.extras || []).flatMap((receipt) =>
+    receipt.plan?.decisions || [])];
+}
+
+function bpImportPlanUpdateNames(plan) {
+  return [...new Set(bpImportPlanDecisions(plan)
+    .filter((decision) => decision.action === "update")
+    .map((decision) => String(decision.label || decision.isin || "").trim())
+    .filter(Boolean))];
+}
+
+function bpImportUpdateLine(count, names = []) {
+  names = [...new Set(names.filter(Boolean))];
+  const named = names.length === count ? names : [];
+  if (named.length && names.length <= 3) {
+    return `Update ${count}: ${names.join(", ")}`;
+  }
+  const line = `Update ${count}: ${names.join(", ")}`;
+  if (named.length && line.length <= 48) return line;
+  return `Update ${count} holding${count === 1 ? "" : "s"}`;
+}
+
 function bpImportPlanItems(plan) {
   const bundle = plan.head;
   const net = plan.net || {};
   const summary = plan.summary || {};
   const change = [];
   if (net.added) change.push(`Add ${net.added} holding${net.added === 1 ? "" : "s"}`);
-  if (net.updated) change.push(`Update ${net.updated} holding${net.updated === 1 ? "" : "s"}`);
+  let updateMore = "";
+  if (net.updated) {
+    const names = bpImportPlanUpdateNames(plan);
+    const line = bpImportUpdateLine(net.updated, names);
+    change.push(line);
+    if (names.length && !line.includes(": ")) {
+      updateMore = `Update ${net.updated}: ${names.join(", ")}`;
+    }
+  } else if (summary.ask) {
+    const names = bpImportPlanAskItems(plan)
+      .map((item) => String(item.decision.label || item.decision.isin || "").trim())
+      .filter(Boolean);
+    const line = bpImportUpdateLine(summary.ask, names);
+    change.push(line);
+    if (names.length && !line.includes(": ")) {
+      updateMore = `Update ${summary.ask}: ${names.join(", ")}`;
+    }
+  }
   if (net.soldCost) change.push(`Record the sold cost basis on ${net.soldCost} `
     + `disposal${net.soldCost === 1 ? "" : "s"}`);
   if (bundle.saleEvents?.length) change.push(`Record ${bundle.saleEvents.length} sale${
@@ -7991,32 +8198,7 @@ function bpImportPlanItems(plan) {
   if (identityChanging) change.push(bundle.family === "cas"
     ? "Attach the CAS identity" : "Attach the account identity");
   if (!change.length) change.push("Nothing to change");
-  const still = [
-    "Nothing is written until you press Import",
-    "Other accounts with overlapping ISINs are untouched",
-    bundle.plan?.identityOnly
-      ? "Newer quantities, cost and dates stay; only empty fields fill from this older statement"
-      : "Quantity and value come from the newest safe statement; the latest broker keeps cost and terms",
-  ];
-  const stillMore = ["Cost you entered by hand is kept unless you confirm"];
-  if (summary.flagged) stillMore.push(`${summary.flagged} row${summary.flagged === 1 ? "" : "s"} absent from the newer report stay and are flagged`);
-  if (summary.skipped) stillMore.push(`${summary.skipped} row${summary.skipped === 1 ? "" : "s"} from an older snapshot are not added`);
-  if (bundle.family === "cas") stillMore.push("A broker's cost and purchase date are not replaced by the statement",
-    "Rows the statement does not name stay on the account");
-  const heldFolios = (bundle.casTargets || []).filter((target) =>
-    target.folio && target.offer && target.action !== "update");
-  const exactHeld = heldFolios.filter((target) => target.offer.basis === "folio");
-  const exactKept = exactHeld.filter((target) => target.action === "kept");
-  const exactWaiting = exactHeld.length - exactKept.length;
-  if (exactWaiting) stillMore.push(`${exactWaiting} folio${exactWaiting === 1 ? "" : "s"} waits
-    for the adopt-or-keep choice below; its rows are not imported yet`);
-  if (exactKept.length) stillMore.push(`${exactKept.length} folio${
-    exactKept.length === 1 ? "" : "s"} kept the manual total; none of its rows are imported`);
-  const guessedFolios = heldFolios.filter((target) => target.offer.basis !== "folio").length;
-  if (guessedFolios) stillMore.push(`${guessedFolios} folio${
-    guessedFolios === 1 ? "" : "s"} kept
-    separate; the existing value-only total also counts until you reconcile them`);
-  return { change, still, stillMore };
+  return { change, updateMore };
 }
 
 function bpImportReceiptsHtml(plan) {
@@ -8052,6 +8234,7 @@ function bpImportPlanHtml(plan) {
   const state = bpImportInboxState();
   const bundle = plan.head;
   const summary = plan.summary || {};
+  const askPending = !!(summary.ask && !plan.acceptAsk);
   const changes = bpImportPlanItems(plan);
   const files = plan.files.map((file) => {
     const owner = plan.bundles.find((item) =>
@@ -8076,10 +8259,10 @@ function bpImportPlanHtml(plan) {
       ? `<span class="import-pill warn">Add the account first</span>`
       : plan.noWork
         ? `<span class="import-pill">Nothing to import yet</span>`
-        : !plan.ready
-          ? `<span class="import-pill warn">${plan.needsChoice ? "Choose an account" : "Check the file"}</span>`
-          : summary.ask && !plan.acceptAsk
-            ? `<span class="import-pill warn">Review the differences</span>`
+        : askPending
+          ? `<span class="import-pill warn">Review the differences</span>`
+          : !plan.ready
+            ? `<span class="import-pill warn">${plan.needsChoice ? "Choose an account" : "Check the file"}</span>`
             : `<span class="import-pill good">Ready</span>`;
   const title = bpImportBundleLabel(bundle);
   const kicker = bundle.family === "cas"
@@ -8094,32 +8277,22 @@ function bpImportPlanHtml(plan) {
     ? `as on ${dateLabel(bundle.asOf)}`
     : bundle.base ? "No date on the file" : "No holdings report"]
     .filter(Boolean).join(" · ");
-  const askLines = bpImportPlanAskLines(plan);
-  // A sold bond is the one accept whose consequence is not obvious from the
-  // numbers: the file prices the disposal, it does not revive the units.
-  const askDecisions = bundle.family === "cas"
-    ? (bundle.casTargets || []).flatMap((target) => target.plan?.decisions || [])
-    : (bundle.plan?.decisions || []);
-  const soldAsk = askDecisions.some((decision) => decision.action === "ask"
-    && (decision.flags || []).includes("sold-conflict"));
-  const ask = summary.ask && !plan.acceptAsk
+  const askItems = askPending ? bpImportPlanAskItems(plan) : [];
+  const askReason = askPending
+    ? bpImportAskReason(askItems.map((item) => item.decision)) : "";
+  const ask = askPending
     ? `<div class="import-wrong"><b>${summary.ask} difference${summary.ask === 1 ? "" : "s"}
         need${summary.ask === 1 ? "s" : ""} your decision.</b>
-      ${askLines.length === 1 ? `<div class="muted">${esc(askLines[0])}</div>` : ""}
-      ${soldAsk ? `<div class="muted">The sale stays recorded; the file does not put the
-        units back.</div>` : ""}
-      <div class="import-actions">
-        <button class="btn" onclick="bpImportAccept(${jsArg(plan.key)})">Use the file's values</button>
-      </div></div>` : "";
+      <div class="muted import-reason">${esc(askReason)}</div>
+      ${bpImportDecisionsHtml(askItems)}</div>` : "";
   const warnings = plan.noWork ? [] : (plan.warnings || []);
   // A gate or a missing account already has its own pill and button. Only a
-  // warning with no other visible carrier earns a sentence on the card.
+  // warning with no other visible carrier earns a sentence on the card. A
+  // pending decision already has its one reason line, so the rest stay in More.
   const gated = !plan.gate && !bundle.movementBlocked
     && (bpImportPlanDateBlocked(plan) || bundle.casSafety?.blocked
-      || (summary.ask && !plan.acceptAsk) || (bundle.saleConflicts || []).length);
-  // Only a warning that stops the import earns a visible sentence. The rest are
-  // consequences and sit with the record behind More.
-  const warning = gated && warnings.length
+      || askPending || (bundle.saleConflicts || []).length);
+  const warning = gated && !askPending && warnings.length
     ? `<div class="muted import-note">${esc(warnings[0])}</div>` : "";
   const moreWarnings = warning ? warnings.slice(1) : warnings;
   const net = plan.net || {};
@@ -8135,19 +8308,20 @@ function bpImportPlanHtml(plan) {
         : (bundle.casTargets || []).some((target) => target.action === "conflict")
           ? "conflict" : ""
     : "";
-  const primary = plan.noWork ? "Nothing to import yet"
-    : heldFolio === "decide" ? "Choose below"
-      : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
-        : importPlanPrimary({
-        family: bundle.family,
-        identityOnly: !!bundle.plan?.identityOnly,
-        planned,
-        sales,
-        soldCost: net.soldCost || 0,
-        attachIdentity: !!bundle.plan?.identityChange,
-        create: bundle.create && !bundle.targetId,
-        categories,
-      });
+  const primary = askPending ? `Use the file's values · ${summary.ask}`
+    : plan.noWork ? "Nothing to import yet"
+      : heldFolio === "decide" ? "Choose below"
+        : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
+          : importPlanPrimary({
+          family: bundle.family,
+          identityOnly: !!bundle.plan?.identityOnly,
+          planned,
+          sales,
+          soldCost: net.soldCost || 0,
+          attachIdentity: !!bundle.plan?.identityChange,
+          create: bundle.create && !bundle.targetId,
+          categories,
+        });
   const noWork = plan.noWorkCopy || null;
   // The pill already says nothing can be imported. The line carries the reason
   // and the next action, once.
@@ -8158,14 +8332,18 @@ function bpImportPlanHtml(plan) {
   const noWorkHtml = noWork
     ? `<div class="import-nowork"><div class="muted import-note">${esc(noWorkLine)}</div></div>`
     : "";
-  const still = [...changes.still, ...(changes.stillMore || [])]
-    .filter((item) => !/^Nothing is written until you press Import$/.test(item));
   const changeBlock = plan.noWork ? "" : `<div class="import-change">
       <b>What will change</b><ul>${changes.change.map((item) =>
-        `<li>${esc(item)}</li>`).join("")}</ul></div>`;
-  const differenceBlock = askLines.length > 1 ? `<div class="import-change">
-      <b>Differences</b><ul class="import-ask-list">${askLines.map((line) =>
-        `<li>${esc(line)}</li>`).join("")}</ul></div>` : "";
+        `<li>${esc(item)}</li>`).join("")}</ul>
+      ${changes.updateMore ? `<div class="import-change-note">${esc(changes.updateMore)}</div>` : ""}
+    </div>`;
+  const decisionDetails = askPending
+    ? askItems.map(bpImportDecisionDetail).filter(Boolean) : [];
+  const differenceBlock = decisionDetails.length ? `<div class="import-change">
+      <b>Decision detail</b>
+      <div class="import-decision-details">${decisionDetails.map((item) =>
+        `<div class="import-decision-detail"><span class="import-decision-detail-name">${
+          esc(item.name)}</span> ${esc(item.text)}</div>`).join("")}</div></div>` : "";
   const accountMore = plan.noWork ? bpImportNoWorkAccountHtml(bundle) : "";
   const moreBlock = `<div class="import-change">
       <details class="import-change-more"><summary>More</summary>
@@ -8178,13 +8356,11 @@ function bpImportPlanHtml(plan) {
         ${changeBlock}
         ${differenceBlock}
         ${accountMore ? `<ul>${accountMore}</ul>` : ""}
-        <b>What will not change</b>
-        <ul>${still.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>
         ${moreWarnings.length ? `<b>Notes</b>
           <ul>${moreWarnings.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}
       </details></div>`;
-  const consent = plan.noWork ? "" : `<div class="muted import-note import-consent">
-    Nothing is written until you press Import.</div>`;
+  const consent = plan.noWork ? "" : `<span class="muted import-note import-consent">
+    Nothing is written until you press Import.</span>`;
   return `<div class="card pad import-bundle" data-plan="${esc(plan.key)}">
     <div class="import-bundle-head">
       <div><div class="import-title">${esc(title)}</div>
@@ -8196,11 +8372,14 @@ function bpImportPlanHtml(plan) {
     ${ask}
     ${warning}
     <div class="import-change-grid">${moreBlock}</div>
-    ${consent}
     <div class="import-actions">
-      <button class="btn primary" ${plan.ready && !state.applying && !plan.noWork
-        ? "" : "disabled"}
-        onclick="bpImportApplyPlan(${jsArg(plan.key)})">${esc(primary)}</button>
+      ${askPending
+        ? `<button class="btn primary" ${state.applying ? "disabled" : ""}
+            onclick="bpImportAccept(${jsArg(plan.key)})">${esc(primary)}</button>`
+        : `<button class="btn primary" ${plan.ready && !state.applying && !plan.noWork
+          ? "" : "disabled"}
+            onclick="bpImportApplyPlan(${jsArg(plan.key)})">${esc(primary)}</button>`}
+      ${consent}
       ${plan.gate ? `<button class="btn" onclick="bpImportGoToPlan(${jsArg(plan.gate.key)})">
         Go to the ${esc(plan.gate.label)} report</button>` : ""}
       ${bundle.movementMissing?.length ? `<button class="btn"
@@ -8222,7 +8401,7 @@ function bpImportPlanMissing(plan) {
   if (plan.needsChoice) return `Choose an account for ${title}`;
   if ((plan.summary?.ask || 0) > 0 && !plan.acceptAsk) {
     const count = plan.summary.ask;
-    return `Review ${count} difference${count === 1 ? "" : "s"} in ${title}`;
+    return `Use the file's values for ${count} difference${count === 1 ? "" : "s"} in ${title}`;
   }
   if (bpImportPlanDateBlocked(plan)) return `Check the date in ${title}`;
   if (plan.noWork) {

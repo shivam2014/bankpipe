@@ -148,7 +148,7 @@ const SCENARIOS = [
       if (state.primary !== "Import 1 equity") wrong.push(`primary: ${state.primary}`);
       if (state.primaryDisabled) wrong.push("the import is disabled although it fills a date");
       if (state.pill !== "Ready") wrong.push(`pill: ${state.pill}`);
-      if (!state.changeLines.includes("Update 1 holding")) {
+      if (!state.changeLines.includes("Update 1: TESTSTOCKIND")) {
         wrong.push(`change lines: ${JSON.stringify(state.changeLines)}`);
       }
       if (!state.more?.summary) wrong.push("the More disclosure is missing");
@@ -168,7 +168,7 @@ const SCENARIOS = [
       }
       if (state.primary !== "Import 1 equity") wrong.push(`primary: ${state.primary}`);
       if (state.primaryDisabled) wrong.push("the normal import is disabled");
-      if (!state.changeLines.includes("Update 1 holding")) {
+      if (!state.changeLines.includes("Update 1: TESTSTOCKIND")) {
         wrong.push(`change lines: ${JSON.stringify(state.changeLines)}`);
       }
       return wrong;

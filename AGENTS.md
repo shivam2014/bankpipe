@@ -25,7 +25,7 @@ Never commit real statements, databases, denylists or identifiers. Fixtures are 
 
     BANKPIPE_PRIVATE_IMPORT_DIR="$HOME/statements" node web/tools/privacy-denylist.mjs
 
-Keep the repository private. `.github/workflows/privacy.yml` fails the build if it is not.
+The repository stays private until the history scrub in [`docs/PUBLIC-REPO.md`](docs/PUBLIC-REPO.md) is complete. `.github/workflows/privacy.yml` fails when tracked content contains a PAN, Aadhaar, account/demat, IFSC, email or phone shape. A synthetic fixture can be cleared only through `scripts/privacy-allowlist.json`; prefer the reserved `9999` namespace, never add a real identifier, and never wildcard a directory. `node scripts/check-history-privacy.mjs` is the post-rewrite gate over every blob on every ref.
 
 ## Product rules
 
