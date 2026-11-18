@@ -44,10 +44,18 @@ function metaOf(account) {
   }
 }
 
-/** A fund account is the only kind that can own a folio. */
+/**
+ * A fund account is the only kind that can own a folio. A BO ID is a depository
+ * account, so a legacy demat row whose subtype says "mutual fund" is not a
+ * folio: its number cannot become a folio identity and its page is an account.
+ * An account with no number yet can still be a folio (the import fills it).
+ */
 export function isFolioAccount(account) {
-  return /mutual\s*fund|^mf$/i.test(String(account?.subtype || ""))
+  const fund = /mutual\s*fund|^mf$/i.test(String(account?.subtype || ""))
     || /^mf$/i.test(String(account?.type || ""));
+  if (!fund) return false;
+  const number = String(account?.number || "").replace(/\s+/g, "").trim();
+  return !number || boId(number).kind !== "bo";
 }
 
 /**
@@ -434,6 +442,73 @@ export function folioAdoptedHome(holding, accounts = [], adopt = {}) {
   const folio = normalizeFolio(holding?.folio);
   if (folios.length && !folios.includes(folio)) return null;
   return accountCurrentValuePaise(account) > 0 ? account : null;
+}
+
+const isFundRow = (row) => /mutual\s*fund|^mf$/i.test(String(row?.category || row?.kind || ""))
+  || /^INF/i.test(String(row?.security_id || row?.isin || ""));
+
+const rowIsin = (row) => String(row?.security_id || row?.isin || "")
+  .toUpperCase().replace(/\s+/g, "");
+
+/**
+ * Fund positions a demat still holds that a folio account already holds too.
+ * This is the duplicate an older import left behind: the same fund ISIN written
+ * under the demat and under its folio. The folio is the home, so the demat row
+ * is the copy to remove. Nothing here writes or deletes; it returns both
+ * amounts so a surface can name the duplicate and a person can decide.
+ * A ticket's closed history row (zero units) is not a live position and is not
+ * reported. A fund account is never the demat side of the comparison.
+ * @param {object} account the demat account being checked
+ * @param {Array<object>} [rows] that account's stored rows
+ * @param {Array<{account: object, holdings?: Array<object>}>} [accountRows]
+ *   every account with its rows, so the folio twin can be found
+ * @param {(id: string) => Array<object>} [rowsOf] fallback when an entry carries
+ *   only an account
+ * @returns {Array<{isin: string, label: string, dematPaise: number,
+ *   folioId: string, folioLabel: string, folioPaise: number, count: number}>}
+ */
+export function duplicateFundPositions(account, rows = [], accountRows = [],
+  rowsOf = null) {
+  if (!account || isFolioAccount(account)) return [];
+  const entries = (accountRows || []).map((entry) => {
+    const other = entry?.account || entry;
+    const id = String(other?.id || "");
+    const holdings = Array.isArray(entry?.holdings) ? entry.holdings
+      : (typeof rowsOf === "function" ? rowsOf(id) : []) || [];
+    return { account: other, holdings };
+  });
+  const found = new Map();
+  for (const row of rows || []) {
+    if (!isFundRow(row) || !(Number(row?.quantity) > 0)) continue;
+    const isin = rowIsin(row);
+    if (!isin) continue;
+    for (const entry of entries) {
+      const folio = entry.account;
+      if (!folio || String(folio.id || "") === String(account.id || "")) continue;
+      if (!isFolioAccount(folio)) continue;
+      const twins = (entry.holdings || []).filter((item) =>
+        rowIsin(item) === isin && Number(item.quantity) > 0);
+      if (!twins.length) continue;
+      const key = `${isin}|${String(folio.id || "")}`;
+      if (!found.has(key)) {
+        found.set(key, {
+          isin,
+          label: String(row.label || twins[0].label || isin),
+          dematPaise: 0,
+          folioId: String(folio.id || ""),
+          folioLabel: String(folio.label || folio.bank || folio.id || "folio"),
+          folioPaise: twins.reduce((total, item) =>
+            total + (Number(item.value_paise ?? item.valuePaise) || 0), 0),
+          count: 0,
+        });
+      }
+      const hit = found.get(key);
+      hit.dematPaise += Number(row.value_paise ?? row.valuePaise) || 0;
+      hit.count += 1;
+      break;
+    }
+  }
+  return [...found.values()];
 }
 
 /**

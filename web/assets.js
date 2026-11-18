@@ -3,6 +3,7 @@
 // The category is stable; the subtype is free enough to hold "savings",
 // "physical", "sgb" and similar without a migration each time.
 
+import { boId } from "./bo-id.js";
 import { assetMetrics, fdMatured } from "./finance.js";
 
 export const CATEGORIES = [
@@ -34,9 +35,15 @@ function assetMeta(asset) {
 
 // A folio is a demat-shaped account that holds one AMC's fund units. It is not
 // a custody account, so it may hold fund rows but never bond or share positions.
+// A BO ID is a depository account, never a folio: a legacy row that says
+// "mutual fund" while carrying a BO ID is still a demat, and its page must read
+// as an account rather than as a folio.
 export function isFundAccount(asset) {
-  return categoryOf(asset) === "demat"
-    && FUND_WORDS.test(String(asset?.subtype || ""));
+  if (categoryOf(asset) !== "demat" || !FUND_WORDS.test(String(asset?.subtype || ""))) {
+    return false;
+  }
+  const number = String(asset?.number || "").trim();
+  return !number || boId(number).kind !== "bo";
 }
 
 // A securities account holds market positions: a demat, a fund folio (a demat

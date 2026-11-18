@@ -276,6 +276,9 @@ export function casGroupByAsset({ holdings = [], groups = [],
     // to insert first.
     const isFolioRow = holding.kind === "mf" && holding.folio
       && Number(holding.quantity) > 0;
+    // A live fund row with no printed folio has no home. It must never fall
+    // through to the demat group just because the statement printed it there.
+    if (holding.kind === "mf" && Number(holding.quantity) > 0 && !isFolioRow) continue;
     const folio = normalizeFolio(holding.folio);
     const owners = isFolioRow
       ? (groups || []).filter((item) => item.kind === "mf" && item.folio
@@ -308,9 +311,9 @@ export function casGroupByAsset({ holdings = [], groups = [],
 }
 
 /**
- * The demat rows a card unit counts. A positive folio row belongs to the folio
- * unit; a zero-unit folio row the route left in the demat is still this
- * account's row.
+ * The demat rows a card unit counts. A live fund row belongs to its folio unit,
+ * with or without a printed folio; a zero-unit history row the route left in
+ * the demat is still this account's row.
  * @param {Array<object>} holdings
  * @param {string} bo
  * @returns {Array<object>}
@@ -318,7 +321,7 @@ export function casGroupByAsset({ holdings = [], groups = [],
 export function casDematRows(holdings = [], bo = "") {
   return (holdings || []).filter((holding) =>
     String(holding.account || "") === String(bo || "")
-    && !(holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0));
+    && !(holding.kind === "mf" && Number(holding.quantity) > 0));
 }
 
 /**
@@ -333,11 +336,12 @@ export function casWritableHoldings(holdings, importDay = new Date().toISOString
 }
 
 /**
- * The rows a manual demat target may take. A positive-unit folio row belongs to
- * its folio account, never to a demat: writing it there would put the same fund
- * position under a different identity. A zero-unit folio row is closed history,
- * not a position, and stays with the demat the statement printed. Used by the
- * manual preview and the manual write so they cannot disagree.
+ * The rows a manual demat target may take. A live fund row belongs to its folio
+ * account, never to a demat: writing it there would put the same fund position
+ * under a different identity, and a fund row with no printed folio has no safe
+ * home at all. A zero-unit fund row is closed history, not a position, and stays
+ * with the demat the statement printed. Used by the manual preview and the manual
+ * write so they cannot disagree.
  * @param {Array<object>} holdings
  * @param {string} [importDay]
  * @returns {Array<object>}
@@ -345,7 +349,7 @@ export function casWritableHoldings(holdings, importDay = new Date().toISOString
 export function casManualTargetRows(holdings,
   importDay = new Date().toISOString().slice(0, 10)) {
   return casWritableHoldings(holdings, importDay).filter((holding) =>
-    !(holding.kind === "mf" && holding.folio && Number(holding.quantity) > 0));
+    !(holding.kind === "mf" && Number(holding.quantity) > 0));
 }
 
 /**
