@@ -8095,10 +8095,19 @@ function bpImportPlanHtml(plan) {
     : bundle.base ? "No date on the file" : "No holdings report"]
     .filter(Boolean).join(" · ");
   const askLines = bpImportPlanAskLines(plan);
+  // A sold bond is the one accept whose consequence is not obvious from the
+  // numbers: the file prices the disposal, it does not revive the units.
+  const askDecisions = bundle.family === "cas"
+    ? (bundle.casTargets || []).flatMap((target) => target.plan?.decisions || [])
+    : (bundle.plan?.decisions || []);
+  const soldAsk = askDecisions.some((decision) => decision.action === "ask"
+    && (decision.flags || []).includes("sold-conflict"));
   const ask = summary.ask && !plan.acceptAsk
     ? `<div class="import-wrong"><b>${summary.ask} difference${summary.ask === 1 ? "" : "s"}
         need${summary.ask === 1 ? "s" : ""} your decision.</b>
       ${askLines.length === 1 ? `<div class="muted">${esc(askLines[0])}</div>` : ""}
+      ${soldAsk ? `<div class="muted">The sale stays recorded; the file does not put the
+        units back.</div>` : ""}
       <div class="import-actions">
         <button class="btn" onclick="bpImportAccept(${jsArg(plan.key)})">Use the file's values</button>
       </div></div>` : "";

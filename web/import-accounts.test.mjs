@@ -864,6 +864,13 @@ test("the card leads with its title, one metric line and one state line", () => 
   assert.match(card, /<details class="import-change-more"><summary>More<\/summary>/);
 });
 
+test("a sold-sale ask keeps its consequence on the card", () => {
+  const card = between("function bpImportPlanHtml", "function bpImportPlanMissing");
+  assert.match(card, /const soldAsk = askDecisions\.some/);
+  assert.match(card, /The sale stays recorded; the file does not put the\s+units back\./,
+    "the accept cannot re-add units a statement already sold");
+});
+
 test("a plan of one holding says holding, not holdings", () => {
   assert.equal(importPlanPrimary({ family: "cas", planned: 1 }), "Import 1 holding");
   assert.equal(importPlanPrimary({ family: "cas", planned: 3 }), "Import 3 holdings");
