@@ -7192,6 +7192,16 @@ function bpImportResolveBroker(bundle) {
   if (targetId && !bpImportAccountRow(targetId)) targetId = "";
   if (!targetId && bundle.match.identityId) targetId = bundle.match.identityId;
   if (!targetId && bundle.match.attachId) targetId = bundle.match.attachId;
+  // The account page shortcut is the last fallback, never a match. It names the
+  // account the person came from only when the file has no identity or ISIN
+  // match, and only when that account is filed under this file's broker. A
+  // different broker's report must not inherit the account by accident.
+  if (!targetId && window.bpImportTarget) {
+    const hint = bpImportAccountRow(window.bpImportTarget);
+    if (hint && brokerDematAccounts(bundle.family, [hint.account]).length) {
+      targetId = hint.account.id;
+    }
+  }
   bundle.targetId = targetId;
   bundle.canCreate = bundle.match.matches.length === 0;
   // A weak overlap is a question, not a default. Only a file that matches
@@ -8349,6 +8359,7 @@ function bpImportPlanHtml(plan) {
       <details class="import-change-more"><summary>More</summary>
         <div class="import-kicker">${esc(kicker)}</div>
         <div class="import-files">${files}</div>
+        <div class="muted import-note">Removes this file from the queue. Imported data is untouched.</div>
         ${showWhere ? "" : where}
         ${bpImportReceiptsHtml(plan)}
         ${plan.noWork ? "" : casSaleHtml(bundle.saleLines || [], bundle.saleConflicts || [],
@@ -8387,7 +8398,7 @@ function bpImportPlanHtml(plan) {
         Add the demat account</button>` : ""}
       ${plan.noWork ? "" : `<button class="btn"
         onclick="bpImportReview(${jsArg(plan.key)})">Review differences</button>`}
-      <button class="btn ghost" onclick="bpImportDropPlan(${jsArg(plan.key)})">Remove</button>
+      <button class="btn ghost" onclick="bpImportDropPlan(${jsArg(plan.key)})">Discard file</button>
     </div>
   </div>`;
 }
@@ -13894,6 +13905,11 @@ function assetForm(a, factCount, defaultCat, holdings) {
         The bonds it paid for sit in ${esc((() => { try { return JSON.parse(a.meta || "{}").linked_label; } catch (e) { return ""; } })() || "a demat account")}.
         Its only job is to keep the purchase cost and dates so a gain can be shown.</div>` : ""}
   ${a && cat === "demat" ? dematHero(a, holdings) : ""}
+  ${a && isImportAccount(a) ? `<div class="acct-actions">
+    <div class="acct-actions-main">
+      <button class="btn" onclick="bpAccountImport(${jsArg(a.id)})">Import a statement</button>
+    </div>
+  </div>` : ""}
   ${a && (cat === "demat" || cat === "bonds") ? accountMixHtml(a) : ""}
   ${!focusClass && a ? assetFocusCard(a) : ""}
   ${a && cat === "demat" ? assetDetailCard(a) : ""}
