@@ -12,8 +12,8 @@ import { detectImportFile, parseTradebook, parseTradebookMatrix, groupBundles }
   from "./import-flow.js";
 import { parseZerodhaHoldings, parseZerodhaHoldingsSheets } from "./zerodha.js";
 import { scanFiles } from "./privacy-scan.mjs";
-import { DETECTION_CASES, DIGIFINN_FILES, ZERODHA_HOLDINGS_MATRIX,
-  ZERODHA_TRADEBOOK_MATRIX } from "./fixtures/import/samples.mjs";
+import { DETECTION_CASES, DIGIFINN_FILES, KITE_CONSOLE_SHEETS,
+  ZERODHA_HOLDINGS_MATRIX, ZERODHA_TRADEBOOK_MATRIX } from "./fixtures/import/samples.mjs";
 
 const require = createRequire(import.meta.url);
 const XLSX = require("./vendor/xlsx.full.min.js");
@@ -32,6 +32,14 @@ function xlsxRoundTrip(matrix, sheetName = "Statement") {
 function sheetRows(wb, name = wb.SheetNames[0]) {
   return XLSX.utils.sheet_to_json(wb.Sheets[name],
     { header: 1, raw: true, defval: "" });
+}
+
+function workbookBytes(sheets) {
+  const wb = XLSX.utils.book_new();
+  for (const [name, matrix] of Object.entries(sheets)) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(matrix), name);
+  }
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 }
 
 test("every supported import kind is detected by content, not by name", () => {
@@ -99,6 +107,44 @@ test("a holdings XLSX keeps its Client ID, date and rows through the round-trip"
   assert.equal(parsed.rows.length, 2);
   assert.equal(parsed.rows[0].quantity, 5);
   assert.equal(parsed.rows[0].averagePrice, 100.5);
+});
+
+test("a Kite Console three-sheet XLSX reads each security once", () => {
+  const bytes = workbookBytes(KITE_CONSOLE_SHEETS);
+  const read = XLSX.read(bytes, { type: "buffer" });
+  const names = read.SheetNames;
+  const sheets = names.map((name) => sheetRows(read, name));
+  assert.deepEqual(names, ["Equity", "Mutual Funds", "Combined"]);
+  const detected = sheets.map((sheet) => detectImportFile({ matrix: sheet }))
+    .find((found) => found.kind !== "unknown");
+  assert.equal(detected.kind, "zerodha-holdings");
+  assert.equal(detected.confidence, "content");
+  const parsed = parseZerodhaHoldingsSheets(sheets, names);
+  assert.equal(parsed.error, null);
+  assert.equal(parsed.clientId, "TEST500");
+  assert.equal(parsed.asOf, "2026-11-12");
+  assert.equal(parsed.rows.length, 5);
+  assert.equal(new Set(parsed.rows.map((row) => row.isin)).size, 5);
+  assert.equal(parsed.rows.filter((row) => row.category === "mf").length, 2);
+  assert.equal(parsed.rows.find((row) => row.symbol === "TESTPOWER").quantity, 77);
+  assert.equal(parsed.rows.find((row) => row.symbol === "TESTPOWER").pledged, 7);
+});
+
+test("a three-sheet workbook with no Kite header is still unknown", () => {
+  const bytes = workbookBytes({
+    Equity: [["Summary", "Invested Value"], ["", 100000]],
+    "Mutual Funds": [["Portfolio", "Units"], ["", 0]],
+    Combined: [["Notes"], ["Nothing to import"]],
+  });
+  const read = XLSX.read(bytes, { type: "buffer" });
+  const names = read.SheetNames;
+  const sheets = names.map((name) => sheetRows(read, name));
+  for (const sheet of sheets) {
+    assert.equal(detectImportFile({ matrix: sheet }).kind, "unknown");
+  }
+  const parsed = parseZerodhaHoldingsSheets(sheets, names);
+  assert.match(parsed.error, /No equity holdings sheet/);
+  assert.equal(parsed.rows.length, 0);
 });
 
 test("the five DigiFInn reports still group as one account set", () => {

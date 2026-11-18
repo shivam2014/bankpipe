@@ -8000,6 +8000,8 @@ function bpImportPlanHtml(plan) {
   const net = plan.net || {};
   const planned = (net.added || 0) + (net.updated || 0) + (net.history || 0);
   const sales = bundle.saleEvents?.length || 0;
+  const categories = [...new Set((bundle.rows || [])
+    .map((row) => String(row.category || "").toLowerCase()).filter(Boolean))];
   // An exact folio with no work has no import to describe. The choice itself is
   // the answer, so the button says what it does instead of "Attach identity".
   const heldFolio = bundle.family === "cas" && !planned && !sales
@@ -8018,6 +8020,7 @@ function bpImportPlanHtml(plan) {
         soldCost: net.soldCost || 0,
         attachIdentity: !!bundle.plan?.identityChange,
         create: bundle.create && !bundle.targetId,
+        categories,
       });
   return `<div class="card pad import-bundle" data-plan="${esc(plan.key)}">
     <div class="import-bundle-head">
@@ -8301,7 +8304,7 @@ async function bpImportInboxReadOne(entry) {
         if (detected.kind !== "zerodha-holdings") {
           throw new Error("This spreadsheet is not a Zerodha holdings export. Nothing was read.");
         }
-        const parsed = parseZerodhaHoldingsSheets(sheets);
+        const parsed = parseZerodhaHoldingsSheets(sheets, wb.SheetNames);
         if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = "zerodha-holdings";
@@ -8310,7 +8313,7 @@ async function bpImportInboxReadOne(entry) {
         entry.accountKey = parsed.clientId || "";
         entry.accountKind = parsed.clientId ? "client" : "";
         entry.rows = parsed.rows.map((row) => ({
-          isin: row.isin, label: row.symbol || row.isin, category: "equity",
+          isin: row.isin, label: row.symbol || row.isin, category: row.category || "equity",
           quantity: row.quantity,
           valuePaise: null,
           costPaise: Math.round(row.averagePrice * row.quantity * 100),
@@ -10181,7 +10184,7 @@ window.bpZerodhaHoldings = async (file, opts = {}) => {
   try {
     const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
     const sheets = wb.SheetNames.map((name) => sheetRows(wb.Sheets[name], true));
-    const parsed = parseZerodhaHoldingsSheets(sheets);
+    const parsed = parseZerodhaHoldingsSheets(sheets, wb.SheetNames);
     if (parsed.error) {
       host.innerHTML = `<div class="card pad eq-error">${esc(parsed.error)}</div>`;
       return;

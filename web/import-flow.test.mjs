@@ -53,6 +53,11 @@ test("detects each supported depository and broker file from its contents", () =
     ["TESTSTOCKIND", "INE000000010", "Industrials", 5, 3811.5]];
   assert.equal(detectImportFile({ name: "holdings.xlsx", matrix: holdings }).kind,
     "zerodha-holdings");
+  const longPreamble = Array.from({ length: 20 }, (_, i) => [`Summary line ${i}`]);
+  longPreamble.push(["Symbol", "ISIN", "Quantity Available", "Average Price"]);
+  longPreamble.push(["TESTLATE", "INE000000099", 3, 10]);
+  assert.equal(detectImportFile({ name: "holdings.xlsx", matrix: longPreamble }).kind,
+    "zerodha-holdings");
 });
 
 test("a Motilal PDF in the CAS input is recognised as Motilal, not CAS", () => {

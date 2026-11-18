@@ -66,7 +66,7 @@ function inspect(dir, entry) {
       result.rows = sheets.map((sheet) => parseTradebookMatrix(sheet))
         .find((parsed) => !parsed.error)?.rows?.length ?? 0;
     } else if (detected.kind === "zerodha-holdings") {
-      result.rows = parseZerodhaHoldingsSheets(sheets).rows?.length ?? 0;
+      result.rows = parseZerodhaHoldingsSheets(sheets, wb.SheetNames).rows?.length ?? 0;
     }
     return result;
   }

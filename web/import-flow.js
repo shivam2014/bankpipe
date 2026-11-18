@@ -78,13 +78,14 @@ function dateInText(value) {
   return "";
 }
 
+// A Kite holdings sheet is identified by its header, not by where the header
+// sits. The summary block above it can be any length, and the Combined sheet
+// shifts every column by one, so only the two required names matter.
 function matrixLooksLikeHoldings(matrix) {
   const rows = Array.isArray(matrix) ? matrix : [];
-  for (let i = 0; i < Math.min(rows.length, 12); i++) {
-    const cells = (rows[i] || []).map(norm);
-    if (cells.includes("symbol") && cells.includes("isin")
-      && (cells.includes("average price") || cells.includes("average cost")
-        || cells.includes("buy avg"))) return true;
+  for (const row of rows) {
+    const cells = (row || []).map(norm);
+    if (cells.includes("isin") && cells.includes("quantity available")) return true;
   }
   return false;
 }
@@ -1091,15 +1092,22 @@ export function bondImportOf(account, assetId = "") {
  * Pure, so the copy is testable without a DOM.
  */
 export function importPlanPrimary({ family = "", identityOnly = false, planned = 0,
-  sales = 0, create = false, soldCost = 0, attachIdentity = false } = {}) {
+  sales = 0, create = false, soldCost = 0, attachIdentity = false,
+  categories = [] } = {}) {
   if (family === "cas") {
     if (identityOnly) return "Attach identity and fill empty values";
     if (planned) return `Import ${planned} ${planned === 1 ? "holding" : "holdings"}`;
     if (sales) return `Record ${sales} sale${sales === 1 ? "" : "s"}`;
     return "Attach identity";
   }
+  const kinds = new Set((categories || []).map((value) => String(value || "").toLowerCase())
+    .filter(Boolean));
+  const hasFunds = kinds.has("mf");
+  const mixed = hasFunds && kinds.size > 1;
   const noun = family === "zerodha"
-    ? (planned === 1 ? "equity" : "equities")
+    ? (mixed ? (planned === 1 ? "holding" : "holdings")
+      : hasFunds ? (planned === 1 ? "fund" : "funds")
+        : (planned === 1 ? "equity" : "equities"))
     : (planned === 1 ? "holding" : "holdings");
   if (!planned && soldCost) {
     return soldCost === 1 ? "Record the sold cost basis"
