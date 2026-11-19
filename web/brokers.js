@@ -29,6 +29,7 @@ export const BOND_BROKERS = [
   {
     id: "motilal",
     label: "Motilal Oswal",
+    logo: "broker-logos/motilal-oswal.svg",
     parser: "motilal",
     format: "pdf",
     page: { url: "https://www.motilaloswal.com/", where: "Reports" },
@@ -50,7 +51,9 @@ export function bondBroker(id = "digifinn") {
 }
 
 export function brokerLogo(id = "digifinn") {
-  return bondBroker(id)?.logo || "";
+  const broker = [...BOND_BROKERS, ...EQUITY_BROKERS].find((b) => b.id === id)
+    || BOND_BROKERS[0];
+  return broker?.logo || "";
 }
 
 // Which report slots this app can actually apply. The registry may list more
@@ -73,12 +76,12 @@ export function parseBrokerReport(brokerId, text, fileName = "") {
 // prints. Zerodha's holdings XLSX and Motilal's Portfolio Holding Summary are
 // wired; another broker is a guide here plus a parser, not a new page.
 export const EQUITY_BROKERS = [
-  { id: "motilal", label: "Motilal Oswal",
+  { id: "motilal", label: "Motilal Oswal", logo: "broker-logos/motilal-oswal.svg",
     page: { url: "https://www.motilaloswal.com/", where: "Reports" } },
-  { id: "zerodha", label: "Zerodha",
+  { id: "zerodha", label: "Zerodha", logo: "broker-logos/zerodha.svg",
     page: { url: "https://console.zerodha.com/portfolio/holdings",
       where: "Portfolio → Holdings" } },
-  { id: "icici", label: "ICICI Direct",
+  { id: "icici", label: "ICICI Direct", logo: "broker-logos/icici-direct.png",
     page: { url: "https://www.icicidirect.com/", where: "Portfolio → Demat Holdings" } },
 ];
 

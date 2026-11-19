@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import {
   BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport,
   EQUITY_BROKERS, equityBroker,
@@ -27,6 +27,23 @@ test("a broker logo, when set, ships with the app", () => {
       assert.ok(existsSync(new URL(b.logo, import.meta.url)), `${b.id} logo missing`);
     }
     assert.ok(b.page?.url && b.page?.where);
+  }
+});
+
+test("the broker picker's four brokers each carry a bundled mark", () => {
+  const marks = new Map([...BOND_BROKERS, ...EQUITY_BROKERS].map((b) => [b.id, b.logo]));
+  for (const id of ["digifinn", "motilal", "zerodha", "icici"]) {
+    assert.ok(marks.get(id), `${id} has no mark`);
+  }
+  assert.equal(brokerLogo("zerodha"), "broker-logos/zerodha.svg");
+  assert.equal(brokerLogo("icici"), "broker-logos/icici-direct.png");
+  assert.equal(brokerLogo("not-a-broker"), brokerLogo("digifinn"));
+  for (const b of [...BOND_BROKERS, ...EQUITY_BROKERS]) {
+    if (!b.logo) continue;
+    assert.match(b.logo, /^broker-logos\//, `${b.id} logo must be bundled, not hotlinked`);
+    assert.ok(existsSync(new URL(b.logo, import.meta.url)), `${b.id} logo missing`);
+    const bytes = statSync(new URL(b.logo, import.meta.url)).size;
+    assert.ok(bytes <= 20 * 1024, `${b.id} mark is ${bytes} bytes, over the 20 KB budget`);
   }
 });
 
