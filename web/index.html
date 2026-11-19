@@ -624,6 +624,9 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-help-row{font-size:13.5px;line-height:1.5}
 .import-help-row b{display:block;font-size:13.5px;font-weight:620}
 .import-help-row .muted{font-size:12px}
+.import-help-row ol{margin:5px 0 0 17px;padding:0}
+.import-help-row li{margin:2px 0}
+.import-help-format{margin-top:4px}
 .import-card-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
  flex-wrap:wrap}
 .import-card-head h2{margin:0}
@@ -1443,7 +1446,7 @@ import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, pla
   planHasWork, planNetChange,
   importAccountSummary, importAccountGaps, bondGapBanner, bondImportOf,
   importPlanPrimary, importNoWorkCopy, duplicateFileLabel, brokerDematAccounts,
-  IMPORT_REPORT_GUIDE,
+  IMPORT_REPORT_GUIDE, importGuideOpen,
   normalizeAccount, parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { offersPasswordRetry, passwordFailure, PDF_PASSWORD_WRONG }
@@ -1746,6 +1749,7 @@ function bpBatchRowHtml(entry, accounts) {
 }
 
 function bpBatchRender() {
+  bpImportHelpSync();
   const host = document.getElementById("bp-batch-queue");
   if (!host) return;
   const state = bpBatchState();
@@ -2966,16 +2970,7 @@ function dematBrokerPickerHtml(chosen, onclick) {
 function zerodhaImportGuideHtml(b) {
   return `<div class="eq-guide">
     <b class="eq-guide-title">Zerodha holdings XLSX</b>
-    <ol class="eq-guide-steps">
-      <li>Open <a class="link" href="${esc(b.page.url)}" target="_blank"
-        rel="noopener">Console → Portfolio → Holdings</a>.</li>
-      <li>Pick the snapshot date. This is a single date, not a range. Use today, or your
-        CAS statement date if you are reconciling.</li>
-      <li>Click <b>XLSX</b> next to Download.</li>
-      <li>Choose the file below. It fills invested for matching ISINs. Quantity and value
-        stay from the CAS.</li>
-    </ol>
-    <div class="eq-guide-note">The Tradebook is not needed for invested and gain.</div>
+    <div class="eq-guide-note">Format: XLSX, not CSV, and not the Tradebook.</div>
     <div class="eq-guide-actions">
       <label class="btn primary">Choose Holdings XLSX
         <input type="file" accept=".xlsx,.xls" style="display:none"
@@ -2989,20 +2984,8 @@ function zerodhaImportGuideHtml(b) {
 }
 function motilalImportGuideHtml(b) {
   return `<div class="eq-guide">
-    <b class="eq-guide-title">Motilal Oswal Portfolio Holding Summary</b>
-    <ol class="eq-guide-steps">
-      <li>Open <a class="link" href="${esc(b.page.url)}" target="_blank"
-        rel="noopener">Motilal Oswal → Reports</a>.</li>
-      <li>Download the <b>Portfolio Holding Summary</b> PDF. Use “Since Inception” or the
-        snapshot date; the report date is read from the file.</li>
-      <li>Choose the PDF below. It is usually password protected; type the password
-        Motilal sent when asked. It is used once and not saved.</li>
-      <li>The report fills invested and purchase date by ISIN. It covers bonds,
-        equities and mutual funds in the same demat. Quantity and value stay from the
-        CAS.</li>
-    </ol>
-    <div class="eq-guide-note">The report's market price and market value are ignored:
-      they are printed at par, not at the market.</div>
+    <b class="eq-guide-title">Motilal Oswal Portfolio Holding Summary PDF</b>
+    <div class="eq-guide-note">Format: PDF, not XLSX or CSV. Password protected.</div>
     <div class="eq-guide-actions">
       <label class="btn primary">Choose Portfolio Holding Summary
         <input type="file" accept=".pdf" style="display:none"
@@ -3025,13 +3008,11 @@ function digifinnImportReportsHtml(b) {
           accept="${esc(r.accept || ".csv")}" style="display:none"
           onchange="bpImportBroker('${esc(r.slot)}','${esc(b.id)}',this.files[0]);this.value=''"></label>
       </div>`).join("");
-  return `<div class="muted import-step-note">The Portfolio Report fills invested and purchase
-      date for bonds; the Payouts report adds frequency, next interest and part redemptions.</div>
+  return `<div class="muted import-step-note">Format: CSV. Not used: Transaction,
+      Investment, KYC, MITC.</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">${rows}</div>
     <div id="import-broker-preview" style="margin-top:10px"></div>
-    ${fieldSourcesHtml(b)}
-    <div class="muted import-note">Not used: Transaction, Investment, KYC, MITC.
-      A second demat may append (1).</div>`;
+    ${fieldSourcesHtml(b)}`;
 }
 function brokerImportBodyHtml() {
   const chosen = window.bpImportBrokerChoice || "";
@@ -3040,9 +3021,6 @@ function brokerImportBodyHtml() {
   return `<div id="import-broker-step" style="margin-top:12px">
     <div class="import-step-title">Broker holdings reports
       <span class="muted import-step-sub">optional — invested, dates and terms</span></div>
-    <div class="muted import-step-note">One demat holds bonds, equities and mutual funds.
-      A CAS creates all three; a broker file fills the classes it contains. Files land by
-      ISIN; nothing is written until you confirm.</div>
     <div class="muted" style="font-size:11px;font-weight:600;letter-spacing:.05em;
       text-transform:uppercase;margin-top:12px">Supported brokers</div>
     <div style="margin-top:7px">${dematBrokerPickerHtml(chosen, "bpImportBrokerChoose")}</div>
@@ -3078,20 +3056,64 @@ function renderImport() {
       <input type="file" id="import-inbox-files" class="import-file-input" multiple
         tabindex="-1" accept=".pdf,.csv,.txt,.xlsx,.xls,.xlsm">
     </label>
-    <details class="import-help">
+    <details class="import-help" id="import-help">
       <summary>What can I add?</summary>
       <div class="import-help-body">
-        <div class="import-help-row"><b>Depository statement (CAS)</b>
-          CDSL or NSDL. One file can name more than one demat. It creates the account and its
-          holdings. <span class="muted">Get it from CDSL or NSDL → CAS / e-CAS statement.</span></div>
-        <div class="import-help-row"><b>Broker holdings report</b>
-          Motilal Oswal Portfolio Holding Summary, Zerodha holdings XLSX, or DigiFInn
-          holdings, investment, transactions, payouts and cashflow reports. Fills cost,
-          purchase dates and terms. A broker report can start an account on its own.
-          <span class="muted">Get it from the broker's Reports or Portfolio page.</span></div>
-        <div class="import-help-row"><b>Bank statement</b>
-          PDF, CSV or Excel. Creates or updates the bank account and its transactions.
-          <span class="muted">Get it from your bank's statement download.</span></div>
+        <div class="import-help-row"><b>Depository statement (CAS) PDF</b>
+          <ol>
+            <li>After month end, open <a class="link"
+              href="https://www.cdslindia.com/cas/logincas.aspx" target="_blank"
+              rel="noopener">CDSL CAS</a> or <a class="link"
+              href="https://nsdlcas.nsdl.com/" target="_blank" rel="noopener">NSDL CAS</a>.</li>
+            <li>Enter PAN and date of birth; on CDSL also the BO ID.</li>
+            <li>Download the original PDF, not a printout.</li>
+            <li>Drop the PDF above.</li>
+          </ol>
+          <div class="muted import-help-format">Format: PDF. Password: your PAN.</div>
+        </div>
+        <div class="import-help-row"><b>Zerodha holdings XLSX</b>
+          <ol>
+            <li>Open Console → Portfolio → Holdings.</li>
+            <li>Pick the snapshot date. This is a single date, not a range. Use today, or your
+              CAS statement date if you are reconciling.</li>
+            <li>Click XLSX next to Download.</li>
+            <li>Drop the file above.</li>
+          </ol>
+          <div class="muted import-help-format">Format: XLSX, not CSV, and not the
+            Tradebook.</div>
+        </div>
+        <div class="import-help-row"><b>Motilal Oswal Portfolio Holding Summary PDF</b>
+          <ol>
+            <li>Open Motilal Oswal → Reports.</li>
+            <li>Download the Portfolio Holding Summary PDF. Use “Since Inception” or the
+              snapshot date; the report date is read from the file.</li>
+            <li>Drop the PDF above.</li>
+            <li>Type the password Motilal sent when asked. It is used once and not saved.</li>
+          </ol>
+          <div class="muted import-help-format">Format: PDF, not XLSX or CSV.</div>
+        </div>
+        <div class="import-help-row"><b>DigiFInn Portfolio Report CSV</b>
+          <ol>
+            <li>Open DigiFInn → Reports &amp; Documents.</li>
+            <li>Download the Portfolio Report CSV.</li>
+            <li>Optional: download the Payouts report CSV for frequency, next interest and
+              part redemptions.</li>
+            <li>Drop the CSV above.</li>
+          </ol>
+          <div class="muted import-help-format">Format: CSV. Not used: Transaction,
+            Investment, KYC, MITC.</div>
+        </div>
+        <div class="import-help-row"><b>Bank statement CSV, XLSX or PDF</b>
+          <ol>
+            <li>Open net banking → Accounts → Statement.</li>
+            <li>Choose the period, then Download CSV / XLSX, or save the text-layer PDF.</li>
+            <li>Keep the original file. Do not screenshot or retype it.</li>
+            <li>Download one file per account.</li>
+            <li>Drop the file above.</li>
+          </ol>
+          <div class="muted import-help-format">Format: CSV, XLSX or text-layer PDF (not a
+            scan).</div>
+        </div>
         <div class="muted import-help-note">Bank and broker logins, OTPs and PINs are never
           requested.</div>
       </div>
@@ -3640,6 +3662,15 @@ function wireImport() {
   // A file can arrive from the URL (?guide=broker&import=...) as before, but the
   // queue is the only path now: one list, one type per row, one confirmation.
   if (!window.bpImportQueue) window.bpImportQueue = [];
+  const help = document.getElementById("import-help");
+  if (help && !help.dataset.wired) {
+    help.dataset.wired = "1";
+    help.addEventListener("toggle", () => {
+      if (String(help.open) === help.dataset.helpAuto) return;
+      bpImportInboxState().helpManual = help.open;
+      help.dataset.helpAuto = String(help.open);
+    });
+  }
   window.bpImportRender();
   window.bpImportAccountsLoad?.(true);
   window.bpImportInboxRender?.();
@@ -6819,6 +6850,7 @@ window.bpImportDrop = (index) => {
   window.bpImportRender();
 };
 window.bpImportRender = () => {
+  bpImportHelpSync();
   const host = document.getElementById("import-queue");
   if (!host) return;
   const rows = window.bpImportQueue || [];
@@ -6965,7 +6997,8 @@ const bpImportInboxState = () => {
   if (!window.bpImportInbox) {
     window.bpImportInbox = { entries: [], bundles: [], plans: [], accountRows: null,
       accountError: "", choices: {}, acceptAsk: {}, readQueue: null,
-      message: "", messageKind: "", preparing: false, pending: false, applying: false };
+      message: "", messageKind: "", preparing: false, pending: false, applying: false,
+      helpManual: null };
   }
   return window.bpImportInbox;
 };
@@ -6978,6 +7011,24 @@ function bpImportInboxStatus(text, kind = "") {
   if (!host) return;
   host.className = `import-status${kind ? ` ${kind}` : ""}`;
   host.textContent = text || "";
+}
+
+function bpImportStagedCount() {
+  const state = bpImportInboxState();
+  return (state.entries || []).length
+    + (window.bpBatch?.entries || []).length
+    + (window.bpImportQueue || []).length;
+}
+
+// The guide is open until a file is staged. A manual open or close wins, so a
+// person can read it beside a full queue or keep it out of the way.
+function bpImportHelpSync() {
+  const help = document.getElementById("import-help");
+  if (!help) return;
+  const state = bpImportInboxState();
+  const desired = importGuideOpen(bpImportStagedCount(), state.helpManual);
+  help.dataset.helpAuto = String(desired);
+  if (help.open !== desired) help.open = desired;
 }
 
 function bpImportCategoryText(rows) {
@@ -8475,6 +8526,7 @@ window.bpImportInboxGoToUnready = () => {
 
 function bpImportInboxRender() {
   const host = document.getElementById("import-inbox-host");
+  bpImportHelpSync();
   if (!host) return;
   const state = bpImportInboxState();
   bpImportAccountsRender();

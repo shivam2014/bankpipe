@@ -977,3 +977,38 @@ test("the Import intro is the three file types, not a reassurance paragraph", ()
   assert.equal((html.match(/Bank and broker logins, OTPs and PINs are never\s+requested\./g) || [])
     .length, 1, "the login line survives once, inside What can I add?");
 });
+
+test("What can I add is the download steps and the format, not the rationale", () => {
+  const guide = between('<details class="import-help" id="import-help">',
+    '<div id="import-inbox-status"');
+  assert.match(guide, /<b>Zerodha holdings XLSX<\/b>/);
+  assert.match(guide, /single date, not a range/);
+  assert.match(guide, /Format: XLSX, not CSV, and not the\s+Tradebook/);
+  assert.match(guide, /Format: PDF, not XLSX or CSV/);
+  assert.match(guide, /Format: PDF\. Password: your PAN/);
+  assert.match(guide, /Format: CSV\. Not used: Transaction/);
+  assert.match(guide, /not a\s+scan/);
+  assert.doesNotMatch(guide, /A broker report can start an account on its own/);
+  assert.doesNotMatch(guide, /It fills invested for matching ISINs/);
+  assert.doesNotMatch(guide, /market price and market value are ignored/);
+  assert.doesNotMatch(guide, /One demat holds bonds/);
+});
+
+test("the guide follows the queue and a manual choice wins", () => {
+  const sync = between("function bpImportStagedCount()", "function bpImportCategoryText");
+  assert.match(sync, /importGuideOpen\(bpImportStagedCount\(\), state\.helpManual\)/);
+  assert.match(sync, /help\.dataset\.helpAuto/);
+  const wire = between('const help = document.getElementById("import-help")',
+    "window.bpImportRender();");
+  assert.match(wire, /addEventListener\("toggle"/);
+  assert.match(wire, /helpManual = help\.open/);
+});
+
+test("the advanced picker keeps the format, not a second copy of the steps", () => {
+  const zerodha = between("function zerodhaImportGuideHtml", "function motilalImportGuideHtml");
+  assert.match(zerodha, /Format: XLSX, not CSV/);
+  assert.doesNotMatch(zerodha, /snapshot date/);
+  const motilal = between("function motilalImportGuideHtml", "function digifinnImportReportsHtml");
+  assert.match(motilal, /Format: PDF, not XLSX or CSV/);
+  assert.doesNotMatch(motilal, /Since Inception/);
+});
