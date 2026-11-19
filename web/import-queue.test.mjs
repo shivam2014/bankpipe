@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { typeLabel, tail, sourceName, consequence, matchLine,
+import { typeLabel, tail, sourceName, consequence, netConsequence, matchLine,
   createProposal, importButtonLabel, waitingText, lockedAccountLine,
   passwordHint } from "./import-queue.js";
 
@@ -34,6 +34,13 @@ test("the consequence is the account's own unit", () => {
     "3 accounts · 42 holdings");
   assert.equal(consequence({ kind: "zerodha-tradebook", parsed: { rows: Array(19).fill({}) } }),
     "19 trades");
+});
+
+test("the consequence follows the chosen account, not the file alone", () => {
+  assert.equal(netConsequence({ added: 17 }), "17 holdings");
+  assert.equal(netConsequence({ added: 7, updated: 10 }), "7 new · 10 updated");
+  assert.equal(netConsequence({ added: 0, updated: 0, history: 2 }), "2 to history");
+  assert.equal(netConsequence({ added: 0, updated: 0 }), "Nothing new");
 });
 
 test("a match says how it was found, and a partial match says the score", () => {

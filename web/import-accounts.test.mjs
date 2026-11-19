@@ -764,6 +764,56 @@ test("dropping one format drops the copy it was folded into", () => {
   assert.match(entry, /duplicate\.entryId/);
 });
 
+test("a matched row's account line is the control that can change it", () => {
+  const row = between("function bpImportPlanRowHtml", "function bpImportLooseType");
+  assert.match(row, /bpImportAccountControlHtml\(bundle, target\)/);
+  const control = between("function bpImportAccountControlHtml",
+    "function bpImportPlanStatus");
+  assert.match(control, /<details class="import-row-account-control">/);
+  assert.match(control, /<span class="import-row-change">Change<\/span>/);
+  assert.match(control, /bpImportAccountMenuHtml\(bundle\)/);
+  const menu = between("function bpImportSingleAccountMenu",
+    "function bpImportAccountMenuHtml");
+  assert.match(menu, /Create a new account/);
+  assert.match(menu, /bpImportChoose\(\$\{jsArg\(choiceKey\)\}, '__create__'\)/);
+  const choose = between("window.bpImportChoose = async", "window.bpImportAccept");
+  assert.match(choose, /delete state\.acceptAsk\[bundle\.key\]/,
+    "a new target cannot inherit an answer for the old one");
+});
+
+test("a broker file that matches something can still start a new account", () => {
+  const broker = between("function bpImportResolveBroker", "function bpImportResolveCas");
+  assert.match(broker, /bundle\.createOffered = !!bundle\.base/);
+  assert.match(broker, /targetId \|\| \(bundle\.createOffered && createChoice\)/);
+  const menu = between("function bpImportSingleAccountMenu",
+    "function bpImportAccountMenuHtml");
+  assert.match(menu, /!!bundle\.createOffered && \(bundle\.rows \|\| \[\]\)\.length > 0/,
+    "a matched broker file offers Create when it has a row to put there");
+  assert.match(html, /Create a new account/);
+});
+
+test("a CAS create answer is not taken back by the automatic match", () => {
+  const cas = between("function bpImportResolveCas", "async function bpImportInboxPrepare");
+  assert.match(cas, /if \(!createChoice && !targetId && match\.identityId\)/,
+    "the identity fallback must not override an explicit Create");
+  assert.match(cas, /if \(!createChoice && !targetId && match\.attachId\)/,
+    "the attach fallback must not override an explicit Create");
+});
+
+test("a CAS demat already on file is not offered a second account under the same id", () => {
+  const menu = between("function bpImportSingleAccountMenu",
+    "function bpImportAccountMenuHtml");
+  assert.match(menu, /!target\?\.targetId && \(target\?\.rows \|\| \[\]\)\.length > 0/,
+    "the BO ID is the account identity, so Create only applies when nothing carries it");
+});
+
+test("the change menu adds depository accounts, not bond portfolios", () => {
+  const candidates = between("function bpImportAccountCandidates",
+    "function bpImportChoiceEvidence");
+  assert.match(candidates, /!isDepositoryAccount\(row\.account\)/,
+    "a bond portfolio cannot receive a demat snapshot");
+});
+
 test("the inbox renders one row per file and one confirmation per plan", () => {
   const render = between("function bpImportInboxRender", "function bpImportBatchState");
   assert.match(render, /plan\.files\.map\(\(file, index\)/);

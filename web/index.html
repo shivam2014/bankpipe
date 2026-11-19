@@ -701,8 +701,21 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-row-name{font-size:15px;font-weight:620;overflow-wrap:anywhere}
 .import-row-facts{display:flex;flex-wrap:wrap;gap:1px 8px;font-size:12px;color:var(--muted)}
 .import-row-facts span + span::before{content:"·";margin-right:8px;color:var(--line)}
-.import-row-account{font-size:13.5px;overflow-wrap:anywhere;line-height:1.4}
+.import-row-account{font-size:13.5px;overflow-wrap:anywhere;line-height:1.4;min-width:0;display:block}
 .import-row-account b{font-weight:620}
+.import-row-account-control{min-width:0}
+.import-row-account-control summary{display:grid;grid-template-columns:minmax(0,1fr) auto;
+ gap:8px;align-items:center;min-height:44px;cursor:pointer;list-style:none}
+.import-row-account-control summary::-webkit-details-marker{display:none}
+.import-row-account-control summary:focus-visible{outline:2px solid var(--green);
+ outline-offset:2px}
+.import-row-change{font-size:12px;font-weight:620;color:var(--green);white-space:nowrap}
+.import-row-account-control[open] .import-row-change{color:var(--ink)}
+.import-row-account-menu{margin-top:4px;border-top:1px solid var(--hair);padding-top:6px;
+ max-height:360px;overflow-y:auto}
+.import-row-account-menu .import-account-list{margin-top:6px}
+.import-row-account-menu select{min-height:44px;width:100%}
+.import-row-account-menu input{width:100%;min-height:44px;margin-top:6px}
 .import-row-note{font-size:12px;color:var(--muted);line-height:1.45;overflow-wrap:anywhere}
 .import-row-note.error{color:var(--red)}
 .import-row-group{font-size:12px;color:var(--muted);line-height:1.4}
@@ -1573,7 +1586,7 @@ import { reorderLine } from "./reorder-line.js";
 import { balanceRunsFromSheet } from "./balance-formula.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
-import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, assetClassParts, classPage, holdingClass, holdingValue, assetAtCost, isFundAccount, isImportAccount, importFillPlan } from "./assets.js";
+import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, assetClassParts, classPage, holdingClass, holdingValue, assetAtCost, isFundAccount, isImportAccount, isDepositoryAccount, importFillPlan } from "./assets.js";
 import { isCostRecord, liveDemats, unattachedCostRecords, costRecordTasks,
   costRecordSentence, attachActionLabel, NO_DEMAT_SENTENCE } from "./cost-records.js";
 import { buildFdGroups, fdMatured, fdGroupsTotal,
@@ -1624,7 +1637,7 @@ import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, pla
 import { offersPasswordRetry, passwordFailure, PDF_PASSWORD_WRONG }
   from "./import-password.js";
 import { typeLabel, tail, sourceName, consequence, matchLine, createProposal,
-  importButtonLabel, waitingText, lockedAccountLine, passwordHint }
+  importButtonLabel, waitingText, lockedAccountLine, passwordHint, netConsequence }
   from "./import-queue.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
@@ -2361,6 +2374,11 @@ window.bpBatchSetName = (id, value) => {
   const entry = bpBatchState().entries.find((item) => item.id === id);
   if (!entry) return;
   entry.createName = value;
+  // The row's target line is the account that will be created. A re-render
+  // would drop the caret, so update the one line in place.
+  const row = document.querySelector(`.import-row[data-bank="${CSS.escape(String(id))}"]`);
+  const line = row?.querySelector(".import-row-account-control .import-row-account b");
+  if (line) line.textContent = `Create ${value.trim() || bpBatchSuggestedName(entry)}`;
 };
 
 async function bpBatchCreateAccount(entry) {
@@ -7510,13 +7528,15 @@ function bpImportResolveBroker(bundle) {
   const createChoice = state.choices[bundle.key] === "__create__";
   let targetId = createChoice ? "" : state.choices[bundle.key] || "";
   if (targetId && !bpImportAccountRow(targetId)) targetId = "";
-  if (!targetId && bundle.match.identityId) targetId = bundle.match.identityId;
-  if (!targetId && bundle.match.attachId) targetId = bundle.match.attachId;
+  if (!createChoice && !targetId && bundle.match.identityId) {
+    targetId = bundle.match.identityId;
+  }
+  if (!createChoice && !targetId && bundle.match.attachId) targetId = bundle.match.attachId;
   // The account page shortcut is the last fallback, never a match. It names the
   // account the person came from only when the file has no identity or ISIN
   // match, and only when that account is filed under this file's broker. A
   // different broker's report must not inherit the account by accident.
-  if (!targetId && window.bpImportTarget) {
+  if (!createChoice && !targetId && window.bpImportTarget) {
     const hint = bpImportAccountRow(window.bpImportTarget);
     if (hint && brokerDematAccounts(bundle.family, [hint.account]).length) {
       targetId = hint.account.id;
@@ -7529,6 +7549,10 @@ function bpImportResolveBroker(bundle) {
   // A report with no holdings snapshot has nothing to create an account from,
   // so it never offers one.
   bundle.create = bundle.canCreate && !!bundle.base;
+  // A person may always overrule a match and start a new account. The old
+  // automatic create is still only offered when nothing matched; this flag is
+  // what the row's account menu uses.
+  bundle.createOffered = !!bundle.base;
   bundle.createChoice = createChoice;
   bundle.createLabel = bpImportBrokerOnlyLabel(bundle);
   const identity = bundle.accountKey
@@ -7538,7 +7562,7 @@ function bpImportResolveBroker(bundle) {
   const dateBlocked = ["invalid", "future"].includes(bundle.plan?.incomingDateState);
   bundle.ready = !!(bundle.plan && !dateBlocked
     && (bundle.plan.summary.ask === 0 || bundle.acceptAsk)
-    && (targetId || (bundle.create && createChoice)));
+    && (targetId || (bundle.createOffered && createChoice)));
   bundle.needsChoice = !targetId && bundle.match.matches.length > 0;
   bundle.accounts = targetId ? [targetId] : [];
 }
@@ -7674,10 +7698,12 @@ function bpImportResolveCas(bundle) {
     const createChoice = choice === "__create__";
     let targetId = choice && !createChoice ? choice : "";
     if (targetId && !bpImportAccountRow(targetId)) targetId = "";
-    if (!targetId && match.identityId) targetId = match.identityId;
+    // A create answer is not a fallback. The automatic match must not take it
+    // back, or the row would say "Create" while the writer updates the match.
+    if (!createChoice && !targetId && match.identityId) targetId = match.identityId;
     // The matcher owns the threshold for both report families: identity, or an
     // 80 percent ISIN overlap. The CAS resolver no longer keeps its own copy.
-    if (!targetId && match.attachId) targetId = match.attachId;
+    if (!createChoice && !targetId && match.attachId) targetId = match.attachId;
     // A chosen or matched target must still be a custody account. A fund folio
     // answers to its folio number, and this target is a demat statement.
     if (targetId) {
@@ -8913,18 +8939,34 @@ function bpImportPlanTarget(plan, bundle = plan.head) {
     const ids = [...new Set(targets.map((target) => target.targetId))];
     const labels = ids.map((id) => bpImportAccountRow(id))
       .filter(Boolean).map((row) => bpImportAccountDisplay(row.account));
-    if (!labels.length) return null;
+    const creates = (bundle.casTargets || []).filter((target) =>
+      !target.targetId && target.createChoice);
+    if (!labels.length) {
+      if (creates.length === 1) {
+        return { text: bpImportCasProposal(creates[0]), evidence: "New account" };
+      }
+      if (creates.length > 1) {
+        return { text: `Create ${creates.length} accounts`, evidence: "New accounts" };
+      }
+      return null;
+    }
+    const newSuffix = creates.length ? ` + ${creates.length} new` : "";
     if (labels.length === 1) {
       const target = targets.find((item) => item.targetId === ids[0]);
       const identity = target?.match?.identityId === ids[0];
       const attached = target?.match?.attachId === ids[0];
       const evidence = !identity && attached ? matchLine(
         (target.match?.matches || []).find((match) => match.id === ids[0])) : "";
-      return { text: `${identity || attached ? "Matches" : "Goes to"} ${labels[0]}`,
-        evidence };
+      return { text: `${identity || attached ? "Matches" : "Goes to"} ${labels[0]}`
+        + newSuffix, evidence };
     }
     return { text: `Goes to ${labels.length} accounts · ${labels.slice(0, 2).join(", ")}`
-      + `${labels.length > 2 ? ` and ${labels.length - 2} more` : ""}`, evidence: "" };
+      + `${labels.length > 2 ? ` and ${labels.length - 2} more` : ""}${newSuffix}`,
+      evidence: "" };
+  }
+  if (bundle.createChoice) {
+    return { text: createProposal({ family: bundle.family, key: bundle.accountKey,
+      source: bundle.broker }), evidence: "New account" };
   }
   if (!bundle.targetId) return null;
   const row = bpImportAccountRow(bundle.targetId);
@@ -8936,21 +8978,38 @@ function bpImportPlanTarget(plan, bundle = plan.head) {
   return { text: `${matched ? "Matches" : "Goes to"} ${label}`, evidence };
 }
 
-function bpImportEntryConsequence(entry, plan) {
+function bpImportEntryConsequence(entry, plan, bundle = plan.head) {
   if (!entry) return "";
-  const bundle = plan.head || {};
   if (entry.kind === "cas") {
     const accounts = (bundle.casTargets || []).filter((target) =>
       target.action !== "kept" && target.action !== "decide"
       && target.action !== "conflict").length;
-    return consequence({ kind: "cas", rows: entry.rows,
-      accountCount: Math.max(1, accounts) });
+    if (accounts > 1) {
+      const net = netConsequence(bundle.plan?.summary);
+      return `${accounts} accounts · ${net === "Nothing new"
+        ? "nothing new" : net}`;
+    }
+    if (accounts === 1) {
+      const net = netConsequence(bundle.plan?.summary);
+      const target = (bundle.casTargets || []).find((item) =>
+        item.targetId || item.createChoice);
+      return net === "Nothing new" && target?.plan?.identityChange
+        ? "Attach the CAS identity" : net;
+    }
+    return consequence({ kind: "cas", rows: entry.rows, accountCount: 1 });
   }
   if (entry.kind === "zerodha-tradebook") {
     return consequence({ kind: entry.kind, parsed: entry.parsed });
   }
   if (entry.kind === "bank") {
     return consequence({ kind: "bank", parsed: entry.parsed });
+  }
+  const receipt = plan.head === bundle ? bundle.plan
+    : (plan.extras || []).find((item) => item.bundleKey === bundle.key)?.plan;
+  if ((bundle.targetId || bundle.createChoice) && receipt) {
+    const net = netConsequence(receipt.summary);
+    return net === "Nothing new" && receipt.identityChange
+      ? "Attach the account identity" : net;
   }
   if ((entry.rows || []).length) {
     return consequence({ kind: entry.kind, rows: entry.rows });
@@ -8960,6 +9019,144 @@ function bpImportEntryConsequence(entry, plan) {
       /transaction/i.test(entry.kind) ? "settled trades" : "terms"}`;
   }
   return "";
+}
+
+function bpImportFileIsins(bundle) {
+  return new Set((bundle.rows || [])
+    .map((row) => String(row.isin || "").toUpperCase()).filter(Boolean));
+}
+
+function bpImportAccountHits(accountRows, fileIsins) {
+  const held = new Set((accountRows || [])
+    .map((row) => String(row.security_id || row.isin || "").toUpperCase())
+    .filter(Boolean));
+  let hits = 0;
+  for (const isin of fileIsins) if (held.has(isin)) hits += 1;
+  return hits;
+}
+
+// Every account this file could reasonably go to. The matcher's list comes
+// first; for a broker file, other depository accounts are still shown, because
+// a demat that shares nothing is exactly the target a person may want instead
+// of the automatic one. A bond portfolio cannot receive a demat snapshot, so it
+// is never added as an alternative.
+function bpImportAccountCandidates(bundle, { forCas = false, target = null } = {}) {
+  const state = bpImportInboxState();
+  const fileIsins = bpImportFileIsins(bundle);
+  const source = forCas ? target?.match : bundle.match;
+  const matches = [...(source?.matches || [])];
+  const of = fileIsins.size || Number(source?.total || 0);
+  const seen = new Set(matches.map((match) => match.id));
+  const out = matches.map((match) => ({ ...match, of: match.of || of }));
+  const current = forCas ? target?.targetId : bundle.targetId;
+  if (current && !seen.has(current)) {
+    const row = bpImportAccountRow(current);
+    if (row) {
+      out.unshift({ id: current, label: row.account.label || row.account.id,
+        identity: false, identityKind: "", hits: bpImportAccountHits(row.holdings, fileIsins),
+        of, account: row.account, brokerOnly: false });
+      seen.add(current);
+    }
+  }
+  if (forCas) return out;
+  const hasFunds = (bundle.rows || []).some((row) => row.category === "mf");
+  for (const row of state.accountRows || []) {
+    if (seen.has(row.account.id) || !isDepositoryAccount(row.account)) continue;
+    // A fund folio is not a plausible home for an equity or bond snapshot.
+    if (!hasFunds && isFolioAccount(row.account)) continue;
+    out.push({ id: row.account.id, label: row.account.label || row.account.id,
+      identity: false, identityKind: "",
+      hits: bpImportAccountHits(row.holdings, fileIsins), of,
+      account: row.account, brokerOnly: false });
+    seen.add(row.account.id);
+  }
+  return out;
+}
+
+function bpImportChoiceEvidence(match) {
+  if (match.identityKind) return `${match.identityKind} match`;
+  if (match.brokerAccount && !match.hits) return "Filed under this broker";
+  if (match.hits) return `${match.hits} of ${match.of} ISIN${match.of === 1 ? "" : "s"} match`;
+  if (match.of) return "No ISINs match";
+  return "No holdings to compare";
+}
+
+function bpImportChoiceHits(match) {
+  if (match.identityKind) return "Match";
+  if (match.hits) return `${match.hits} of ${match.of}`;
+  return "—";
+}
+
+function bpImportAccountChoiceHtml(match, choiceKey, current) {
+  const account = bpImportAccountDisplay(match.account) || match.label || "Account";
+  const chosen = match.id === current;
+  return `<button type="button" class="import-account-choice${chosen ? " on" : ""}"
+    aria-pressed="${chosen ? "true" : "false"}"
+    onclick="bpImportChoose(${jsArg(choiceKey)}, ${jsArg(match.id)})">
+    <span class="import-choice-main">
+      <span class="import-choice-name">${esc(account)}</span>
+      <span class="import-choice-meta">${esc(bpImportChoiceEvidence(match))}</span>
+    </span>
+    <span class="import-choice-hits">${esc(bpImportChoiceHits(match))}</span>
+  </button>`;
+}
+
+function bpImportSingleAccountMenu(bundle, choiceKey, current,
+  { forCas = false, target = null } = {}) {
+  const candidates = bpImportAccountCandidates(bundle, { forCas, target });
+  const accounts = candidates.map((match) =>
+    bpImportAccountChoiceHtml(match, choiceKey, current)).join("");
+  // A CAS demat is identified by the BO ID the statement printed, and the
+  // create path routes by that id. A second account under the same id is the
+  // duplicate the writer refuses to make, so Create is offered only when
+  // nothing on file carries the id. A broker file has no such route.
+  const canCreate = forCas
+    ? !target?.targetId && (target?.rows || []).length > 0
+    : !!bundle.createOffered && (bundle.rows || []).length > 0;
+  const proposal = forCas && target ? bpImportCasProposal(target)
+    : createProposal({ family: bundle.family, key: bundle.accountKey,
+      source: bundle.broker });
+  const create = canCreate ? `<button type="button"
+      class="import-account-choice${current === "__create__" ? " on" : ""}"
+      aria-pressed="${current === "__create__" ? "true" : "false"}"
+      onclick="bpImportChoose(${jsArg(choiceKey)}, '__create__')">
+      <span class="import-choice-main">
+        <span class="import-choice-name">Create a new account</span>
+        <span class="import-choice-meta">${esc(proposal)}</span>
+      </span>
+      <span class="import-choice-hits">New</span>
+    </button>` : "";
+  return `<div class="import-account-list">${accounts}${create}</div>`;
+}
+
+function bpImportAccountMenuHtml(bundle) {
+  if (bundle.family === "cas") {
+    const targets = bundle.casTargets || [];
+    const complex = targets.some((target) => target.folio
+      || target.action === "decide" || target.action === "conflict");
+    const usable = targets.filter((target) => target.targetId || target.createChoice);
+    if (!complex && usable.length === 1) {
+      const target = usable[0];
+      return bpImportSingleAccountMenu(bundle, `${bundle.key}:${target.boId}`,
+        target.targetId || (target.createChoice ? "__create__" : ""),
+        { forCas: true, target });
+    }
+    return bpImportCasAccountsHtml(bundle);
+  }
+  return bpImportSingleAccountMenu(bundle, bundle.key,
+    bundle.targetId || (bundle.createChoice ? "__create__" : ""));
+}
+
+function bpImportAccountControlHtml(bundle, target) {
+  return `<details class="import-row-account-control">
+    <summary>
+      <span class="import-row-account"><b>${esc(target.text)}</b>${
+        target.evidence ? `<span class="import-row-facts"> · ${
+          esc(target.evidence)}</span>` : ""}</span>
+      <span class="import-row-change">Change</span>
+    </summary>
+    <div class="import-row-account-menu">${bpImportAccountMenuHtml(bundle)}</div>
+  </details>`;
 }
 
 function bpImportPlanStatus(plan) {
@@ -9112,21 +9309,21 @@ function bpImportPlanRowHtml(plan, file, first) {
         duplicate.entryId === file.entryId))) || plan.head;
   const status = bpImportPlanStatus(plan);
   const target = bpImportPlanTarget(plan, bundle);
-  const consequenceText = bpImportEntryConsequence(entry, plan);
+  const consequenceText = bpImportEntryConsequence(entry, plan, bundle);
   const type = typeLabel(entry.kind);
-  const facts = [type, consequenceText].filter(Boolean);
+  // A row that needs nothing says nothing beyond its pill.
+  const facts = [type, status.key === "empty" ? "" : consequenceText].filter(Boolean);
   const group = !first && plan.files.length > 1
     ? `Goes with the ${typeLabel(plan.files[0].kind)} above` : "";
-  const note = status.note && status.key !== "ready" ? status.note : "";
+  const note = status.note && status.key !== "ready" && status.key !== "empty"
+    ? status.note : "";
   return `<div class="import-row" data-plan="${esc(plan.key)}"
       data-bundle="${esc(bundle?.key || "")}" data-entry="${esc(entry.id)}">
     <div class="import-row-main">
       <div class="import-row-name">${esc(entry.name)}</div>
       <div class="import-row-facts">${facts.map((fact) =>
         `<span>${esc(fact)}</span>`).join("")}</div>
-      ${target ? `<div class="import-row-account"><b>${esc(target.text)}</b>${
-        target.evidence ? `<span class="import-row-facts"> · ${
-          esc(target.evidence)}</span>` : ""}</div>` : ""}
+      ${target ? bpImportAccountControlHtml(bundle, target) : ""}
       ${group ? `<div class="import-row-group">${esc(group)}</div>` : ""}
       ${note ? `<div class="import-row-note${status.key === "empty" ? "" : ""}">${
         esc(note)}</div>` : ""}
@@ -9220,9 +9417,13 @@ function bpImportBankRowHtml(entry) {
   const accounts = state.accounts || [];
   const status = bpImportBankStatus(entry);
   const label = accountLabel(entry, accounts);
-  const target = status.key === "ready" && label
-    ? { text: `Goes to ${label}`, evidence: entry.guess?.why
-      ? `matches on ${entry.guess.why}` : "" } : null;
+  const creating = status.key === "ready" && entry.accountId === "__new__";
+  const target = creating
+    ? { text: `Create ${entry.createName || bpBatchSuggestedName(entry)}`,
+      evidence: "New account" }
+    : status.key === "ready" && label
+      ? { text: `Goes to ${label}`, evidence: entry.guess?.why
+        ? `matches on ${entry.guess.why}` : "" } : null;
   const consequenceText = entry.parsed
     ? consequence({ kind: "bank", parsed: entry.parsed }) : "";
   const facts = [entry.bank || "Bank statement", consequenceText].filter(Boolean);
@@ -9236,22 +9437,33 @@ function bpImportBankRowHtml(entry) {
   }
   actions.push(`<button class="btn ghost"
     onclick="bpBatchRemove(${entry.id})">Remove</button>`);
-  const choose = ["ready", "account"].includes(entry.status)
-    ? `<details class="import-row-more import-row-account"${
-      status.key === "account" ? " open" : ""}>
-      <summary>${status.key === "account" ? "Use an account on file" : "Change account"}</summary>
-      <select class="mini-select" aria-label="Account for ${esc(entry.name)}"
-        onchange="bpBatchSetAccount(${entry.id}, this.value)">
-        ${bpBatchAccountOptions(entry, accounts)}</select>
+  const accountSelect = `<select class="mini-select"
+      aria-label="Account for ${esc(entry.name)}"
+      onchange="bpBatchSetAccount(${entry.id}, this.value)">
+      ${bpBatchAccountOptions(entry, accounts)}</select>`;
+  const choose = status.key === "account"
+    ? `<details class="import-row-more import-row-account" open>
+      <summary>Use an account on file</summary>
+      ${accountSelect}</details>` : "";
+  const targetControl = target ? `<details class="import-row-account-control">
+      <summary>
+        <span class="import-row-account"><b>${esc(target.text)}</b>${
+          target.evidence ? `<span class="import-row-facts"> · ${
+            esc(target.evidence)}</span>` : ""}</span>
+        <span class="import-row-change">Change</span>
+      </summary>
+      <div class="import-row-account-menu">${accountSelect}${
+        entry.accountId === "__new__" ? `<input class="mini-select"
+          value="${esc(entry.createName || bpBatchSuggestedName(entry))}"
+          aria-label="Name for the new account"
+          oninput="bpBatchSetName(${entry.id}, this.value)">` : ""}</div>
     </details>` : "";
   return `<div class="import-row" data-bank="${entry.id}">
     <div class="import-row-main">
       <div class="import-row-name">${esc(entry.name)}</div>
       <div class="import-row-facts">${facts.map((fact) =>
         `<span>${esc(fact)}</span>`).join("")}</div>
-      ${target ? `<div class="import-row-account"><b>${esc(target.text)}</b>${
-        target.evidence ? `<span class="import-row-facts"> · ${
-          esc(target.evidence)}</span>` : ""}</div>` : ""}
+      ${targetControl}
       ${locked ? `<div class="import-row-note">${esc(lockedAccountLine())}</div>` : ""}
       ${status.note ? `<div class="import-row-note${
         status.key === "unread" ? " error" : ""}">${esc(status.note)}</div>` : ""}
@@ -9815,6 +10027,13 @@ window.bpImportChoose = async (key, accountId) => {
     choiceKey === item.key || choiceKey.startsWith(`${item.key}:`));
   if (!bundle) return;
   state.choices[choiceKey] = accountId;
+  // A target change is a new question. Any accepted difference belonged to the
+  // old account, so it cannot release the new one unseen.
+  delete state.acceptAsk[bundle.key];
+  delete state.acceptAsk[choiceKey];
+  for (const plan of state.plans || []) {
+    if ((plan.bundles || []).includes(bundle)) delete state.acceptAsk[plan.key];
+  }
   await bpImportInboxPrepare();
   bpImportInboxSettleStatus();
 };

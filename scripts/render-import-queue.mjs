@@ -44,6 +44,62 @@ const account = {
   rows: [],
 };
 
+// A second demat the person may want instead of the automatic match. With
+// `overlap`, it already holds ten of the broker file's seventeen ISINs, so the
+// consequence after re-pointing is seven new and ten updated.
+const hdfcAccount = ({ overlap = true } = {}) => ({
+  id: "demat-hdfc", label: "Demat · HDFC · …1111", bank: "HDFC Bank",
+  category: "demat", subtype: "equity", type: "equity",
+  number: "9999000011111111", holder: "TEST HOLDER",
+  meta: JSON.stringify({ depository: "CDSL", dp: "HDFC Bank Ltd",
+    holdings_source: "zerodha", holdings_as_of: "2026-09-30",
+    identity_source: "zerodha" }),
+  rows: overlap ? rows.slice(0, 10).map((row) => ({
+    security_id: row.isin, label: row.label, category: "equity",
+    quantity: 1, cost_paise: null, value_paise: null, purchase_date: "",
+    as_of: "2026-09-30", value_source: "zerodha", source: "zerodha",
+  })) : [],
+});
+
+// A bond portfolio is an import account but not a depository. A demat snapshot
+// cannot land there, so it must never appear in a broker file's change menu.
+const bondAccount = {
+  id: "bonds-portfolio", label: "Bonds · portfolio 1", bank: "",
+  category: "bonds", subtype: "bond", type: "bond", number: "",
+  holder: "TEST HOLDER", meta: JSON.stringify({}), rows: [],
+};
+
+// The same demat already holds every row the file names, with the same
+// quantities and values, so re-pointing to it leaves nothing to import. Its
+// label sorts after the Zerodha account, so the automatic match stays there;
+// choosing this one is a real re-point.
+const fullHdfcAccount = () => ({
+  ...hdfcAccount({ overlap: true }),
+  label: "Zzz HDFC · …1111",
+  meta: JSON.stringify({ depository: "CDSL", dp: "HDFC Bank Ltd",
+    holdings_source: "zerodha", holdings_as_of: AS_OF, identity_source: "zerodha",
+    client_id: CLIENT_ID }),
+  rows: rows.map((row) => ({
+    security_id: row.isin, label: row.label, category: "equity",
+    quantity: row.quantity, cost_paise: null, value_paise: row.valuePaise,
+    purchase_date: "", as_of: AS_OF, value_source: "zerodha", source: "zerodha",
+  })),
+});
+
+// The automatic match holds the same ISINs with stale quantities, so it has
+// work; the Zzz account matches every row exactly and has none.
+const staleZerodhaAccount = () => ({
+  ...account,
+  meta: JSON.stringify({ depository: "CDSL", dp: "Zerodha Broking Ltd",
+    client_id: CLIENT_ID, holdings_source: "zerodha", identity_source: "zerodha",
+    holdings_as_of: "2026-09-30" }),
+  rows: rows.map((row) => ({
+    security_id: row.isin, label: row.label, category: "equity",
+    quantity: 1, cost_paise: null, value_paise: 1, purchase_date: "",
+    as_of: "2026-09-30", value_source: "zerodha", source: "zerodha",
+  })),
+});
+
 const holding = (over = {}) => ({
   isin: isin(600), label: "TEST EQUITY 1", kind: "equity", quantity: 10,
   valuePaise: 100000, costPaise: null, purchaseDate: "",
@@ -157,6 +213,33 @@ const SCENARIOS = [
     },
   },
   {
+    name: "matched-change-open",
+    seed: [account, hdfcAccount(), bondAccount],
+    entries: [brokerEntry()],
+    menu: true,
+    checks: (state) => {
+      const wrong = [];
+      if (state.rows !== 1) wrong.push(`rows: ${state.rows}`);
+      if (state.pills[0] !== "Ready") wrong.push(`pill: ${JSON.stringify(state.pills)}`);
+      if (!state.menuItems.some((line) => /Demat · Zerodha · …8054/.test(line)
+        && /client ID match/.test(line))) {
+        wrong.push(`current account choice: ${JSON.stringify(state.menuItems)}`);
+      }
+      if (!state.menuItems.some((line) => /Demat · HDFC · …1111/.test(line)
+        && /10 of 17 ISINs match/.test(line))) {
+        wrong.push(`replacement account choice: ${JSON.stringify(state.menuItems)}`);
+      }
+      if (state.menuItems.some((line) => /Bonds · portfolio/.test(line))) {
+        wrong.push(`a bond portfolio was offered: ${JSON.stringify(state.menuItems)}`);
+      }
+      if (!state.menuItems.some((line) => /^Create a new account/.test(line))) {
+        wrong.push(`create choice: ${JSON.stringify(state.menuItems)}`);
+      }
+      if (state.bar !== "Import 1 ready file") wrong.push(`bar: ${state.bar}`);
+      return wrong;
+    },
+  },
+  {
     name: "locked",
     seed: null,
     entries: [{
@@ -243,8 +326,9 @@ function pageScript(scenario) {
   const store = await import("./db.js");
   await store.clearAll();
   const seed = ${JSON.stringify(scenario.seed)};
-  if (seed) {
-    const { rows: seedRows, ...fields } = seed;
+  const seeds = Array.isArray(seed) ? seed : (seed ? [seed] : []);
+  for (const item of seeds) {
+    const { rows: seedRows, ...fields } = item;
     await store.createAccount(fields);
     if (seedRows.length) await store.replaceHoldings(fields.id, seedRows, "2026-09-30");
   }
@@ -263,6 +347,12 @@ function pageScript(scenario) {
   // here writes a plan by hand.
   go("import");
   await sleep(1400);
+  if (${scenario.menu ? "true" : "false"}) {
+    const control = document.querySelector(
+      "#import-inbox-host .import-row details.import-row-account-control");
+    control?.querySelector("summary")?.click();
+    await sleep(250);
+  }
 
   const text = (node) => (node?.textContent || "").replace(/\\s+/g, " ").trim();
   const host = document.getElementById("import-inbox-host");
@@ -282,9 +372,12 @@ function pageScript(scenario) {
   const short = controls.filter((item) => item.height > 0 && item.height < 44);
   // The bar sits at the bottom of the queue; bring the top of the queue into
   // view so one shot carries the drop zone, the bubbles and the first rows.
-  const shell = document.querySelector(".import-shell");
-  shell.scrollIntoView({ block: "start" });
-  window.scrollBy(0, -60);
+  // An open account menu is the thing to read, so that row leads instead.
+  const focus = ${scenario.menu ? "true" : "false"}
+    ? document.querySelector("#import-inbox-host .import-row")
+    : document.querySelector(".import-shell");
+  focus.scrollIntoView({ block: "start" });
+  window.scrollBy(0, -80);
 
   return JSON.stringify({
     width: innerWidth,
@@ -306,6 +399,8 @@ function pageScript(scenario) {
     bar: text(bar),
     barDisabled: !!bar?.disabled,
     emptyText: text(empty),
+    menuItems: [...document.querySelectorAll(
+      ".import-row-account-control[open] .import-account-choice")].map(text),
     controls: controls.length,
     shortControls: short,
     docWidth: document.documentElement.scrollWidth,
@@ -459,6 +554,188 @@ const FLOWS = [
     },
   },
   {
+    name: "change-target",
+    seed: [account, hdfcAccount()],
+    entries: [brokerEntry()],
+    body: `
+      const row = () => document.querySelector("#import-inbox-host .import-row");
+      const accountText = () => text(row()?.querySelector(".import-row-account"));
+      const facts = () => text(row()?.querySelector(".import-row-facts"));
+      const openMenu = async () => {
+        const control = row().querySelector("details.import-row-account-control");
+        control.querySelector("summary").click();
+        await sleep(200);
+        return control;
+      };
+      const before = facts();
+      const menu = await openMenu();
+      const names = [...menu.querySelectorAll(".import-account-choice")].map(text);
+      const hdfc = [...menu.querySelectorAll(".import-account-choice")]
+        .find((button) => /HDFC/.test(text(button)));
+      if (!hdfc) throw new Error("the HDFC account is not offered: " + JSON.stringify(names));
+      hdfc.click();
+      await waitFor(() => /HDFC/.test(accountText()), "the HDFC target");
+      const afterTarget = accountText();
+      const afterFacts = facts();
+      const barAfter = text(document.querySelector(".import-batchbar .btn"));
+      const createMenu = await openMenu();
+      const create = [...createMenu.querySelectorAll(".import-account-choice")]
+        .find((button) => /^Create a new account/.test(text(button)));
+      if (!create) throw new Error("Create a new account is not offered");
+      create.click();
+      await waitFor(() => /^Create Zerodha demat/.test(accountText()), "the create target");
+      const createTarget = accountText();
+      const createFacts = facts();
+      const createBar = text(document.querySelector(".import-batchbar .btn"));
+      document.querySelector(".import-batchbar .btn").click();
+      await waitFor(() => document.querySelectorAll(".import-row-receipt").length === 1,
+        "the receipt");
+      const accounts = await store.listAccounts();
+      return JSON.stringify({ before, names, afterTarget, afterFacts, barAfter,
+        createTarget, createFacts, createBar,
+        accounts: accounts.map((item) => item.label),
+        receipts: document.querySelectorAll(".import-row-receipt").length });
+    `,
+    checks: (state) => {
+      const wrong = [];
+      if (!/17 holdings/.test(state.before)) wrong.push(`before: ${state.before}`);
+      if (!state.names.some((line) => /HDFC/.test(line) && /10 of 17/.test(line))) {
+        wrong.push(`HDFC choice: ${JSON.stringify(state.names)}`);
+      }
+      if (!state.names.some((line) => /Create a new account/.test(line))) {
+        wrong.push(`create choice: ${JSON.stringify(state.names)}`);
+      }
+      if (!/HDFC/.test(state.afterTarget)) wrong.push(`target: ${state.afterTarget}`);
+      if (!/7 new · 10 updated/.test(state.afterFacts)) {
+        wrong.push(`consequence after: ${state.afterFacts}`);
+      }
+      if (state.barAfter !== "Import 1 ready file") wrong.push(`bar after: ${state.barAfter}`);
+      if (!/^Create Zerodha demat/.test(state.createTarget)) {
+        wrong.push(`create target: ${state.createTarget}`);
+      }
+      if (!/17 holdings/.test(state.createFacts)) {
+        wrong.push(`create consequence: ${state.createFacts}`);
+      }
+      if (state.createBar !== "Import 1 ready file") wrong.push(`create bar: ${state.createBar}`);
+      if (state.receipts !== 1) wrong.push(`receipts: ${state.receipts}`);
+      if (!state.accounts.some((label) => /…4567/.test(label))) {
+        wrong.push(`new account: ${JSON.stringify(state.accounts)}`);
+      }
+      return wrong;
+    },
+  },
+  {
+    name: "change-target-cas",
+    seed: [account],
+    entries: [casEntry()],
+    body: `
+      const row = () => document.querySelector("#import-inbox-host .import-row");
+      const control = row().querySelector("details.import-row-account-control");
+      control.querySelector("summary").click();
+      await sleep(200);
+      const names = [...control.querySelectorAll(".import-account-choice")].map(text);
+      return JSON.stringify({ facts: text(row().querySelector(".import-row-facts")),
+        names, bar: text(document.querySelector(".import-batchbar .btn")) });
+    `,
+    checks: (state) => {
+      const wrong = [];
+      if (!/12 holdings/.test(state.facts)) wrong.push(`facts: ${state.facts}`);
+      if (!state.names.some((line) => /Demat · Zerodha · …8054/.test(line)
+        && /BO ID match/.test(line))) {
+        wrong.push(`current CAS account: ${JSON.stringify(state.names)}`);
+      }
+      if (state.names.some((line) => /^Create a new account/.test(line))) {
+        wrong.push(`a second account under the same BO ID was offered: ${
+          JSON.stringify(state.names)}`);
+      }
+      if (state.bar !== "Import 1 ready file") wrong.push(`bar: ${state.bar}`);
+      return wrong;
+    },
+  },
+  {
+    name: "change-splits-group",
+    seed: [account, hdfcAccount({ overlap: false })],
+    entries: [casEntry(), brokerEntry()],
+    body: `
+      const rows = () => [...document.querySelectorAll("#import-inbox-host .import-row")];
+      const brokerRow = () => rows().find((row) =>
+        /holdings-AB1234567/.test(text(row.querySelector(".import-row-name"))));
+      const beforePlans = (window.bpImportInbox.plans || []).length;
+      const beforeTargets = rows().map((row) => text(row.querySelector(".import-row-account")));
+      const control = brokerRow().querySelector("details.import-row-account-control");
+      control.querySelector("summary").click();
+      await sleep(200);
+      const names = [...control.querySelectorAll(".import-account-choice")].map(text);
+      const hdfc = [...control.querySelectorAll(".import-account-choice")]
+        .find((button) => /HDFC/.test(text(button)));
+      if (!hdfc) throw new Error("the empty HDFC demat is not offered: " + JSON.stringify(names));
+      hdfc.click();
+      await waitFor(() => (window.bpImportInbox.plans || []).length === 2, "two plans");
+      const groups = [...document.querySelectorAll(".import-row-group")].map(text);
+      const targets = rows().map((row) => text(row.querySelector(".import-row-account")));
+      return JSON.stringify({ beforePlans, beforeTargets, names,
+        afterPlans: (window.bpImportInbox.plans || []).length,
+        groups, targets,
+        bar: text(document.querySelector(".import-batchbar .btn")) });
+    `,
+    checks: (state) => {
+      const wrong = [];
+      if (state.beforePlans !== 1) wrong.push(`before plans: ${state.beforePlans}`);
+      if (state.beforeTargets.length !== 2
+        || state.beforeTargets.some((line) => !/Zerodha/.test(line))) {
+        wrong.push(`before targets: ${JSON.stringify(state.beforeTargets)}`);
+      }
+      if (!state.names.some((line) => /HDFC/.test(line) && /No ISINs match/.test(line))) {
+        wrong.push(`empty HDFC choice: ${JSON.stringify(state.names)}`);
+      }
+      if (state.afterPlans !== 2) wrong.push(`after plans: ${state.afterPlans}`);
+      if (state.groups.length) wrong.push(`group line survived: ${JSON.stringify(state.groups)}`);
+      if (state.bar !== "Import 2 ready files") wrong.push(`bar: ${state.bar}`);
+      if (state.targets.length !== 2
+        || state.targets.filter((line) => /Zerodha/.test(line)).length !== 1
+        || state.targets.filter((line) => /HDFC/.test(line)).length !== 1) {
+        wrong.push(`the other row did not keep its target: ${JSON.stringify(state.targets)}`);
+      }
+      return wrong;
+    },
+  },
+  {
+    name: "change-to-nowork",
+    seed: [staleZerodhaAccount(), fullHdfcAccount()],
+    entries: [brokerEntry()],
+    body: `
+      const row = () => document.querySelector("#import-inbox-host .import-row");
+      const pill = () => text(row()?.querySelector(".import-row-pill"));
+      const facts = () => text(row()?.querySelector(".import-row-facts"));
+      const before = { pill: pill(), bar: text(document.querySelector(".import-batchbar .btn")) };
+      const control = row().querySelector("details.import-row-account-control");
+      control.querySelector("summary").click();
+      await sleep(200);
+      const hdfc = [...control.querySelectorAll(".import-account-choice")]
+        .find((button) => /HDFC/.test(text(button)));
+      if (!hdfc) throw new Error("HDFC is not offered");
+      hdfc.click();
+      await waitFor(() => pill() === "Nothing new", "the no-work row");
+      return JSON.stringify({ before, pill: pill(), facts: facts(),
+        bar: text(document.querySelector(".import-batchbar .btn")) });
+    `,
+    checks: (state) => {
+      const wrong = [];
+      if (state.before.pill !== "Ready" || state.before.bar !== "Import 1 ready file") {
+        wrong.push(`before: ${JSON.stringify(state.before)}`);
+      }
+      if (state.pill !== "Nothing new") wrong.push(`pill after: ${state.pill}`);
+      if (/Nothing new/.test(state.facts)) {
+        wrong.push(`the no-work row repeated the pill in its facts: ${state.facts}`);
+      }
+      if (!/Zerodha holdings/.test(state.facts)) {
+        wrong.push(`the type left the row: ${state.facts}`);
+      }
+      if (state.bar !== "Import 0 ready files") wrong.push(`bar after: ${state.bar}`);
+      return wrong;
+    },
+  },
+  {
     name: "create-one-press",
     seed: null,
     entries: [brokerEntry(UNMATCHED_ID)],
@@ -509,8 +786,9 @@ function flowScript(flow) {
   const store = await import("./db.js");
   await store.clearAll();
   const seed = ${JSON.stringify(flow.seed)};
-  if (seed) {
-    const { rows: seedRows, ...fields } = seed;
+  const seeds = Array.isArray(seed) ? seed : (seed ? [seed] : []);
+  for (const item of seeds) {
+    const { rows: seedRows, ...fields } = item;
     await store.createAccount(fields);
     if (seedRows.length) await store.replaceHoldings(fields.id, seedRows, "2026-09-30");
   }
@@ -589,7 +867,11 @@ const SHOTS = [
   { width: 320, height: 1600, theme: "light" },
 ];
 try {
+  // RENDER_ONLY=<scenario-or-flow> is for a quick targeted pass; the normal
+  // run renders every state.
+  const only = String(process.env.RENDER_ONLY || "");
   for (const scenario of SCENARIOS) {
+    if (only && scenario.name !== only) continue;
     const pageFile = join(dir, `${scenario.name}.js`);
     writeFileSync(pageFile, pageScript(scenario));
     for (const shot of SHOTS) {
@@ -625,6 +907,7 @@ try {
   // The press itself: one plan, one receipt per file; a locked file left alone;
   // and a proposed account that becomes ready in one press.
   for (const flow of FLOWS) {
+    if (only && flow.name !== only) continue;
     const flowFile = join(dir, `flow-${flow.name}.js`);
     writeFileSync(flowFile, flowScript(flow));
     const out = join(args.outDir, `import-queue-flow-${flow.name}.png`);

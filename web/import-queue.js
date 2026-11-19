@@ -75,6 +75,26 @@ export function sourceName(value, family = "") {
   return words.slice(0, 2).join(" ") || text;
 }
 
+// What the chosen account will actually receive. A file pointed at an account
+// that already holds most of it says so, instead of repeating the file's own
+// row count.
+export function netConsequence(summary = {}) {
+  const count = (value) => Number(value).toLocaleString("en-IN");
+  const added = Number(summary.added || 0);
+  const updated = Number(summary.updated || 0);
+  const history = Number(summary.history || 0);
+  if (!added && !updated && !history) return "Nothing new";
+  if (added && !updated && !history) {
+    return `${count(added)} holding${added === 1 ? "" : "s"}`;
+  }
+  if (!added && !updated && history) return `${count(history)} to history`;
+  const parts = [];
+  if (added) parts.push(`${count(added)} new`);
+  if (updated) parts.push(`${count(updated)} updated`);
+  if (history) parts.push(`${count(history)} to history`);
+  return parts.join(" · ");
+}
+
 export function consequence({ kind = "", rows = [], parsed = null,
   accountCount = 1 } = {}) {
   const count = Number(rows?.length || 0);
