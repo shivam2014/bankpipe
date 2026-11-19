@@ -694,6 +694,8 @@ test("a plan with nothing to write says why and disables its primary", () => {
   assert.match(html, /bpImportNoWorkAccountHtml\(bundle\)/);
   assert.match(html, /noWork\.next/);
   assert.match(html, /const noWork = !splitCas && !extraBlocked/);
+  assert.match(html, /const removal = bpImportRemovals\(head\)/);
+  assert.match(html, /\+ \(composed\.summary\.ask \|\| 0\) \+ removal\.count/);
   assert.match(html, /writes === 0 && !identityChange/);
   assert.match(html, /const reviewable = plans\.some\(\(plan\) => !plan\.noWork\)/);
 });
@@ -806,6 +808,9 @@ test("the card counts the net plan change, not the sum of its files", () => {
   assert.match(items, /net\.added/);
   assert.match(items, /net\.updated/);
   assert.match(items, /net\.history/);
+  assert.match(items, /plan\.removals/);
+  assert.match(items, /bpImportRemovalLine\(plan\)/,
+    "the removal the writer will perform is a named line, not a hidden count");
   assert.doesNotMatch(items, /summary\.added|summary\.updated|summary\.history/,
     "the headline is the net, not the summed receipts");
   assert.equal(/adds \$\{summary\.added\}|updates \$\{summary\.updated\}/.test(items), false,
@@ -930,6 +935,17 @@ test("a plan of one holding says holding, not holdings", () => {
   assert.equal(importPlanPrimary({ family: "motilal" }), "Nothing to change");
   assert.equal(importPlanPrimary({ family: "motilal", attachIdentity: true }),
     "Attach the account identity");
+});
+
+test("a removal-only CAS names the removal in the primary", () => {
+  // The inbox label lives beside the card, so the removal branch is here, not
+  // inside importPlanPrimary: a CAS plan with zero adds must not fall through
+  // to "Attach identity" while it deletes rows.
+  const label = between("function bpImportPrimaryLabel", "function bpImportPlanHtml");
+  assert.match(label, /Remove \$\{count\} demat holding/);
+  assert.match(label, /and remove \$\{count\}/);
+  assert.match(label, /and import/);
+  assert.match(html, /: plan\.removals \? bpImportPrimaryLabel\(plan, planned\)/);
 });
 
 test("a buy-only movement card says movements, not disposals", () => {
