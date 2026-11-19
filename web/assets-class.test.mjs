@@ -1,8 +1,8 @@
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { allocationByClass, assetSections, assetValue, classPage, holdingClass,
-  isFundAccount } from "./assets.js";
+import { allocationByClass, assetAtCost, assetSections, assetValue, classPage,
+  holdingClass, holdingValue, isFundAccount } from "./assets.js";
 
 const demat = (over) => ({
   id: "d1", label: "Demat", category: "demat", subtype: "equity",
@@ -161,6 +161,21 @@ test("a folio is a fund account, not a bond demat", () => {
   assert.equal(isFundAccount({ category: "demat", subtype: "mf" }), true);
   assert.equal(isFundAccount({ category: "demat", subtype: "equity" }), false);
   assert.equal(isFundAccount({ category: "bank", subtype: "mutual fund" }), false);
+});
+
+test("cost is the measure only when a demat has no price and no manual value", () => {
+  assert.equal(assetAtCost({ holdings_value: null, holdings_cost: 100 }), true);
+  assert.equal(assetAtCost({ holdings_value: 0, holdings_cost: 100 }), false,
+    "a zero market value is still a recorded value");
+  assert.equal(assetAtCost({ holdings_value: null, holdings_cost: 100,
+    meta: JSON.stringify({ current_value_paise: 90 }) }), false,
+    "a manual current value is the account's figure, not cost");
+  assert.equal(assetAtCost({ holdings_value: null, holdings_cost: null }), false,
+    "nothing was paid, so there is no cost to carry");
+  assert.equal(holdingValue({ value_paise: null, cost_paise: 100 }, true), 100);
+  assert.equal(holdingValue({ value_paise: null, cost_paise: 100 }, false), 0);
+  assert.equal(holdingValue({ value_paise: 120, cost_paise: 100 }, true), 120,
+    "a priced row keeps its market value even when the account is at cost");
 });
 
 test("the funds class page adds a folio value that has no holding row", () => {

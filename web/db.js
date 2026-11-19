@@ -19,7 +19,8 @@ const DB_KEY = "bankpipe.db.v1";
 // The class of a holding row, in SQL, matching holdingClass() in assets.js.
 // A bond wins first; a fund is its category, its legacy category or an INF ISIN;
 // everything else is a share. The three expressions partition the rows, so their
-// totals always add up to holdings_value.
+// totals add up to holdings_value when a report priced anything, and to
+// holdings_cost when it priced nothing and assetMetrics() values it at cost.
 const HOLDING_BOND_SQL = "LOWER(COALESCE(h.category,''))='bond'";
 const HOLDING_MF_SQL = "(NOT (" + HOLDING_BOND_SQL + ") AND ("
   + "LOWER(COALESCE(h.category,'')) IN ('mf','mutual fund','mutualfund','fund')"
@@ -1386,17 +1387,24 @@ export async function summary() {
 export async function listAccounts() {
   if (!browserStore) await openDb();
   return browserStore.query(
-    "SELECT a.id, a.label, a.bank, a.number, a.city, a.holder, a.type,"
+    "WITH hv AS (SELECT asset_id, SUM(value_paise) AS priced FROM holding GROUP BY asset_id)"
+    + " SELECT a.id, a.label, a.bank, a.number, a.city, a.holder, a.type,"
     + " a.category, a.subtype, a.value_paise, a.value_date, a.notes,"
     + " a.principal_paise, a.rate_bps, a.start_date, a.maturity_date,"
     + " a.interest_paid_paise, a.meta, a.ifsc, a.branch, a.address, a.state, a.currency,"
     + " a.bo_id, a.dp_id, a.client_id,"
-    + " (SELECT SUM(h.value_paise) FROM holding h WHERE h.asset_id=a.id"
-    + `   AND ${HOLDING_BOND_SQL}) AS class_bond_value,`
-    + " (SELECT SUM(h.value_paise) FROM holding h WHERE h.asset_id=a.id"
-    + `   AND ${HOLDING_EQUITY_SQL}) AS class_equity_value,`
-    + " (SELECT SUM(h.value_paise) FROM holding h WHERE h.asset_id=a.id"
-    + `   AND ${HOLDING_MF_SQL}) AS class_mf_value,`
+    + " (SELECT COALESCE(SUM(CASE WHEN hv.priced IS NULL THEN h.cost_paise"
+    + "   ELSE h.value_paise END),0) FROM holding h"
+    + "   LEFT JOIN hv ON hv.asset_id=h.asset_id"
+    + `   WHERE h.asset_id=a.id AND ${HOLDING_BOND_SQL}) AS class_bond_value,`
+    + " (SELECT COALESCE(SUM(CASE WHEN hv.priced IS NULL THEN h.cost_paise"
+    + "   ELSE h.value_paise END),0) FROM holding h"
+    + "   LEFT JOIN hv ON hv.asset_id=h.asset_id"
+    + `   WHERE h.asset_id=a.id AND ${HOLDING_EQUITY_SQL}) AS class_equity_value,`
+    + " (SELECT COALESCE(SUM(CASE WHEN hv.priced IS NULL THEN h.cost_paise"
+    + "   ELSE h.value_paise END),0) FROM holding h"
+    + "   LEFT JOIN hv ON hv.asset_id=h.asset_id"
+    + `   WHERE h.asset_id=a.id AND ${HOLDING_MF_SQL}) AS class_mf_value,`
     + " (SELECT SUM(h.cost_paise) FROM holding h WHERE h.asset_id=a.id) AS holdings_cost,"
     + " (SELECT SUM(h.value_paise) FROM holding h WHERE h.asset_id=a.id) AS holdings_value,"
     + " (SELECT SUM(CASE WHEN h.value_paise IS NOT NULL AND h.cost_paise IS NOT NULL"

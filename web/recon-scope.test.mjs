@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 import { makeStore, useDemoStore, listAccounts, reconFor } from "./db.js";
-import { classPage, holdingClass } from "./assets.js";
+import { assetClassParts, assetSections, assetValue, classPage,
+  holdingClass } from "./assets.js";
 import { reconCardHtml, reconDismissKey, reconEligible, reconHasCard,
   reconHiddenHtml } from "./recon-card.js";
 
@@ -156,4 +157,62 @@ test("a manual fund row replaces the folio value instead of adding to it", async
   assert.equal(page.total, 120000);
   assert.equal(page.holdingsCount, 1);
   assert.equal(page.accountValues, 0);
+});
+
+test("a demat that carries cost but no price lands in its class at cost", async () => {
+  const rows = [
+    { security_id: "INE000000101", label: "Bond one", category: "bond",
+      quantity: 10, cost_paise: 5000000, value_paise: null },
+    { security_id: "INE000000102", label: "Bond two", category: "bond",
+      quantity: 5, cost_paise: 2500000, value_paise: null },
+  ];
+  await seed([{ id: "d1", label: "Motilal demat", category: "demat", subtype: "equity" }],
+    { d1: rows });
+  const [account] = await listAccounts();
+  assert.equal(account.class_bond_value, 7500000,
+    "the bond class carries the cost the report printed");
+  assert.equal(account.class_equity_value, 0);
+  assert.equal(account.class_mf_value, 0);
+  const sections = assetSections([account]);
+  const bonds = sections.find((s) => s.id === "bond");
+  assert.ok(bonds, "one Bonds section");
+  assert.equal(bonds.total, 7500000);
+  assert.equal(assetValue(bonds.rows[0]).paise, bonds.total,
+    "the row is worth the section it sits in");
+  assert.match(assetValue(bonds.rows[0]).source, /cost/,
+    "the class row says the cost came from the report");
+  assert.equal(sections.some((s) => s.id === "equity"), false,
+    "the cost is not filed under Equities");
+  const page = classPage([account], { d1: rows }, "bond");
+  assert.equal(page.total, 7500000);
+  assert.equal(page.rows.length, 2);
+  assert.equal(page.accountValues, 0, "no invented value-not-in-a-row");
+  assert.equal(page.rows[0].value_paise, 5000000);
+  assert.equal(page.rows[0].atCost, true);
+});
+
+test("an unpriced row never pushes a class part outside the account value", async () => {
+  const rows = [
+    { security_id: "INE000000201", label: "Priced share", category: "equity",
+      quantity: 10, cost_paise: 40000, value_paise: 50000 },
+    { security_id: "INE000000202", label: "Unpriced bond", category: "bond",
+      quantity: 10, cost_paise: 30000, value_paise: null },
+  ];
+  await seed([{ id: "d1", label: "Mixed demat", category: "demat", subtype: "equity" }],
+    { d1: rows });
+  const [account] = await listAccounts();
+  // The demat's value is the sum of the values it has, the same rule the class
+  // split follows. The unpriced bond is not in that value, so it is not in a
+  // class total either: adding its cost would make the parts outgrow the whole.
+  assert.equal(assetValue(account).paise, 50000);
+  assert.equal(account.class_bond_value, 0);
+  const parts = assetClassParts(account);
+  assert.equal(Math.round(parts.bond + parts.equity + parts.mf),
+    assetValue(account).paise, "the classes add up to the account value");
+  const page = classPage([account], { d1: rows }, "equity");
+  assert.equal(page.total, 50000);
+  assert.equal(page.rows.filter((r) => r.accountValue).length, 0,
+    "no invented row where the row already holds the value");
+  assert.ok(page.rows.every((r) => Number(r.value_paise) >= 0),
+    "a class page never lists a negative value");
 });
