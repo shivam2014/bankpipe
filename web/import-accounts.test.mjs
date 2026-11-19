@@ -1028,3 +1028,10 @@ test("the picker carries its broker's steps and format, once", () => {
   assert.match(icici, /Format: CSV/);
   assert.match(icici, /bpImportInboxAdd/);
 });
+
+test("erasing the browser deletes the database file, not just its rows", () => {
+  const erase = between('if (b.dataset.act === "erase")', 'location.replace("/")');
+  assert.match(erase, /store\.eraseDb\(\)/,
+    "an erase must delete the sealed file, or the next visit asks for its passphrase");
+  assert.doesNotMatch(erase, /store\.clearAll\(\)/);
+});

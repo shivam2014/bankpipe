@@ -1792,6 +1792,17 @@ export async function deleteAccount(id) {
   return true;
 }
 
+export async function eraseDb() {
+  // The database is one blob, not rows in a table. Emptying the tables leaves
+  // the sealed file behind, so the next visit asks for the passphrase of the
+  // database the person just erased. Snapshots stay: they are the only copy
+  // left on this device, and Settings can still restore one.
+  await idbDelete(DB_KEY);
+  lockDb();
+  noteData(false);
+  return true;
+}
+
 export async function clearAll() {
   if (!browserStore) await openDb();
   const con = browserStore.raw();

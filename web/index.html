@@ -5983,7 +5983,9 @@ window.bpStartOver = () => {
       b.textContent = "Erasing…";
       const store = await import("./db.js");
       try { await store.snapshotDb("Before erasing this browser"); } catch (e) {}
-      try { await store.clearAll(); } catch (e) { console.warn("clearAll failed", e); }
+      // Deleting the file is the difference between an erase and an empty
+      // database that still asks for its old passphrase on the next visit.
+      try { await store.eraseDb(); } catch (e) { console.warn("eraseDb failed", e); }
       for (const k of Object.keys(localStorage)) {
         if (k.startsWith("bankpipe.") || k.startsWith("bp.")) localStorage.removeItem(k);
       }

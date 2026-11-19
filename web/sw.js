@@ -17,6 +17,9 @@
 
 export const BUILD = "__BP_BUILD__";
 export const CACHE_PREFIX = "bankpipe-shell-";
+// A precache entry that never settles must not hold install, and therefore
+// activation and every navigation to the scope, open forever.
+export const PRECACHE_TIMEOUT_MS = 3000;
 
 /** One cache per build. A constant name would keep stale files forever. */
 export function cacheName(build = BUILD) {
@@ -130,9 +133,14 @@ async function cacheFirst(request) {
 async function precache() {
   const cache = await caches.open(CACHE_NAME);
   // One missing file must not fail the install: version.json only exists in a
-  // built bundle, and a local checkout must still work offline.
+  // built bundle, and a local checkout must still work offline. One slow file
+  // must not stall it either, because install blocks activation and activation
+  // blocks navigations.
   await Promise.all(PRECACHE.map(async (url) => {
-    try { await cache.add(new Request(url, { cache: "reload" })); } catch { /* optional */ }
+    const slow = new Promise((resolve) => setTimeout(resolve, PRECACHE_TIMEOUT_MS));
+    try {
+      await Promise.race([cache.add(new Request(url, { cache: "reload" })), slow]);
+    } catch { /* optional */ }
   }));
 }
 
@@ -141,7 +149,10 @@ async function activate() {
   await Promise.all(names
     .filter((name) => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME)
     .map((name) => caches.delete(name)));
-  await self.clients.claim();
+  // Deliberately not awaited: a client that never settles would keep the worker
+  // in "activating", and Chrome holds every navigation to the scope until it
+  // finishes. Claim in the background instead.
+  self.clients.claim();
 }
 
 const scope = typeof self !== "undefined" && typeof self.addEventListener === "function"

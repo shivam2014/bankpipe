@@ -15,7 +15,7 @@ import {
   INSTALL_LABEL, INSTALLED_LINE, IOS_HINT, STORAGE_PROTECTED, STORAGE_CLEARABLE, BACKUP_TRUTH,
 } from "./pwa.js";
 import {
-  BUILD, CACHE_PREFIX, CACHE_NAME, cacheName, PRECACHE, isPrivatePath, strategyFor,
+  BUILD, CACHE_PREFIX, CACHE_NAME, cacheName, PRECACHE, PRECACHE_TIMEOUT_MS, isPrivatePath, strategyFor,
 } from "./sw.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -89,6 +89,15 @@ test("the app's own db.js and vault.js modules stay in the shell", () => {
   assert.equal(strategyFor(get("/db.js"), ORIGIN), "cache-first");
   assert.equal(strategyFor(get("/vault.js"), ORIGIN), "cache-first");
   assert.equal(strategyFor(get("/vendor/sql-wasm.wasm"), ORIGIN), "cache-first");
+});
+
+test("a slow precache cannot hold install, and activation cannot hold a navigation", () => {
+  assert.ok(Number.isFinite(PRECACHE_TIMEOUT_MS), "the precache timeout is a number");
+  assert.ok(PRECACHE_TIMEOUT_MS > 0 && PRECACHE_TIMEOUT_MS <= 5000, "bounded to five seconds");
+  const worker = read("sw.js");
+  assert.match(worker, /Promise\.race\(\[cache\.add/, "each precache add is raced with the timeout");
+  assert.doesNotMatch(worker, /await self\.clients\.claim\(\)/,
+    "activation must not wait for a client that may never settle");
 });
 
 test("index.html, version.json and navigations are network-first", () => {

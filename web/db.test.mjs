@@ -1597,3 +1597,12 @@ test("a re-import with no new rows still stores its source receipt", async () =>
   assert.equal(JSON.parse(run.receipt).read, 3);
   assert.equal(store.latestReceipt().batch, "2026-11-01T06:46:00.000Z");
 });
+
+test("erasing the browser deletes the database file, not only its rows", () => {
+  const source = readFileSync(new URL("./db.js", import.meta.url), "utf8");
+  const body = source.slice(source.indexOf("export async function eraseDb"),
+    source.indexOf("export async function clearAll"));
+  assert.match(body, /idbDelete\(DB_KEY\)/, "the blob is deleted");
+  assert.match(body, /lockDb\(\)/, "the in-memory connection is dropped");
+  assert.match(body, /noteData\(false\)/, "the has-data flag is cleared");
+});
