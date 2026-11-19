@@ -114,14 +114,18 @@ Three defects, three commits, one failing test each:
 - **W8, one ISIN attached an account.** Both resolvers now use one `attachId`:
   a real identity, or 80 percent ISIN overlap. Below that the file is a listed
   candidate with no target, and creation is offered only when nothing matches.
+  A CAS candidate is a question even below the threshold: the card shows the
+  overlap and an explicit Create, and Import waits for the answer.
 
 Removed: the second cost rule, the spurious alias change, the single-ISIN
 auto-attach.
 
 Residual, and it cannot be closed without the stored mapping this phase
 forbids: a broker file that matches nothing still creates a broker-only
-account, and a later CAS can create a second demat for the same holding because
-no BO ID to broker-key map exists. That is Phase 2/3 identity work.
+account, and a later CAS that shares no ISIN with it still creates a second
+demat for the same holding because no BO ID to broker-key map exists. A CAS
+that holds any of the broker account's rows now stops on the candidate instead.
+That is Phase 2/3 identity work.
 
 ## Phase 2: one plan per resolved account
 

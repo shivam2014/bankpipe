@@ -7523,6 +7523,10 @@ function bpImportResolveCas(bundle) {
       if (chosen && isFolioAccount(chosen)) targetId = "";
     }
     const targetRow = targetId ? bpImportAccountRow(targetId) : null;
+    // A candidate beside no identity is a question, never a default. The same
+    // rule answers a tie and a near match: with an account on file holding any
+    // of this statement's rows, only the person may choose it or choose Create.
+    const needsChoice = !targetId && !createChoice && match.matches.length > 0;
     const plan = bpImportPlanFor(bundle, targetRow, planRows,
       { kind: "bo", value: account.boId });
     const holdingsOf = (id) => accounts.find((item) => item.id === id)?.holdings || [];
@@ -7543,7 +7547,7 @@ function bpImportResolveCas(bundle) {
     const linked = planLinkedSales({ dematPlan: eventPlan, dematAssetId: targetId,
       asOf: bundle.asOf || "", portfolios: linkedPortfolios });
     return { ...account, rows, match, targetId, plan, eventPlan, linked, createChoice,
-      action: targetRow ? "update" : "create" };
+      needsChoice, action: targetRow ? "update" : "create" };
   });
   bundle.casTargets = [...dematTargets, ...folioTargets];
   // The accounts this statement resolved to, for grouping. A folio is its own
@@ -7672,16 +7676,18 @@ function bpImportResolveCas(bundle) {
     bundle.plan.warnings = [...new Set([...bundle.plan.warnings, gap.reason])];
   }
   bundle.needsChoice = bundle.casTargets.some((target) =>
-    target.action === "decide"
+    target.action === "decide" || target.needsChoice
     || (target.match.tie && !target.targetId && !target.createChoice));
   bundle.create = bundle.casTargets.some((target) => !target.targetId
+    && !target.needsChoice
     && target.action !== "kept" && target.action !== "decide"
     && target.action !== "conflict");
   bundle.ready = !safety.blocked && !bundle.movementBlocked && bundle.casTargets.length > 0
     && bundle.casTargets.every((target) => target.action !== "decide" && target.plan
       && !["invalid", "future"].includes(target.plan.incomingDateState)
       && (target.plan.summary.ask === 0 || bundle.acceptAsk)
-      && (target.targetId || !target.match.tie || target.createChoice));
+      && (target.targetId || target.createChoice
+        || (!target.needsChoice && !target.match.tie)));
 }
 
 // --- one plan per resolved account -----------------------------------------
@@ -8116,7 +8122,7 @@ function bpImportCasAccountsHtml(bundle) {
       // hidden for both the exact offer and a contested folio.
       const showMatches = !target.targetId && !!target.match?.matches?.length
         && target.offer?.basis !== "folio" && target.action !== "conflict";
-      const createSelected = !target.targetId
+      const createSelected = !target.targetId && !target.needsChoice
         && (!target.match?.tie || target.createChoice);
       const offerHtml = target.offer
         ? casFolioOfferHtml(target.offer, {
@@ -8575,18 +8581,19 @@ function bpImportPlanHtml(plan) {
   const primary = askPending ? `Use the file's values · ${summary.ask}`
     : plan.noWork ? "Nothing to import yet"
       : heldFolio === "decide" ? "Choose below"
-        : plan.removals ? bpImportPrimaryLabel(plan, planned)
-          : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
-            : importPlanPrimary({
-          family: bundle.family,
-          identityOnly: !!bundle.plan?.identityOnly,
-          planned,
-          sales,
-          soldCost: net.soldCost || 0,
-          attachIdentity: !!bundle.plan?.identityChange,
-          create: bundle.create && !bundle.targetId,
-          categories,
-        });
+        : plan.needsChoice ? "Choose an account"
+          : plan.removals ? bpImportPrimaryLabel(plan, planned)
+            : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
+              : importPlanPrimary({
+                family: bundle.family,
+                identityOnly: !!bundle.plan?.identityOnly,
+                planned,
+                sales,
+                soldCost: net.soldCost || 0,
+                attachIdentity: !!bundle.plan?.identityChange,
+                create: bundle.create && !bundle.targetId,
+                categories,
+              });
   const noWork = plan.noWorkCopy || null;
   // The pill already says nothing can be imported. The line carries the reason
   // and the next action, once.
