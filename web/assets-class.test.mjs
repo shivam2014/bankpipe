@@ -1,8 +1,8 @@
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { allocationByClass, assetSections, assetValue, classPage, holdingClass,
-  isFundAccount } from "./assets.js";
+import { allocationByClass, assetAtCost, assetClassParts, assetSections, assetValue,
+  classPage, holdingClass, holdingValue, isFundAccount } from "./assets.js";
 
 const demat = (over) => ({
   id: "d1", label: "Demat", category: "demat", subtype: "equity",
@@ -163,6 +163,21 @@ test("a folio is a fund account, not a bond demat", () => {
   assert.equal(isFundAccount({ category: "bank", subtype: "mutual fund" }), false);
 });
 
+test("cost is the measure only when a demat has no price and no manual value", () => {
+  assert.equal(assetAtCost({ holdings_value: null, holdings_cost: 100 }), true);
+  assert.equal(assetAtCost({ holdings_value: 0, holdings_cost: 100 }), false,
+    "a zero market value is still a recorded value");
+  assert.equal(assetAtCost({ holdings_value: null, holdings_cost: 100,
+    meta: JSON.stringify({ current_value_paise: 90 }) }), false,
+    "a manual current value is the account's figure, not cost");
+  assert.equal(assetAtCost({ holdings_value: null, holdings_cost: null }), false,
+    "nothing was paid, so there is no cost to carry");
+  assert.equal(holdingValue({ value_paise: null, cost_paise: 100 }, true), 100);
+  assert.equal(holdingValue({ value_paise: null, cost_paise: 100 }, false), 0);
+  assert.equal(holdingValue({ value_paise: 120, cost_paise: 100 }, true), 120,
+    "a priced row keeps its market value even when the account is at cost");
+});
+
 test("the funds class page adds a folio value that has no holding row", () => {
   const assets = [
     demat({ id: "d1", class_mf_value: 40000, holdings_value: 40000, holdings_cost: 35000 }),
@@ -227,4 +242,128 @@ test("a folio with a stray bond row is listed only under funds", () => {
   const sections = assetSections([folio]);
   assert.deepEqual(sections.map((s) => s.id), ["mf"]);
   assert.equal(sections[0].total, 100);
+});
+
+// A class page sends the account plus its class to the demat page. That class
+// is only a landing place while it has live holding rows; a value that exists
+// only on the account must not open a tab that counts zero.
+const unvaluedBonds = Array.from({ length: 17 }, (_, i) => ({
+  id: i + 1, category: "bond", security_id: `INE0000${String(i).padStart(6, "0")}`,
+  label: `TEST BOND ${i + 1}`, cost_paise: 16416798, value_paise: null,
+}));
+const unvaluedDemat = demat({
+  id: "d17", class_bond_value: null, class_equity_value: null, class_mf_value: null,
+  holdings_count: 17, holdings_cost: 279085551, holdings_value: null,
+  value_paise: 279085551,
+});
+const fundFolio = { id: "f1", label: "TEST FUND", category: "demat",
+  subtype: "mutual fund", number: "", holdings_count: 0, value_paise: 50000 };
+
+// The page's own landing rule and bucket rule, extracted and run with the
+// module imports they call, the same way nsdl-removal.test.mjs runs a page fn.
+function pageHelpers() {
+  const src = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const between = (start, end) => {
+    const from = src.indexOf(start);
+    const to = src.indexOf(end, from + start.length);
+    assert.ok(from > 0 && to > from, `${start} is in index.html`);
+    return src.slice(from, to);
+  };
+  const page = new Function("holdingClass", "isFundAccount", "assetClassParts",
+    `${between("function classFocusFor(", "function classValueBucket(")}
+     ${between("function classValueBucket(", "function holdingsBlock(")}
+     return { classFocusFor, classValueBucket };`,
+  )(holdingClass, isFundAccount, assetClassParts);
+  return { page, between };
+}
+
+test("a class tab with no holding rows is not a landing place", () => {
+  const { page } = pageHelpers();
+  assert.equal(page.classFocusFor(unvaluedDemat, unvaluedBonds, "equity"), "all");
+  assert.equal(page.classFocusFor(unvaluedDemat, unvaluedBonds, "mf"), "all");
+  assert.equal(page.classFocusFor(unvaluedDemat, unvaluedBonds, "bond"), "bond");
+  assert.equal(page.classFocusFor(unvaluedDemat, unvaluedBonds, "all"), "all");
+  assert.equal(page.classFocusFor(unvaluedDemat,
+    [...unvaluedBonds, { category: "equity", value_paise: 100 }], "equity"), "equity");
+});
+
+test("a remembered class that became empty falls back, and a sold row does not reopen it", () => {
+  const { page } = pageHelpers();
+  const soldEquity = { category: "equity", value_paise: 0, disposed_at: "2026-04-10" };
+  assert.equal(page.classFocusFor(unvaluedDemat, [soldEquity], "equity"), "all");
+  assert.equal(page.classFocusFor(unvaluedDemat, [], "equity"), "all");
+});
+
+test("a fund folio keeps its class before the first row exists", () => {
+  const { page } = pageHelpers();
+  assert.equal(page.classFocusFor(fundFolio, [], "mf"), "mf");
+  assert.equal(page.classFocusFor(fundFolio, [], "equity"), "all");
+  assert.equal(page.classFocusFor(fundFolio, [], "bond"), "all");
+});
+
+test("a plain demat's fallback value is not a class bucket", () => {
+  const { page } = pageHelpers();
+  assert.equal(assetClassParts(unvaluedDemat).equity, 279085551,
+    "the allocation fallback still values the demat");
+  assert.equal(page.classValueBucket(unvaluedDemat, "equity"), 0);
+  assert.equal(page.classValueBucket(unvaluedDemat, "bond"), 0);
+  assert.equal(page.classValueBucket(fundFolio, "mf"), 50000);
+  assert.equal(page.classValueBucket(fundFolio, "equity"), 0);
+});
+
+test("the tabs land and count the rows they render", () => {
+  const { between } = pageHelpers();
+  const block = between("function holdingsBlock(", "window.bpBondSort");
+  assert.match(block, /const focus = classFocusFor\(asset, list, requested\)/);
+  assert.match(block, /No \$\{labels\[requested\]\.toLowerCase\(\)\} in this/);
+  assert.match(block, /class-tab-note/);
+  const form = between("function assetForm(", "function bondLabelParts(");
+  assert.match(form, /classFocusFor\(a, holdings, window\.bpState\?\.assetClass\)/);
+  assert.match(form, /const focusClass = focusKind === "all" \? "" : focusKind/);
+  const card = between("function classFocusCard(", "function assetForm(");
+  assert.match(card, /const accountPart = classValueBucket\(a, kind\)/);
+  assert.match(card, /if \(classRows\.length\) return ""/);
+  assert.doesNotMatch(card, /assetClassParts\(a\)\[kind\]/);
+});
+
+// The owner asked why the class page had no edit or delete. Those live on the
+// account page, so the group header must read as the way there. One control,
+// naming the account: a second destructive control on this page would be a
+// delete for a security, not for the account.
+test("a class group header is one control that opens its account", () => {
+  const src = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const start = src.indexOf("const groupHtml = groups.map");
+  const end = src.indexOf("const countBits", start);
+  assert.ok(start > 0 && end > start, "the class group renderer is in index.html");
+  const block = src.slice(start, end);
+  assert.equal((block.match(/<a\b/g) || []).length, 1,
+    "the group header has exactly one focusable control");
+  assert.equal((block.match(/<button\b/g) || []).length, 0,
+    "the header adds no button beside the name");
+  assert.equal((block.match(/tabindex=/g) || []).length, 0,
+    "the header adds no second focus stop");
+  assert.equal((block.match(/onclick="bpAsset\(/g) || []).length, 1,
+    "only the one control opens the account");
+  assert.match(block,
+    /bpAsset\(\$\{jsArg\(g\.asset\.id\)\},\$\{jsArg\(classKind\)\}\)/);
+  assert.match(block, /class-group-open">Open account/);
+  assert.match(block, /Rename, edit or delete this account on its page\./);
+  assert.doesNotMatch(block, /bpAssetDelete/);
+});
+
+test("the class page sends account delete to the account page and never renders it", () => {
+  const src = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const start = src.indexOf("async function renderCategory()");
+  const end = src.indexOf("function staleImport(", start);
+  assert.ok(start > 0 && end > start);
+  const page = src.slice(start, end);
+  assert.doesNotMatch(page, /bpAssetDelete/,
+    "the class page has no account-delete handler");
+  assert.match(page, /class-group-note/,
+    "one line says where rename, edit and delete live");
+  const cardStart = src.indexOf("function holdingCardHtml");
+  const cardEnd = src.indexOf("function holdingCards", cardStart);
+  assert.ok(cardStart > 0 && cardEnd > cardStart);
+  assert.doesNotMatch(src.slice(cardStart, cardEnd), /bpAssetDelete/,
+    "a holding card removes the holding, never the account");
 });

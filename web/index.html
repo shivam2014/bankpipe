@@ -454,8 +454,15 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .class-group{margin-bottom:12px}
 .class-group-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
  flex-wrap:wrap}
-.class-group-link{font-weight:620}
+.class-group-link{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px 8px;
+ min-height:44px;min-width:0;font-weight:620;color:inherit;text-decoration:none}
+.class-group-link:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.class-group-name{overflow-wrap:anywhere}
+.class-group-open{font-size:12px;font-weight:620;color:var(--green);white-space:nowrap;
+ text-decoration:underline;text-underline-offset:2px}
+.class-group-link:hover .class-group-open{color:color-mix(in srgb,var(--green) 78%,var(--ink))}
 .class-group-total{font-size:12px}
+.class-group-note{font-size:12px;margin:12px 2px 0}
 .class-ring-card{margin-bottom:14px;display:flex;gap:22px;align-items:center;flex-wrap:wrap}
 .class-ring-body{flex:1;min-width:240px}
 .class-ring-note{font-size:11px;margin-top:8px}
@@ -469,6 +476,8 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .holding-title{margin:0;font-size:15px}
 .holding-head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .holding-bits{font-size:12px}
+.class-tab-note{margin:0 0 10px;font-size:12px}
+.class-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
 .holding-card{margin-bottom:12px}
 .holdings-empty-note{margin-top:4px;font-size:13.5px;line-height:1.5}
 .class-ring-value{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:4px}
@@ -1478,7 +1487,7 @@ import { reorderLine } from "./reorder-line.js";
 import { balanceRunsFromSheet } from "./balance-formula.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
-import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, assetClassParts, classPage, holdingClass, isFundAccount, isImportAccount, importFillPlan } from "./assets.js";
+import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, assetClassParts, classPage, holdingClass, holdingValue, assetAtCost, isFundAccount, isImportAccount, importFillPlan } from "./assets.js";
 import { isCostRecord, liveDemats, unattachedCostRecords, costRecordTasks,
   costRecordSentence, attachActionLabel, NO_DEMAT_SENTENCE } from "./cost-records.js";
 import { buildFdGroups, fdMatured, fdGroupsTotal,
@@ -12465,9 +12474,12 @@ async function renderCategory() {
         const groupTotal = g.rows.reduce((t, h) => t + (Number(h.value_paise) || 0), 0);
         return `<div class="card pad class-group">
           <div class="class-group-head">
-            <a href="#" class="link class-group-link"
-              onclick="bpAsset(${jsArg(g.asset.id)},${jsArg(classKind)});return false">${
-              esc(g.asset.label || g.asset.bank || "Demat")}</a>
+            <a href="#" class="class-group-link"
+              onclick="bpAsset(${jsArg(g.asset.id)},${jsArg(classKind)});return false">
+              <span class="class-group-name">${
+                esc(g.asset.label || g.asset.bank || "Demat")}</span>
+              <span class="class-group-open">Open account <span aria-hidden="true">›</span></span>
+              <span class="sr-only">Rename, edit or delete this account on its page.</span></a>
             <span class="muted class-group-total">${money(groupTotal)}</span></div>
           ${holdingCards(g.rows, classKind, { header: false, assetId: g.asset.id })}</div>`;
       }).join("");
@@ -12495,6 +12507,8 @@ async function renderCategory() {
               ${esc(title.toLowerCase())}. Open a holding to see it inside its demat account.</div>
           </div></div>` : ""}
         ${groupHtml || `<div class="card pad">No ${esc(title.toLowerCase())} in your demat accounts.</div>`}
+        ${groups.length ? `<div class="muted class-group-note">Rename, edit or delete an
+          account on its own page. Open the account above.</div>` : ""}
         <div class="class-actions">
           <button class="btn" onclick="go('home')">Back to home</button>
           <button class="btn" onclick="bpAssetNew('demat')">Add a demat account</button>
@@ -13044,7 +13058,8 @@ async function renderRealAssets(host) {
     };
     const bankOpen = groupOpenState().bank !== false;
     const bankSection = bankGroup || (showFdsOnly && fdGroups.length)
-      ? `<details class="asset-group" data-group="bank"${bankOpen ? " open" : ""}
+      ? `${showFdsOnly ? "" : sortBar}${filterBar}
+      <details class="asset-group" data-group="bank"${bankOpen ? " open" : ""}
         ontoggle="bpGroupToggle('bank', this.open)">
         <summary>
           <span class="caret" aria-hidden="true"></span>
@@ -13059,7 +13074,6 @@ async function renderRealAssets(host) {
       </div>
       ${maturedFdTotal ? `<div class="muted matured-note">
         ${money(maturedFdTotal)} matured · awaiting payment, included in the totals above.</div>` : ""}
-      ${showFdsOnly ? "" : sortBar}${filterBar}
       ${showFdsOnly
         ? `<div class="card" style="margin-top:8px">${activeFdGroups.length
             ? activeFdGroups.map(fdGroupCard).join("")
@@ -13318,7 +13332,11 @@ function dematHero(a, holdings) {
   const held = valued.reduce((t, h) => t + (Number(h.value_paise) || 0), 0);
   const fallback = assetValue(a).paise;
   const value = valued.length ? held : (fallback === null ? null : fallback);
-  const accountOnly = !valued.length && value !== null;
+  // Cost is the best available figure for a report that priced nothing, and
+  // the chip says so. "Value on the account" covers the rest: a manual total
+  // or an imported figure that no holding row itemises.
+  const atCost = rows.length > 0 && assetAtCost(a);
+  const accountOnly = !valued.length && value !== null && !atCost;
   const cost = rows.reduce((t, h) => t + (Number(h.cost_paise) || 0), 0);
   const asOf = metaOf(a).holdings_as_of || "";
   return `<div class="hero" style="margin-bottom:14px">
@@ -13327,7 +13345,8 @@ function dematHero(a, holdings) {
     <div class="chips">
       <span>Invested ${cost ? money(cost) : "—"}</span>
       <span>${rows.length} holding${rows.length === 1 ? "" : "s"}</span>
-      ${accountOnly ? `<span>value on the account</span>` : ""}
+      ${atCost ? `<span>held at cost</span>`
+        : accountOnly ? `<span>value on the account</span>` : ""}
       ${asOf ? `<span>as on ${dateLabel(asOf)}</span>` : ""}
     </div></div>`;
 }
@@ -13638,13 +13657,19 @@ function holdingsCard(allRows, assetId, account) {
 // bonds, shares, fund units. Grouping here keeps the page and the paper telling
 // the same story, and each group carries its own subtotal. holdingClass() is the
 // same rule the class pages and the SQL totals use, imported from assets.js.
-function holdingCardHtml(row, kind = "", assetId = "") {
+function holdingCardHtml(row, kind = "", assetId = "", atCostDefault = false) {
   const mf = kind === "mf";
   const qty = row.quantity === null || row.quantity === undefined ? null : Number(row.quantity);
   const cost = row.cost_paise === null || row.cost_paise === undefined ? null : Number(row.cost_paise);
-  const value = row.value_paise === null || row.value_paise === undefined ? null : Number(row.value_paise);
-  const gain = value !== null && cost !== null ? value - cost : null;
-  const unit = qty !== null && qty > 0 && value !== null ? value / qty : null;
+  // A cost-only lot is shown at what was paid and labelled as such. It has no
+  // market value, so no price per unit and no gain follow from it.
+  const atCost = !!row.atCost || (atCostDefault
+    && (row.value_paise === null || row.value_paise === undefined)
+    && cost !== null);
+  const value = atCost ? holdingValue(row, true)
+    : (row.value_paise === null || row.value_paise === undefined ? null : Number(row.value_paise));
+  const gain = atCost ? null : (value !== null && cost !== null ? value - cost : null);
+  const unit = !atCost && qty !== null && qty > 0 && value !== null ? value / qty : null;
   const name = mf ? cleanFundLabel(row.label) : (row.label || "");
   const accountValue = !!row.accountValue;
   const moneyOrDash = (x) => x === null ? "—" : money(x);
@@ -13691,23 +13716,25 @@ function holdingCardHtml(row, kind = "", assetId = "") {
           : kind === "equity" ? `—<div class="sub">not in the holdings file</div>`
             : (mf ? "—<div class=\"sub\">not in the CAS</div>" : "—")))}
       ${cell("Invested", moneyOrDash(cost))}
-      ${cell("Current value", moneyOrDash(value))}
+      ${cell(atCost ? "At cost" : "Current value", moneyOrDash(value))}
       ${cell("Gain", gainText, gain === null || gain === 0 ? "" : gain < 0 ? "neg" : "pos")}
     </div>
-    <div class="bond-market">${value === null
-      ? "Value not recorded. Import a statement to price this holding."
-      : `Value ${money(value)}<span class="sep">·</span>${gain === null
-        ? "gain not known" : `gain ${gain < 0 ? "−" : gain > 0 ? "+" : ""}${money(Math.abs(gain || 0))}`}`}</div>`}
+    <div class="bond-market">${atCost
+      ? "No market value in the statement. Carried at cost."
+      : value === null
+        ? "Value not recorded. Import a statement to price this holding."
+        : `Value ${money(value)}<span class="sep">·</span>${gain === null
+          ? "gain not known" : `gain ${gain < 0 ? "−" : gain > 0 ? "+" : ""}${money(Math.abs(gain || 0))}`}`}</div>`}
   </div>`;
 }
-function holdingCards(rows, kind = "", { header = true, assetId = "" } = {}) {
-  const cards = rows.map((r) => holdingCardHtml(r, kind, assetId)).join("");
+function holdingCards(rows, kind = "", { header = true, assetId = "", atCost = false } = {}) {
+  const cards = rows.map((r) => holdingCardHtml(r, kind, assetId, atCost)).join("");
   if (!header) return `<div class="holding-cards">${cards}</div>`;
-  const value = rows.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
+  const value = rows.reduce((t, r) => t + holdingValue(r, atCost), 0);
   const invested = rows.reduce((t, r) => t + (Number(r.cost_paise) || 0), 0);
   const bits = [`${rows.length} holding${rows.length === 1 ? "" : "s"}`,
     invested ? `invested ${money(invested)}` : "",
-    value ? `market value ${money(value)}` : ""].filter(Boolean).join(" · ");
+    value ? `${atCost ? "value" : "market value"} ${money(value)}` : ""].filter(Boolean).join(" · ");
   const addLabel = kind === "mf" ? "Add mutual fund" : kind === "equity" ? "Add equity" : "";
   const addButton = addLabel && assetId
     ? `<button class="btn" onclick="bpManualHoldingNew(${jsArg(assetId)},${jsArg(kind)})">${
@@ -13719,6 +13746,28 @@ function holdingCards(rows, kind = "", { header = true, assetId = "" } = {}) {
         <span class="muted holding-bits">${bits}</span>${addButton}</div></div>
     <div class="holding-cards">${cards}</div></div>`;
 }
+// Which class tab a demat page opens on. A class tab filters live holding
+// rows, so a remembered class with none has nothing to land on and falls back
+// to All. The remembered value stays in place: it can come from a class-page
+// link or the back stack, and the same account may gain that class again.
+function classFocusFor(a, rows, requested) {
+  const kinds = ["bond", "equity", "mf"];
+  if (!kinds.includes(requested)) return "all";
+  const live = (rows || []).filter((row) => !row.disposed_at);
+  if (live.some((row) => holdingClass(row) === requested)) return requested;
+  // A folio is one class. Its account value is the fund's value even before the
+  // first row exists, and its page has no class tabs to disagree with.
+  if (isFundAccount(a) && requested === "mf") {
+    return Number(assetClassParts(a).mf) > 0 ? "mf" : "all";
+  }
+  return "all";
+}
+// The rupee value a class tab may show for an account value with no holding
+// row. Only a fund folio can claim one: a plain demat's fallback value is not
+// class evidence, so it must not put a figure beside a tab that counts zero.
+function classValueBucket(a, kind) {
+  return isFundAccount(a) && kind === "mf" ? Math.round(assetClassParts(a).mf || 0) : 0;
+}
 function holdingsBlock(rows, assetId) {
   const { live: list, sold } = splitHoldings(rows || []);
   const soldHtml = soldHoldingsHtml(sold, assetId, { esc, money, dateLabel, jsArg });
@@ -13726,6 +13775,9 @@ function holdingsBlock(rows, assetId) {
   const cat = categoryOf(asset);
   const isDemat = cat === "demat";
   const isFolio = isFundAccount(asset);
+  // A demat with no priced row is valued at cost, so its fund and share cards
+  // show cost and say so instead of sitting blank under a cost-valued account.
+  const atCost = assetAtCost(asset);
   const add = isFolio
     ? `<button class="btn primary" onclick="bpManualHoldingNew(${jsArg(assetId)},${jsArg("mf")})">
         Add mutual fund</button>`
@@ -13759,8 +13811,9 @@ function holdingsBlock(rows, assetId) {
   for (const row of list) groups[holdingClass(row)].push(row);
   const filled = Object.entries(groups).filter(([, groupRows]) => groupRows.length);
   const labels = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
-  const focus = ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
+  const requested = ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
     ? window.bpState.assetClass : "all";
+  const focus = classFocusFor(asset, list, requested);
   let visible = focus === "all" ? filled : filled.filter(([kind]) => kind === focus);
   if (!visible.length) visible = filled;
   // A demat holds several classes. Opening the account from the Bonds section
@@ -13770,7 +13823,12 @@ function holdingsBlock(rows, assetId) {
   const tabKinds = isDemat && !isFolio ? ["bond", "equity", "mf"]
     : filled.map(([kind]) => kind);
   const showTabs = (isDemat && !isFolio) || filled.length > 1;
-  const tabs = showTabs ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px">
+  // A class-page link can name a class this account does not hold. Say why the
+  // page opens on All instead of leaving the person to guess.
+  const note = showTabs && requested !== "all" && focus === "all"
+    ? `<div class="muted class-tab-note">No ${labels[requested].toLowerCase()} in this
+      account, so all holdings are shown.</div>` : "";
+  const tabs = showTabs ? `${note}<div class="class-tabs">
     <button class="btn ${focus === "all" ? "primary" : ""}" onclick="bpAssetClass('all')">All
       <span class="muted">${list.length}</span></button>
     ${tabKinds.map((kind) => {
@@ -13788,15 +13846,15 @@ function holdingsBlock(rows, assetId) {
     const shown = visible[0]?.[1] || list;
     return `${tabs}${kind === "bond"
       ? `<div id="bond-holdings">${holdingsCard(shown, assetId, asset)}</div>`
-      : holdingCards(shown, kind, { assetId })}${soldHtml}`;
+      : holdingCards(shown, kind, { assetId, atCost })}${soldHtml}`;
   }
-  const total = (list) => list.reduce((t, r) => t + (Number(r.value_paise) || 0), 0);
+  const total = (list) => list.reduce((t, r) => t + holdingValue(r, atCost), 0);
   const html = visible.map(([kind, list]) => `<div style="display:flex;
       justify-content:space-between;align-items:baseline;margin:16px 0 8px">
       <h2 style="margin:0;font-size:15px">${labels[kind]}</h2>
       <span class="muted" style="font-size:12px">${money(total(list))}</span></div>
     ${kind === "bond" ? `<div id="bond-holdings">${holdingsCard(list, assetId, asset)}</div>`
-      : holdingCards(list, kind, { header: false, assetId })}`).join("");
+      : holdingCards(list, kind, { header: false, assetId, atCost })}`).join("");
   return `${tabs}${html}${soldHtml}`;
 }
 window.bpBondSort = (key) => {
@@ -14251,8 +14309,19 @@ function valuationCard(a) {
 }
 function classFocusCard(a, holdings, kind) {
   const title = kind === "bond" ? "Bonds" : kind === "equity" ? "Equities" : "Mutual funds";
-  const rows = (holdings || []).filter((h) => holdingClass(h) === kind
-    && Number(h.value_paise) > 0)
+  // A sold row is history and the tab does not count it, so the ring must not
+  // value it either. The card uses the same measure as the class total: market
+  // value when the demat has any priced row, cost when it has none. An unpriced
+  // lot therefore still belongs in its class instead of disappearing behind
+  // its cost.
+  const classRows = splitHoldings(holdings || []).live
+    .filter((h) => holdingClass(h) === kind);
+  const atCost = assetAtCost(a);
+  const rows = classRows.map((h) => ({
+    ...h,
+    atCost: atCost && (h.value_paise === null || h.value_paise === undefined),
+    value_paise: holdingValue(h, atCost),
+  })).filter((h) => Number(h.value_paise) > 0)
     .sort((x, y) => Number(y.value_paise) - Number(x.value_paise));
   const addLabel = kind === "mf" ? "Add mutual fund" : kind === "equity" ? "Add equity" : "";
   const add = a?.id && addLabel
@@ -14261,7 +14330,10 @@ function classFocusCard(a, holdings, kind) {
   if (!rows.length) {
     // A folio created by an import can carry a value on the account before any
     // fund row exists. Show that value instead of "no funds" and offer the row.
-    const accountPart = Math.round(assetClassParts(a)[kind] || 0);
+    // A plain demat's fallback value is not class evidence, so it gets no bucket:
+    // the tabs count holding rows, and a rupee figure must not sit beside a tab
+    // that says zero.
+    const accountPart = classValueBucket(a, kind);
     if (accountPart > 0) {
       return `<div class="card pad class-ring-card">
         <div class="class-ring-body">
@@ -14272,6 +14344,9 @@ function classFocusCard(a, holdings, kind) {
           <div class="holding-head-actions">${add}</div>
         </div></div>`;
     }
+    // Unpriced holdings are listed below this card. Saying "No bonds" above
+    // seventeen bond cards would be false.
+    if (classRows.length) return "";
     return `<div class="card pad class-ring-card"><div class="class-ring-body">
       <h2 class="class-ring-title">${title} in this demat</h2>
       <div class="muted class-ring-note">No ${title.toLowerCase()} in this account.</div>
@@ -14297,7 +14372,8 @@ function classFocusCard(a, holdings, kind) {
         <div class="k">${rows.length} holding${rows.length === 1 ? "" : "s"}</div></div></div>
     <div class="class-ring-body"><h2 class="class-ring-title">${title} in this demat</h2>
       <div class="donut-legend">${legend}</div>
-      <div class="muted class-ring-note">Percentages are of this account's ${title.toLowerCase()}.</div>
+      <div class="muted class-ring-note">${rows.some((h) => h.atCost)
+        ? "Unpriced holdings are carried at cost. " : ""}Percentages are of this account's ${title.toLowerCase()}.</div>
       <div class="holding-head-actions">${add}</div>
     </div></div>`;
 }
@@ -14320,9 +14396,9 @@ function assetForm(a, factCount, defaultCat, holdings) {
   const hideIdentity = !!a && ["demat", "bonds"].includes(cat);
   const leanHide = hideIdentity ? 'style="display:none"' : "";
   const hasHoldings = (holdings || []).length > 0;
-  const focusClass = a && cat === "demat"
-    && ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
-    ? window.bpState.assetClass : "";
+  const focusKind = a && cat === "demat"
+    ? classFocusFor(a, holdings, window.bpState?.assetClass) : "all";
+  const focusClass = focusKind === "all" ? "" : focusKind;
   const show = (cats) => cats.split(" ").includes(cat) ? "" : 'style="display:none"';
   const moneyIn = (v) => (v === null || v === undefined || v === "") ? "" : inr(v);
   const id = a ? a.id : "";
