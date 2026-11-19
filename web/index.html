@@ -2983,7 +2983,8 @@ function fieldSourcesHtml(broker) {
 }
 function dematBrokerCoverage(id) {
   return id === "motilal" ? "Bonds · Equities · Funds"
-    : id === "zerodha" ? "Equities" : "Bonds";
+    : id === "zerodha" ? "Equities"
+      : id === "icici" ? "Bonds · Equities" : "Bonds";
 }
 function dematBrokerPickerHtml(chosen, onclick) {
   const seen = new Set();
@@ -2999,6 +3000,11 @@ function dematBrokerPickerHtml(chosen, onclick) {
 function zerodhaImportGuideHtml(b) {
   return `<div class="eq-guide">
     <b class="eq-guide-title">Zerodha holdings XLSX</b>
+    <ol class="eq-guide-steps">
+      <li>Open Console → Portfolio → Holdings.</li>
+      <li>Pick a single snapshot date, not a range.</li>
+      <li>Click XLSX next to Download.</li>
+    </ol>
     <div class="eq-guide-note">Format: XLSX, not CSV, and not the Tradebook.</div>
     <div class="eq-guide-actions">
       <label class="btn primary">Choose Holdings XLSX
@@ -3014,6 +3020,11 @@ function zerodhaImportGuideHtml(b) {
 function motilalImportGuideHtml(b) {
   return `<div class="eq-guide">
     <b class="eq-guide-title">Motilal Oswal Portfolio Holding Summary PDF</b>
+    <ol class="eq-guide-steps">
+      <li>Open Motilal Oswal → Reports.</li>
+      <li>Download the Portfolio Holding Summary PDF, Since Inception or the snapshot date.</li>
+      <li>Type the password Motilal sent when asked. It is used once and not saved.</li>
+    </ol>
     <div class="eq-guide-note">Format: PDF, not XLSX or CSV. Password protected.</div>
     <div class="eq-guide-actions">
       <label class="btn primary">Choose Portfolio Holding Summary
@@ -3037,11 +3048,34 @@ function digifinnImportReportsHtml(b) {
           accept="${esc(r.accept || ".csv")}" style="display:none"
           onchange="bpImportBroker('${esc(r.slot)}','${esc(b.id)}',this.files[0]);this.value=''"></label>
       </div>`).join("");
-  return `<div class="muted import-step-note">Format: CSV. Not used: Transaction,
+  return `<div class="eq-guide">
+    <ol class="eq-guide-steps">
+      <li>Open DigiFInn → Reports &amp; Documents.</li>
+      <li>Download the Portfolio Report CSV.</li>
+      <li>Optional: the Payouts CSV for frequency and part redemptions.</li>
+    </ol>
+    <div class="muted import-step-note">Format: CSV. Not used: Transaction,
       Investment, KYC, MITC.</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">${rows}</div>
     <div id="import-broker-preview" style="margin-top:10px"></div>
-    ${fieldSourcesHtml(b)}`;
+    ${fieldSourcesHtml(b)}</div>`;
+}
+function iciciImportGuideHtml(b) {
+  return `<div class="eq-guide">
+    <b class="eq-guide-title">ICICI Direct demat holdings CSV</b>
+    <ol class="eq-guide-steps">
+      <li>Open Portfolio → Demat Holdings.</li>
+      <li>Click the download icon, then Excel or CSV.</li>
+    </ol>
+    <div class="eq-guide-note">Format: CSV from Demat Holdings. Not the tradebook.</div>
+    <div class="eq-guide-actions">
+      <label class="btn primary">Choose holdings CSV
+        <input type="file" accept=".csv" style="display:none"
+          onchange="bpImportInboxAdd([...this.files]);this.value=''"></label>
+      <a class="btn" href="${esc(b.page.url)}" target="_blank"
+        rel="noopener">Open Demat Holdings ↗</a>
+    </div>
+  </div>`;
 }
 function brokerImportBodyHtml() {
   const chosen = window.bpImportBrokerChoice || "";
@@ -3057,7 +3091,8 @@ function brokerImportBodyHtml() {
       : chosen === "motilal" ? `${motilalImportGuideHtml(equity || bond)}
         ${fieldSourcesHtml(bond)}`
         : chosen === "digifinn" ? digifinnImportReportsHtml(bond)
-          : `<div class="muted import-empty">Choose a broker to see
+          : chosen === "icici" ? iciciImportGuideHtml(equity)
+            : `<div class="muted import-empty">Choose a broker to see
             the files it needs.</div>`}
   </div>`;
 }

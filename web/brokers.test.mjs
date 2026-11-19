@@ -49,8 +49,9 @@ test("Motilal's holding summary is a PDF with no payouts report", () => {
 });
 
 test("equity brokers start with Motilal Oswal and Zerodha", () => {
-  assert.deepEqual(EQUITY_BROKERS.map((b) => b.id), ["motilal", "zerodha"]);
+  assert.deepEqual(EQUITY_BROKERS.map((b) => b.id), ["motilal", "zerodha", "icici"]);
   assert.equal(equityBroker("zerodha").label, "Zerodha");
+  assert.equal(equityBroker("icici").label, "ICICI Direct");
   assert.equal(equityBroker("motilal").page.url.length > 0, true);
   assert.equal(equityBroker("not-a-broker"), null);
 });

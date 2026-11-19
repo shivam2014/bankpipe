@@ -78,6 +78,8 @@ export const EQUITY_BROKERS = [
   { id: "zerodha", label: "Zerodha",
     page: { url: "https://console.zerodha.com/portfolio/holdings",
       where: "Portfolio → Holdings" } },
+  { id: "icici", label: "ICICI Direct",
+    page: { url: "https://www.icicidirect.com/", where: "Portfolio → Demat Holdings" } },
 ];
 
 export function equityBroker(id) {

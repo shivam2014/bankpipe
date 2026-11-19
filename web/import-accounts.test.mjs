@@ -1016,11 +1016,15 @@ test("the guide ships open and carries no queue state", () => {
   assert.doesNotMatch(html, /helpManual|bpImportHelpSync|bpImportStagedCount|importGuideOpen/);
 });
 
-test("the advanced picker keeps the format, not a second copy of the steps", () => {
+test("the picker carries its broker's steps and format, once", () => {
   const zerodha = between("function zerodhaImportGuideHtml", "function motilalImportGuideHtml");
   assert.match(zerodha, /Format: XLSX, not CSV/);
-  assert.doesNotMatch(zerodha, /snapshot date/);
+  assert.match(zerodha, /Portfolio → Holdings/);
   const motilal = between("function motilalImportGuideHtml", "function digifinnImportReportsHtml");
   assert.match(motilal, /Format: PDF, not XLSX or CSV/);
-  assert.doesNotMatch(motilal, /Since Inception/);
+  assert.match(motilal, /Since Inception/);
+  const icici = between("function iciciImportGuideHtml", "function brokerImportBodyHtml");
+  assert.match(icici, /Demat Holdings/);
+  assert.match(icici, /Format: CSV/);
+  assert.match(icici, /bpImportInboxAdd/);
 });
