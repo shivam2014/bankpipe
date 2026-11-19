@@ -1466,6 +1466,7 @@ import { boId } from "./bo-id.js";
 import { duplicateFundPositions, folioAdoptionPlan, folioKey, folioOwnership,
   folioTail, isFolioAccount, normalizeFolio } from "./folio.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
+import { parseCsv } from "./digifinn.js";
 import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, mergeRowsFromPlan, planImportChains, movementGate, statementAccounts,
   movementAccountGap, importWarningDigest,
@@ -7074,18 +7075,22 @@ function bpImportBundleLabel(bundle) {
     ? `${bundle.base.parsed.depository} CAS` : "Depository statement (CAS)")
     : bundle.family === "motilal" ? "Motilal Oswal holdings report"
       : bundle.family === "zerodha" ? (bundle.base ? "Zerodha holdings" : "Zerodha tradebook")
-        : bundle.family === "digifinn" ? "DigiFInn bundle" : "Holdings report";
+        : bundle.family === "icici" ? "ICICI Direct holdings"
+          : bundle.family === "digifinn" ? "DigiFInn bundle" : "Holdings report";
 }
 
 function bpImportBrokerName(family) {
   return family === "motilal" ? "Motilal Oswal"
-    : family === "zerodha" ? "Zerodha" : family === "digifinn" ? "DigiFInn" : "";
+    : family === "zerodha" ? "Zerodha"
+      : family === "icici" ? "ICICI Direct"
+        : family === "digifinn" ? "DigiFInn" : "";
 }
 
 function bpImportBrokerOnlyLabel(bundle) {
   const key = String(bundle.accountKey || "");
   if (bundle.family === "motilal") return `Demat · Motilal Oswal${key ? ` · ${key}` : ""}`;
   if (bundle.family === "zerodha") return "Demat · Zerodha";
+  if (bundle.family === "icici") return "Demat · ICICI Direct";
   if (bundle.family === "digifinn") return `Demat · DigiFInn${key ? ` · …${key.slice(-4)}` : ""}`;
   return `Demat · ${bpImportBrokerName(bundle.family) || "Broker"}`;
 }
@@ -7685,7 +7690,8 @@ function bpImportBrokerChain(bundles) {
 function bpImportBrokerShort(family) {
   return family === "motilal" ? "Motilal"
     : family === "zerodha" ? "Zerodha"
-      : family === "digifinn" ? "DigiFInn" : "broker";
+      : family === "icici" ? "ICICI Direct"
+        : family === "digifinn" ? "DigiFInn" : "broker";
 }
 
 function bpImportPlanChanges(plan) {
@@ -7919,6 +7925,7 @@ async function bpImportInboxPrepare(force = false) {
     const ready = state.entries.filter((entry) => entry.status === "ready" && entry.kind !== "bank");
     state.bundles = groupBundles(ready.map((entry) => ({
       kind: entry.kind, name: entry.name, asOf: entry.asOf,
+      asOfSource: entry.asOfSource,
       accountKey: entry.accountKey, accountKind: entry.accountKind,
       rows: entry.rows, trades: entry.parsed?.rows || [],
       firstBuyByIsin: entry.firstBuyByIsin,
@@ -7991,12 +7998,15 @@ function bpImportMatchHtml(bundle) {
       <div class="import-account-choice on">
         <span class="import-choice-main">
           <span class="import-choice-name">Create broker-only account</span>
-          <span class="import-choice-meta">${esc(bundle.createLabel)} · no CAS to check against</span>
+          <span class="import-choice-meta">${esc(bundle.createLabel)} · ${bundle.family === "icici"
+            ? "no demat on file holds these ISINs" : "no CAS to check against"}</span>
         </span>
         <span class="import-choice-hits">New</span>
       </div></div>` : "";
   const noMatch = !matches.length && !bundle.targetId
-    ? `<div class="import-empty-state">No account matches this file.</div>`
+    ? `<div class="import-empty-state">${bundle.family === "icici"
+      ? "No demat on file holds these ISINs. Importing creates a new ICICI Direct demat."
+      : "No account matches this file."}</div>`
     : "";
   return `<div class="import-section">
     <div class="import-section-title">Account</div>
@@ -8448,8 +8458,13 @@ function bpImportPlanHtml(plan) {
   // chosen account stays behind More, where it can still be changed.
   const showWhere = plan.needsChoice || !bundle.targetId;
   const countText = bpImportCategoryText(bundle.rows);
+  // ICICI prints no snapshot date, so the date is the day the file was
+  // downloaded. Say that rather than "as on", which would claim the file said it.
+  const dayCopy = bundle.base?.asOfSource === "download"
+    ? `dated as the download day, ${dateLabel(bundle.asOf)}`
+    : `as on ${dateLabel(bundle.asOf)}`;
   const sub = [countText, bundle.asOf
-    ? `as on ${dateLabel(bundle.asOf)}`
+    ? dayCopy
     : bundle.base ? "No date on the file" : "No holdings report"]
     .filter(Boolean).join(" · ");
   const askItems = askPending ? bpImportPlanAskItems(plan) : [];
@@ -8857,6 +8872,21 @@ async function bpImportInboxReadOne(entry) {
         entry.broker = "zerodha";
         entry.firstBuyByIsin = parsed.firstBuyByIsin;
         entry.firstBuyBySymbol = parsed.firstBuyBySymbol;
+      } else if (detected.kind === "icici-holdings") {
+        const { parseIciciHoldings } = await import("./icici.js");
+        const parsed = parseIciciHoldings(parseCsv(body), { file: entry.name });
+        if (parsed.error) throw new Error(parsed.error);
+        entry.parsed = parsed;
+        entry.kind = detected.kind;
+        entry.broker = "icici";
+        entry.asOf = parsed.asOf;
+        entry.asOfSource = parsed.asOfSource;
+        entry.rows = parsed.rows.map((row) => ({
+          isin: row.isin, label: row.label || row.symbol || row.isin,
+          category: row.category, quantity: row.quantity,
+          valuePaise: row.valuePaise, costPaise: null,
+          purchaseDate: "", sourceRow: row.sourceRow,
+        }));
       } else if (detected.kind === "bank") {
         entry.kind = "bank";
         entry.status = "bank";
@@ -8884,6 +8914,9 @@ async function bpImportInboxReadOne(entry) {
         entry.firstBuyByIsin = parsed.firstBuyByIsin;
         entry.firstBuyBySymbol = parsed.firstBuyBySymbol;
       } else {
+        if (detected.kind === "icici-holdings") {
+          throw new Error("ICICI Direct exports holdings as CSV. Choose the CSV file.");
+        }
         if (detected.kind !== "zerodha-holdings") {
           throw new Error("This spreadsheet is not a Zerodha holdings export. Nothing was read.");
         }
@@ -9211,7 +9244,8 @@ async function bpImportCreateBrokerAccount(bundle) {
     identity_as_of: bundle.asOf || "",
     depository: bundle.family === "digifinn" ? "CDSL" : "",
     dp: bundle.family === "motilal" ? "Motilal Oswal"
-      : bundle.family === "zerodha" ? "Zerodha" : "DigiFInn",
+      : bundle.family === "zerodha" ? "Zerodha"
+        : bundle.family === "icici" ? "ICICI Direct" : "DigiFInn",
   };
   if (bundle.family === "motilal" && bundle.accountKey) meta.ucid = bundle.accountKey;
   if (bundle.family === "zerodha" && bundle.accountKey) meta.client_id = bundle.accountKey;
