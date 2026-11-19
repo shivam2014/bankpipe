@@ -56,6 +56,27 @@ export const ZERODHA_HOLDINGS_MATRIX = [
   ["TESTFUND", "INF000000001", "Test", 10, 20, 21, 10],
 ];
 
+// ICICI Direct's holdings export. The header is the live shape; the rows are
+// synthetic. The ISINs carry security types 01 (equity), 07, 08 and 09 (debt).
+export const ICICI_HOLDINGS_MATRIX = [
+  ["Stock Name", "Stock", "ISIN", "Allocated Quantity", "Blocked for Trade",
+    "Block For Margin", "Current Market Price", "% Change", "Market Value",
+    "Mandate Quantity"],
+  ["TEST EQUITY ONE", "TEONE", "INE000001010", 3, 0, 0, 101.25, 1.25, 303.75, 0],
+  ["9.00% TEST BOND 2030", "TESTBOND1", "INE000007020", 10, 0, 0, 1001, 0, 10010, 0],
+  ["8.50% TEST BOND 2031", "", "INE000008030", 5, 0, 0, 1000, 0, 5000, 0],
+  ["7.25% TEST BOND 2032", "TESTBOND3", "INE000009040", 2, 0, 0, 1000, 0, 2000, 0],
+];
+
+export const ICICI_HOLDINGS_TEXT = [
+  "Stock Name,Stock,ISIN,Allocated Quantity,Blocked for Trade,Block For Margin,"
+    + "Current Market Price,% Change,Market Value,Mandate Quantity",
+  "TEST EQUITY ONE,TEONE,INE000001010,3,0,0,101.25,1.25,303.75,0",
+  "9.00% TEST BOND 2030,TESTBOND1,INE000007020,10,0,0,1001,0,10010,0",
+  "8.50% TEST BOND 2031,,INE000008030,5,0,0,1000,0,5000,0",
+  "7.25% TEST BOND 2032,TESTBOND3,INE000009040,2,0,0,1000,0,2000,0",
+].join("\n");
+
 // Kite Console's three-sheet export. Equity and Mutual Funds carry the same
 // preamble and differ by one column (Sector versus Instrument Type). Combined
 // repeats both with an extra leading column, so reading it as well would count
@@ -151,6 +172,8 @@ export const DETECTION_CASES = [
   { name: "holdings.xlsx", text: null, matrix: ZERODHA_HOLDINGS_MATRIX,
     kind: "zerodha-holdings", family: "zerodha", confidence: "content",
     asOf: "", parse: "holdings" },
+  { name: "ICICI_Holdings.csv", text: ICICI_HOLDINGS_TEXT, kind: "icici-holdings",
+    family: "icici", confidence: "content", asOf: "", parse: "icici" },
   { name: "holdings.csv", text: DIGIFINN_HOLDINGS, kind: "digifinn-portfolio",
     family: "digifinn", confidence: "content", asOf: "2026-10-26", parse: null },
   { name: "investment.csv", text: DIGIFINN_INVESTMENT, kind: "digifinn-investment",

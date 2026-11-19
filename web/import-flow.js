@@ -13,6 +13,7 @@ import { bondInputsMissing, bondMaturity, isDisposed, termSourceRank } from "./b
 import { findHeaderRow, headerMessage, readDate, readNumber, cellText,
   refusalResult, tableWhere } from "./table-schema.js";
 import { looksLikeZerodhaHoldings } from "./zerodha.js";
+import { looksLikeIciciHoldings, ICICI_DETECTION_SCHEMA } from "./icici.js";
 import { PAYOUTS_DETECTION_SCHEMA } from "./digifinn.js";
 import { PORTFOLIO_DETECTION_SCHEMA, INVESTMENT_SCHEMA,
   TRANSACTIONS_DETECTION_SCHEMA } from "./digifinn-reports.js";
@@ -44,6 +45,8 @@ export const IMPORT_KINDS = {
     broker: "zerodha", where: "Zerodha Console → Portfolio → Holdings → XLSX" },
   "zerodha-tradebook": { label: "Zerodha tradebook", family: "zerodha", base: false,
     broker: "zerodha", where: "Zerodha Console → Reports → Tradebook" },
+  "icici-holdings": { label: "ICICI Direct holdings", family: "icici", base: true,
+    broker: "icici", where: "ICICI Direct → Portfolio → Holdings → Download" },
   "digifinn-portfolio": { label: "DigiFInn holdings report", family: "digifinn", base: true,
     broker: "digifinn", where: "DigiFInn → Reports & Documents → Holdings Report" },
   "digifinn-investment": { label: "DigiFInn investment report", family: "digifinn", base: false,
@@ -60,8 +63,8 @@ export const IMPORT_KINDS = {
 };
 
 const KIND_RANK = {
-  cas: 0, motilal: 0, "zerodha-holdings": 0, "digifinn-portfolio": 0,
-  "digifinn-investment": 1, "zerodha-tradebook": 2,
+  cas: 0, motilal: 0, "zerodha-holdings": 0, "icici-holdings": 0,
+  "digifinn-portfolio": 0, "digifinn-investment": 1, "zerodha-tradebook": 2,
   "digifinn-transactions": 3, "digifinn-payouts": 4, "digifinn-cashflow": 5,
 };
 
@@ -91,6 +94,10 @@ function dateInText(value) {
 // the two names that make a table a holdings table matter.
 function matrixLooksLikeHoldings(matrix) {
   return looksLikeZerodhaHoldings(matrix);
+}
+
+function matrixLooksLikeIciciHoldings(matrix) {
+  return looksLikeIciciHoldings(matrix);
 }
 
 // A tradebook workbook uses the same first columns as a holdings export. Its
@@ -128,6 +135,10 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
     kind, family: IMPORT_KINDS[kind]?.family || "", broker: IMPORT_KINDS[kind]?.broker || "",
     label: IMPORT_KINDS[kind]?.label || "", confidence, asOf,
   });
+  // ICICI's three unique column names settle it before any family that reads a
+  // wider quantity alias. The check runs on the matrix and on the CSV text, and
+  // before the file-name fallback that used to call any "holdings.csv" DigiFInn.
+  if (matrixLooksLikeIciciHoldings(matrix)) return info("icici-holdings", "content");
   // A tradebook carries a date, a trade type and a price beside the ISIN; a
   // holdings sheet has none of those names. Reading the more specific shape
   // first keeps a tradebook from being taken for a holdings export.
@@ -138,6 +149,10 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
   const date = dateInText(bodyText);
   const bodyRows = parseCsv(bodyText);
   const headerIn = (schema) => findHeaderRow(bodyRows, schema).index >= 0;
+
+  // Content wins over every family and over the name below. A file with these
+  // headers is ICICI even when it is called "holdings.csv".
+  if (headerIn(ICICI_DETECTION_SCHEMA)) return info("icici-holdings", "content");
 
   // Cashflow exports also carry an ISIN table that looks like a holdings
   // report. The cashflow wording is the only reliable first signal.
@@ -188,6 +203,11 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
   const lower = String(name || "").toLowerCase();
   if (/consolidated|\bcas\b|e-?cas|nsdl|cdsl|_txn\b|aa\d{8}/.test(lower)) {
     return info("cas", "name");
+  }
+  // An ICICI name is a hint only, and it lands on the ICICI reader so a bad
+  // header is refused as an ICICI column instead of as another broker's report.
+  if (/icici/.test(lower) && /(holding|demat|portfolio)/.test(lower)) {
+    return info("icici-holdings", "name");
   }
   if (/tradebook|contract/.test(lower)) return info("zerodha-tradebook", "name");
   if (/holdings?[-_ ]report/.test(lower)) return info("digifinn-portfolio", "name");
@@ -546,7 +566,7 @@ export function groupBundles(files = []) {
     }
     out.push(bundle);
   }
-  const familyRank = { cas: 0, motilal: 1, zerodha: 2, digifinn: 3 };
+  const familyRank = { cas: 0, motilal: 1, zerodha: 2, icici: 3, digifinn: 4 };
   return out.sort((a, b) => (familyRank[a.family] ?? 9) - (familyRank[b.family] ?? 9)
     || String(a.accountKey || a.key).localeCompare(String(b.accountKey || b.key)));
 }
@@ -961,6 +981,7 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
 const BROKER_TOKEN = {
   zerodha: /zerodha/i,
   motilal: /motilal/i,
+  icici: /icici/i,
   digifinn: /digifinn/i,
 };
 

@@ -7,7 +7,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseZerodhaHoldings } from "./zerodha.js";
+import { parseIciciHoldings } from "./icici.js";
 import { detectImportFile } from "./import-flow.js";
+import { ICICI_HOLDINGS_MATRIX } from "./fixtures/import/samples.mjs";
 import { parseTradebook, parseTradebookMatrix } from "./import-flow.js";
 import { parsePortfolioReport, parseInvestmentReport,
   parseTransactionReport } from "./digifinn-reports.js";
@@ -92,6 +94,38 @@ test("a Kite workbook whose quantity column says Qty is still a holdings export"
   assert.equal(parsed.error, null);
   assert.equal(parsed.rows[0].quantity, 70);
   assert.equal(parsed.rows[0].averagePrice, 191.24);
+});
+
+// --- ICICI Direct holdings --------------------------------------------------
+
+const ICICI = ICICI_HOLDINGS_MATRIX;
+
+test("icici holdings: reordered, renamed, extra column and CSV agree", () => {
+  const base = parseIciciHoldings(ICICI, { asOf: "2026-11-19" });
+  assert.equal(base.error, null);
+  const order = [9, 8, 2, 3, 4, 5, 6, 7, 0, 1];
+  const variants = {
+    reordered: parseIciciHoldings(permute(ICICI, order), { asOf: "2026-11-19" }),
+    renamed: parseIciciHoldings(rename(rename(ICICI,
+      "Current Market Price", "LTP"), "Block For Margin", "Blocked for Margin"),
+    { asOf: "2026-11-19" }),
+    extra: parseIciciHoldings(extra(ICICI, "Notes", "ignored"), { asOf: "2026-11-19" }),
+    csv: parseIciciHoldings(rowsFromCsv(csv(ICICI)), { asOf: "2026-11-19" }),
+  };
+  for (const [name, parsed] of Object.entries(variants)) {
+    assert.equal(parsed.error, null, name);
+    assert.deepEqual(parsed.rows, base.rows, `${name} reads the same holdings`);
+    assert.equal(parsed.asOf, "2026-11-19", name);
+  }
+});
+
+test("icici holdings: a renamed required column refuses by file, column and row", () => {
+  const broken = parseIciciHoldings(rename(ICICI, "Allocated Quantity", "Quantity Held"),
+    { file: "ICICI_Holdings.csv" });
+  assert.equal(broken.rows.length, 0);
+  assert.match(broken.error, /ICICI_Holdings\.csv → Holdings/);
+  assert.match(broken.error, /"Allocated Quantity"/);
+  assert.match(broken.error, /row 1/);
 });
 
 // --- Zerodha tradebook ------------------------------------------------------
