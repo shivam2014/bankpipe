@@ -997,13 +997,14 @@ test("the Import intro is the three file types, not a reassurance paragraph", ()
 test("What can I add is the download steps and the format, not the rationale", () => {
   const guide = between('<details class="import-help" id="import-help" open>',
     '<div id="import-inbox-status"');
-  assert.match(guide, /<b>Zerodha holdings XLSX<\/b>/);
-  assert.match(guide, /single date, not a range/);
-  assert.match(guide, /Format: XLSX, not CSV, and not the\s+Tradebook/);
-  assert.match(guide, /Format: PDF, not XLSX or CSV/);
+  assert.match(guide, /<b>Depository statement \(CAS\) PDF<\/b>/);
   assert.match(guide, /Format: PDF\. Password: your PAN/);
-  assert.match(guide, /Format: CSV\. Not used: Transaction/);
+  assert.match(guide, /<b>Bank statement CSV, XLSX or PDF<\/b>/);
   assert.match(guide, /not a\s+scan/);
+  // One broker surface, not a wall of every broker's steps above a second copy.
+  assert.match(guide, /\$\{brokerImportBodyHtml\(\)\}/);
+  assert.equal((html.match(/\$\{brokerImportBodyHtml\(\)\}/g) || []).length, 1,
+    "the broker picker renders in one place");
   assert.doesNotMatch(guide, /A broker report can start an account on its own/);
   assert.doesNotMatch(guide, /It fills invested for matching ISINs/);
   assert.doesNotMatch(guide, /market price and market value are ignored/);

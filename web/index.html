@@ -3099,38 +3099,7 @@ function renderImport() {
           </ol>
           <div class="muted import-help-format">Format: PDF. Password: your PAN.</div>
         </div>
-        <div class="import-help-row"><b>Zerodha holdings XLSX</b>
-          <ol>
-            <li>Open Console → Portfolio → Holdings.</li>
-            <li>Pick the snapshot date. This is a single date, not a range. Use today, or your
-              CAS statement date if you are reconciling.</li>
-            <li>Click XLSX next to Download.</li>
-            <li>Drop the file above.</li>
-          </ol>
-          <div class="muted import-help-format">Format: XLSX, not CSV, and not the
-            Tradebook.</div>
-        </div>
-        <div class="import-help-row"><b>Motilal Oswal Portfolio Holding Summary PDF</b>
-          <ol>
-            <li>Open Motilal Oswal → Reports.</li>
-            <li>Download the Portfolio Holding Summary PDF. Use “Since Inception” or the
-              snapshot date; the report date is read from the file.</li>
-            <li>Drop the PDF above.</li>
-            <li>Type the password Motilal sent when asked. It is used once and not saved.</li>
-          </ol>
-          <div class="muted import-help-format">Format: PDF, not XLSX or CSV.</div>
-        </div>
-        <div class="import-help-row"><b>DigiFInn Portfolio Report CSV</b>
-          <ol>
-            <li>Open DigiFInn → Reports &amp; Documents.</li>
-            <li>Download the Portfolio Report CSV.</li>
-            <li>Optional: download the Payouts report CSV for frequency, next interest and
-              part redemptions.</li>
-            <li>Drop the CSV above.</li>
-          </ol>
-          <div class="muted import-help-format">Format: CSV. Not used: Transaction,
-            Investment, KYC, MITC.</div>
-        </div>
+        ${brokerImportBodyHtml()}
         <div class="import-help-row"><b>Bank statement CSV, XLSX or PDF</b>
           <ol>
             <li>Open net banking → Accounts → Statement.</li>
@@ -3182,11 +3151,6 @@ function renderImport() {
         <input type="file" accept=".pdf" multiple id="bond-cas-input" style="display:none"
           onchange="bpCasFiles(this.files);this.value=''"></label>
       <div id="bond-cas-host"></div>
-      <div class="import-old-card">
-        <div class="import-card-head"><h2>Broker holdings reports</h2>
-          <span class="import-card-sub">adds cost, dates and terms</span></div>
-        ${brokerImportBodyHtml()}
-      </div>
       <div class="muted import-note">Updating? Choose the newer file; a newer snapshot wins and
       an older one only fills empty fields.</div>
     </div>
