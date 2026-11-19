@@ -78,6 +78,31 @@ export function holdingClass(row) {
   return "equity";
 }
 
+// What a holding row contributes to its class. A demat with holdings but no
+// priced row at all is valued at cost by assetMetrics(), so its rows use cost
+// too. Once any row is priced, only market values count, the same measure the
+// account total uses. The class sums in db.js apply this rule in SQL.
+export function holdingValue(row, atCost = false) {
+  const value = row?.value_paise;
+  if (value !== null && value !== undefined && value !== "") return Number(value) || 0;
+  if (!atCost) return 0;
+  const cost = row?.cost_paise;
+  if (cost === null || cost === undefined || cost === "") return 0;
+  return Number(cost) || 0;
+}
+
+// The demat branch in assetMetrics() values a report that priced nothing at
+// cost, unless the account also carries a manual current value. The class split
+// and the class cards follow that same choice. A report with any price, or a
+// manual figure, is not at cost.
+export function assetAtCost(asset) {
+  const priced = asset?.holdings_value;
+  if (priced !== null && priced !== undefined) return false;
+  const current = assetMeta(asset).current_value_paise;
+  if (current !== null && current !== undefined && current !== "") return false;
+  return asset?.holdings_cost !== null && asset?.holdings_cost !== undefined;
+}
+
 export function categoryOf(asset) {
   const direct = String(asset?.category || "").toLowerCase();
   if (CATEGORIES.some((c) => c.id === direct)) return direct;
@@ -109,7 +134,8 @@ export function assetValue(asset) {
   // A class row is one part of a demat account, not the whole account.
   if (asset?.classPart) {
     const part = Number(asset[`class_${asset.classPart}_value`]) || 0;
-    return { paise: part || null, source: "from the depository" };
+    return { paise: part || null,
+      source: asset.classAtCost ? "cost from the report" : "from the depository" };
   }
   const cat = categoryOf(asset);
   const m = assetMetrics(asset, cat);
@@ -178,7 +204,8 @@ export function assetSections(assets) {
       ].filter(([, value]) => value > 0);
       if (parts.length) {
         for (const [part, value] of parts) {
-          add(part, CLASS_LABELS[part], { ...asset, classPart: part }, value);
+          add(part, CLASS_LABELS[part], { ...asset, classPart: part,
+            classAtCost: assetAtCost(asset) }, value);
         }
         continue;
       }
@@ -295,11 +322,22 @@ export function classPage(accounts, holdingsByAccount, kind) {
     if (cat !== "demat" && cat !== "bonds") continue;
     if (isFundAccount(asset) && kind !== "mf") continue;
     const part = Math.round(assetClassParts(asset)[kind] || 0);
+    // A demat with no priced row is valued at cost, so its rows carry cost too.
+    // The page total and the rows then use one measure and no invented gap row
+    // appears beside seventeen real ones.
+    const atCost = assetAtCost(asset);
     const holdings = (holdingsByAccount?.[asset.id] || [])
       .filter((h) => holdingClass(h) === kind);
-    const held = holdings.reduce((t, h) => t + (Number(h.value_paise) || 0), 0);
     if (!holdings.length && !part) continue;
-    const rows = holdings.map((h) => ({ ...h }));
+    const rows = holdings.map((h) => {
+      const row = { ...h };
+      if (atCost && (row.value_paise === null || row.value_paise === undefined)) {
+        row.value_paise = holdingValue(row, true);
+        row.atCost = true;
+      }
+      return row;
+    });
+    const held = rows.reduce((t, h) => t + holdingValue(h, atCost), 0);
     const gap = part - held;
     if (gap !== 0) {
       const accountName = String(asset.label || asset.bank || asset.id || "Account");
