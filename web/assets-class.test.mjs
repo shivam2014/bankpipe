@@ -53,7 +53,7 @@ test("a demat's bond class total keeps the matured lot and the live one", () => 
 
 test("the slices add up to the value the account already shows", () => {
   const assets = [
-    demat({ class_equity_value: 30000, class_mf_value: 10000,
+    demat({ class_equity_value: 45000, class_mf_value: 15000,
       holdings_value: 60000, holdings_cost: 60000 }),
   ];
   const groups = allocationByClass(assets);
@@ -163,7 +163,7 @@ test("a folio is a fund account, not a bond demat", () => {
   assert.equal(isFundAccount({ category: "bank", subtype: "mutual fund" }), false);
 });
 
-test("cost is the measure only when a demat has no price and no manual value", () => {
+test("cost is a row's fallback whether or not the account has a price", () => {
   assert.equal(assetAtCost({ holdings_value: null, holdings_cost: 100 }), true);
   assert.equal(assetAtCost({ holdings_value: 0, holdings_cost: 100 }), false,
     "a zero market value is still a recorded value");
@@ -172,10 +172,16 @@ test("cost is the measure only when a demat has no price and no manual value", (
     "a manual current value is the account's figure, not cost");
   assert.equal(assetAtCost({ holdings_value: null, holdings_cost: null }), false,
     "nothing was paid, so there is no cost to carry");
-  assert.equal(holdingValue({ value_paise: null, cost_paise: 100 }, true), 100);
-  assert.equal(holdingValue({ value_paise: null, cost_paise: 100 }, false), 0);
-  assert.equal(holdingValue({ value_paise: 120, cost_paise: 100 }, true), 120,
-    "a priced row keeps its market value even when the account is at cost");
+  assert.equal(assetAtCost({ holdings_live_value: 100, holdings_live_cost: 100,
+    holdings_valued_count: 0, meta: JSON.stringify({ current_value_paise: 90 }) }), true,
+    "a live row at cost wins over a stale manual value");
+  assert.equal(assetAtCost({ holdings_live_value: 120, holdings_live_cost: 100,
+    holdings_valued_count: 1 }), false, "one priced row ends the at-cost label");
+  assert.equal(holdingValue({ value_paise: null, cost_paise: 100 }), 100);
+  assert.equal(holdingValue({ value_paise: 120, cost_paise: 100 }), 120,
+    "a priced row keeps its market value");
+  assert.equal(holdingValue({ value_paise: 0, cost_paise: 100 }), 0,
+    "a zero price is a recorded price");
 });
 
 test("the funds class page adds a folio value that has no holding row", () => {
