@@ -13,6 +13,10 @@ const gold = {
   value_paise: 2500000,
 };
 const noValue = { id: "other-1", label: "Test other", category: "other" };
+const costRecord = {
+  id: "cost-1", label: "Test cost record", category: "bonds", subtype: "bond",
+  meta: JSON.stringify({ cost_only: "1", linked_label: "Demat · Test · …0001" }),
+};
 const meta = (value) => JSON.stringify(value);
 
 function fakeStore(accounts, { holdings = {}, totals = {}, failOn = "" } = {}) {
@@ -65,6 +69,25 @@ test("a stale id is ignored, and one account ticked twice counts once", () => {
   assert.equal(twice.length, 1);
   assert.equal(selectionSummary([bank, { ...bank }],
     new Set(["bank-1"])).count, 1);
+});
+
+test("a cost record is never ticked, counted or deleted", async () => {
+  assert.deepEqual(selectedAssets([bank, costRecord], ["cost-1"]), []);
+  const summary = selectionSummary([bank, costRecord],
+    new Set(["bank-1", "cost-1"]));
+  assert.deepEqual(summary.ids, ["bank-1"]);
+  assert.equal(summary.count, 1);
+  assert.equal(summary.valuePaise, 5000000);
+
+  const facts = await bulkDeleteFacts(fakeStore([bank, costRecord]), ["cost-1"]);
+  assert.deepEqual(facts.accounts, []);
+  assert.equal(facts.holdings, 0);
+
+  const store = fakeStore([bank, costRecord]);
+  const result = await bulkDeleteAssets({ store, ids: ["cost-1"] });
+  assert.deepEqual(result.deleted, []);
+  assert.deepEqual(store.calls.snapshots, []);
+  assert.deepEqual(store.calls.deletes, []);
 });
 
 test("a demat split across class rows is still one asset at its full value", () => {

@@ -424,6 +424,15 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
  font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--amber)}
 .bond-matured-divider span:last-child{white-space:nowrap;margin-left:auto}
 .matured-note{font-size:12px;margin:6px 0}
+/* A cost record is a task, not an asset: one line of prose and one action per
+   record. No card, no amount column and no tick, so it cannot read as a row. */
+.cost-task{margin-top:22px;border-top:1px solid var(--line);padding-top:12px}
+.cost-task-line{font-size:13.5px;line-height:1.5}
+.cost-task-item{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;margin-top:8px;min-width:0}
+.cost-task-name{font-size:12px;color:var(--muted);min-width:0;overflow-wrap:anywhere}
+.cost-task-none{font-size:12px}
+.cost-task .btn{white-space:normal;text-align:left;overflow-wrap:anywhere}
+@media (pointer:coarse){.cost-task .btn{min-height:44px}}
 .fd-maturity-tag{font-size:11px}
 .fd-note{font-size:12px}
 .cas-sales{margin-top:10px;border-top:1px solid var(--hair);padding-top:8px}
@@ -1468,6 +1477,8 @@ import { balanceRunsFromSheet } from "./balance-formula.js";
 import { choosePdfBlock, duplicateFile, accountLabel } from "./batch.js";
 import { buildReport, sheetReport, diagnosticsFileName, shape } from "./diagnostics.js";
 import { CATEGORIES, categoryOf, categoryLabel, typesFor, assetValue, totalAssets, groupAssets, assetSections, allocationGroups, allocationByClass, assetClassParts, classPage, holdingClass, isFundAccount, isImportAccount, importFillPlan } from "./assets.js";
+import { isCostRecord, liveDemats, unattachedCostRecords, costRecordTasks,
+  costRecordSentence, attachActionLabel, NO_DEMAT_SENTENCE } from "./cost-records.js";
 import { buildFdGroups, fdMatured, fdGroupsTotal,
   orderAccountsByFdTotal } from "./fd-view.js";
 import { assetMetrics } from "./finance.js";
@@ -11399,15 +11410,30 @@ window.bpImportBrokerRun = async (slot, file, id, brokerId = "digifinn") => {
     await window.bpCashflowFile(file, { fromImport: true, id, broker: brokerId });
   }
 };
-window.bpConsolidate = async ({ ask = false } = {}) => {
+window.bpConsolidate = async ({ ask = false, sourceId = "", targetId = "" } = {}) => {
   try {
     const store = await import("./db.js");
     const { planConsolidation, applyCost, planFreshLots, absorbableSources } =
       await import("./attach.js");
     const assets = await store.listAccounts();
-    const demats = assets.filter((a) => categoryOf(a) === "demat" && !isFundAccount(a));
-    const sources = assets.filter((a) => categoryOf(a) === "bonds");
-    const retired = sources.filter((a) => String(a.meta || "").includes("cost_only"));
+    // A scoped run is one named cost record and one named account. That is
+    // what the Assets task note presses: attaching a record must not sweep in
+    // every other portfolio, and the account is the one the note named rather
+    // than one guessed again from the rows.
+    const scoped = !!sourceId;
+    const demats = scoped
+      ? assets.filter((a) => a.id === targetId && categoryOf(a) === "demat"
+        && !isFundAccount(a))
+      : assets.filter((a) => categoryOf(a) === "demat" && !isFundAccount(a));
+    const sources = scoped
+      ? assets.filter((a) => a.id === sourceId && categoryOf(a) === "bonds"
+        && isCostRecord(a))
+      : assets.filter((a) => categoryOf(a) === "bonds");
+    if (scoped && (!sources.length || !demats.length)) {
+      return { attached: 0, portfolios: 0, orphans: 0, added: 0, absorbed: 0 };
+    }
+    const retired = scoped ? sources
+      : sources.filter((a) => String(a.meta || "").includes("cost_only"));
     const dematRows = [];
     for (const a of demats) {
       dematRows.push({ id: a.id, positions: await store.listHoldings(a.id) });
@@ -11419,6 +11445,13 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     // holds. Recomputing by overlap alone made the answer depend on the order
     // files arrived in.
     const homeOf = (lots, asset) => {
+      // A scoped attach keeps the account the note named. Re-deriving it here
+      // would let a second statement between the render and the press move the
+      // record somewhere the person did not choose.
+      if (scoped) {
+        const target = demats[0];
+        return { primary: target.id, labels: [target.label || target.id] };
+      }
       const count = new Map();
       for (const lot of lots || []) {
         const isin = String(lot.security_id || "").toUpperCase();
@@ -11531,7 +11564,10 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
     // merged into the account and removed, instead of surviving as a second
     // record that lists the same bonds. A portfolio with a live lot in no demat
     // stays visible: its cost has nowhere to land.
-    const absorb = new Set(absorbableSources({ sources: sourceRows,
+    // A scoped attach never deletes the record it attaches. The portfolio page
+    // is the only place its cost and purchase dates were typed; attaching
+    // points the record at the account, it does not consume it.
+    const absorb = scoped ? new Set() : new Set(absorbableSources({ sources: sourceRows,
       demats: dematRows, today }));
     // Its matured lots move to the demat as closed rows (zero units, zero
     // value). They are not counted, but they keep the purchase and maturity
@@ -11555,7 +11591,9 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
         }]);
       }
     }
-    if (!n && !added && !closedCount && !absorb.size) {
+    // A scoped run still has a link to write when the account holds none of
+    // the lots yet, so its result is never "nothing to do".
+    if (!scoped && !n && !added && !closedCount && !absorb.size) {
       return { attached: 0, portfolios: 0, orphans: 0, added: 0, absorbed: 0 };
     }
     const stranded = plan.retire.length - [...absorb].filter((id) =>
@@ -11584,7 +11622,11 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
       await store.replaceHoldings(demat.id, merged, today);
     }
     // A portfolio names the demat it feeds: the one holding most of its lots.
-    for (const id of plan.retire) {
+    // Every record the plan retires gets its link written, and a scoped run
+    // always includes the record the press named.
+    const retire = new Set(plan.retire);
+    if (scoped) retire.add(sourceId);
+    for (const id of retire) {
       if (absorb.has(id)) continue;
       const asset = (await store.listAccounts()).find((a) => a.id === id);
       if (!asset) continue;
@@ -11618,6 +11660,13 @@ window.bpConsolidate = async ({ ask = false } = {}) => {
   }
 };
 window.bpConsolidateBonds = async () => { await window.bpConsolidate({ ask: true }); };
+// One task note, one record, one named account. The page passes both ids so the
+// press cannot drift into a consolidation of everything.
+window.bpAttachCostRecord = async (sourceId, targetId) => {
+  const out = await window.bpConsolidate({ sourceId, targetId });
+  if (bpCurrentEntry?.view === "assets") go("assets");
+  return out;
+};
 // The manual target has no route entry, so its preview is planned when it is
 // chosen. The writer uses the same manualTarget flag, so both see the sale.
 window.bpCasManualPreview = async (hostId, assetId) => {
@@ -12798,6 +12847,21 @@ function renderAssets() {
   renderRealAssets(document.getElementById("view"));
   return `<h1>Assets${samplePill()}</h1><div class='card pad'>loading…</div>`;
 }
+// Holdings are read only when a record actually needs a task. Opening every
+// demat on every Assets visit would turn one page into N storage calls for a
+// block that is usually absent.
+async function costTasksFor(store, assets) {
+  const open = unattachedCostRecords(assets);
+  if (!open.length) return [];
+  const [dematRows, recordRows] = await Promise.all([
+    Promise.all(liveDemats(assets).map(async (demat) =>
+      [demat.id, await store.listHoldings(demat.id)])),
+    Promise.all(open.map(async (record) =>
+      [record.id, await store.listHoldings(record.id)])),
+  ]);
+  return costRecordTasks({ assets, lots: new Map(recordRows),
+    positions: new Map(dematRows) });
+}
 async function renderRealAssets(host) {
   try {
     const store = await import("./db.js");
@@ -12819,23 +12883,22 @@ async function renderRealAssets(host) {
     const bankGroup = groups.find((g) => g.id === "bank") || null;
     const fdGroup = groups.find((g) => g.id === "fd") || null;
     const otherGroups = groups.filter((g) => g.id !== "bank" && g.id !== "fd");
-    const costRecords = assets.filter((a) => {
-      try { return !!JSON.parse(a.meta || "{}").cost_only; } catch (e) { return false; }
-    });
-    const costRecordsHtml = costRecords.length ? `<details style="margin-top:16px">
-      <summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">Cost records (${costRecords.length}) — not counted</summary>
-      <div class="muted" style="font-size:12px;margin:8px 0 4px">What you paid, kept so a gain can be shown. The bonds themselves sit in the demat accounts above.</div>
-      <button class="btn" style="margin:2px 0 8px"
-        onclick="bpConsolidateBonds()">Merge into the demat</button>
-      ${costRecords.map((a) => {
-        let meta = {};
-        try { meta = JSON.parse(a.meta || "{}") || {}; } catch (e) { meta = {}; }
-        return `<div class="kv-row" role="button" tabindex="0" style="cursor:pointer"
-            onclick="bpAsset(${jsArg(a.id)})" onkeydown="if(event.key==='Enter')bpAsset(${jsArg(a.id)})">
-          <div class="k">${esc(a.label || a.id)}</div>
-          <div class="v" style="font-size:12px">${esc(meta.linked_label || "linked to a demat")}</div></div>`;
-      }).join("")}
-    </details>` : "";
+    // A cost record is a task only while it has no live demat. Every record
+    // that is attached is silent here; the account page already owns its cost.
+    // Selection mode has no task block and no ticks for a cost record, so it
+    // does not pay for the holdings read either.
+    const costTasks = selecting ? [] : await costTasksFor(store, assets);
+    const costRecordsHtml = costTasks.length ? `<section class="cost-task"
+      aria-label="Cost records without an account">
+      <div class="cost-task-line">${esc(costRecordSentence(costTasks.length))}</div>
+      ${costTasks.map((task) => `<div class="cost-task-item">
+        <span class="cost-task-name">${esc(task.record.label || task.record.id)}</span>
+        ${task.target
+          ? `<button class="btn" onclick="bpAttachCostRecord(${jsArg(task.record.id)},${jsArg(task.target.id)})">${esc(attachActionLabel(task.target))}</button>`
+          : `<span class="cost-task-none">${esc(NO_DEMAT_SENTENCE)}</span>
+            <button class="btn" onclick="go('import')">Import a CAS</button>`}
+      </div>`).join("")}
+    </section>` : "";
     const fdLinks = await linkFds(store, bankGroups(assets));
     const lockerMap = selecting ? new Map() : new Map(await Promise.all(
       (bankGroup?.rows || []).map(async (acc) =>
@@ -13111,7 +13174,7 @@ async function renderRealAssets(host) {
       ${showFdsOnly ? "" : assetGroupsHtml(otherGroups, (a) =>
         (["bank", "cash"].includes(categoryOf(a)) && a.facts > 0)
           ? `bpAccount(${jsArg(a.id)})` : assetOpen(a))}
-      ${costRecordsHtml}`;
+      ${showFdsOnly ? "" : costRecordsHtml}`;
   } catch (e) {
     if (/locked/i.test(String(e.message || e))) {
       host.innerHTML = lockedCard("Assets");

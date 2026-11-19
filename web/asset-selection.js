@@ -11,13 +11,15 @@ function metaOf(asset) {
 
 // A ticked id is only a request. An asset that vanished between the render and
 // the press is dropped, and a demat that appears in more than one class row is
-// still one asset.
+// still one asset. A cost record is never selectable: it holds no value of its
+// own, so a stale or forged id must not reach the count, the total or a delete.
 export function selectedAssets(assets, selected) {
   const wanted = new Set(selected || []);
   const seen = new Set();
   const out = [];
   for (const asset of assets || []) {
     if (!asset || !wanted.has(asset.id) || seen.has(asset.id)) continue;
+    if (metaOf(asset).cost_only) continue;
     seen.add(asset.id);
     out.push(asset);
   }
