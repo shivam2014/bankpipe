@@ -10,7 +10,10 @@
 
 const MODE_KEY = "bankpipe.mode";
 const WELCOME_KEY = "bankpipe.welcome.seen";
+const DEFER_KEY = "bankpipe.storage.deferred";
 const PROBE = "/token";
+const DB_NAME = "bankpipe";
+const DB_BLOB_KEY = "bankpipe.db.v1";
 
 export const MODE = { DRIVE: "drive", LOCAL: "local" };
 
@@ -21,6 +24,7 @@ export function currentMode(storage = localStorage) {
 
 export function setMode(mode, storage = localStorage) {
   storage.setItem(MODE_KEY, mode);
+  storage.removeItem?.(DEFER_KEY);
 }
 
 export function welcomeSeen(storage = localStorage) {
@@ -29,6 +33,57 @@ export function welcomeSeen(storage = localStorage) {
 
 export function markWelcomeSeen(storage = localStorage) {
   storage.setItem(WELCOME_KEY, "1");
+}
+
+export function storageDeferred(storage = localStorage) {
+  return storage.getItem(DEFER_KEY) === "1";
+}
+
+export function deferStorageChoice(storage = localStorage) {
+  storage.setItem(DEFER_KEY, "1");
+}
+
+// The presence of a database answers the storage question: the data is already
+// on this device, so the only remaining way to leave it is Drive, which the
+// backup page offers. Opening a missing database would create one, so a new
+// database is aborted before it commits and this reports false.
+export function databaseOnDevice(factory = typeof indexedDB === "undefined" ? null : indexedDB) {
+  if (!factory) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let request;
+    try { request = factory.open(DB_NAME); } catch { resolve(false); return; }
+    let created = false;
+    let settled = false;
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    request.onupgradeneeded = () => {
+      created = true;
+      try { request.transaction.abort(); } catch { settle(false); }
+    };
+    request.onsuccess = () => {
+      const database = request.result;
+      if (created || !database.objectStoreNames.contains("blobs")) {
+        database.close();
+        settle(false);
+        return;
+      }
+      try {
+        // count(key) answers presence without loading the database into memory.
+        const read = database.transaction("blobs", "readonly")
+          .objectStore("blobs").count(DB_BLOB_KEY);
+        read.onsuccess = () => { database.close(); settle(read.result > 0); };
+        read.onerror = () => { database.close(); settle(false); };
+      } catch {
+        database.close();
+        settle(false);
+      }
+    };
+    request.onerror = () => settle(false);
+    request.onblocked = () => settle(false);
+  });
 }
 
 export async function isConnected(fetchImpl = fetch) {
@@ -40,11 +95,23 @@ export async function isConnected(fetchImpl = fetch) {
   }
 }
 
-export async function decide({ storage = localStorage, fetchImpl = fetch, params = new URLSearchParams(location.search) } = {}) {
-  // ?reset=1 forgets the answers, so the whole first run plays again.
+export async function decide({
+  storage = localStorage,
+  fetchImpl = fetch,
+  params = new URLSearchParams(location.search),
+  dbPresent = databaseOnDevice,
+} = {}) {
+  const hasDatabase = async () => {
+    try { return Boolean(await dbPresent()); } catch { return false; }
+  };
+  // ?reset=1 forgets the answers, so the whole first run plays again. A device
+  // that still holds a database is not a first run, and the unlock screen must
+  // not sit behind an onboarding overlay.
   if (params.get("reset") === "1") {
     storage.removeItem?.(MODE_KEY);
     storage.removeItem?.(WELCOME_KEY);
+    storage.removeItem?.(DEFER_KEY);
+    if (await hasDatabase()) return { show: false, mode: MODE.LOCAL, reason: "database" };
     return { show: true, mode: null, reason: "first-run" };
   }
   // ?demo=1 opens the sample portfolio with no questions and no storage choice.
@@ -62,7 +129,16 @@ export async function decide({ storage = localStorage, fetchImpl = fetch, params
     const ok = await isConnected(fetchImpl);
     return ok ? { show: false, mode } : { show: true, mode, reason: "reconnect" };
   }
+  if (await hasDatabase()) return { show: false, mode: MODE.LOCAL, reason: "database" };
+  if (storageDeferred(storage)) return { show: false, mode: MODE.LOCAL, reason: "deferred" };
   return { show: true, mode: null, reason: "first-run" };
+}
+
+// Which onboarding screen boot mounts. A database or a deferred answer leaves
+// this null, so the app's own unlock screen is never covered.
+export function screenFor(state, storage = localStorage) {
+  if (!state.show) return null;
+  return welcomeSeen(storage) ? "choose" : "welcome";
 }
 
 const CSS = `
@@ -290,7 +366,14 @@ export async function boot(options = {}) {
 
   const showChoose = (reason, note = "") => {
     onPick = (action) => {
-      if (action === "close") { close(); return; }
+      if (action === "close") {
+        // The storage question is answered by the safe default until something
+        // changes; asking again on every load is nagging. A lapsed Drive
+        // connection is different: that prompt reports a change and stays.
+        if (reason !== "reconnect") deferStorageChoice(storage);
+        close();
+        return;
+      }
       if (action === "drive") {
         setMode(MODE.DRIVE, storage);
         location.assign("/oauth/start");
@@ -338,10 +421,9 @@ export async function boot(options = {}) {
 
   helpButton(() => showWelcome(true));
 
-  if (!state.show) return state;
-
-  if (welcomeSeen(storage)) showChoose(state.reason);
-  else showWelcome(false);
+  const screen = screenFor(state, storage);
+  if (screen === "choose") showChoose(state.reason);
+  else if (screen === "welcome") showWelcome(false);
   return state;
 }
 
