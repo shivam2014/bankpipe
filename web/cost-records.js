@@ -5,7 +5,7 @@
 //
 // Pure: the page passes the accounts and their rows; nothing here reads storage.
 
-import { bondHomeOf, isLiveBondRow } from "./bonds.js";
+import { bondHomeOf } from "./bonds.js";
 import { categoryOf, isFundAccount } from "./assets.js";
 import { boId } from "./bo-id.js";
 
@@ -44,6 +44,36 @@ function rowsOf(source, id) {
   return source?.[id] || [];
 }
 
+const isinOf = (row) => String(row?.security_id || "").trim().toUpperCase();
+const hasUnits = (row) => row?.quantity === null || row?.quantity === undefined
+  || Number(row.quantity) > 0;
+
+// A disposed row or a closed position is history. `bondHomeOf` checks units on
+// positions but not disposal, so the page filters first.
+const liveRows = (rows) => (rows || []).filter((row) =>
+  !row?.disposed_at && hasUnits(row));
+
+function liveIsins(rows) {
+  const out = new Set();
+  for (const row of liveRows(rows)) {
+    const isin = isinOf(row);
+    if (isin) out.add(isin);
+  }
+  return out;
+}
+
+// Distinct ISINs a demat holds from the record. A printed demat number is only
+// a hint: an account that holds none of the bonds is not the account the
+// record can sit in.
+function heldCount(dematId, isins, positionsOf) {
+  const seen = new Set();
+  for (const row of positionsOf.get(dematId) || []) {
+    const isin = isinOf(row);
+    if (isins.has(isin)) seen.add(isin);
+  }
+  return seen.size;
+}
+
 /**
  * One task per unattached cost record, in the order the page lists them.
  * `target` is the live demat the record's bonds sit in, found the way the rest
@@ -62,15 +92,27 @@ export function costRecordTasks({ assets = [], lots = new Map(),
     .map((record) => ({ record, target: null }));
   const positionsOf = new Map();
   for (const demat of demats) {
-    // The account page finds a home over live bond rows only. A disposed row
-    // is history and must not pull a cost record back onto the account.
+    // A disposed row is history and must not pull a cost record back onto the
+    // account.
     const rows = (positions instanceof Map
       ? positions.get(demat.id) : positions?.[demat.id]) || [];
-    positionsOf.set(demat.id, rows.filter(isLiveBondRow));
+    positionsOf.set(demat.id, liveRows(rows));
   }
   return unattachedCostRecords(assets).map((record) => {
-    const home = bondHomeOf(rowsOf(lots, record.id), record, demats, positionsOf);
-    return { record, target: demats.find((demat) => demat.id === home) || null };
+    const rows = rowsOf(lots, record.id);
+    const isins = liveIsins(rows);
+    const home = bondHomeOf(rows, record, demats, positionsOf);
+    let target = demats.find((demat) => demat.id === home) || null;
+    // A printed demat number can name an account that holds none of the
+    // record's bonds. That is the no-account case, not an attach.
+    if (target && heldCount(target.id, isins, positionsOf) === 0) target = null;
+    if (!target) {
+      target = demats
+        .map((demat) => ({ demat, hits: heldCount(demat.id, isins, positionsOf) }))
+        .filter((row) => row.hits > 0)
+        .sort((a, b) => b.hits - a.hits)[0]?.demat || null;
+    }
+    return { record, target };
   });
 }
 

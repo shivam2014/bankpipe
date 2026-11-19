@@ -24,6 +24,13 @@ const DEMAT_LABEL = "Demat · TEST COST HOLDER · …3456";
 const ISIN = "INE999900121";
 const MISSING = "INE999900999";
 const COST = 12345678;
+const SPLIT_DEMAT_ID = "split-two";
+const SPLIT_DEMAT_LABEL = "Demat · TEST SPLIT TWO · …4321";
+const SPLIT_ISIN = "INE999900122";
+const SPLIT_COST = 23456789;
+const NAMED_DEMAT_ID = "only-one";
+const NAMED_DEMAT_LABEL = "Demat · TEST ONLY ONE · …7777";
+const NAMED_ISIN = "INE999900123";
 
 function pageScript({ scene }) {
   return `(async () => {
@@ -88,6 +95,90 @@ function pageScript({ scene }) {
     purchase_date: "2025-05-15",
   }], "2026-10-31");
 
+  if (${JSON.stringify(scene)} === "split") {
+    await store.createAccount({
+      id: ${JSON.stringify(SPLIT_DEMAT_ID)},
+      label: ${JSON.stringify(SPLIT_DEMAT_LABEL)},
+      bank: "Test Securities",
+      number: "IN99990000654321",
+      holder: "TEST SPLIT TWO",
+      type: "equity",
+      category: "demat",
+      subtype: "equity",
+      meta: JSON.stringify({ holdings_as_of: "2026-10-31" }),
+    });
+    await store.replaceHoldings(${JSON.stringify(SPLIT_DEMAT_ID)}, [{
+      security_id: ${JSON.stringify(SPLIT_ISIN)},
+      label: "9.20% TEST SPLIT BOND 15 May 2031",
+      category: "bond",
+      quantity: 10,
+      cost_paise: null,
+      value_paise: 2000000,
+      purchase_date: "2025-05-15",
+      as_of: "2026-10-31",
+    }], "2026-10-31");
+    await store.createAccount({
+      id: "cost-split",
+      label: "TEST SPLIT COST PORTFOLIO",
+      category: "bonds",
+      subtype: "bond",
+      meta: JSON.stringify({ cost_only: "1" }),
+    });
+    await store.replaceHoldings("cost-split", [{
+      security_id: ${JSON.stringify(ISIN)},
+      label: "9.10% TEST COST BOND 15 May 2031",
+      category: "bond",
+      quantity: 10,
+      cost_paise: ${COST},
+      purchase_date: "2025-05-15",
+    }, {
+      security_id: ${JSON.stringify(SPLIT_ISIN)},
+      label: "9.20% TEST SPLIT BOND 15 May 2031",
+      category: "bond",
+      quantity: 10,
+      cost_paise: ${SPLIT_COST},
+      purchase_date: "2025-05-15",
+    }], "2026-10-31");
+  }
+  if (${JSON.stringify(scene)} === "named-empty") {
+    await store.createAccount({
+      id: ${JSON.stringify(NAMED_DEMAT_ID)},
+      label: ${JSON.stringify(NAMED_DEMAT_LABEL)},
+      bank: "Test Securities",
+      number: "IN99990000777777",
+      holder: "TEST ONLY ONE",
+      type: "equity",
+      category: "demat",
+      subtype: "equity",
+      meta: JSON.stringify({ holdings_as_of: "2026-10-31" }),
+    });
+    await store.replaceHoldings(${JSON.stringify(NAMED_DEMAT_ID)}, [{
+      security_id: ${JSON.stringify(NAMED_ISIN)},
+      label: "9.30% TEST ONLY BOND 15 May 2031",
+      category: "bond",
+      quantity: 10,
+      cost_paise: null,
+      value_paise: 3000000,
+      purchase_date: "2025-05-15",
+      as_of: "2026-10-31",
+    }], "2026-10-31");
+    await store.createAccount({
+      id: "cost-named-empty",
+      label: "TEST NAMED EMPTY COST PORTFOLIO",
+      number: "IN99990000777777",
+      category: "bonds",
+      subtype: "bond",
+      meta: JSON.stringify({ cost_only: "1" }),
+    });
+    await store.replaceHoldings("cost-named-empty", [{
+      security_id: "INE999900124",
+      label: "9.40% TEST NAMED EMPTY BOND 15 May 2031",
+      category: "bond",
+      quantity: 10,
+      cost_paise: ${COST},
+      purchase_date: "2025-05-15",
+    }], "2026-10-31");
+  }
   if (${JSON.stringify(scene)} === "attached") {
     await store.updateAccount("cost-orphan", { meta: JSON.stringify({ cost_only: "1",
       linked_asset: ${JSON.stringify(DEMAT_ID)},
@@ -123,6 +214,16 @@ function pageScript({ scene }) {
   }
 
   const section = document.querySelector(".cost-task");
+  const allAccounts = await store.listAccounts();
+  const costCount = allAccounts.filter((account) => {
+    try { return !!JSON.parse(account.meta || "{}").cost_only; } catch (e) { return false; }
+  }).length;
+  const listed = allAccounts.length - costCount;
+  const heroWant = "Across " + listed + " asset" + (listed === 1 ? "" : "s");
+  const heroLabel = document.querySelector(".hero .lbl")?.textContent.trim() || "";
+  if (heroLabel !== heroWant) {
+    throw new Error("the hero says " + heroLabel + ", want " + heroWant);
+  }
   const state = {
     scene: ${JSON.stringify(scene)},
     width: document.documentElement.clientWidth,
@@ -149,8 +250,19 @@ function pageScript({ scene }) {
       ? Math.round(first.getBoundingClientRect().right) : 0;
   }
 
+  const itemFor = (name) => [...document.querySelectorAll(".cost-task-item")]
+    .find((item) => item.textContent.includes(name));
+
   if (${JSON.stringify(scene)} === "attached") {
     if (section) throw new Error("an all-attached page still shows a cost task");
+    go("home");
+    await sleep(900);
+    const chips = document.querySelector(".hero .chips")?.textContent || "";
+    if (!chips.includes(" of " + listed + " assets valued")) {
+      throw new Error("Home still counts a cost record: " + chips);
+    }
+    go("assets");
+    await sleep(900);
   } else if (${JSON.stringify(scene)} === "orphan") {
     if (!section) throw new Error("the orphan has no cost task");
     if (state.line !== "A cost record has no account. It holds what you paid, so the gain can be shown.") {
@@ -210,7 +322,65 @@ function pageScript({ scene }) {
     if (document.querySelector(".cost-task")) {
       throw new Error("the cost task survived the attach");
     }
+    await window.bpAttachCostRecord("cost-orphan", ${JSON.stringify(DEMAT_ID)});
+    await sleep(600);
+    const again = (await store.listHoldings(${JSON.stringify(DEMAT_ID)}))
+      .find((holding) => holding.security_id === ${JSON.stringify(ISIN)});
+    if (!again || Number(again.cost_paise) !== ${COST}) {
+      throw new Error("the second attach changed the cost: "
+        + JSON.stringify(again && again.cost_paise));
+    }
     state.afterAttach = true;
+  } else if (${JSON.stringify(scene)} === "split") {
+    const item = itemFor("TEST SPLIT COST PORTFOLIO");
+    if (!item) throw new Error("the split record has no cost task");
+    const button = item.querySelector(".btn");
+    if (!button || !button.textContent.startsWith("Attach to ")) {
+      throw new Error("the split record has no named attach");
+    }
+    button.click();
+    await sleep(1800);
+    const after = await store.listAccounts();
+    const record = after.find((account) => account.id === "cost-split");
+    if (!record) throw new Error("the split attach deleted the cost record");
+    const meta = JSON.parse(record.meta || "{}");
+    if (meta.linked_asset !== ${JSON.stringify(DEMAT_ID)}) {
+      throw new Error("the split record links to " + String(meta.linked_asset));
+    }
+    if (!String(meta.linked_label).includes("SPLIT TWO")) {
+      throw new Error("the split record says " + String(meta.linked_label));
+    }
+    const one = (await store.listHoldings(${JSON.stringify(DEMAT_ID)}))
+      .find((holding) => holding.security_id === ${JSON.stringify(ISIN)});
+    const two = (await store.listHoldings(${JSON.stringify(SPLIT_DEMAT_ID)}))
+      .find((holding) => holding.security_id === ${JSON.stringify(SPLIT_ISIN)});
+    if (Number(one?.cost_paise) !== ${COST}) {
+      throw new Error("the first demat did not take the cost: "
+        + JSON.stringify(one?.cost_paise));
+    }
+    if (Number(two?.cost_paise) !== ${SPLIT_COST}) {
+      throw new Error("the second demat did not take the cost: "
+        + JSON.stringify(two?.cost_paise));
+    }
+    if (itemFor("TEST SPLIT COST PORTFOLIO")) {
+      throw new Error("the split task survived the attach");
+    }
+    state.splitAfter = true;
+  } else if (${JSON.stringify(scene)} === "named-empty") {
+    const item = itemFor("TEST NAMED EMPTY COST PORTFOLIO");
+    if (!item) throw new Error("the named-empty record has no cost task");
+    if (!item.textContent.includes("No demat account holds its bonds.")) {
+      throw new Error("the named-empty record claimed a demat home");
+    }
+    const buttons = [...item.querySelectorAll(".btn")]
+      .map((button) => button.textContent.replace(/\\s+/g, " ").trim());
+    if (buttons.length !== 1 || buttons[0] !== "Import a CAS") {
+      throw new Error("the named-empty action is " + buttons.join(" | "));
+    }
+    if (buttons.some((text) => text.startsWith("Attach to "))) {
+      throw new Error("a named-empty record still offers an attach");
+    }
+    state.namedEmpty = true;
   } else if (${JSON.stringify(scene)} === "nohome") {
     if (!section) throw new Error("the no-home record has no cost task");
     if (!section.textContent.includes("No demat account holds its bonds.")) {
@@ -269,6 +439,10 @@ const SHOTS = [
   { scene: "nohome", width: 1280, height: 900, theme: "dark" },
   { scene: "plural", width: 390, height: 844, theme: "light" },
   { scene: "plural", width: 1280, height: 900, theme: "light" },
+  { scene: "split", width: 390, height: 844, theme: "light" },
+  { scene: "split", width: 1280, height: 900, theme: "light" },
+  { scene: "named-empty", width: 390, height: 844, theme: "light" },
+  { scene: "named-empty", width: 1280, height: 900, theme: "light" },
 ];
 
 function parseArgs(argv) {

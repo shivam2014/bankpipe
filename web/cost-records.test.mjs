@@ -96,7 +96,7 @@ test("a link to a fund folio is unattached", () => {
 
 // --- naming the target the way the rest of the app does --------------------
 
-test("a demat number names the account even with no ISIN overlap", () => {
+test("a printed demat number falls back to the account that holds the bond", () => {
   const named = record("cost-named", { number: dematTwo.number });
   const tasks = costRecordTasks({
     assets: [dematOne, dematTwo, named],
@@ -104,7 +104,31 @@ test("a demat number names the account even with no ISIN overlap", () => {
     positions: positions([["demat-one", [lot("INE999900001")]],
       ["demat-two", [lot("INE999900002")]]]),
   });
-  assert.equal(tasks[0].target.id, "demat-two");
+  assert.equal(tasks[0].target.id, "demat-one");
+});
+
+test("a printed number that holds none of the bonds is not a target", () => {
+  const named = record("cost-empty", { number: dematTwo.number });
+  const tasks = costRecordTasks({
+    assets: [dematOne, dematTwo, named],
+    lots: new Map([["cost-empty", [lot("INE999900009")]]]),
+    positions: positions([["demat-one", []],
+      ["demat-two", [lot("INE999900002")]]]),
+  });
+  assert.equal(tasks[0].target, null);
+});
+
+test("a split record keeps a target that holds one of its live lots", () => {
+  const split = record("cost-split");
+  const tasks = costRecordTasks({
+    assets: [dematOne, dematTwo, split],
+    lots: new Map([["cost-split",
+      [lot("INE999900001"), lot("INE999900002")]]]),
+    positions: positions([["demat-one", [lot("INE999900001")]],
+      ["demat-two", [lot("INE999900002")]]]),
+  });
+  assert.ok(tasks[0].target);
+  assert.ok(["demat-one", "demat-two"].includes(tasks[0].target.id));
 });
 
 test("the demat holding most of the record's ISINs is the target", () => {
