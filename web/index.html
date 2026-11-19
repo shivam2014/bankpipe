@@ -12962,7 +12962,8 @@ async function renderRealAssets(host) {
     };
     const bankOpen = groupOpenState().bank !== false;
     const bankSection = bankGroup || (showFdsOnly && fdGroups.length)
-      ? `<details class="asset-group" data-group="bank"${bankOpen ? " open" : ""}
+      ? `${showFdsOnly ? "" : sortBar}${filterBar}
+      <details class="asset-group" data-group="bank"${bankOpen ? " open" : ""}
         ontoggle="bpGroupToggle('bank', this.open)">
         <summary>
           <span class="caret" aria-hidden="true"></span>
@@ -12977,7 +12978,6 @@ async function renderRealAssets(host) {
       </div>
       ${maturedFdTotal ? `<div class="muted matured-note">
         ${money(maturedFdTotal)} matured · awaiting payment, included in the totals above.</div>` : ""}
-      ${showFdsOnly ? "" : sortBar}${filterBar}
       ${showFdsOnly
         ? `<div class="card" style="margin-top:8px">${activeFdGroups.length
             ? activeFdGroups.map(fdGroupCard).join("")
