@@ -7540,6 +7540,10 @@ function bpImportResolveCas(bundle) {
       if (chosen && isFolioAccount(chosen)) targetId = "";
     }
     const targetRow = targetId ? bpImportAccountRow(targetId) : null;
+    // A candidate beside no identity is a question, never a default. The same
+    // rule answers a tie and a near match: with an account on file holding any
+    // of this statement's rows, only the person may choose it or choose Create.
+    const needsChoice = !targetId && !createChoice && match.matches.length > 0;
     const plan = bpImportPlanFor(bundle, targetRow, planRows,
       { kind: "bo", value: account.boId });
     const holdingsOf = (id) => accounts.find((item) => item.id === id)?.holdings || [];
@@ -7560,7 +7564,7 @@ function bpImportResolveCas(bundle) {
     const linked = planLinkedSales({ dematPlan: eventPlan, dematAssetId: targetId,
       asOf: bundle.asOf || "", portfolios: linkedPortfolios });
     return { ...account, rows, match, targetId, plan, eventPlan, linked, createChoice,
-      action: targetRow ? "update" : "create" };
+      needsChoice, action: targetRow ? "update" : "create" };
   });
   bundle.casTargets = [...dematTargets, ...folioTargets];
   // The accounts this statement resolved to, for grouping. A folio is its own
@@ -7689,16 +7693,18 @@ function bpImportResolveCas(bundle) {
     bundle.plan.warnings = [...new Set([...bundle.plan.warnings, gap.reason])];
   }
   bundle.needsChoice = bundle.casTargets.some((target) =>
-    target.action === "decide"
+    target.action === "decide" || target.needsChoice
     || (target.match.tie && !target.targetId && !target.createChoice));
   bundle.create = bundle.casTargets.some((target) => !target.targetId
+    && !target.needsChoice
     && target.action !== "kept" && target.action !== "decide"
     && target.action !== "conflict");
   bundle.ready = !safety.blocked && !bundle.movementBlocked && bundle.casTargets.length > 0
     && bundle.casTargets.every((target) => target.action !== "decide" && target.plan
       && !["invalid", "future"].includes(target.plan.incomingDateState)
       && (target.plan.summary.ask === 0 || bundle.acceptAsk)
-      && (target.targetId || !target.match.tie || target.createChoice));
+      && (target.targetId || target.createChoice
+        || (!target.needsChoice && !target.match.tie)));
 }
 
 // --- one plan per resolved account -----------------------------------------
@@ -8133,7 +8139,7 @@ function bpImportCasAccountsHtml(bundle) {
       // hidden for both the exact offer and a contested folio.
       const showMatches = !target.targetId && !!target.match?.matches?.length
         && target.offer?.basis !== "folio" && target.action !== "conflict";
-      const createSelected = !target.targetId
+      const createSelected = !target.targetId && !target.needsChoice
         && (!target.match?.tie || target.createChoice);
       const offerHtml = target.offer
         ? casFolioOfferHtml(target.offer, {
@@ -8592,18 +8598,19 @@ function bpImportPlanHtml(plan) {
   const primary = askPending ? `Use the file's values · ${summary.ask}`
     : plan.noWork ? "Nothing to import yet"
       : heldFolio === "decide" ? "Choose below"
-        : plan.removals ? bpImportPrimaryLabel(plan, planned)
-          : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
-            : importPlanPrimary({
-          family: bundle.family,
-          identityOnly: !!bundle.plan?.identityOnly,
-          planned,
-          sales,
-          soldCost: net.soldCost || 0,
-          attachIdentity: !!bundle.plan?.identityChange,
-          create: bundle.create && !bundle.targetId,
-          categories,
-        });
+        : plan.needsChoice ? "Choose an account"
+          : plan.removals ? bpImportPrimaryLabel(plan, planned)
+            : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
+              : importPlanPrimary({
+                family: bundle.family,
+                identityOnly: !!bundle.plan?.identityOnly,
+                planned,
+                sales,
+                soldCost: net.soldCost || 0,
+                attachIdentity: !!bundle.plan?.identityChange,
+                create: bundle.create && !bundle.targetId,
+                categories,
+              });
   const noWork = plan.noWorkCopy || null;
   // The pill already says nothing can be imported. The line carries the reason
   // and the next action, once.
@@ -13328,15 +13335,14 @@ function positionCard(a, holdings) {
 // nothing a number has not already said.
 function dematHero(a, holdings) {
   const rows = (holdings || []).filter((h) => !h.disposed_at);
-  const valued = rows.filter((h) => h.value_paise !== null && h.value_paise !== undefined);
-  const held = valued.reduce((t, h) => t + (Number(h.value_paise) || 0), 0);
-  const fallback = assetValue(a).paise;
-  const value = valued.length ? held : (fallback === null ? null : fallback);
-  // Cost is the best available figure for a report that priced nothing, and
-  // the chip says so. "Value on the account" covers the rest: a manual total
-  // or an imported figure that no holding row itemises.
-  const atCost = rows.length > 0 && assetAtCost(a);
-  const accountOnly = !valued.length && value !== null && !atCost;
+  // The hero and the account total read the same measure. A row with a price
+  // uses it; a row without one carries its cost, so a partly priced account
+  // does not lose the rows the statement did not name.
+  const value = assetValue(a).paise;
+  const priced = rows.filter((h) => h.value_paise !== null && h.value_paise !== undefined);
+  const atCost = rows.filter((h) => (h.value_paise === null || h.value_paise === undefined)
+    && h.cost_paise !== null && h.cost_paise !== undefined).length;
+  const accountOnly = !priced.length && value !== null && !atCost;
   const cost = rows.reduce((t, h) => t + (Number(h.cost_paise) || 0), 0);
   const asOf = metaOf(a).holdings_as_of || "";
   return `<div class="hero" style="margin-bottom:14px">
@@ -13345,7 +13351,7 @@ function dematHero(a, holdings) {
     <div class="chips">
       <span>Invested ${cost ? money(cost) : "—"}</span>
       <span>${rows.length} holding${rows.length === 1 ? "" : "s"}</span>
-      ${atCost ? `<span>held at cost</span>`
+      ${atCost ? `<span>${atCost === rows.length ? "held at cost" : `${atCost} at cost`}</span>`
         : accountOnly ? `<span>value on the account</span>` : ""}
       ${asOf ? `<span>as on ${dateLabel(asOf)}</span>` : ""}
     </div></div>`;
@@ -13660,17 +13666,15 @@ function holdingsCard(allRows, assetId, account) {
 // bonds, shares, fund units. Grouping here keeps the page and the paper telling
 // the same story, and each group carries its own subtotal. holdingClass() is the
 // same rule the class pages and the SQL totals use, imported from assets.js.
-function holdingCardHtml(row, kind = "", assetId = "", atCostDefault = false) {
+function holdingCardHtml(row, kind = "", assetId = "") {
   const mf = kind === "mf";
   const qty = row.quantity === null || row.quantity === undefined ? null : Number(row.quantity);
   const cost = row.cost_paise === null || row.cost_paise === undefined ? null : Number(row.cost_paise);
   // A cost-only lot is shown at what was paid and labelled as such. It has no
   // market value, so no price per unit and no gain follow from it.
-  const atCost = !!row.atCost || (atCostDefault
-    && (row.value_paise === null || row.value_paise === undefined)
-    && cost !== null);
-  const value = atCost ? holdingValue(row, true)
-    : (row.value_paise === null || row.value_paise === undefined ? null : Number(row.value_paise));
+  const missingValue = row.value_paise === null || row.value_paise === undefined;
+  const atCost = !!row.atCost || (missingValue && cost !== null);
+  const value = missingValue ? (cost !== null ? cost : null) : Number(row.value_paise);
   const gain = atCost ? null : (value !== null && cost !== null ? value - cost : null);
   const unit = !atCost && qty !== null && qty > 0 && value !== null ? value / qty : null;
   const name = mf ? cleanFundLabel(row.label) : (row.label || "");
@@ -13730,10 +13734,12 @@ function holdingCardHtml(row, kind = "", assetId = "", atCostDefault = false) {
           ? "gain not known" : `gain ${gain < 0 ? "−" : gain > 0 ? "+" : ""}${money(Math.abs(gain || 0))}`}`}</div>`}
   </div>`;
 }
-function holdingCards(rows, kind = "", { header = true, assetId = "", atCost = false } = {}) {
-  const cards = rows.map((r) => holdingCardHtml(r, kind, assetId, atCost)).join("");
+function holdingCards(rows, kind = "", { header = true, assetId = "" } = {}) {
+  const cards = rows.map((r) => holdingCardHtml(r, kind, assetId)).join("");
   if (!header) return `<div class="holding-cards">${cards}</div>`;
-  const value = rows.reduce((t, r) => t + holdingValue(r, atCost), 0);
+  const value = rows.reduce((t, r) => t + holdingValue(r), 0);
+  const atCost = rows.some((r) => (r.value_paise === null || r.value_paise === undefined)
+    && r.cost_paise !== null && r.cost_paise !== undefined);
   const invested = rows.reduce((t, r) => t + (Number(r.cost_paise) || 0), 0);
   const bits = [`${rows.length} holding${rows.length === 1 ? "" : "s"}`,
     invested ? `invested ${money(invested)}` : "",
@@ -13778,9 +13784,8 @@ function holdingsBlock(rows, assetId) {
   const cat = categoryOf(asset);
   const isDemat = cat === "demat";
   const isFolio = isFundAccount(asset);
-  // A demat with no priced row is valued at cost, so its fund and share cards
-  // show cost and say so instead of sitting blank under a cost-valued account.
-  const atCost = assetAtCost(asset);
+  // A row with no price is shown at its cost, the same measure the account
+  // total uses. A priced row keeps its market value beside it.
   const add = isFolio
     ? `<button class="btn primary" onclick="bpManualHoldingNew(${jsArg(assetId)},${jsArg("mf")})">
         Add mutual fund</button>`
@@ -13849,15 +13854,15 @@ function holdingsBlock(rows, assetId) {
     const shown = visible[0]?.[1] || list;
     return `${tabs}${kind === "bond"
       ? `<div id="bond-holdings">${holdingsCard(shown, assetId, asset)}</div>`
-      : holdingCards(shown, kind, { assetId, atCost })}${soldHtml}`;
+      : holdingCards(shown, kind, { assetId })}${soldHtml}`;
   }
-  const total = (list) => list.reduce((t, r) => t + holdingValue(r, atCost), 0);
+  const total = (list) => list.reduce((t, r) => t + holdingValue(r), 0);
   const html = visible.map(([kind, list]) => `<div style="display:flex;
       justify-content:space-between;align-items:baseline;margin:16px 0 8px">
       <h2 style="margin:0;font-size:15px">${labels[kind]}</h2>
       <span class="muted" style="font-size:12px">${money(total(list))}</span></div>
     ${kind === "bond" ? `<div id="bond-holdings">${holdingsCard(list, assetId, asset)}</div>`
-      : holdingCards(list, kind, { header: false, assetId, atCost })}`).join("");
+      : holdingCards(list, kind, { header: false, assetId })}`).join("");
   return `${tabs}${html}${soldHtml}`;
 }
 window.bpBondSort = (key) => {
@@ -14313,18 +14318,17 @@ function valuationCard(a) {
 function classFocusCard(a, holdings, kind) {
   const title = kind === "bond" ? "Bonds" : kind === "equity" ? "Equities" : "Mutual funds";
   // A sold row is history and the tab does not count it, so the ring must not
-  // value it either. The card uses the same measure as the class total: market
-  // value when the demat has any priced row, cost when it has none. An unpriced
-  // lot therefore still belongs in its class instead of disappearing behind
-  // its cost.
+  // value it either. The card uses the same per-row measure as the class total:
+  // market value when the row has one, cost when it does not. An unpriced lot
+  // therefore still belongs in its class instead of disappearing behind its
+  // cost.
   const classRows = splitHoldings(holdings || []).live
     .filter((h) => holdingClass(h) === kind);
-  const atCost = assetAtCost(a);
-  const rows = classRows.map((h) => ({
-    ...h,
-    atCost: atCost && (h.value_paise === null || h.value_paise === undefined),
-    value_paise: holdingValue(h, atCost),
-  })).filter((h) => Number(h.value_paise) > 0)
+  const rows = classRows.map((h) => {
+    const value = holdingValue(h);
+    return { ...h, value_paise: value,
+      atCost: (h.value_paise === null || h.value_paise === undefined) && value > 0 };
+  }).filter((h) => Number(h.value_paise) > 0)
     .sort((x, y) => Number(y.value_paise) - Number(x.value_paise));
   const addLabel = kind === "mf" ? "Add mutual fund" : kind === "equity" ? "Add equity" : "";
   const add = a?.id && addLabel

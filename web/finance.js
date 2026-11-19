@@ -263,27 +263,45 @@ export function assetMetrics(asset, category, today = new Date()) {
 
   if (category === "demat") {
     const lots = n(asset?.holdings_count);
-    const buy = lots !== null && lots > 0
-      ? n(asset?.holdings_cost) : n(meta.buy_value_paise);
-    const heldValue = lots !== null && lots > 0 ? n(asset?.holdings_value) : null;
+    const hasHoldings = lots !== null && lots > 0;
+    const hasLiveValueField = asset?.holdings_live_value !== undefined;
+    const hasLiveCostField = asset?.holdings_live_cost !== undefined;
+    // Every live row is valued on its own: market value when the report gave
+    // one, cost when it did not. A partially priced account therefore keeps
+    // the unpriced rows instead of dropping them to zero.
+    const liveValue = hasHoldings && hasLiveValueField
+      ? n(asset.holdings_live_value) : null;
+    const pricedValue = hasHoldings ? n(asset?.holdings_value) : null;
+    const heldValue = liveValue !== null ? liveValue
+      : (hasLiveValueField ? null : pricedValue);
+    const liveCost = hasHoldings && hasLiveCostField
+      ? n(asset.holdings_live_cost) : null;
+    const cost = hasHoldings ? n(asset?.holdings_cost) : null;
+    const invested = hasHoldings
+      ? (hasLiveCostField ? liveCost : cost) : n(meta.buy_value_paise);
     const manualCurrent = n(meta.current_value_paise);
     let value = heldValue !== null ? heldValue
       : (manualCurrent !== null ? manualCurrent : manual);
+    const valuedCount = hasHoldings && asset?.holdings_valued_count !== undefined
+      ? n(asset.holdings_valued_count) : null;
     let note = lots ? `${lots} holdings`
       : (meta.source === "import"
         ? `last import${meta.as_of ? " " + meta.as_of : ""}`
         : (meta.as_of ? `manual ${meta.as_of}` : "manual"));
-    if (lots && heldValue === null && manualCurrent === null && buy !== null) {
-      value = buy;
+    if (lots && heldValue === null && manualCurrent === null && invested !== null) {
+      value = invested;
       note = `${lots} holdings · at cost`;
+    } else if (lots && valuedCount !== null && valuedCount < lots) {
+      note += valuedCount > 0 ? ` · ${valuedCount} priced`
+        : (invested !== null ? " · at cost" : "");
     }
-    const gain = buy !== null && value !== null ? value - buy : null;
+    const gain = invested !== null && value !== null ? value - invested : null;
     return {
       ...base,
       value,
-      invested: buy,
+      invested,
       gain,
-      gainPct: gain !== null ? pct(gain, buy) : null,
+      gainPct: gain !== null ? pct(gain, invested) : null,
       note,
     };
   }
