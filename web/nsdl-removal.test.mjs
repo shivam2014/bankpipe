@@ -102,6 +102,7 @@ function pagePlanner() {
     between("function bpImportPlanForBundles", "function bpImportPlans"),
     between("function bpImportPrimaryLabel", "function bpImportPlanHtml"),
     between("function bpImportRemovalLine", "function bpImportPlanItems"),
+    between("function bpImportReceiptLead", "window.bpImportApplyPlan"),
   ].join("\n");
   let accountRow = null;
   let accountRows = [];
@@ -111,7 +112,8 @@ function pagePlanner() {
     "bpImportInboxState",
     `${source}
      return { bpImportDematPlanRows, bpImportPlanFor, bpImportPlanForBundles,
-       bpImportPrimaryLabel, bpImportRemovalLine, bpImportRemovals };`,
+       bpImportPrimaryLabel, bpImportRemovalLine, bpImportRemovals,
+       bpImportReceiptLead };`,
   )(statementAccounts, planImportChains, importNoWorkCopy, accountFieldState,
     planMerge, duplicateFundPositions, (paise) => String(paise),
     (id) => (accountRow && accountRow.account.id === id ? accountRow : null),
@@ -189,6 +191,22 @@ test("a missing printed total never offers the removal", () => {
   assert.equal(composed.noWork, true, "the card stays closed");
   assert.equal(data.page.bpImportPrimaryLabel(composed, 0), "",
     "no removal primary is offered");
+});
+
+test("the receipt names the removal instead of claiming nothing was added", () => {
+  const data = fixture();
+  const harness = pagePlanner();
+  harness.setRows(data.targetRow, data.accountRows);
+  data.page = harness.page;
+  const lead = data.page.bpImportReceiptLead;
+
+  assert.deepEqual(lead({ live: 0, removed: 3 }), ["3 demat holdings removed"]);
+  assert.deepEqual(lead({ live: 0, removed: 0, extraText: "" }), ["Nothing added"]);
+  assert.deepEqual(lead({ live: 2, removed: 3 }), ["2 holdings imported", "3 demat holdings removed"]);
+  assert.deepEqual(lead({ live: 1, extraText: ", 1 sale recorded" }),
+    ["1 holding imported, 1 sale recorded"]);
+  assert.deepEqual(lead({ identityOnly: true }), ["Identity attached"]);
+  assert.equal(lead({ live: 0, removed: 3 }).includes("Nothing added"), false);
 });
 
 test("the writer drops the three named rows and writes fifteen", () => {

@@ -9461,6 +9461,17 @@ function bpImportPlanBlockedReceipt(plan) {
   return null;
 }
 
+// The receipt's leading phrases. A replace that deleted rows did write, so it
+// is never reported as "nothing added".
+function bpImportReceiptLead({ identityOnly = false, live = 0, extraText = "", removed = 0 } = {}) {
+  const parts = [];
+  if (identityOnly) parts.push(`Identity attached${extraText}`);
+  else if (live) parts.push(`${live} holding${live === 1 ? "" : "s"} imported${extraText}`);
+  else if (!removed) parts.push(`Nothing added${extraText}`);
+  if (removed) parts.push(`${removed} demat holding${removed === 1 ? "" : "s"} removed`);
+  return parts;
+}
+
 window.bpImportApplyPlan = async (key, opts = {}) => {
   const state = bpImportInboxState();
   const plan = (state.plans || []).find((item) => item.key === key);
@@ -9554,12 +9565,9 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
     const identityOnly = results.every((result) => !!result.identityOnly);
     const sold = combined.sold;
     const linkedSold = combined.linkedSold;
+    const removed = Number(plan.removals || 0);
     const parts = [];
-    parts.push(identityOnly
-      ? `Identity attached${extraText}`
-      : live
-        ? `${live} holding${live === 1 ? "" : "s"} imported${extraText}`
-        : `Nothing added${extraText}`);
+    parts.push(...bpImportReceiptLead({ identityOnly, live, extraText, removed }));
     if (sold) parts.push(`${sold} sale${sold === 1 ? "" : "s"} or transfer${
       sold === 1 ? "" : "s"} recorded as sold`);
     if (linkedSold) parts.push(`${linkedSold} also reduced in the linked cost portfolio`);
