@@ -986,8 +986,8 @@ test("a CAS with no readable account number does not attach to a fund account", 
 
 test("the shell is one promise, one drop zone and five teaching bubbles", () => {
   const shell = between("const IMPORT_TYPE_GUIDES", "function renderImport");
-  for (const label of ["CAS", "Zerodha", "Motilal", "ICICI", "DigiFInn"]) {
-    assert.match(shell, new RegExp(`label: "${label}"`), `${label} has a bubble`);
+  for (const label of ["NSDL/CDSL (CAS)", "Zerodha", "Motilal", "ICICI", "DigiFInn"]) {
+    assert.ok(shell.includes(`label: "${label}"`), `${label} has a bubble`);
   }
   assert.equal((shell.match(/label: "/g) || []).length, 5, "exactly five bubbles");
   const page = between("function renderImport", "function slug(s)");

@@ -5,7 +5,7 @@ import { typeLabel, tail, sourceName, consequence, matchLine,
   passwordHint } from "./import-queue.js";
 
 test("a file is named by what it is, not by its extension", () => {
-  assert.equal(typeLabel("cas"), "CAS");
+  assert.equal(typeLabel("cas"), "NSDL/CDSL (CAS)");
   assert.equal(typeLabel("zerodha-holdings"), "Zerodha holdings");
   assert.equal(typeLabel("bank"), "Bank statement");
   assert.equal(typeLabel("nonsense"), "File");

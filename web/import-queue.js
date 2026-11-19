@@ -3,7 +3,7 @@
 // reads a file or writes the ledger; the page already owns those paths.
 
 export const TYPE_LABEL = {
-  cas: "CAS",
+  cas: "NSDL/CDSL (CAS)",
   motilal: "Motilal holdings",
   "zerodha-holdings": "Zerodha holdings",
   "zerodha-tradebook": "Zerodha tradebook",

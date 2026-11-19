@@ -136,6 +136,27 @@ const SCENARIOS = [
     },
   },
   {
+    name: "cas-one-file",
+    seed: account,
+    entries: [casEntry()],
+    checks: (state) => {
+      const wrong = [];
+      if (state.rows !== 1) wrong.push(`rows: ${state.rows}`);
+      if (state.pills[0] !== "Ready") wrong.push(`pill: ${JSON.stringify(state.pills)}`);
+      if (!/NSDL\/CDSL \(CAS\)/.test(state.facts[0] || "")) {
+        wrong.push(`the row type is not NSDL/CDSL (CAS): ${JSON.stringify(state.facts)}`);
+      }
+      if (!/12 holdings/.test(state.facts[0] || "")) {
+        wrong.push(`consequence: ${JSON.stringify(state.facts)}`);
+      }
+      if (!/Matches Demat · Zerodha · …8054/.test(state.accounts[0] || "")) {
+        wrong.push(`account: ${JSON.stringify(state.accounts)}`);
+      }
+      if (state.bar !== "Import 1 ready file") wrong.push(`bar: ${state.bar}`);
+      return wrong;
+    },
+  },
+  {
     name: "locked",
     seed: null,
     entries: [{
@@ -184,7 +205,7 @@ const SCENARIOS = [
       if (state.pills.some((pill) => pill !== "Ready")) {
         wrong.push(`pills: ${JSON.stringify(state.pills)}`);
       }
-      if (state.groups[0] !== "Goes with the CAS above") {
+      if (state.groups[0] !== "Goes with the NSDL/CDSL (CAS) above") {
         wrong.push(`group: ${JSON.stringify(state.groups)}`);
       }
       if (state.bar !== "Import 2 ready files") wrong.push(`bar: ${state.bar}`);
@@ -581,6 +602,10 @@ try {
       const state = JSON.parse(result.value);
       const wrong = scenario.checks(state);
       if (state.bubbles !== 5) wrong.push(`bubbles: ${state.bubbles}`);
+      if (!state.bubbleLabels.some((label) =>
+        label.startsWith("NSDL/CDSL (CAS)"))) {
+        wrong.push(`depository bubble: ${JSON.stringify(state.bubbleLabels)}`);
+      }
       if (!state.drop) wrong.push("the drop zone is missing");
       if (state.docWidth > state.width + 1) {
         wrong.push(`sideways scroll: ${state.docWidth} > ${state.width}`);

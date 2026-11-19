@@ -680,6 +680,8 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-type[aria-expanded="true"]{border-color:var(--green);
  background:color-mix(in srgb,var(--green) 7%,var(--card))}
 .import-type-name{font-size:12px;font-weight:640;overflow-wrap:anywhere}
+.import-type-name.long{font-size:11px;line-height:1.25;overflow-wrap:normal;word-break:keep-all}
+.import-type.long{padding-left:4px;padding-right:4px}
 .import-type-note{font-size:11px;color:var(--muted)}
 .import-type-guide{margin-top:10px;border-top:1px solid var(--hair);padding-top:10px;
  font-size:13.5px;line-height:1.5}
@@ -745,14 +747,11 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-types.compact .import-type-note{display:none}
 @media (max-width:640px){
   .import-types{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .import-types.compact{grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+  /* Five cells cannot hold "NSDL/CDSL (CAS)" without splitting a word. The
+     compact row wraps to two 44px lines instead; the name stays whole. */
+  .import-types.compact{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
   .import-types.compact .import-type{min-height:44px}
   .import-batchbar .btn{width:100%}
-}
-@media (max-width:360px){
-  /* Five 52px cells split "Zerodha" and "DigiFInn" mid-word. Three columns
-     keep the names whole; the compact row simply wraps to two lines. */
-  .import-types.compact{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 .import-inbox-card{margin-bottom:14px}
 .import-drop{position:relative;display:grid;justify-items:center;gap:4px;text-align:center;
@@ -3288,7 +3287,7 @@ function brokerImportBodyHtml() {
   </div>`;
 }
 const IMPORT_TYPE_GUIDES = [
-  { key: "cas", label: "CAS", note: "PDF", title: "Depository statement",
+  { key: "cas", label: "NSDL/CDSL (CAS)", note: "PDF", title: "NSDL/CDSL (CAS)",
     body: "CDSL or NSDL, after month end. Drop the original PDF.",
     password: "Usually your PAN in capitals.",
     links: [["Open CDSL CAS ↗", "https://www.cdslindia.com/cas/logincas.aspx"],
@@ -3359,11 +3358,13 @@ function renderImport() {
     </label>
     <div class="import-types${hasFiles ? " compact" : ""}" role="group"
       aria-label="What each source needs">
-      ${IMPORT_TYPE_GUIDES.map((guide) => `<button type="button" class="import-type"
+      ${IMPORT_TYPE_GUIDES.map((guide) => `<button type="button" class="import-type${
+        guide.key === "cas" ? " long" : ""}"
         data-type="${guide.key}" aria-expanded="${openGuide === guide.key ? "true" : "false"}"
         aria-controls="import-guide-${guide.key}"
         onclick="bpImportTypeToggle('${guide.key}')">
-        <span class="import-type-name">${esc(guide.label)}</span>
+        <span class="import-type-name${guide.key === "cas" ? " long" : ""}">${
+          esc(guide.label)}</span>
         <span class="import-type-note">${esc(guide.note)}</span>
       </button>`).join("")}
     </div>
@@ -7304,8 +7305,7 @@ function bpImportCategoryText(rows) {
 }
 
 function bpImportBundleLabel(bundle) {
-  return bundle.family === "cas" ? (bundle.base?.parsed?.depository
-    ? `${bundle.base.parsed.depository} CAS` : "Depository statement (CAS)")
+  return bundle.family === "cas" ? "NSDL/CDSL (CAS)"
     : bundle.family === "motilal" ? "Motilal Oswal holdings report"
       : bundle.family === "zerodha" ? (bundle.base ? "Zerodha holdings" : "Zerodha tradebook")
         : bundle.family === "icici" ? "ICICI Direct holdings"
@@ -9113,9 +9113,7 @@ function bpImportPlanRowHtml(plan, file, first) {
   const status = bpImportPlanStatus(plan);
   const target = bpImportPlanTarget(plan, bundle);
   const consequenceText = bpImportEntryConsequence(entry, plan);
-  const type = [typeLabel(entry.kind),
-    entry.kind === "cas" ? entry.parsed?.depository || "" : ""]
-    .filter(Boolean).join(" · ");
+  const type = typeLabel(entry.kind);
   const facts = [type, consequenceText].filter(Boolean);
   const group = !first && plan.files.length > 1
     ? `Goes with the ${typeLabel(plan.files[0].kind)} above` : "";
