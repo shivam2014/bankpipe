@@ -733,6 +733,12 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-batchbar-copy{min-width:0;font-size:13.5px}
 .import-batchbar-copy .muted{display:block;font-size:12px;margin-top:1px}
 .import-batchbar .btn{min-height:48px}
+@media (max-width:900px){
+  /* The one action stays reachable while a long queue scrolls. It sits above
+     the tab bar, and the tab bar already carries the safe-area inset. */
+  .import-batchbar{position:sticky;bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 8px);
+    z-index:2}
+}
 .import-shell.has-files .import-drop{padding:14px 16px}
 .import-types.compact{grid-template-columns:repeat(5,minmax(0,1fr))}
 .import-types.compact .import-type{min-height:44px;padding:6px 4px;border-radius:10px}
