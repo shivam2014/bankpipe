@@ -156,6 +156,47 @@ const casEntry = () => {
   };
 };
 
+// The row geometry the owner reads: one line for the account name, a 44px
+// Change flush with the status pill, every bubble the same height, and no
+// empty band before the bar. The checks run on every shot, open or closed.
+function importLayoutWrong(state) {
+  const wrong = [];
+  for (const item of state.accountLines || []) {
+    const line = Number.parseFloat(item.lineHeight) || 19;
+    if (item.h > line * 1.3 + 0.5) {
+      wrong.push(`the account line wraps to ${item.h}px at ${state.width}`);
+    }
+    if (item.whiteSpace !== "nowrap" || item.textOverflow !== "ellipsis") {
+      wrong.push(`the account line is not a single ellipsized line at ${state.width}`);
+    }
+  }
+  (state.changeRects || []).forEach((item, index) => {
+    if (item.h < 44) wrong.push(`Change is ${item.h}px high at ${state.width}`);
+    const pill = (state.pillRights || [])[index];
+    if (pill != null && Math.abs(item.right - pill) > 1) {
+      wrong.push(`Change right ${item.right} is not flush with the pill ${pill} `
+        + `at ${state.width}`);
+    }
+  });
+  if (state.removeBottom != null && state.barTop != null) {
+    const gap = state.barTop - state.removeBottom;
+    if (gap < 0 || gap > 13) {
+      wrong.push(`the gap after Remove is ${gap}px at ${state.width}`);
+    }
+  }
+  const heights = (state.bubbleMetrics || []).map((item) => item.h);
+  if (heights.length && Math.max(...heights) - Math.min(...heights) > 1) {
+    wrong.push(`bubble heights differ at ${state.width}: ${JSON.stringify(heights)}`);
+  }
+  if (state.width <= 640) {
+    const labels = (state.bubbleMetrics || []).map((item) => item.labelH);
+    if (labels.length && Math.max(...labels) - Math.min(...labels) > 1) {
+      wrong.push(`bubble labels differ at ${state.width}: ${JSON.stringify(labels)}`);
+    }
+  }
+  return wrong;
+}
+
 const SCENARIOS = [
   {
     name: "empty",
@@ -361,7 +402,7 @@ function pageScript(scenario) {
   const bubbles = [...document.querySelectorAll(".import-type")];
   const drop = document.getElementById("import-inbox-drop");
   const empty = host.querySelector(".import-empty");
-  const controls = [...document.querySelectorAll(".import-type, .import-batchbar .btn, .import-row .btn, .import-row-pw input, .import-row-account select, .import-drop")]
+  const controls = [...document.querySelectorAll(".import-type, .import-batchbar .btn, .import-row .btn, .import-row-pw input, .import-row-account-control summary, .import-row-account select, .import-row-account-menu select, .import-row-account-menu input, .import-drop")]
     .filter((node) => {
       const style = getComputedStyle(node);
       return style.display !== "none" && style.visibility !== "hidden"
@@ -370,6 +411,32 @@ function pageScript(scenario) {
     .map((node) => ({ tag: node.tagName, text: text(node).slice(0, 40),
       height: Math.round(node.getBoundingClientRect().height) }));
   const short = controls.filter((item) => item.height > 0 && item.height < 44);
+  const accountLines = [...document.querySelectorAll(".import-row-account")]
+    .map((node) => {
+      const box = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return { h: Math.round(box.height), lineHeight: style.lineHeight,
+        whiteSpace: style.whiteSpace, textOverflow: style.textOverflow,
+        scrollW: node.scrollWidth, clientW: node.clientWidth };
+    });
+  const changeRects = [...document.querySelectorAll(".import-row-change")]
+    .map((node) => {
+      const box = node.getBoundingClientRect();
+      return { h: Math.round(box.height), right: Math.round(box.right) };
+    });
+  const pillRights = [...document.querySelectorAll(".import-row-pill")]
+    .map((node) => Math.round(node.getBoundingClientRect().right));
+  const bubbleMetrics = bubbles.map((node) => {
+    const label = node.querySelector(".import-type-name");
+    return { h: Math.round(node.getBoundingClientRect().height),
+      labelH: label ? Math.round(label.getBoundingClientRect().height) : 0 };
+  });
+  const actionButtons = [...host.querySelectorAll(".import-row-actions .btn")];
+  const barBox = host.querySelector(".import-batchbar");
+  const removeBottom = actionButtons.length
+    ? Math.round(actionButtons[actionButtons.length - 1].getBoundingClientRect().bottom)
+    : null;
+  const barTop = barBox ? Math.round(barBox.getBoundingClientRect().top) : null;
   // The bar sits at the bottom of the queue; bring the top of the queue into
   // view so one shot carries the drop zone, the bubbles and the first rows.
   // An open account menu is the thing to read, so that row leads instead.
@@ -404,6 +471,8 @@ function pageScript(scenario) {
     controls: controls.length,
     shortControls: short,
     docWidth: document.documentElement.scrollWidth,
+    accountLines, changeRects, pillRights, bubbleMetrics,
+    removeBottom, barTop,
   });
 })()`;
 }
@@ -865,6 +934,7 @@ const SHOTS = [
   // The smallest phone the app supports. The brief asks for 390 and 1280;
   // this is the no-clipping check the UI skill adds.
   { width: 320, height: 1600, theme: "light" },
+  { width: 320, height: 1600, theme: "dark" },
 ];
 try {
   // RENDER_ONLY=<scenario-or-flow> is for a quick targeted pass; the normal
@@ -883,6 +953,7 @@ try {
       });
       const state = JSON.parse(result.value);
       const wrong = scenario.checks(state);
+      wrong.push(...importLayoutWrong(state));
       if (state.bubbles !== 5) wrong.push(`bubbles: ${state.bubbles}`);
       if (!state.bubbleLabels.some((label) =>
         label.startsWith("NSDL/CDSL (CAS)"))) {

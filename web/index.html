@@ -697,31 +697,35 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;
  padding:12px 0;border-top:1px solid var(--hair);align-items:start}
 .import-row:first-of-type{border-top:0}
-.import-row-main{min-width:0;display:grid;gap:2px}
-.import-row-name{font-size:15px;font-weight:620;overflow-wrap:anywhere}
-.import-row-facts{display:flex;flex-wrap:wrap;gap:1px 8px;font-size:12px;color:var(--muted)}
+.import-row-main{display:contents}
+.import-row-name{min-width:0;font-size:15px;font-weight:620;overflow-wrap:anywhere}
+.import-row-facts{min-width:0;display:flex;flex-wrap:wrap;gap:1px 8px;font-size:12px;color:var(--muted)}
 .import-row-facts span + span::before{content:"·";margin-right:8px;color:var(--line)}
-.import-row-account{font-size:13.5px;overflow-wrap:anywhere;line-height:1.4;min-width:0;display:block}
+.import-row-account{font-size:13.5px;line-height:1.4;min-width:0;display:block;
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .import-row-account b{font-weight:620}
-.import-row-account-control{min-width:0}
+.import-row-account-control{grid-column:1/-1;min-width:0}
 .import-row-account-control summary{display:grid;grid-template-columns:minmax(0,1fr) auto;
  gap:8px;align-items:center;min-height:44px;cursor:pointer;list-style:none}
 .import-row-account-control summary::-webkit-details-marker{display:none}
 .import-row-account-control summary:focus-visible{outline:2px solid var(--green);
  outline-offset:2px}
-.import-row-change{font-size:12px;font-weight:620;color:var(--green);white-space:nowrap}
+.import-row-change{display:inline-flex;align-items:center;justify-content:flex-end;
+ min-width:44px;min-height:44px;font-size:12px;font-weight:620;color:var(--green);
+ white-space:nowrap}
 .import-row-account-control[open] .import-row-change{color:var(--ink)}
 .import-row-account-menu{margin-top:4px;border-top:1px solid var(--hair);padding-top:6px;
  max-height:360px;overflow-y:auto}
 .import-row-account-menu .import-account-list{margin-top:6px}
 .import-row-account-menu select{min-height:44px;width:100%}
 .import-row-account-menu input{width:100%;min-height:44px;margin-top:6px}
-.import-row-note{font-size:12px;color:var(--muted);line-height:1.45;overflow-wrap:anywhere}
+.import-row-note{grid-column:1/-1;font-size:12px;color:var(--muted);
+ line-height:1.45;overflow-wrap:anywhere}
 .import-row-note.error{color:var(--red)}
-.import-row-group{font-size:12px;color:var(--muted);line-height:1.4}
-.import-row-pill{display:inline-flex;align-items:center;border:1px solid var(--line);
- border-radius:99px;padding:3px 9px;font-size:11px;font-weight:640;color:var(--muted);
- white-space:nowrap}
+.import-row-group{grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.4}
+.import-row-pill{grid-column:2;grid-row:1;display:inline-flex;align-items:center;
+ border:1px solid var(--line);border-radius:99px;padding:3px 9px;font-size:11px;
+ font-weight:640;color:var(--muted);white-space:nowrap}
 .import-row-pill.good{color:var(--green);border-color:var(--green)}
 .import-row-pill.warn{color:var(--amber);border-color:var(--amber)}
 .import-row-pill.error{color:var(--red);border-color:var(--red)}
@@ -748,6 +752,13 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-batchbar-copy{min-width:0;font-size:13.5px}
 .import-batchbar-copy .muted{display:block;font-size:12px;margin-top:1px}
 .import-batchbar .btn{min-height:48px}
+.import-row + .import-batchbar{margin-top:0}
+@media (max-width:340px){
+  /* 320 is the narrowest phone. A 12px name keeps the whole account id on the
+     one line; the 8px gap would ellipsize the last four digits. */
+  .import-row-account{font-size:12px}
+  .import-row-account-control summary{gap:6px}
+}
 @media (max-width:900px){
   /* The one action stays reachable while a long queue scrolls. It sits above
      the tab bar, and the tab bar already carries the safe-area inset. */
@@ -761,9 +772,13 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 @media (max-width:640px){
   .import-types{grid-template-columns:repeat(3,minmax(0,1fr))}
   /* Five cells cannot hold "NSDL/CDSL (CAS)" without splitting a word. The
-     compact row wraps to two 44px lines instead; the name stays whole. */
+     compact row wraps to two 44px lines instead; the name stays whole. Every
+     label reserves the two-line box, so the one-line labels cannot make their
+     bubble read taller than the two-line one. */
   .import-types.compact{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
   .import-types.compact .import-type{min-height:44px}
+  .import-type-name{display:flex;align-items:center;justify-content:center;
+    min-height:30px;line-height:1.25;overflow-wrap:normal;word-break:keep-all}
   .import-batchbar .btn{width:100%}
 }
 .import-inbox-card{margin-bottom:14px}
