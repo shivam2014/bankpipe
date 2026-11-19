@@ -609,7 +609,9 @@ test("the bond page wires the banner before the summary and no filled button", (
   assert.match(card, /const banner = bondGapBanner\(account, rows\)/);
   assert.match(card, /const importOf = bondImportOf\(account, assetId\)/);
   assert.match(card, /const \{ importTarget, importVia \} = importOf/);
-  assert.match(card, /bondCardHtml\(v, assetId, \{\s*currency: currency\(\), importTarget, importVia,/);
+  assert.match(card, /const atCost = assetAtCost\(account\)/,
+    "the card follows the account's at-cost measure");
+  assert.match(card, /bondCardHtml\(v, assetId, \{\s*currency: currency\(\), importTarget, importVia, atCost,/);
   assert.match(card, /bondGapBannerHtml\(banner, importTarget, importVia\)/);
   assert.match(card, /needsFetch \|\| importGaps\.gaps\.length \? `<details class="needs-details">/);
   assert.doesNotMatch(card, /class="needs-details" open/,

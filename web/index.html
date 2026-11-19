@@ -13388,6 +13388,9 @@ function holdingsCard(allRows, assetId, account) {
   const s = summarizeHoldings(rows);
   const moneyOrDash = (v) => v === null || v === undefined ? "—" : money(v);
   const bondBook = rows.some((h) => bondAnalytics(h));
+  // A demat or bond book with no priced row at all is measured at cost, so its
+  // bond cards carry the same measure the hero, ring and class total use.
+  const atCost = assetAtCost(account);
   // A name, rating and face belong to a bond. Counting a share or a fund unit as
   // "missing a face value" would invent work that does not exist.
   const bondRows = rows.filter((h) => String(h.category || "") === "bond"
@@ -13462,10 +13465,10 @@ function holdingsCard(allRows, assetId, account) {
   const importOf = bondImportOf(account, assetId);
   const { importTarget, importVia } = importOf;
   const cards = views.map((v) => bondCardHtml(v, assetId, {
-    currency: currency(), importTarget, importVia,
+    currency: currency(), importTarget, importVia, atCost,
   })).join("");
   const maturedCards = maturedViews.map((v) => bondCardHtml(v, assetId, {
-    matured: true, currency: currency(), importTarget, importVia,
+    matured: true, currency: currency(), importTarget, importVia, atCost,
   })).join("");
   const maturedDivider = matured.length ? `<div class="bond-matured-divider">
     <span>Matured · awaiting payment</span>
