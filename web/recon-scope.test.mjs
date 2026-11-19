@@ -191,7 +191,7 @@ test("a demat that carries cost but no price lands in its class at cost", async 
   assert.equal(page.rows[0].atCost, true);
 });
 
-test("an unpriced row never pushes a class part outside the account value", async () => {
+test("an unpriced row keeps its cost inside the account value and its class", async () => {
   const rows = [
     { security_id: "INE000000201", label: "Priced share", category: "equity",
       quantity: 10, cost_paise: 40000, value_paise: 50000 },
@@ -201,13 +201,13 @@ test("an unpriced row never pushes a class part outside the account value", asyn
   await seed([{ id: "d1", label: "Mixed demat", category: "demat", subtype: "equity" }],
     { d1: rows });
   const [account] = await listAccounts();
-  // The demat's value is the sum of the values it has, the same rule the class
-  // split follows. The unpriced bond is not in that value, so it is not in a
-  // class total either: adding its cost would make the parts outgrow the whole.
-  assert.equal(assetValue(account).paise, 50000);
-  assert.equal(account.class_bond_value, 0);
+  // The demat's value is the sum of one measure over every live row: the
+  // market value where the row has one, cost where it does not. The unpriced
+  // bond is therefore in both the account value and its class total.
+  assert.equal(assetValue(account).paise, 80000);
+  assert.equal(account.class_bond_value, 30000);
   const parts = assetClassParts(account);
-  assert.equal(Math.round(parts.bond + parts.equity + parts.mf),
+  assert.equal(parts.bond + parts.equity + parts.mf,
     assetValue(account).paise, "the classes add up to the account value");
   const page = classPage([account], { d1: rows }, "equity");
   assert.equal(page.total, 50000);
@@ -215,4 +215,8 @@ test("an unpriced row never pushes a class part outside the account value", asyn
     "no invented row where the row already holds the value");
   assert.ok(page.rows.every((r) => Number(r.value_paise) >= 0),
     "a class page never lists a negative value");
+  const bondPage = classPage([account], { d1: rows }, "bond");
+  assert.equal(bondPage.total, 30000);
+  assert.equal(bondPage.rows[0].value_paise, 30000);
+  assert.equal(bondPage.rows[0].atCost, true);
 });
