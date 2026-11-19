@@ -1080,14 +1080,6 @@ export function importAccountSummary(account, holdings = [],
 }
 
 /**
- * The download guide is open while nothing is staged. A person who opens or
- * closes it themselves owns that choice for the visit.
- */
-export function importGuideOpen(staged = 0, manual = null) {
-  return manual === null || manual === undefined ? staged === 0 : !!manual;
-}
-
-/**
  * Which reports a person can fetch, when to fetch it and what it adds. Copy,
  * not state: the card renders it behind one closed disclosure so the guide is
  * on demand and never a paragraph above the accounts.

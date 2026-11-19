@@ -1446,7 +1446,7 @@ import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, pla
   planHasWork, planNetChange,
   importAccountSummary, importAccountGaps, bondGapBanner, bondImportOf,
   importPlanPrimary, importNoWorkCopy, duplicateFileLabel, brokerDematAccounts,
-  IMPORT_REPORT_GUIDE, importGuideOpen,
+  IMPORT_REPORT_GUIDE,
   normalizeAccount, parseTradebook, parseTradebookMatrix,
   IMPORT_KINDS as INBOX_KINDS } from "./import-flow.js";
 import { offersPasswordRetry, passwordFailure, PDF_PASSWORD_WRONG }
@@ -1749,7 +1749,6 @@ function bpBatchRowHtml(entry, accounts) {
 }
 
 function bpBatchRender() {
-  bpImportHelpSync();
   const host = document.getElementById("bp-batch-queue");
   if (!host) return;
   const state = bpBatchState();
@@ -3056,7 +3055,7 @@ function renderImport() {
       <input type="file" id="import-inbox-files" class="import-file-input" multiple
         tabindex="-1" accept=".pdf,.csv,.txt,.xlsx,.xls,.xlsm">
     </label>
-    <details class="import-help" id="import-help">
+    <details class="import-help" id="import-help" open>
       <summary>What can I add?</summary>
       <div class="import-help-body">
         <div class="import-help-row"><b>Depository statement (CAS) PDF</b>
@@ -3662,15 +3661,6 @@ function wireImport() {
   // A file can arrive from the URL (?guide=broker&import=...) as before, but the
   // queue is the only path now: one list, one type per row, one confirmation.
   if (!window.bpImportQueue) window.bpImportQueue = [];
-  const help = document.getElementById("import-help");
-  if (help && !help.dataset.wired) {
-    help.dataset.wired = "1";
-    help.addEventListener("toggle", () => {
-      if (String(help.open) === help.dataset.helpAuto) return;
-      bpImportInboxState().helpManual = help.open;
-      help.dataset.helpAuto = String(help.open);
-    });
-  }
   window.bpImportRender();
   window.bpImportAccountsLoad?.(true);
   window.bpImportInboxRender?.();
@@ -6850,7 +6840,6 @@ window.bpImportDrop = (index) => {
   window.bpImportRender();
 };
 window.bpImportRender = () => {
-  bpImportHelpSync();
   const host = document.getElementById("import-queue");
   if (!host) return;
   const rows = window.bpImportQueue || [];
@@ -6997,8 +6986,7 @@ const bpImportInboxState = () => {
   if (!window.bpImportInbox) {
     window.bpImportInbox = { entries: [], bundles: [], plans: [], accountRows: null,
       accountError: "", choices: {}, acceptAsk: {}, readQueue: null,
-      message: "", messageKind: "", preparing: false, pending: false, applying: false,
-      helpManual: null };
+      message: "", messageKind: "", preparing: false, pending: false, applying: false };
   }
   return window.bpImportInbox;
 };
@@ -7011,24 +6999,6 @@ function bpImportInboxStatus(text, kind = "") {
   if (!host) return;
   host.className = `import-status${kind ? ` ${kind}` : ""}`;
   host.textContent = text || "";
-}
-
-function bpImportStagedCount() {
-  const state = bpImportInboxState();
-  return (state.entries || []).length
-    + (window.bpBatch?.entries || []).length
-    + (window.bpImportQueue || []).length;
-}
-
-// The guide is open until a file is staged. A manual open or close wins, so a
-// person can read it beside a full queue or keep it out of the way.
-function bpImportHelpSync() {
-  const help = document.getElementById("import-help");
-  if (!help) return;
-  const state = bpImportInboxState();
-  const desired = importGuideOpen(bpImportStagedCount(), state.helpManual);
-  help.dataset.helpAuto = String(desired);
-  if (help.open !== desired) help.open = desired;
 }
 
 function bpImportCategoryText(rows) {
@@ -8526,7 +8496,6 @@ window.bpImportInboxGoToUnready = () => {
 
 function bpImportInboxRender() {
   const host = document.getElementById("import-inbox-host");
-  bpImportHelpSync();
   if (!host) return;
   const state = bpImportInboxState();
   bpImportAccountsRender();

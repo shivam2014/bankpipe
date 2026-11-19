@@ -979,7 +979,7 @@ test("the Import intro is the three file types, not a reassurance paragraph", ()
 });
 
 test("What can I add is the download steps and the format, not the rationale", () => {
-  const guide = between('<details class="import-help" id="import-help">',
+  const guide = between('<details class="import-help" id="import-help" open>',
     '<div id="import-inbox-status"');
   assert.match(guide, /<b>Zerodha holdings XLSX<\/b>/);
   assert.match(guide, /single date, not a range/);
@@ -994,14 +994,9 @@ test("What can I add is the download steps and the format, not the rationale", (
   assert.doesNotMatch(guide, /One demat holds bonds/);
 });
 
-test("the guide follows the queue and a manual choice wins", () => {
-  const sync = between("function bpImportStagedCount()", "function bpImportCategoryText");
-  assert.match(sync, /importGuideOpen\(bpImportStagedCount\(\), state\.helpManual\)/);
-  assert.match(sync, /help\.dataset\.helpAuto/);
-  const wire = between('const help = document.getElementById("import-help")',
-    "window.bpImportRender();");
-  assert.match(wire, /addEventListener\("toggle"/);
-  assert.match(wire, /helpManual = help\.open/);
+test("the guide ships open and carries no queue state", () => {
+  assert.match(html, /<details class="import-help" id="import-help" open>/);
+  assert.doesNotMatch(html, /helpManual|bpImportHelpSync|bpImportStagedCount|importGuideOpen/);
 });
 
 test("the advanced picker keeps the format, not a second copy of the steps", () => {

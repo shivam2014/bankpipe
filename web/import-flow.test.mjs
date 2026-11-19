@@ -5,7 +5,7 @@ import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
   accountFieldState, normalizeAccount, mergeRowsFromPlan, planStateAfter,
   planImportChains, movementGate, statementAccounts, movementAccountGap,
   importWarningDigest, dedupeImportFiles, duplicateFileLabel, brokerDematAccounts,
-  importNoWorkCopy, importGuideOpen } from "./import-flow.js";
+  importNoWorkCopy } from "./import-flow.js";
 import { casReplacePlan } from "./cas-apply.js";
 import { casRoute } from "./cas.js";
 
@@ -2101,11 +2101,4 @@ test("the writer's own credit warnings are the ones the digest collapses", () =>
     `${isin(202)} · 3 credits · ${SETTLED}`,
     `${isin(203)} · 3 credits · ${SETTLED}`,
   ]);
-});
-
-test("the import guide follows the queue until the person chooses", () => {
-  assert.equal(importGuideOpen(0, null), true, "an empty queue opens the guide");
-  assert.equal(importGuideOpen(1, null), false, "a staged file closes it");
-  assert.equal(importGuideOpen(1, true), true, "a manual open survives a staged file");
-  assert.equal(importGuideOpen(0, false), false, "a manual close survives an empty queue");
 });
