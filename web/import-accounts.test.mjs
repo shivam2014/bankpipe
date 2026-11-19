@@ -611,7 +611,8 @@ test("the bond page wires the banner before the summary and no filled button", (
   assert.match(card, /const \{ importTarget, importVia \} = importOf/);
   assert.match(card, /const atCost = assetAtCost\(account\)/,
     "the card follows the account's at-cost measure");
-  assert.match(card, /bondCardHtml\(v, assetId, \{\s*currency: currency\(\), importTarget, importVia, atCost,/);
+  assert.match(card, /atCost: atCost \|\| \(v\.value === null && v\.cost !== null\)/,
+    "a cost-only lot stays at cost when a neighbour has a price");
   assert.match(card, /bondGapBannerHtml\(banner, importTarget, importVia\)/);
   assert.match(card, /needsFetch \|\| importGaps\.gaps\.length \? `<details class="needs-details">/);
   assert.doesNotMatch(card, /class="needs-details" open/,
