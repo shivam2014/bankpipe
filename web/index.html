@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b6b4f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="BankPipe">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>BankPipe</title>
 <script>
 // Runs before the first paint, so a chosen theme never flashes the other one.
@@ -11,6 +16,18 @@ try {
   var th = localStorage.getItem("bp.theme");
   if (th === "light" || th === "dark") document.documentElement.dataset.theme = th;
 } catch (e) {}
+</script>
+<script>
+// beforeinstallprompt fires before the module below runs, and only once. Hold
+// the event; the Settings card spends it later, on a real tap.
+window.bpInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", function (event) {
+  event.preventDefault();
+  window.bpInstallPrompt = event;
+});
+window.addEventListener("appinstalled", function () {
+  window.bpInstallPrompt = null;
+});
 </script>
 <style>
 :root{--bg:#f5f3ee;--card:#fff;--ink:#0f1216;--muted:#6d6960;--line:#e9e5dc;
@@ -1073,6 +1090,16 @@ dialog::backdrop{background:rgba(15,18,22,.5)}
 .dialog-body{padding:20px}
 .dialog-note{font-size:12px}
 .dialog-error{font-size:12px;color:var(--red);margin-top:8px}
+/* Install, storage and the backup truth. The storage line changes colour with
+   its answer, so the one line carries the whole message. */
+.pwa-title{margin-top:0;font-size:17px;letter-spacing:-.01em;text-transform:none;color:var(--ink)}
+.pwa-hint{margin:6px 0 0;font-size:13.5px;color:var(--muted)}
+.pwa-install{margin-top:10px}
+.pwa-storage{margin-top:12px;font-size:13.5px;font-weight:600;color:var(--muted)}
+.pwa-storage[data-protected="1"]{color:var(--green)}
+.pwa-storage[data-protected="0"]{color:var(--amber)}
+.pwa-backup{margin:10px 0 12px;font-size:13.5px}
+.banner-link{color:inherit;font-weight:600;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -1097,7 +1124,8 @@ try {
 <main class="wrap">
   <div class="banner" id="sample-banner" style="display:none" role="status">
   <span><b>Sample data.</b> Demo accounts, holdings and transactions, not yours.
-  Edits here are temporary and never touch your own database.</span>
+  Edits here are temporary and never touch your own database.
+  <a class="banner-link" href="backup.html">Restore a backup</a></span>
   <button type="button" onclick="bpUseMyData()">Use my data</button>
 </div>
   <div class="banner" id="banner" style="display:none">
@@ -1396,6 +1424,7 @@ function nav() {
   requestAnimationFrame(() => window.bpNavArrows && window.bpNavArrows());
 }
 import { parseStatement, chronological, auditStatement, rowsFromCsv, scanPreamble, guessAccount, parseMoney } from "./parse.js";
+import { installState, ensurePersistence, storageLabel, pwaCard } from "./pwa.js";
 import { reorderByChain } from "./ledger.js";
 import { reorderLine } from "./reorder-line.js";
 import { balanceRunsFromSheet } from "./balance-formula.js";
@@ -5843,6 +5872,45 @@ window.bpMarkMode = () => {
     r.style.color = m === "real" ? "#fff" : "inherit";
   }
 };
+function isAppInstalled() {
+  return !!(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
+    || window.navigator.standalone === true;
+}
+window.bpInstall = async () => {
+  const prompt = window.bpInstallPrompt;
+  // Spend the event before the await: a second tap must not call it twice.
+  window.bpInstallPrompt = null;
+  if (!prompt) return;
+  try {
+    await prompt.prompt();
+    await prompt.userChoice;
+  } catch (e) {}
+  go("settings");
+};
+// Asked once per device. The answer is a fact about this browser, not a
+// promise: after a site-data clear it is asked again, and it may say no.
+let persistenceAsked = null;
+async function askPersistence() {
+  const asked = localStorage.getItem("bp.storage.asked") === "1";
+  let result = { persisted: false };
+  try {
+    result = await ensurePersistence({ storage: navigator.storage, asked });
+  } catch (e) {}
+  try { localStorage.setItem("bp.storage.asked", "1"); } catch (e) {}
+  return !!result.persisted;
+}
+function storagePersisted() {
+  // One request per page load even if the card and the timer race.
+  if (!persistenceAsked) persistenceAsked = askPersistence();
+  return persistenceAsked;
+}
+window.bpStorageState = async () => {
+  const el = document.getElementById("storage-state");
+  if (!el) return;
+  const persisted = await storagePersisted();
+  el.textContent = storageLabel(persisted);
+  el.dataset.protected = persisted ? "1" : "0";
+};
 // The sample portfolio is its own in-memory database, so switching sides opens
 // a different store. A reload is the shortest way to guarantee the demo
 // connection is gone and the real database was never touched.
@@ -6044,6 +6112,7 @@ window.bpSetTheme = (mode) => {
 function renderSettings() {
   setTimeout(() => window.bpLoadSnapshots?.(), 40);
   setTimeout(() => window.bpLoadVersion?.(), 40);
+  setTimeout(() => window.bpStorageState?.(), 40);
   const hasDiag = !!localStorage.getItem("bp.diagnostics.last");
   const lastBackup = Number(localStorage.getItem("bankpipe.backup.last") || 0);
   const lastBackupText = lastBackup ? new Date(lastBackup).toLocaleString() : "never";
@@ -6053,6 +6122,12 @@ function renderSettings() {
     style="${theme === id ? "border-color:var(--green);color:var(--green);font-weight:600" : ""}"
     onclick="bpSetTheme('${id}')">${label}</button>`;
   return `<h1>Settings</h1>
+  ${pwaCard({ state: installState({
+    standalone: isAppInstalled(),
+    prompt: !!window.bpInstallPrompt,
+    userAgent: navigator.userAgent,
+    maxTouchPoints: navigator.maxTouchPoints,
+  }) })}
   <div class="card pad">
     <h2 style="margin-top:0;font-size:17px;letter-spacing:-.01em;text-transform:none;color:var(--ink)">Backup and restore</h2>
     <p class="muted" style="font-size:13px">The database is encrypted on this device. Every
@@ -16053,6 +16128,29 @@ async function startDemo() {
   window.bp.demo = true;
   const banner = document.getElementById("sample-banner");
   if (banner) banner.style.display = "";
+}
+window.addEventListener("appinstalled", () => {
+  if (document.getElementById("storage-state")) go("settings");
+});
+// The prompt usually arrives after the first render. If Settings is already
+// open, redraw so the button appears without a reload.
+window.addEventListener("beforeinstallprompt", () => {
+  if (document.getElementById("storage-state")) go("settings");
+});
+// Ask once, on the first load, not when Settings happens to open: the database
+// is worth protecting before anyone reads the card that reports it.
+setTimeout(() => { storagePersisted(); }, 1500);
+// The shell is cached per build; the database and every statement stay out of
+// it. A local checkout has no version.json, and caching a dev server would hide
+// edits behind an old cache, so only a built bundle registers a worker.
+// updateViaCache:"none" means the browser never trusts a stale HTTP copy of the
+// worker, and index.html is network-first on top of that.
+if ("serviceWorker" in navigator) {
+  fetch("version.json", { method: "HEAD", cache: "no-store" })
+    .then((res) => (res.ok
+      ? navigator.serviceWorker.register("sw.js", { type: "module", updateViaCache: "none" })
+      : null))
+    .catch(() => {});
 }
 window.go = go;
 if (location.search.includes("selftest=seed") || location.search.includes("selftest=reload")) {

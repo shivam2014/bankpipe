@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="BankPipe">
+  <!-- Maskable variant: full bleed, and the glyph kept inside the 80% safe
+       circle so any launcher mask can crop the edge without cutting it. -->
+  <defs>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a5741"/>
+      <stop offset="1" stop-color="#12a077"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#mark)"/>
+  <text x="256" y="314" text-anchor="middle" font-family="Helvetica, Arial, sans-serif"
+    font-size="224" font-weight="700" fill="#ffffff">₹</text>
+</svg>

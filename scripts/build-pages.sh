@@ -43,9 +43,10 @@ cp "$ROOT/scripts/pages/market.js" "$OUT/public/market.js"
 cp "$ROOT/scripts/pages/wrangler.jsonc" "$OUT/wrangler.jsonc"
 
 # A version a person can read out over the phone. `git archive` carries no .git,
-# so the commit arrives as BP_COMMIT from whoever deploys; without it the date
-# still identifies the build.
-STAMP="$(date -u +%Y.%m.%d)"
+# so the commit arrives as BP_COMMIT from whoever deploys; without it the clock
+# still identifies the build. Two deploys on one day must not share a cache name,
+# or the second one serves the first one's shell files until a manual clear.
+STAMP="$(date -u +%Y.%m.%d.%H%M)"
 COMMIT="${BP_COMMIT:-}"
 node "$ROOT/scripts/version-assets.mjs" "$OUT/public" "${COMMIT:-$STAMP}"
 BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

@@ -39,3 +39,14 @@ for (const file of files) {
   }
 }
 console.log(`versioned ${touched} file(s) at ?v=${version}`);
+
+// A service worker is byte-compared, not fetched by URL: the browser only
+// installs a new one when the script's bytes change. Stamping the cache name is
+// what makes a deploy open a new cache and delete the old one on the next visit.
+const serviceWorker = path.join(root, "sw.js");
+if (fs.existsSync(serviceWorker)) {
+  const source = fs.readFileSync(serviceWorker, "utf8");
+  const stamped = source.replaceAll("__BP_BUILD__", version);
+  if (stamped !== source) fs.writeFileSync(serviceWorker, stamped);
+  console.log(`service worker cache: ${version}`);
+}
