@@ -1,8 +1,8 @@
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { allocationByClass, assetSections, assetValue, classPage, holdingClass,
-  isFundAccount } from "./assets.js";
+import { allocationByClass, assetClassParts, assetSections, assetValue, classPage,
+  holdingClass, isFundAccount } from "./assets.js";
 
 const demat = (over) => ({
   id: "d1", label: "Demat", category: "demat", subtype: "equity",
@@ -227,6 +227,88 @@ test("a folio with a stray bond row is listed only under funds", () => {
   const sections = assetSections([folio]);
   assert.deepEqual(sections.map((s) => s.id), ["mf"]);
   assert.equal(sections[0].total, 100);
+});
+
+// A class page sends the account plus its class to the demat page. That class
+// is only a landing place while it has live holding rows; a value that exists
+// only on the account must not open a tab that counts zero.
+const unvaluedBonds = Array.from({ length: 17 }, (_, i) => ({
+  id: i + 1, category: "bond", security_id: `INE0000${String(i).padStart(6, "0")}`,
+  label: `TEST BOND ${i + 1}`, cost_paise: 16416798, value_paise: null,
+}));
+const unvaluedDemat = demat({
+  id: "d17", class_bond_value: null, class_equity_value: null, class_mf_value: null,
+  holdings_count: 17, holdings_cost: 279085551, holdings_value: null,
+  value_paise: 279085551,
+});
+const fundFolio = { id: "f1", label: "TEST FUND", category: "demat",
+  subtype: "mutual fund", number: "", holdings_count: 0, value_paise: 50000 };
+
+// The page's own landing rule and bucket rule, extracted and run with the
+// module imports they call, the same way nsdl-removal.test.mjs runs a page fn.
+function pageHelpers() {
+  const src = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const between = (start, end) => {
+    const from = src.indexOf(start);
+    const to = src.indexOf(end, from + start.length);
+    assert.ok(from > 0 && to > from, `${start} is in index.html`);
+    return src.slice(from, to);
+  };
+  const page = new Function("holdingClass", "isFundAccount", "assetClassParts",
+    `${between("function classFocusFor(", "function classValueBucket(")}
+     ${between("function classValueBucket(", "function holdingsBlock(")}
+     return { classFocusFor, classValueBucket };`,
+  )(holdingClass, isFundAccount, assetClassParts);
+  return { page, between };
+}
+
+test("a class tab with no holding rows is not a landing place", () => {
+  const { page } = pageHelpers();
+  assert.equal(page.classFocusFor(unvaluedDemat, unvaluedBonds, "equity"), "all");
+  assert.equal(page.classFocusFor(unvaluedDemat, unvaluedBonds, "mf"), "all");
+  assert.equal(page.classFocusFor(unvaluedDemat, unvaluedBonds, "bond"), "bond");
+  assert.equal(page.classFocusFor(unvaluedDemat, unvaluedBonds, "all"), "all");
+  assert.equal(page.classFocusFor(unvaluedDemat,
+    [...unvaluedBonds, { category: "equity", value_paise: 100 }], "equity"), "equity");
+});
+
+test("a remembered class that became empty falls back, and a sold row does not reopen it", () => {
+  const { page } = pageHelpers();
+  const soldEquity = { category: "equity", value_paise: 0, disposed_at: "2026-04-10" };
+  assert.equal(page.classFocusFor(unvaluedDemat, [soldEquity], "equity"), "all");
+  assert.equal(page.classFocusFor(unvaluedDemat, [], "equity"), "all");
+});
+
+test("a fund folio keeps its class before the first row exists", () => {
+  const { page } = pageHelpers();
+  assert.equal(page.classFocusFor(fundFolio, [], "mf"), "mf");
+  assert.equal(page.classFocusFor(fundFolio, [], "equity"), "all");
+  assert.equal(page.classFocusFor(fundFolio, [], "bond"), "all");
+});
+
+test("a plain demat's fallback value is not a class bucket", () => {
+  const { page } = pageHelpers();
+  assert.equal(assetClassParts(unvaluedDemat).equity, 279085551,
+    "the allocation fallback still values the demat");
+  assert.equal(page.classValueBucket(unvaluedDemat, "equity"), 0);
+  assert.equal(page.classValueBucket(unvaluedDemat, "bond"), 0);
+  assert.equal(page.classValueBucket(fundFolio, "mf"), 50000);
+  assert.equal(page.classValueBucket(fundFolio, "equity"), 0);
+});
+
+test("the tabs land and count the rows they render", () => {
+  const { between } = pageHelpers();
+  const block = between("function holdingsBlock(", "window.bpBondSort");
+  assert.match(block, /const focus = classFocusFor\(asset, list, requested\)/);
+  assert.match(block, /No \$\{labels\[requested\]\.toLowerCase\(\)\} in this/);
+  assert.match(block, /class-tab-note/);
+  const form = between("function assetForm(", "function bondLabelParts(");
+  assert.match(form, /classFocusFor\(a, holdings, window\.bpState\?\.assetClass\)/);
+  assert.match(form, /const focusClass = focusKind === "all" \? "" : focusKind/);
+  const card = between("function classFocusCard(", "function assetForm(");
+  assert.match(card, /const accountPart = classValueBucket\(a, kind\)/);
+  assert.match(card, /if \(classRows\.length\) return ""/);
+  assert.doesNotMatch(card, /assetClassParts\(a\)\[kind\]/);
 });
 
 // The owner asked why the class page had no edit or delete. Those live on the

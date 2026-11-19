@@ -465,6 +465,8 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .holding-title{margin:0;font-size:15px}
 .holding-head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .holding-bits{font-size:12px}
+.class-tab-note{margin:0 0 10px;font-size:12px}
+.class-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
 .holding-card{margin-bottom:12px}
 .holdings-empty-note{margin-top:4px;font-size:13.5px;line-height:1.5}
 .class-ring-value{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:4px}
@@ -13649,6 +13651,28 @@ function holdingCards(rows, kind = "", { header = true, assetId = "" } = {}) {
         <span class="muted holding-bits">${bits}</span>${addButton}</div></div>
     <div class="holding-cards">${cards}</div></div>`;
 }
+// Which class tab a demat page opens on. A class tab filters live holding
+// rows, so a remembered class with none has nothing to land on and falls back
+// to All. The remembered value stays in place: it can come from a class-page
+// link or the back stack, and the same account may gain that class again.
+function classFocusFor(a, rows, requested) {
+  const kinds = ["bond", "equity", "mf"];
+  if (!kinds.includes(requested)) return "all";
+  const live = (rows || []).filter((row) => !row.disposed_at);
+  if (live.some((row) => holdingClass(row) === requested)) return requested;
+  // A folio is one class. Its account value is the fund's value even before the
+  // first row exists, and its page has no class tabs to disagree with.
+  if (isFundAccount(a) && requested === "mf") {
+    return Number(assetClassParts(a).mf) > 0 ? "mf" : "all";
+  }
+  return "all";
+}
+// The rupee value a class tab may show for an account value with no holding
+// row. Only a fund folio can claim one: a plain demat's fallback value is not
+// class evidence, so it must not put a figure beside a tab that counts zero.
+function classValueBucket(a, kind) {
+  return isFundAccount(a) && kind === "mf" ? Math.round(assetClassParts(a).mf || 0) : 0;
+}
 function holdingsBlock(rows, assetId) {
   const { live: list, sold } = splitHoldings(rows || []);
   const soldHtml = soldHoldingsHtml(sold, assetId, { esc, money, dateLabel, jsArg });
@@ -13689,8 +13713,9 @@ function holdingsBlock(rows, assetId) {
   for (const row of list) groups[holdingClass(row)].push(row);
   const filled = Object.entries(groups).filter(([, groupRows]) => groupRows.length);
   const labels = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
-  const focus = ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
+  const requested = ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
     ? window.bpState.assetClass : "all";
+  const focus = classFocusFor(asset, list, requested);
   let visible = focus === "all" ? filled : filled.filter(([kind]) => kind === focus);
   if (!visible.length) visible = filled;
   // A demat holds several classes. Opening the account from the Bonds section
@@ -13700,7 +13725,12 @@ function holdingsBlock(rows, assetId) {
   const tabKinds = isDemat && !isFolio ? ["bond", "equity", "mf"]
     : filled.map(([kind]) => kind);
   const showTabs = (isDemat && !isFolio) || filled.length > 1;
-  const tabs = showTabs ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px">
+  // A class-page link can name a class this account does not hold. Say why the
+  // page opens on All instead of leaving the person to guess.
+  const note = showTabs && requested !== "all" && focus === "all"
+    ? `<div class="muted class-tab-note">No ${labels[requested].toLowerCase()} in this
+      account, so all holdings are shown.</div>` : "";
+  const tabs = showTabs ? `${note}<div class="class-tabs">
     <button class="btn ${focus === "all" ? "primary" : ""}" onclick="bpAssetClass('all')">All
       <span class="muted">${list.length}</span></button>
     ${tabKinds.map((kind) => {
@@ -14181,8 +14211,11 @@ function valuationCard(a) {
 }
 function classFocusCard(a, holdings, kind) {
   const title = kind === "bond" ? "Bonds" : kind === "equity" ? "Equities" : "Mutual funds";
-  const rows = (holdings || []).filter((h) => holdingClass(h) === kind
-    && Number(h.value_paise) > 0)
+  // A sold row is history and the tab does not count it, so the ring must not
+  // value it either.
+  const classRows = splitHoldings(holdings || []).live
+    .filter((h) => holdingClass(h) === kind);
+  const rows = classRows.filter((h) => Number(h.value_paise) > 0)
     .sort((x, y) => Number(y.value_paise) - Number(x.value_paise));
   const addLabel = kind === "mf" ? "Add mutual fund" : kind === "equity" ? "Add equity" : "";
   const add = a?.id && addLabel
@@ -14191,7 +14224,10 @@ function classFocusCard(a, holdings, kind) {
   if (!rows.length) {
     // A folio created by an import can carry a value on the account before any
     // fund row exists. Show that value instead of "no funds" and offer the row.
-    const accountPart = Math.round(assetClassParts(a)[kind] || 0);
+    // A plain demat's fallback value is not class evidence, so it gets no bucket:
+    // the tabs count holding rows, and a rupee figure must not sit beside a tab
+    // that says zero.
+    const accountPart = classValueBucket(a, kind);
     if (accountPart > 0) {
       return `<div class="card pad class-ring-card">
         <div class="class-ring-body">
@@ -14202,6 +14238,9 @@ function classFocusCard(a, holdings, kind) {
           <div class="holding-head-actions">${add}</div>
         </div></div>`;
     }
+    // Unpriced holdings are listed below this card. Saying "No bonds" above
+    // seventeen bond cards would be false.
+    if (classRows.length) return "";
     return `<div class="card pad class-ring-card"><div class="class-ring-body">
       <h2 class="class-ring-title">${title} in this demat</h2>
       <div class="muted class-ring-note">No ${title.toLowerCase()} in this account.</div>
@@ -14250,9 +14289,9 @@ function assetForm(a, factCount, defaultCat, holdings) {
   const hideIdentity = !!a && ["demat", "bonds"].includes(cat);
   const leanHide = hideIdentity ? 'style="display:none"' : "";
   const hasHoldings = (holdings || []).length > 0;
-  const focusClass = a && cat === "demat"
-    && ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
-    ? window.bpState.assetClass : "";
+  const focusKind = a && cat === "demat"
+    ? classFocusFor(a, holdings, window.bpState?.assetClass) : "all";
+  const focusClass = focusKind === "all" ? "" : focusKind;
   const show = (cats) => cats.split(" ").includes(cat) ? "" : 'style="display:none"';
   const moneyIn = (v) => (v === null || v === undefined || v === "") ? "" : inr(v);
   const id = a ? a.id : "";
