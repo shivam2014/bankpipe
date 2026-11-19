@@ -5957,8 +5957,9 @@ window.bpStartOver = () => {
                 border-radius:14px;padding:24px;box-shadow:0 18px 50px rgba(0,0,0,.28)">
       <h2 id="bp-erase-title" style="margin:0 0 10px;font-size:1.1rem">Erase BankPipe's data from this browser?</h2>
       <p style="margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--muted,#5c6270)">
-        Removes your accounts and transactions from this browser. This cannot be undone.
-        Backups in Google Drive are not affected.
+        Removes your accounts, transactions and keys from this browser. This cannot be
+        undone, and it never asks for the database passphrase. Backups in Google Drive
+        are not affected.
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn" data-act="cancel">Cancel</button>
@@ -5982,13 +5983,19 @@ window.bpStartOver = () => {
       b.disabled = true;
       b.textContent = "Erasing…";
       const store = await import("./db.js");
-      try { await store.snapshotDb("Before erasing this browser"); } catch (e) {}
+      // A snapshot needs the open database. When it is locked there is nothing
+      // to snapshot, and erasing must never ask for the passphrase of the very
+      // database it is about to delete.
+      if (store.isUnlocked()) {
+        try { await store.snapshotDb("Before erasing this browser"); } catch (e) {}
+      }
       // Deleting the file is the difference between an erase and an empty
       // database that still asks for its old passphrase on the next visit.
       try { await store.eraseDb(); } catch (e) { console.warn("eraseDb failed", e); }
       for (const k of Object.keys(localStorage)) {
         if (k.startsWith("bankpipe.") || k.startsWith("bp.")) localStorage.removeItem(k);
       }
+      b.textContent = "Erased — reloading…";
       location.replace("/");
     }
   });
@@ -15744,6 +15751,8 @@ function showDbUnlock() {
           autofocus onkeydown="if(event.key==='Enter'){event.preventDefault();bpUnlockDb();}"></label></div>
       <div id="dberr" style="color:var(--red);font-size:12.5px;margin-top:10px"></div>
       <div style="margin-top:14px"><button class="btn" onclick="bpUnlockDb()">Unlock</button></div>
+      <p class="muted import-note">Forgot it, or erased this
+        browser? <a href="backup.html">Restore a backup</a>.</p>
     </div>`;
 }
 window.bpUseSample = () => {
@@ -15767,7 +15776,8 @@ function showDbSetup() {
       <div id="dberr" style="color:var(--red);font-size:12.5px;margin-top:10px"></div>
       <div style="margin-top:14px"><button class="btn" onclick="bpCreateDb()">
         Create encrypted database</button></div>
-      <p class="muted" style="font-size:12.5px;margin-top:12px">Just looking?
+      <p class="muted import-note">Have a backup file?
+        <a href="backup.html">Restore it</a>. Just looking?
         <a href="#" onclick="bpUseSample();return false">Open the sample portfolio</a>
         &mdash; no passphrase needed.</p>
     </div>`;
