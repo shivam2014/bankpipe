@@ -228,3 +228,45 @@ test("a folio with a stray bond row is listed only under funds", () => {
   assert.deepEqual(sections.map((s) => s.id), ["mf"]);
   assert.equal(sections[0].total, 100);
 });
+
+// The owner asked why the class page had no edit or delete. Those live on the
+// account page, so the group header must read as the way there. One control,
+// naming the account: a second destructive control on this page would be a
+// delete for a security, not for the account.
+test("a class group header is one control that opens its account", () => {
+  const src = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const start = src.indexOf("const groupHtml = groups.map");
+  const end = src.indexOf("const countBits", start);
+  assert.ok(start > 0 && end > start, "the class group renderer is in index.html");
+  const block = src.slice(start, end);
+  assert.equal((block.match(/<a\b/g) || []).length, 1,
+    "the group header has exactly one focusable control");
+  assert.equal((block.match(/<button\b/g) || []).length, 0,
+    "the header adds no button beside the name");
+  assert.equal((block.match(/tabindex=/g) || []).length, 0,
+    "the header adds no second focus stop");
+  assert.equal((block.match(/onclick="bpAsset\(/g) || []).length, 1,
+    "only the one control opens the account");
+  assert.match(block,
+    /bpAsset\(\$\{jsArg\(g\.asset\.id\)\},\$\{jsArg\(classKind\)\}\)/);
+  assert.match(block, /class-group-open">Open account/);
+  assert.match(block, /Rename, edit or delete this account on its page\./);
+  assert.doesNotMatch(block, /bpAssetDelete/);
+});
+
+test("the class page sends account delete to the account page and never renders it", () => {
+  const src = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const start = src.indexOf("async function renderCategory()");
+  const end = src.indexOf("function staleImport(", start);
+  assert.ok(start > 0 && end > start);
+  const page = src.slice(start, end);
+  assert.doesNotMatch(page, /bpAssetDelete/,
+    "the class page has no account-delete handler");
+  assert.match(page, /class-group-note/,
+    "one line says where rename, edit and delete live");
+  const cardStart = src.indexOf("function holdingCardHtml");
+  const cardEnd = src.indexOf("function holdingCards", cardStart);
+  assert.ok(cardStart > 0 && cardEnd > cardStart);
+  assert.doesNotMatch(src.slice(cardStart, cardEnd), /bpAssetDelete/,
+    "a holding card removes the holding, never the account");
+});
