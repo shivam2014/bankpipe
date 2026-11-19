@@ -68,6 +68,7 @@ const pageScript = (breakId = "") => `(async () => {
           box: box(img),
           loaded: img.complete && img.naturalWidth > 0,
           natural: [img.naturalWidth, img.naturalHeight],
+          fit: getComputedStyle(img).objectFit,
           src: img.getAttribute("src"),
         } : null,
       };
@@ -85,11 +86,15 @@ function check(state, { breakId = "" } = {}) {
   }
   const heights = state.tiles.map((tile) => tile.box.height);
   const tallest = Math.max(...heights);
+  const plateWidth = state.viewport <= 430 ? 82 : 92;
   if (tallest < 44) wrong.push(`tile height ${tallest} is under the 44px touch floor`);
   if (tallest - Math.min(...heights) > 0.5) {
     wrong.push(`tiles are not one height: ${JSON.stringify(heights)}`);
   }
   for (const tile of state.tiles) {
+    if (tile.box.height !== 44) {
+      wrong.push(`${tile.id} tile is ${tile.box.height}px, want 44`);
+    }
     if (!tile.label || !tile.where) wrong.push(`${tile.id} lost its text label`);
     if (tile.id === breakId) {
       if (tile.img) wrong.push(`${tile.id} still holds an image after the missing file`);
@@ -105,8 +110,11 @@ function check(state, { breakId = "" } = {}) {
     if (!tile.img.src?.startsWith("broker-logos/")) {
       wrong.push(`${tile.id} mark is not bundled: ${tile.img.src}`);
     }
-    if (tile.img.box.height !== 20) {
-      wrong.push(`${tile.id} mark height ${tile.img.box.height}, want 20`);
+    if (tile.img.box.width !== plateWidth || tile.img.box.height !== 24) {
+      wrong.push(`${tile.id} plate is ${tile.img.box.width}x${tile.img.box.height}, want ${plateWidth}x24`);
+    }
+    if (tile.img.fit !== "contain") {
+      wrong.push(`${tile.id} mark fit is ${tile.img.fit}, want contain`);
     }
   }
   return wrong;
@@ -185,8 +193,8 @@ try {
       }
     }
   }
-  console.log("broker picker: four marks at one height, 44px tiles, text fallback keeps "
-    + "the row height · 390/1280 light and dark");
+  console.log("broker picker: four marks on a 92x24 plate (82x24 below 430px), 44px tiles, "
+    + "text fallback keeps the row height · 390/768/1280 light and dark");
 } finally {
   server.child.kill();
   rmSync(dir, { recursive: true, force: true });

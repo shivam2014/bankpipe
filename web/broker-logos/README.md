@@ -12,5 +12,6 @@ mark implies no endorsement.
 | `icici-direct.png` | `icicidirect.com/Content/images/favicon.ico` (the site's icon, which is coloured; its header wordmark is white only) | 48 × 48, 2 KB |
 
 Fetched on 2026-11-19. The marks are not recoloured, cropped or redrawn. Each
-one sits on the white plate in `.broker-tile img`, which is the same treatment
-DigiFInn already had.
+one sits on a white 92 × 24 plate (82 × 24 below 430px) and is fitted inside it
+with `object-fit: contain`, so the proportions never change and the labels start
+at the same place.
