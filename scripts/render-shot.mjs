@@ -43,7 +43,7 @@ const CHROME_PATHS = [
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
 ];
 
-function chromePath() {
+export function chromePath() {
   for (const path of CHROME_PATHS) {
     if (path && existsSync(path)) return path;
   }
@@ -68,9 +68,9 @@ export function freePort() {
   });
 }
 
-const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+export const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
-async function devtoolsTarget(port) {
+export async function devtoolsTarget(port) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     await sleep(200);
     try {
@@ -82,7 +82,7 @@ async function devtoolsTarget(port) {
   throw new Error("render-shot: Chrome did not open a devtools target.");
 }
 
-function connection(url) {
+export function connection(url) {
   const socket = new WebSocket(url);
   let nextId = 1;
   const pending = new Map();
