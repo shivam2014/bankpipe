@@ -1,15 +1,13 @@
 #!/usr/bin/env node
-// The inbox entry after a wrong PDF password: "Try the password again" as the
-// primary action, Remove as a secondary button beside it, and no attempt limit.
+// The locked PDF row after a wrong password: the field stays in the row, the
+// retry is the primary action, Remove is the secondary, and the page line never
+// repeats the sentence. Four wrong attempts still leave the fifth open.
 //
 // Drops web/fixtures/import/pdf/locked-synthetic.pdf through the page's own
-// inbox, types a wrong password four times through the real gate, and fails
-// unless the fifth attempt is still offered. A second pass unlocks once to prove
-// the same entry is re-read instead of duplicated.
+// inbox, so the real reader and the real row are what is checked. Every name
+// here is synthetic.
 //
 //   node scripts/render-import-password.mjs [--out-dir build/renders]
-//
-// Writes four screenshots: 390 and 1280, light and dark. Synthetic data only.
 
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -27,10 +25,10 @@ const HELP = `usage: node scripts/render-import-password.mjs [--out-dir build/re
 
 const WRONG = "not-the-password";
 const RIGHT = "Synthetic1";
-const PAGE_LINE = PDF_PASSWORD_WRONG;
 
 const HELPERS = `
   const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+  const text = (node) => (node?.textContent || "").replace(/\\s+/g, " ").trim();
   const waitFor = async (read, label) => {
     for (let tries = 0; tries < 200; tries += 1) {
       const value = read();
@@ -39,46 +37,39 @@ const HELPERS = `
     }
     throw new Error("timed out waiting for " + label);
   };
-  const gate = () => document.getElementById("import-inbox-pw");
-  const gateGo = () => document.getElementById("import-inbox-pw-go");
-  const retryButton = () => [...document.querySelectorAll("#import-inbox-host .btn")]
-    .find((button) => button.textContent.trim() === "Try the password again");
-  const entryCard = () => [...document.querySelectorAll("#import-inbox-host .import-wrong")]
-    .find((card) => card.querySelector("b")?.textContent.includes("locked-synthetic.pdf"));
   const entryOf = () => (window.bpImportInbox.entries || [])
-    .find((item) => item.name === "locked-synthetic.pdf");
+    .find((item) => item.name === "cdsl-cas-locked-synthetic.pdf");
+  const row = () => [...document.querySelectorAll("#import-inbox-host .import-row")]
+    .find((item) => text(item.querySelector(".import-row-name"))
+      .includes("cdsl-cas-locked-synthetic.pdf"));
+  const field = () => row()?.querySelector(".import-row-pw input[type=password]");
+  const primary = () => [...(row()?.querySelectorAll(".btn") || [])]
+    .find((button) => /^(Unlock|Try the password again)$/.test(text(button)));
+  const pill = () => text(row()?.querySelector(".import-row-pill"));
   const dropLocked = async () => {
     const bytes = new Uint8Array(await (await fetch(
       "fixtures/import/pdf/locked-synthetic.pdf")).arrayBuffer());
+    window.bpImportInbox.entries.length = 0;
     window.bpImportInboxAdd([
-      new File([bytes], "locked-synthetic.pdf", { type: "application/pdf" }),
+      new File([bytes], "cdsl-cas-locked-synthetic.pdf", { type: "application/pdf" }),
     ]).catch(() => {});
-    await waitFor(gate, "the first password prompt");
+    await waitFor(field, "the inline password field");
   };
   const guess = async (password) => {
-    gate().value = password;
-    gateGo().click();
-    await sleep(250);
-  };
-  // One wrong guess, through the gate if it is open or through the entry's own
-  // retry action if the reader has handed control back.
-  const wrongAttempt = async (attempt) => {
-    if (!gate()) {
-      const retry = await waitFor(retryButton, "the retry action before attempt " + attempt);
-      retry.click();
-      await waitFor(gate, "the password prompt before attempt " + attempt);
-    }
-    await guess(${JSON.stringify(WRONG)});
-    const open = Boolean(gate());
-    const retry = Boolean(retryButton());
-    if (!open && !retry) {
-      throw new Error("no way to try again after wrong attempt " + attempt);
-    }
-    const nextHeading = open
-      ? (document.querySelector("#import-inbox-gate .import-password b")
-        ?.textContent.trim() || "")
-      : "";
-    return { open, retry, nextHeading };
+    const input = await waitFor(field, "the password field");
+    input.value = password;
+    primary().click();
+    await sleep(350);
+    await waitFor(() => {
+      const entry = entryOf();
+      return entry && entry.status === "locked" && field();
+    }, "the row to keep its field after a wrong password");
+    return {
+      field: !!field(),
+      pill: pill(),
+      primary: text(primary()),
+      message: row()?.querySelector(".import-row-note.error")?.textContent?.trim() || "",
+    };
   };
 `;
 
@@ -96,99 +87,77 @@ const WRONG_BODY = `
   await dropLocked();
   const attempts = [];
   for (let attempt = 1; attempt <= 4; attempt += 1) {
-    attempts.push(await wrongAttempt(attempt));
+    attempts.push(await guess(${JSON.stringify(WRONG)}));
   }
-  await waitFor(() => {
-    const entry = entryOf();
-    return entry && entry.status === "locked"
-      && !document.getElementById("import-inbox-status").textContent.trim();
-  }, "the locked entry with a quiet page line");
-
-  const card = entryCard();
-  if (!card) throw new Error("the locked entry card is missing");
-  const buttons = [...card.querySelectorAll(".import-actions .btn")];
-  const primary = card.querySelector(".import-actions .btn.primary");
-  const remove = buttons.find((button) => button.textContent.trim() === "Remove");
-  if (window.innerWidth >= 720) {
-    document.getElementById("import-inbox-host").scrollIntoView({ block: "start" });
-    window.scrollBy(0, -70);
-  } else {
-    card.scrollIntoView({ block: "center" });
-  }
-
+  const entry = entryOf();
+  const input = field();
+  document.querySelector(".import-queue-card")?.scrollIntoView({ block: "start" });
+  window.scrollBy(0, -70);
   return JSON.stringify({
     attempts: attempts.length,
-    everyAttemptHadAWay: attempts.every((item) => item.open || item.retry),
-    repromptHeadings: attempts.filter((item) => item.open)
-      .map((item) => item.nextHeading).join(" | "),
+    everyAttemptHadAField: attempts.every((item) => item.field),
+    everyAttemptSaidRetry: attempts.every((item) => item.primary === "Try the password again"),
     entries: (window.bpImportInbox.entries || [])
-      .filter((item) => item.name === "locked-synthetic.pdf").length,
-    status: entryOf().status,
-    message: card.querySelector(".muted")?.textContent.trim() || "",
-    primary: primary?.textContent.trim() || "",
-    primaryClass: primary?.className || "",
-    removeClass: remove?.className || "",
-    actions: buttons.map((button) => button.textContent.trim()).join(" | "),
+      .filter((item) => item.name === "cdsl-cas-locked-synthetic.pdf").length,
+    status: entry.status,
+    message: entry.error,
+    pill: pill(),
+    input: !!input,
+    hint: text(row()?.querySelector(".import-row-pw .import-row-note")).split(" · ")[0],
     pageLine: document.getElementById("import-inbox-status").textContent.trim(),
-    gateOpen: Boolean(gate()),
-    retryOffered: Boolean(retryButton()),
+    actions: [...row().querySelectorAll(".import-row-pw .btn")].map(text).join(" | "),
   });
 `;
 
 const UNLOCK_BODY = `
   await dropLocked();
-  await wrongAttempt(1);
-  await wrongAttempt(2);
-  await waitFor(() => !gate() && retryButton(), "the locked entry");
-  retryButton().click();
-  await waitFor(gate, "the retry prompt");
-  await guess(${JSON.stringify(RIGHT)});
+  await guess(${JSON.stringify(WRONG)});
+  await waitFor(() => entryOf().status === "locked" && field(), "the locked row");
+  const input = field();
+  input.value = ${JSON.stringify(RIGHT)};
+  primary().click();
   await waitFor(() => {
     const entry = entryOf();
     return entry && entry.status !== "locked" && entry.status !== "reading"
       && entry.status !== "queued";
   }, "the re-read of the unlocked file");
-
-  const entry = entryOf();
-  entryCard()?.scrollIntoView({ block: "center" });
+  document.querySelector(".import-queue-card")?.scrollIntoView({ block: "start" });
+  window.scrollBy(0, -70);
   return JSON.stringify({
     entries: (window.bpImportInbox.entries || [])
-      .filter((item) => item.name === "locked-synthetic.pdf").length,
-    status: entry.status,
-    locked: entry.status === "locked",
-    retryGone: !retryButton(),
-    message: entry.error || "",
+      .filter((item) => item.name === "cdsl-cas-locked-synthetic.pdf").length,
+    status: entryOf().status,
+    locked: entryOf().status === "locked",
+    fieldGone: !field(),
   });
 `;
 
 const CHECKS = {
   attempts: 4,
-  everyAttemptHadAWay: true,
-  repromptHeadings: "Try the password again | Try the password again",
+  everyAttemptHadAField: true,
+  everyAttemptSaidRetry: true,
   entries: 1,
   status: "locked",
-  message: PAGE_LINE,
-  primary: "Try the password again",
-  primaryClass: "btn primary",
-  removeClass: "btn",
-  actions: "Try the password again | Remove",
+  message: PDF_PASSWORD_WRONG,
+  pill: "Needs password",
+  input: true,
+  hint: "Usually your PAN in capitals",
   pageLine: "",
-  gateOpen: false,
-  retryOffered: true,
+  actions: "Try the password again | Remove",
 };
 
 const UNLOCK_CHECKS = {
   entries: 1,
   status: "error",
   locked: false,
-  retryGone: true,
+  fieldGone: true,
 };
 
 const SHOTS = [
-  { width: 390, height: 900, theme: "dark" },
-  { width: 390, height: 900, theme: "light" },
-  { width: 1280, height: 900, theme: "dark" },
-  { width: 1280, height: 900, theme: "light" },
+  { width: 390, height: 1200, theme: "dark" },
+  { width: 390, height: 1200, theme: "light" },
+  { width: 1280, height: 1000, theme: "dark" },
+  { width: 1280, height: 1000, theme: "light" },
 ];
 
 function parseArgs(argv) {
@@ -265,12 +234,11 @@ try {
   const unlockedOut = join(args.outDir, "import-password-unlocked-390-light.png");
   const unlocked = await capture({
     page, out: unlockedOut, script: unlockScript, wait: 2200,
-    width: 390, height: 900, theme: "light",
+    width: 390, height: 1200, theme: "light",
   });
   verify(JSON.parse(unlocked.value), UNLOCK_CHECKS, "the unlocked retry");
   console.log(unlockedOut);
-  console.log("password: 4 wrong guesses, retry still offered · "
-    + "primary Try the password again · secondary Remove · page line quiet");
+  console.log("password: 4 wrong guesses, the field stays · retry primary · Remove secondary");
 } finally {
   server.child.kill();
   rmSync(dir, { recursive: true, force: true });

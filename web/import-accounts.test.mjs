@@ -353,10 +353,10 @@ test("the status line renders the holding count before the rest of the metadata"
   assert.match(html, /importAccountSummary\(row\.account, row\.holdings, dateLabel\)/);
 });
 
-test("the list says what it holds and refreshes when Import opens", () => {
-  assert.match(html, /<h2>Securities accounts<\/h2>/);
-  assert.match(html, /No securities accounts yet/);
+test("Import still reads the accounts the rows will target", () => {
   assert.match(html, /bpImportAccountsLoad\?\.\(true\)/);
+  assert.doesNotMatch(html, /<h2>Securities accounts<\/h2>/,
+    "the account card is no longer a second job on the import screen");
 });
 
 // --- what one account is missing --------------------------------------------
@@ -690,17 +690,18 @@ test("the inbox groups resolved files into plans, not family bundles", () => {
   assert.match(html, /function bpImportPlanForBundles\(/);
 });
 
-test("a plan with nothing to write says why and disables its primary", () => {
-  assert.match(html, /const noWork = plan\.noWorkCopy \|\| null/);
-  assert.match(html, /plan\.noWork \? "Nothing to import yet"/);
-  assert.match(html, /plan\.ready && !state\.applying && !plan\.noWork/);
-  assert.match(html, /bpImportNoWorkAccountHtml\(bundle\)/);
-  assert.match(html, /noWork\.next/);
+test("a plan with nothing to write says so on its own row and offers no import", () => {
+  const status = between("function bpImportPlanStatus", "function bpImportPlanAccountDetails");
+  assert.match(status, /if \(plan\.noWork\)/);
+  assert.match(status, /label: "Nothing new"/);
+  assert.match(status, /plan\.noWorkCopy\?\.reason/);
   assert.match(html, /const noWork = !splitCas && !extraBlocked/);
   assert.match(html, /const removal = bpImportRemovals\(head\)/);
   assert.match(html, /\+ \(composed\.summary\.ask \|\| 0\) \+ removal\.count/);
   assert.match(html, /writes === 0 && !identityChange/);
-  assert.match(html, /const reviewable = plans\.some\(\(plan\) => !plan\.noWork\)/);
+  const actions = between("function bpImportPlanActions", "function bpImportPlanRowHtml");
+  assert.doesNotMatch(actions, /status\.key === "empty"[\s\S]{0,80}btn primary/,
+    "a plan with nothing to write never gets an Import action");
 });
 
 test("the pending card has one reason, one row per decision, and no not-change block", () => {
@@ -763,9 +764,10 @@ test("dropping one format drops the copy it was folded into", () => {
   assert.match(entry, /duplicate\.entryId/);
 });
 
-test("the inbox renders one card per plan and one confirmation per card", () => {
-  assert.match(html, /const plans = state\.plans \|\| \[\]/);
-  assert.match(html, /\$\{plans\.map\(bpImportPlanHtml\)\.join\(""\)\}/);
+test("the inbox renders one row per file and one confirmation per plan", () => {
+  const render = between("function bpImportInboxRender", "function bpImportBatchState");
+  assert.match(render, /plan\.files\.map\(\(file, index\)/);
+  assert.match(render, /bpImportPlanRowHtml\(plan, file, index === 0\)/);
   assert.equal(/bpImportApplyBundle/.test(html), false,
     "the per-family-bundle confirmation is gone");
   const apply = between("window.bpImportApplyPlan = async", "window.bpImportApplyAll");
@@ -848,28 +850,25 @@ test("a movement statement's card is gated on the broker that funds its disposal
   assert.match(apply, /if \(plan\.gate\)/);
 });
 
-test("the batch closes through the ready flag and reports the net", () => {
-  const render = between("function bpImportInboxRender", "async function bpImportInboxReadOne");
-  assert.match(render, /plans\.length > 0 && plans\.every\(\(plan\) => plan\.ready\)/);
-  const all = between("window.bpImportApplyAll = async", "window.bpImportUseWrongCas");
-  assert.doesNotMatch(all, /plan\.gate/,
-    "Import all is closed by the ready flag, not a gate special case");
-  assert.match(all, /plan\.net\?\.added/);
-  assert.match(all, /plan\.net\?\.updated/);
-  assert.match(all, /plan\.net\?\.history/);
+test("the batch imports only the rows that are ready and reports each one", () => {
+  const batch = between("window.bpImportQueueImport = async", "// One password gate exists");
+  assert.match(batch, /filter\(\(plan\) => plan\.ready && !plan\.noWork\)/);
+  assert.match(batch, /filter\(\(entry\) =>\s*entry\.status === "ready" && !entry\.duplicateOf\)/);
+  assert.match(batch, /await window\.bpBatchImport\?\.\(\)/);
+  assert.match(batch, /await window\.bpImportApplyPlan\(plan\.key, \{ silent: true \}\)/);
+  const receipt = between("const receiptText = keptOnly", "if \(!opts.silent\)");
+  assert.match(receipt, /state\.receipts\.push/);
 });
 
-test("the batch offers Import all only when every plan can run", () => {
-  // A dead primary that keeps the accent fill competes with the gate message.
-  // Only the action is absent until it can act.
-  const render = between("function bpImportInboxRender", "async function bpImportInboxReadOne");
-  assert.match(render, /\$\{allReady\s*\n?\s*\? `<button class="btn primary"/,
-    "the button is rendered by the ready flag, not disabled by it");
-  assert.doesNotMatch(render, /class="btn primary" disabled[\s\S]{0,60}Import all/,
-    "there is no disabled Import all left in the batch");
-  assert.match(render, /bpImportBatchState\(plans\)/);
-  assert.doesNotMatch(render, /Selection order does not matter|Import all appears when/,
-    "the bar states its state and explains nothing about itself");
+test("the bar counts ready files, disables at zero and never blocks on a locked one", () => {
+  const bar = between("function bpImportBatchBarHtml", "function bpImportInboxRender");
+  assert.match(bar, /importButtonLabel\(counts\.ready\)/);
+  assert.match(bar, /counts\.ready && !busy \? "" : " disabled"/);
+  assert.match(bar, /waitingText\(counts\)/);
+  const counts = between("function bpImportQueueCounts", "function bpImportBatchBarHtml");
+  assert.match(counts, /entry\.status === "locked"/);
+  assert.match(counts, /counts\.password/,
+    "a locked file is named but never added to the ready count");
 });
 
 test("the batch says ready or names the choice", () => {
@@ -985,38 +984,42 @@ test("a CAS with no readable account number does not attach to a fund account", 
     { forCas: true }).matches, []);
 });
 
-test("the Import intro is the three file types, not a reassurance paragraph", () => {
-  const intro = between('<div class="import-intro">', '<div class="card pad import-inbox-card">');
-  assert.match(intro, /Files you can add/);
-  assert.match(intro, /Depository statement \(CAS\) — CDSL or NSDL, after month end/);
-  assert.match(intro, /Broker holdings report — Zerodha, Motilal Oswal, DigiFInn/);
-  assert.match(intro, /Bank statement — CSV, XLSX or PDF/);
-  assert.doesNotMatch(intro, /logins, OTPs and PINs/i);
-  assert.doesNotMatch(intro, /Nothing is saved until you confirm/);
-  assert.equal((html.match(/Bank and broker logins, OTPs and PINs are never\s+requested\./g) || [])
-    .length, 1, "the login line survives once, inside What can I add?");
+test("the shell is one promise, one drop zone and five teaching bubbles", () => {
+  const shell = between("const IMPORT_TYPE_GUIDES", "function renderImport");
+  for (const label of ["CAS", "Zerodha", "Motilal", "ICICI", "DigiFInn"]) {
+    assert.match(shell, new RegExp(`label: "${label}"`), `${label} has a bubble`);
+  }
+  assert.equal((shell.match(/label: "/g) || []).length, 5, "exactly five bubbles");
+  const page = between("function renderImport", "function slug(s)");
+  assert.match(page, /class="import-promise"/);
+  assert.match(page, /id="import-inbox-files"/);
+  assert.match(page, /class="import-bank-hint"/);
+  assert.match(page, /id="import-inbox-host"/);
+  assert.doesNotMatch(page, /import-intro|Securities accounts|Bank statements<\/h2>/,
+    "the old list, account card and second drop zone are gone");
 });
 
-test("What can I add is the download steps and the format, not the rationale", () => {
-  const guide = between('<details class="import-help" id="import-help" open>',
-    '<div id="import-inbox-status"');
-  assert.match(guide, /<b>Depository statement \(CAS\) PDF<\/b>/);
-  assert.match(guide, /Format: PDF\. Password: your PAN/);
-  assert.match(guide, /<b>Bank statement CSV, XLSX or PDF<\/b>/);
-  assert.match(guide, /not a\s+scan/);
-  // One broker surface, not a wall of every broker's steps above a second copy.
-  assert.match(guide, /\$\{brokerImportBodyHtml\(\)\}/);
-  assert.equal((html.match(/\$\{brokerImportBodyHtml\(\)\}/g) || []).length, 1,
-    "the broker picker renders in one place");
-  assert.doesNotMatch(guide, /A broker report can start an account on its own/);
-  assert.doesNotMatch(guide, /It fills invested for matching ISINs/);
-  assert.doesNotMatch(guide, /market price and market value are ignored/);
-  assert.doesNotMatch(guide, /One demat holds bonds/);
+test("a bubble opens one short guide and never filters the drop zone", () => {
+  const guide = between("function bpImportTypeGuideHtml", "window.bpImportTypeToggle");
+  assert.match(guide, /data-guide="\$\{guide\.key\}" hidden/);
+  assert.match(guide, /guide\.body/);
+  assert.match(guide, /guide\.password/);
+  assert.match(guide, /Then drop it above/);
+  const toggle = between("window.bpImportTypeToggle", "function renderImport");
+  assert.match(toggle, /window\.bpImportTypeOpen === key \? "" : key/);
+  assert.match(toggle, /aria-expanded/);
+  assert.match(toggle, /guide\.hidden = guide\.dataset\.guide !== open/);
+  assert.doesNotMatch(toggle, /import-inbox-files|files|accept=/,
+    "a bubble never changes what the drop zone accepts");
 });
 
-test("the guide ships open and carries no queue state", () => {
-  assert.match(html, /<details class="import-help" id="import-help" open>/);
-  assert.doesNotMatch(html, /helpManual|bpImportHelpSync|bpImportStagedCount|importGuideOpen/);
+test("the old per-type picker and its file inputs are not in the shell", () => {
+  const page = between("function renderImport", "function slug(s)");
+  assert.doesNotMatch(page, /What can I add/);
+  assert.doesNotMatch(page, /brokerImportBodyHtml/);
+  assert.doesNotMatch(page, /bond-cas-input/);
+  assert.equal((html.match(/id="import-inbox-files"/g) || []).length, 1,
+    "the screen keeps one primary file input");
 });
 
 test("the picker carries its broker's steps and format, once", () => {

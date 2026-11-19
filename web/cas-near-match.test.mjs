@@ -12,6 +12,7 @@ import { folioAdoptionPlan, folioKey, folioTail, isFolioAccount, normalizeFolio 
   from "./folio.js";
 import { casSoldLines } from "./sold-view.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
+import { createProposal } from "./import-queue.js";
 
 // The inbox planner and its card live in index.html. This reads the page and
 // runs its own resolver and card, with the shipped matcher and writers. The
@@ -54,6 +55,7 @@ function pageHarness(state) {
     "linkedCostPortfolios", "planLinkedSales", "casPreviewAccounts",
     "movementAccountGap", "casSafety", "isFolioAccount", "normalizeFolio",
     "folioTail", "esc", "jsArg", "money", "casSoldLines", "casHoldingLabel", "boId",
+    "createProposal",
     `${source}
      return { bpImportResolveCas, bpImportCasRow, bpImportCasAccountsHtml };`,
   )(accountMatches, planMerge, accountFieldState,
@@ -61,7 +63,8 @@ function pageHarness(state) {
     () => state, folioAdoptionPlan, folioKey, casClosedRow, casManualTargetEvents,
     casWritableHoldings, casReplacePlan, linkedCostPortfolios, planLinkedSales,
     casPreviewAccounts, movementAccountGap, casSafety, isFolioAccount,
-    normalizeFolio, folioTail, esc, jsArg, money, casSoldLines, casHoldingLabel, boId);
+    normalizeFolio, folioTail, esc, jsArg, money, casSoldLines, casHoldingLabel, boId,
+    createProposal);
   return page;
 }
 
