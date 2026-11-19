@@ -1434,8 +1434,8 @@ import { casClosedRow, casCostedImportHoldings, casDematRows, casGroupByAsset,
   linkedCostPortfolios, planLinkedSales } from "./cas-apply.js";
 import { casSoldLines, soldHoldingsHtml, splitHoldings } from "./sold-view.js";
 import { boId } from "./bo-id.js";
-import { folioAdoptionPlan, folioKey, folioOwnership, folioTail, isFolioAccount,
-  normalizeFolio } from "./folio.js";
+import { duplicateFundPositions, folioAdoptionPlan, folioKey, folioOwnership,
+  folioTail, isFolioAccount, normalizeFolio } from "./folio.js";
 import { guessKind, sniffKind, IMPORT_KINDS, IMPORT_KIND_LABEL } from "./import-kind.js";
 import { detectImportFile, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, mergeRowsFromPlan, planImportChains, movementGate, statementAccounts,
@@ -7227,6 +7227,14 @@ function bpImportResolveBroker(bundle) {
   bundle.accounts = targetId ? [targetId] : [];
 }
 
+// A positive fund row belongs to its folio, never to the demat. The writer
+// routes it to the folio, or nowhere when the statement printed no folio, so
+// the demat's plan must not read it as a row the import will store.
+function bpImportDematPlanRows(rows) {
+  return (rows || []).filter((row) =>
+    !(row.category === "mf" && Number(row.quantity) > 0));
+}
+
 function bpImportResolveCas(bundle) {
   const state = bpImportInboxState();
   const accounts = (state.accountRows || []).map((row) => ({
@@ -7341,6 +7349,7 @@ function bpImportResolveCas(bundle) {
     // has no position to route and stays with the demat the statement printed.
     const rows = casWritableHoldings((account.rows || []).filter((row) =>
       !(row.category === "mf" && row.folio && Number(row.quantity) > 0)), importDay);
+    const planRows = bpImportDematPlanRows(rows);
     const match = accountMatches({
       accountKey: account.boId, accountKind: "bo", rows,
     }, accounts, { forCas: true });
@@ -7360,12 +7369,12 @@ function bpImportResolveCas(bundle) {
       if (chosen && isFolioAccount(chosen)) targetId = "";
     }
     const targetRow = targetId ? bpImportAccountRow(targetId) : null;
-    const plan = bpImportPlanFor(bundle, targetRow, rows,
+    const plan = bpImportPlanFor(bundle, targetRow, planRows,
       { kind: "bo", value: account.boId });
     const holdingsOf = (id) => accounts.find((item) => item.id === id)?.holdings || [];
     // The writer drops rows the holding plan skips. This plan reads the same
     // rows, so a skipped row cannot appear as a movement that never lands.
-    const eventRows = (rows || []).filter((row) => {
+    const eventRows = planRows.filter((row) => {
       const decision = plan?.decisions?.find((item) =>
         String(item.isin || "").toUpperCase() === String(row.isin || "").toUpperCase());
       return !decision || decision.action !== "skip";
@@ -7622,6 +7631,41 @@ function bpImportPlanDateBlocked(plan) {
     ["invalid", "future"].includes(receipt.plan?.incomingDateState));
 }
 
+// The rows a replace would delete are work, but only for a statement that
+// proved it lists the whole demat: it printed a total the rows add up to. The
+// writer needs the same proof, so a card must never offer a removal it cannot
+// perform. `wouldDrop` is the writer's own list, so the count and the value are
+// the rows it deletes, never the folio copies that stay.
+function bpImportRemovals(bundle) {
+  const none = { count: 0, paise: 0, rows: [], duplicates: [] };
+  if (bundle?.family !== "cas" || bundle.casSafety?.totalPrinted !== true) return none;
+  const rows = [];
+  const duplicates = [];
+  for (const target of bundle.casTargets || []) {
+    if (target.plan?.identityOnly || ["kept", "decide", "conflict"].includes(target.action)) {
+      continue;
+    }
+    const drop = target.eventPlan?.wouldDrop || [];
+    if (!drop.length) continue;
+    rows.push(...drop);
+    const accountRow = target.targetId ? bpImportAccountRow(target.targetId) : null;
+    if (!accountRow) continue;
+    const twins = duplicateFundPositions(accountRow.account, accountRow.holdings || [],
+      bpImportInboxState().accountRows || []);
+    const dropIsins = new Set(drop.map((row) =>
+      String(row.isin || "").toUpperCase()).filter(Boolean));
+    // Name the folio copy only when the twins are exactly the rows this removal
+    // deletes. A row kept for a recorded movement is not a duplicate to report.
+    if (twins.length && twins.every((row) => dropIsins.has(row.isin))
+      && [...dropIsins].every((isin) => twins.some((row) => row.isin === isin))) {
+      duplicates.push(...twins);
+    }
+  }
+  return { count: rows.length,
+    paise: rows.reduce((total, row) => total + (Number(row.value_paise) || 0), 0),
+    rows, duplicates };
+}
+
 function bpImportPlanForBundles(group, bundles) {
   const head = bundles[0];
   const extraBundles = bundles.slice(1);
@@ -7689,9 +7733,10 @@ function bpImportPlanForBundles(group, bundles) {
   // reason to offer a primary the writer would refuse.
   const identityChange = composed.chains.some((chain) => !!chain.accountId
     && (chain.receipts || []).some((receipt) => !!receipt.plan?.identityChange));
+  const removal = bpImportRemovals(head);
   const writes = (composed.net.added || 0) + (composed.net.updated || 0)
     + (composed.net.history || 0) + (composed.net.soldCost || 0)
-    + (composed.summary.ask || 0);
+    + (composed.summary.ask || 0) + removal.count;
   // A plan with no row, no ask and no identity to attach is not an import. A
   // tradebook alone is the common case: it can only fill a date on a holding
   // another file names.
@@ -7714,6 +7759,10 @@ function bpImportPlanForBundles(group, bundles) {
     acceptAsk,
     summary: composed.summary,
     net: composed.net,
+    removals: removal.count,
+    removalPaise: removal.paise,
+    removalRows: removal.rows,
+    removalDuplicates: removal.duplicates,
     warnings: [...new Set([...(head.plan?.warnings || []), ...composed.warnings,
       ...(movements ? [hasDebit
         ? "This statement records disposals. A broker report for the same account "
@@ -8167,11 +8216,36 @@ function bpImportUpdateLine(count, names = []) {
   return `Update ${count} holding${count === 1 ? "" : "s"}`;
 }
 
+// What the card says about a replace before it imports. The fund sentence is
+// the account page's own wording: both amounts, the demat copy and the folio
+// that already holds the position. Every other removal keeps the row count and
+// the value, and never names a row the writer keeps.
+function bpImportRemovalLine(plan) {
+  const count = plan.removals || 0;
+  const rows = plan.removalRows || [];
+  const dropIsins = new Set(rows.map((row) =>
+    String(row.isin || "").toUpperCase()).filter(Boolean));
+  const twins = (plan.removalDuplicates || [])
+    .filter((row) => dropIsins.has(row.isin));
+  const funds = twins.length && [...dropIsins].every((isin) =>
+    twins.some((row) => row.isin === isin));
+  if (funds) {
+    const labels = [...new Set(twins.map((row) => row.folioLabel).filter(Boolean))];
+    const there = twins.reduce((total, row) => total + (Number(row.folioPaise) || 0), 0);
+    return `This demat also holds ${count} fund row${count === 1 ? "" : "s"} already in `
+      + `${labels.join(", ")}: ${money(plan.removalPaise)} here and ${money(there)} `
+      + "in the folio. Remove the demat copy so the position is counted once.";
+  }
+  return `Remove ${count} demat holding${count === 1 ? "" : "s"} the statement `
+    + `does not name (${money(plan.removalPaise)})`;
+}
+
 function bpImportPlanItems(plan) {
   const bundle = plan.head;
   const net = plan.net || {};
   const summary = plan.summary || {};
   const change = [];
+  if (plan.removals) change.push(bpImportRemovalLine(plan));
   if (net.added) change.push(`Add ${net.added} holding${net.added === 1 ? "" : "s"}`);
   let updateMore = "";
   if (net.updated) {
@@ -8243,6 +8317,17 @@ function bpImportNoWorkAccountHtml(bundle) {
     lines.push("No account is created: this tradebook names no holding to create one from.");
   }
   return lines.map((line) => `<li>${esc(line)}</li>`).join("");
+}
+
+// The primary action's label when a replace removes rows. A removal is the
+// destructive half, so it is named before the import it rides with.
+function bpImportPrimaryLabel(plan, planned = 0) {
+  const count = plan?.removals || 0;
+  if (!count) return "";
+  if (planned) {
+    return `Import ${planned} ${planned === 1 ? "holding" : "holdings"} and remove ${count}`;
+  }
+  return `Remove ${count} demat holding${count === 1 ? "" : "s"} and import`;
 }
 
 function bpImportPlanHtml(plan) {
@@ -8326,8 +8411,9 @@ function bpImportPlanHtml(plan) {
   const primary = askPending ? `Use the file's values · ${summary.ask}`
     : plan.noWork ? "Nothing to import yet"
       : heldFolio === "decide" ? "Choose below"
-        : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
-          : importPlanPrimary({
+        : plan.removals ? bpImportPrimaryLabel(plan, planned)
+          : heldFolio === "kept" || heldFolio === "conflict" ? "Finish without importing"
+            : importPlanPrimary({
           family: bundle.family,
           identityOnly: !!bundle.plan?.identityOnly,
           planned,
@@ -9291,7 +9377,9 @@ async function bpImportApplyCas(bundle, opts = {}) {
     (document.getElementById("import-inbox-gate") || document.body).appendChild(host);
   }
   host.innerHTML = "";
-  const outcome = await window.bpCasCreateAndImport(key, true);
+  const removal = bpImportRemovals(bundle);
+  const outcome = await window.bpCasCreateAndImport(key, true,
+    { replaceAbsent: removal.count > 0 });
   if (!outcome?.ok) {
     bpImportInboxStatus(outcome?.reason
       || "Nothing was written. Check the account the statement names, then import again.", "bad");
@@ -11367,7 +11455,7 @@ window.bpCasManualPreview = async (hostId, assetId) => {
   host.innerHTML = casSaleHtml(casEventLines(plan), plan.conflicts || [],
     plan.warnings || []);
 };
-window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
+window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false, opts = {}) => {
   const card = (window.bpCasCards || {})[key] || {};
   const cas = card.cas || window.bpCasParsed;
   const route = card.route || window.bpCasRoute;
@@ -11613,7 +11701,7 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false) => {
       return { ok: false, reason: "Created the demat account. Import again to write the holdings." };
     }
   }
-  return window.bpCasImport(key, confirmed);
+  return window.bpCasImport(key, confirmed, opts);
 };
 window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
   const card = (window.bpCasCards || {})[key] || {};
