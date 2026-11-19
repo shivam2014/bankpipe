@@ -698,6 +698,58 @@ test("a blank cost is absent, not zero", () => {
   assert.match(sectionOf(card, "Market value"), /data-fact="market-value"/);
 });
 
+test("a cost-only lot in an at-cost account shows the cost, not a gap", () => {
+  const view = bondRowView({ ...row, id: "at-cost-1", value_paise: null,
+    value_source: "", as_of: "" });
+  const card = bondCardHtml(view, "acct-1", { atCost: true });
+  assert.match(sectionOf(card, "Market value"),
+    /data-fact="market-value"[^>]*><span class="k">Value now<\/span><span class="v ">₹ 8,00,000\.00<span class="sub ">held at cost · cost from the report · <button class="vupdate" data-bond-action="enter-value"[^>]*>Enter market value<\/button>/);
+  assert.match(sectionOf(card, "Returns"),
+    /data-fact="gain-if-sold"[^>]*><span class="k">Gain if sold now<\/span><span class="v ">—<span class="sub ">no market value yet<\/span>/);
+  assert.equal((card.match(/data-bond-action="enter-value"/g) || []).length, 1,
+    "the card can still take a market value");
+  assert.doesNotMatch(card, /not recorded/);
+  assert.doesNotMatch(card, /needs a market value/);
+  assert.deepEqual(sectionTitles(card), ["Returns", "Purchase"],
+    "a MARKET VALUE heading would name the cost a market value");
+  assert.deepEqual(factKeys(card), LIVE_KEYS);
+});
+
+test("the at-cost value names the source that supplied the cost", () => {
+  const manualRow = { ...row, id: "at-cost-manual", value_paise: null,
+    value_source: "", as_of: "", source: "manual" };
+  assert.match(bondCardHtml(bondRowView(manualRow), "acct-1", { atCost: true }),
+    /held at cost · cost entered by hand/);
+  assert.match(bondCardHtml(bondRowView({ ...manualRow, source: "cas" }), "acct-1",
+    { atCost: true }), /held at cost · cost from the CAS/);
+});
+
+test("an at-cost flag does not change a lot that has a market value", () => {
+  const card = bondCardHtml(bondRowView(row), "acct-1", { atCost: true });
+  assert.match(sectionOf(card, "Market value"),
+    /<span class="k">Market value<\/span><span class="v ">₹ 8,14,400\.00/);
+  assert.deepEqual(sectionTitles(card), BOND_SECTIONS);
+});
+
+test("a cost-only lot outside an at-cost account keeps the old wording", () => {
+  const view = bondRowView({ ...row, id: "at-cost-2", value_paise: null,
+    value_source: "", as_of: "" });
+  const card = bondCardHtml(view, "acct-1");
+  assert.match(card, /Market value<\/span><span class="v ">—<span class="sub ">not recorded · <button/);
+  assert.match(card, /Enter it/);
+  assert.match(card, /needs a market value/);
+});
+
+test("an at-cost figure survives a terms gap with no value entry", () => {
+  const view = bondRowView({ ...row, id: "at-cost-terms", label: "TEST BOND NO TERMS",
+    value_paise: null, value_source: "", as_of: "", coupon_pct: null,
+    maturity: null, coupon_source: "" });
+  const card = bondCardHtml(view, "", { atCost: true });
+  assert.match(card, /Coupon or maturity not known yet/);
+  assert.match(sectionOf(card, "Market value"),
+    /data-fact="market-value"[^>]*><span class="k">Value now<\/span>/);
+});
+
 test("the card treatment follows the missing inputs, matured wins", () => {
   assert.deepEqual(bondCardGap(bondRowView(bare)),
     { noCost: true, noTerms: true, noMarket: true, treatment: "one-line" });
