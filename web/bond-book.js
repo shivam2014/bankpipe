@@ -290,7 +290,10 @@ function heldTotalOf(v, matured) {
  * groups this list; there is no second surface.
  *
  * @param {object} v a bondRowView()
- * @param {{matured?: boolean, assetId?: string, currency?: string}} [options]
+ * @param {{matured?: boolean, assetId?: string, currency?: string, atCost?: boolean}} [options]
+ *   `atCost` says the account this lot sits in is valued at cost, so an
+ *   unpriced lot shows the cost as its value rather than a missing figure.
+ *
  * Every fact says whether its figure is actually present, so a card with a
  * fillable gap can keep what it has instead of printing a wall of dashes.
  *
@@ -300,7 +303,7 @@ function heldTotalOf(v, matured) {
  *   empty?: string}>}
  */
 export function bondFacts(v, {
-  matured = !!v.matured, assetId = "", currency = DEFAULT_CURRENCY,
+  matured = !!v.matured, assetId = "", currency = DEFAULT_CURRENCY, atCost = false,
 } = {}) {
   const money = (x) => moneyText(x, currency);
   const dateLabel = bondDateLabel;
@@ -338,16 +341,30 @@ export function bondFacts(v, {
       : v.cost !== null ? "at cost" : "";
   const anchorSub = `stays in net worth until a bank credit is matched${
     anchorSource ? ` · ${anchorSource}` : ""}`;
-  const enterValue = assetId && v.h.id
-    ? `<button class="vupdate" data-bond-action="enter-value"
-        onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">Enter it</button>`
-    : "";
-  const marketSub = v.value === null
-    ? `not recorded${enterValue ? ` · ${enterValue}` : ""}`
-    : [v.valueAsOf ? `as of ${dateLabel(v.valueAsOf)}` : "",
-        valueSourceLong].filter(Boolean).join(" · ");
   const rowSource = String(v.h.source || "").trim();
   const rowSourceKey = rowSource.toLowerCase();
+  // A cost-only lot in an at-cost account is measured by what was paid, so its
+  // value line carries the cost and names the source. The words are the account
+  // hero's own: held at cost, cost from the report.
+  const atCostValue = atCost && v.value === null && v.cost !== null;
+  const costSourceLong = rowSourceKey === "report" ? "cost from the report"
+    : rowSourceKey === "cas" ? "cost from the CAS"
+      : rowSourceKey === "manual" ? "cost entered by hand"
+        : "cost source not recorded";
+  const enterValue = assetId && v.h.id
+    ? `<button class="vupdate" data-bond-action="enter-value"
+        onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">${
+        atCostValue ? "Enter market value" : "Enter it"}</button>`
+    : "";
+  const marketSub = atCostValue
+    ? ["held at cost", costSourceLong, enterValue].filter(Boolean).join(" · ")
+    : v.value === null
+      ? `not recorded${enterValue ? ` · ${enterValue}` : ""}`
+      : [v.valueAsOf ? `as of ${dateLabel(v.valueAsOf)}` : "",
+          valueSourceLong].filter(Boolean).join(" · ");
+  // A cost figure has no market behind it, so the market-derived lines say why
+  // they are blank instead of asking for work the account deliberately skips.
+  const noMarketSub = atCostValue ? "no market value yet" : "needs a market value";
   const termsSource = rowSourceKey === "manual" ? "manual"
     : rowSourceKey === "cas" ? "CAS"
       : rowSourceKey === "report" ? "report"
@@ -433,7 +450,7 @@ export function bondFacts(v, {
       key: "gain-if-sold", label: "Gain if sold now",
       value: v.gain === null || v.gain === undefined ? "—"
         : `${v.gain < 0 ? "−" : v.gain > 0 ? "+" : ""}${money(Math.abs(v.gain))}`,
-      sub: v.gain === null || v.gain === undefined ? "needs a market value" : "",
+      sub: v.gain === null || v.gain === undefined ? noMarketSub : "",
       tone: v.gain < 0 ? "neg" : v.gain > 0 ? "pos" : "",
       present: v.gain !== null && v.gain !== undefined,
       section: "Returns", kind: "fact",
@@ -466,15 +483,15 @@ export function bondFacts(v, {
       });
     }
     facts.push({
-      key: "market-value", label: "Market value",
-      value: money(v.value), sub: marketSub,
+      key: "market-value", label: atCostValue ? "Value now" : "Market value",
+      value: money(atCostValue ? v.cost : v.value), sub: marketSub,
       actionHtml: enterValue,
-      present: v.value !== null,
+      present: atCostValue || v.value !== null,
       section: "Market value", kind: "fact",
     });
     facts.push({
       key: "per-unit", label: "Per unit", value: perUnit === null ? "—" : money(perUnit),
-      sub: perUnit === null ? "needs a market value" : "",
+      sub: perUnit === null ? noMarketSub : "",
       present: perUnit !== null,
       section: "Market value", kind: "fact",
     });
@@ -483,7 +500,7 @@ export function bondFacts(v, {
       value: v.currentYield === null || v.currentYield === undefined
         ? "—" : `${v.currentYield.toFixed(2)}%`,
       sub: v.currentYield === null || v.currentYield === undefined
-        ? "needs a market value" : "",
+        ? noMarketSub : "",
       present: v.currentYield !== null && v.currentYield !== undefined,
       section: "Market value", kind: "fact",
     });
@@ -677,14 +694,16 @@ function actionButtons(v, assetId, { matured = false } = {}) {
  * @param {object} v a bondRowView()
  * @param {string} assetId
  * @param {{matured?: boolean, currency?: string, importTarget?: string,
- *   importVia?: "broker"|"page"}} [options]
+ *   importVia?: "broker"|"page", atCost?: boolean}} [options]
+ *   `atCost` says the account values an unpriced lot at its cost; the value
+ *   line then shows that cost instead of an empty market figure.
  */
 export function bondCardHtml(v, assetId, {
   matured = false, currency = DEFAULT_CURRENCY, importTarget = assetId,
-  importVia = "broker",
+  importVia = "broker", atCost = false,
 } = {}) {
   const money = (x) => moneyText(x, currency);
-  const facts = bondFacts(v, { matured, assetId, currency });
+  const facts = bondFacts(v, { matured, assetId, currency, atCost });
   const sources = facts.find((f) => f.kind === "sources");
   const issuer = String(v.h.issuer || "").trim();
   const badge = matured
@@ -693,6 +712,7 @@ export function bondCardHtml(v, assetId, {
   const statementFigure = Number(v.statementValue);
   const statementOnly = v.value === null && Number.isFinite(statementFigure)
     && statementFigure > 0;
+  const atCostValue = atCost && v.value === null && v.cost !== null;
   const headerSub = gap.treatment === "full"
     ? `${issuer ? `${esc(issuer)} · ` : ""}${esc(v.h.security_id || "no ISIN")}${v.h.source === "manual"
       ? " · added by hand" : ""}${!issuer
@@ -734,9 +754,10 @@ export function bondCardHtml(v, assetId, {
     if (!items.length && !progress) return "";
     const gridClass = section === "Purchase" ? " bond-grid-purchase" : "";
     // A MARKET VALUE heading over a statement figure would name it as a
-    // market value. Keep the section's facts, drop the heading when the only
-    // figure in it is the statement's.
-    const title = section === "Market value" && statementOnly
+    // market value, and over a cost figure it would do the same. Keep the
+    // section's facts, drop the heading when its only priced figure is the
+    // statement's or the account's cost.
+    const title = section === "Market value" && (statementOnly || atCostValue)
       ? "" : `<h3 class="bond-section-title">${section}</h3>`;
     return `<div class="bond-section" data-section="${section}">
       ${title}
