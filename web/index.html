@@ -113,6 +113,33 @@ h2{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted
  align-items:center;padding:12px 14px;border-top:1px solid var(--hair);
  color:inherit;text-decoration:none}
 a.srow:hover{background:rgba(15,18,22,.03)}
+/* Selection mode adds a tick at the end of the row and stops the row being a
+   link. The whole row is the label, so a tap anywhere toggles the same box. */
+.srow.selrow{grid-template-columns:30px minmax(0,1fr) 150px 32px;cursor:pointer;
+ scroll-margin-top:96px}
+.srow.selrow:hover{background:rgba(15,18,22,.03)}
+.srow.selrow.on{background:color-mix(in srgb,var(--green) 7%,var(--card))}
+.subrow.selrow{grid-template-columns:minmax(0,1fr) auto 32px;cursor:pointer;
+ scroll-margin-top:96px}
+.subrow.selrow.on{background:color-mix(in srgb,var(--green) 7%,var(--card))}
+.subrow.selrow .nm{white-space:normal;overflow:visible;text-overflow:clip;
+ line-height:1.35}
+.selrow .sel-tick{display:grid;place-items:center}
+.selrow .sel-tick input{width:20px;height:20px;margin:0;accent-color:var(--green);
+ cursor:pointer}
+.selrow:focus-within{outline:2px solid var(--green);outline-offset:-2px;
+ border-radius:8px}
+.select-hint{margin:-4px 2px 12px;font-size:12px;color:var(--muted)}
+.asset-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.empty-note{font-size:13.5px;margin-bottom:0}
+.bulk-bar{position:sticky;top:56px;z-index:4;display:flex;align-items:center;
+ gap:8px;flex-wrap:wrap;margin:0 0 12px;padding:9px 10px;background:var(--card);
+ border:1px solid var(--line);border-radius:10px;box-shadow:var(--sh)}
+.bulk-bar .btn{padding:7px 12px}
+.bulk-receipt{margin-bottom:14px}
+.bulk-receipt b{display:block;font-size:15px}
+.bulk-receipt p{margin:6px 0 0;font-size:13.5px}
+.bulk-receipt .bulk-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 a.link{color:inherit;text-decoration:none;border-bottom:1px solid var(--line);
   padding-bottom:1px}
 a.link:hover{border-bottom-color:var(--green);color:var(--green)}
@@ -519,6 +546,8 @@ button.bond-gap-banner:hover{border-color:var(--green)}
   .bond-card-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (max-width:520px){.bond-card-head{flex-wrap:wrap}.bond-card-actions{flex-basis:100%;margin-left:0;justify-content:flex-start}}
 @media (pointer:coarse){.bond-card-actions .mini-btn,.holding-head-actions .btn{min-height:44px}}
+@media (pointer:coarse){.bulk-bar .btn,.bulk-receipt .btn{min-height:44px}
+  .selrow .sel-tick input{width:24px;height:24px}}
 @media (max-width:620px){.donut{width:160px;height:160px}.donut-hole{width:104px;height:104px}.legend-row .amt{font-size:11.5px}}
 .locker-grid{display:grid;gap:10px}
 @media (min-width:720px){.locker-grid{grid-template-columns:1fr 1fr}}
@@ -881,6 +910,7 @@ textarea.inline-input{resize:vertical;min-height:48px}
   .fact-toolbar .fact-bar{gap:8px}
   .fact-toolbar .btn{padding:7px 10px;font-size:12.5px}
   .srow{grid-template-columns:28px minmax(0,1fr) 108px;gap:10px}
+  .srow.selrow{grid-template-columns:28px minmax(0,1fr) 96px 32px;gap:8px}
   .srow .pc{display:none}
   .srow .vl{font-size:13.5px}
   .bar-row{grid-template-columns:82px 1fr 88px;gap:8px;font-size:12px}
@@ -1236,6 +1266,10 @@ window.bpBack = () => {
   setTimeout(() => window.scrollTo(0, previous.scroll || 0), 60);
 };
 function go(name, opts = {}) {
+  if (name !== "assets" && window.bpAssetSelecting) {
+    window.bpAssetSelecting = false;
+    window.bpAssetSel = new Set();
+  }
   const entry = { view: name, state: { ...(window.bpState || {}) }, scroll: window.scrollY };
   if (opts.fromBack) {
     bpCurrentEntry = entry;
@@ -1302,7 +1336,7 @@ function go(name, opts = {}) {
       const view = document.getElementById("view");
       const el = focusId ? document.getElementById(focusId) : null;
       const ready = view && (!focusId || el)
-        && !!(view.querySelector("table, .hero, .filter-head"));
+        && !!(view.querySelector("table, .hero, .filter-head, .asset-group"));
       if (keepScroll !== null && ready) window.scrollTo(0, keepScroll);
       if (el) {
         el.focus();
@@ -1483,6 +1517,8 @@ import { offersPasswordRetry, passwordFailure, PDF_PASSWORD_WRONG }
   from "./import-password.js";
 import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./snapshots.js";
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
+import { selectionSummary, bulkDeleteBarText, bulkDeleteConfirmText,
+  bulkDeleteFacts, bulkDeleteAssets } from "./asset-selection.js";
 import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
 import { countRows, receiptFrom, receiptTotals } from "./receipt.js";
 import { sheetAccountLabel } from "./receipt-label.js";
@@ -6178,7 +6214,7 @@ function renderSettings() {
       database; the export refuses one.</div>
     </div>
 
-    <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
+    <div id="snapshots-section" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
       <div style="font-weight:600;font-size:13.5px">Snapshots in this browser</div>
       <p class="muted" style="font-size:12.5px;margin:4px 0 8px">A daily snapshot is saved on
       Home, plus one before imports, restores and deletes. Each snapshot is the whole
@@ -12493,12 +12529,12 @@ function bankLogo(a) {
       : /icici/.test(text) ? "icici" : "");
   return key ? `./logos/${key}.${key === "bob" ? "png" : "svg"}` : "";
 }
-function assetRow(a, onclick, overrideShown) {
+function assetRow(a, onclick, overrideShown, opts = {}) {
   const cat = categoryOf(a);
   const v = assetValue(a);
   const place = [a.city, a.state].filter(Boolean).join(", ");
   const maturedFd = cat === "fd" && fdMatured(a);
-  const shown = overrideShown || v;
+  const shown = opts.shown || overrideShown || v;
   const gold = cat === "gold" ? assetMetrics(a, cat) : null;
   const goldBits = gold ? [
     gold.grams !== null ? `${gramsLabel(gold.grams)} g${gold.gramsDerived ? " est." : ""}` : "",
@@ -12531,15 +12567,32 @@ function assetRow(a, onclick, overrideShown) {
   const source = cat === "fd" && /principal only/i.test(shown.source)
     ? "principal only" : shown.source;
   const logo = cat === "bank" ? bankLogo(a) : "";
-  return `<a class="srow" href="#" onclick="${onclick};return false">
-    ${logo ? `<img class="bank-logo" src="${logo}" alt="${esc(a.bank || "Bank")} logo">`
+  const body = `${logo ? `<img class="bank-logo" src="${logo}" alt="${esc(a.bank || "Bank")} logo">`
       : `<div class="chip">${cat.slice(0, 2).toUpperCase()}</div>`}
     <div><div class="nm">${esc(identity.label || a.id)}</div>
       <div class="sub">${esc(sub)}</div></div>
     <div class="vl">${shown.paise === null
       ? '<span class="muted">no value</span>' : money(shown.paise, a.currency)}
-      <div class="sub" style="text-align:right" title="${esc(shown.source)}">${esc(source)}</div></div>
+      <div class="sub" style="text-align:right" title="${esc(shown.source)}">${esc(source)}</div></div>`;
+  if (opts.selecting) {
+    return `<label class="srow selrow${opts.selected ? " on" : ""}"
+      data-asset-id="${esc(a.id)}">${body}
+      <span class="sel-tick"><input type="checkbox" data-asset-id="${esc(a.id)}"
+        aria-label="Select ${esc(identity.label || a.id)}"${opts.selected ? " checked" : ""}
+        onchange="bpAssetPick(${jsArg(a.id)}, this.checked)"></span></label>`;
+  }
+  return `<a class="srow" href="#" onclick="${onclick};return false">${body}
     <div class="pc">›</div></a>`;
+}
+function selectableSubRow(a, { selected = false, note = "" } = {}) {
+  const value = assetValue(a).paise;
+  const label = a.label || a.number || a.id;
+  return `<label class="subrow selrow${selected ? " on" : ""}" data-asset-id="${esc(a.id)}">
+    <span class="nm">${esc(label)}${note}</span>
+    <span class="amt">${value === null ? "—" : money(value)}</span>
+    <span class="sel-tick"><input type="checkbox" data-asset-id="${esc(a.id)}"
+      aria-label="Select ${esc(label)}"${selected ? " checked" : ""}
+      onchange="bpAssetPick(${jsArg(a.id)}, this.checked)"></span></label>`;
 }
 // A class heading is a lid, not a label. The open state is kept on the device,
 // so a collapsed Insurance stays collapsed after opening an asset and coming back.
@@ -12557,7 +12610,7 @@ window.bpGroupToggle = (id, open) => {
   map[id] = !!open;
   try { localStorage.setItem("bp.groups.open", JSON.stringify(map)); } catch (e) {}
 };
-function assetGroupsHtml(groups, onclickFor) {
+function assetGroupsHtml(groups, onclickFor, opts = {}) {
   const openMap = groupOpenState();
   return groups.map((g) => {
     let goldLine = "";
@@ -12577,7 +12630,7 @@ function assetGroupsHtml(groups, onclickFor) {
         ${knownUnrealised ? ` · unrealised ${money(unrealised)}` : ""}
         ${knownRealised ? ` · realised ${money(realised)}` : ""}</div>`;
     }
-    const open = openMap[g.id] !== false;
+    const open = opts.selecting || openMap[g.id] !== false;
     return `<details class="asset-group" data-group="${esc(g.id)}"${open ? " open" : ""}
       ontoggle="bpGroupToggle(${jsArg(g.id)}, this.open)">
       <summary>
@@ -12588,7 +12641,9 @@ function assetGroupsHtml(groups, onclickFor) {
         </span>
       </summary>
       ${goldLine}
-      <div class="card" style="margin-top:8px">${g.rows.map((a) => assetRow(a, onclickFor(a))).join("")}</div>
+      <div class="card" style="margin-top:8px">${g.rows.map((a) =>
+        assetRow(a, onclickFor(a), null, opts.selecting
+          ? { selecting: true, selected: opts.selected?.has(a.id) } : {})).join("")}</div>
     </details>`;
   }).join("");
 }
@@ -12747,6 +12802,14 @@ async function renderRealAssets(host) {
   try {
     const store = await import("./db.js");
     const assets = await store.listAccounts();
+    const selecting = !!window.bpAssetSelecting;
+    // A stale tick from a previous render must not keep the bar counting an
+    // asset that is no longer on the screen.
+    const sel = new Set(selectionSummary(assets, window.bpAssetSel || []).ids);
+    window.bpAssetSel = sel;
+    window.bpAssetRows = assets;
+    const selSummary = selectionSummary(assets, sel);
+    const receipt = window.bpAssetBulkReceipt || "";
     const stale = staleImport(assets);
     const total = totalAssets(assets);
     const valued = assets.filter((a) => assetValue(a).paise !== null).length;
@@ -12774,7 +12837,7 @@ async function renderRealAssets(host) {
       }).join("")}
     </details>` : "";
     const fdLinks = await linkFds(store, bankGroups(assets));
-    const lockerMap = new Map(await Promise.all(
+    const lockerMap = selecting ? new Map() : new Map(await Promise.all(
       (bankGroup?.rows || []).map(async (acc) =>
         [acc.id, await store.listLockers(acc.id)])));
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -12957,19 +13020,69 @@ async function renderRealAssets(host) {
       </div>` : ""}
       </div>`}
       </details>` : "";
-    const actions = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-      <button class="btn" onclick="bpAssetNew('bank')">Add bank account</button>
+    const selectToggle = `<button class="btn" id="asset-select-toggle"
+      aria-pressed="${selecting ? "true" : "false"}" onclick="bpAssetSelectToggle()">${
+      selecting ? "Done selecting" : "Select"}</button>`;
+    const actions = `<div class="asset-actions">
+      ${selecting ? "" : `<button class="btn" onclick="bpAssetNew('bank')">Add bank account</button>
       <button class="btn" onclick="bpAssetNew()">Add other asset</button>
-      <button class="btn" onclick="go('import')">Import a statement</button></div>`;
+      <button class="btn" onclick="go('import')">Import a statement</button>`}
+      ${selectToggle}</div>`;
+    const selectHint = selecting ? `<div class="select-hint">Tick the assets to delete.
+      Nothing is deleted until you press Delete.</div>` : "";
+    const selectBar = selecting ? `<div class="bulk-bar" id="asset-bulk-bar"
+      role="region" aria-label="Delete selected assets">
+      <button class="btn danger" id="asset-bulk-delete"${selSummary.count ? "" : " disabled"}
+        onclick="bpAssetBulkDelete()">${bulkDeleteBarText(selSummary.count,
+          selSummary.valuePaise, money)}</button>
+      <button class="btn ghost" onclick="bpAssetSelectOff()">Cancel</button>
+      <span class="sr-only" id="asset-bulk-status" role="status" aria-live="polite">${
+        selSummary.count ? `${selSummary.count} selected` : "No assets selected"}</span></div>` : "";
+    const head = `<h1>Assets${samplePill()}</h1>${receipt}${actions}${selectHint}${selectBar}`;
     if (!assets.length) {
-      host.innerHTML = `<h1>Assets${samplePill()}</h1>${actions}
+      host.innerHTML = `${head}
         <div class="card pad"><b>No assets yet.</b>
-        <p class="muted" style="font-size:13px;margin-bottom:0">Add a bank account, fixed
-        deposit, demat account, bond, gold or cash. Import a statement and the bank account
-        is created from its preamble.</p></div>`;
+        <p class="muted empty-note">Add a bank account, fixed deposit, demat account, bond,
+        gold or cash. Import a statement and the bank account is created from its
+        preamble.</p></div>`;
       return;
     }
-    host.innerHTML = `<h1>Assets${samplePill()}</h1>${actions}
+    // Selection mode is one row per asset, not the class split: a demat that
+    // holds bonds and shares is still one account to delete, and a linked FD is
+    // its own tick because it stays behind when the account goes.
+    if (selecting) {
+      const fullValue = new Map(assets.map((a) => [a.id, assetValue(a)]));
+      const pickRow = (a) => assetRow(a, "", null,
+        { selecting: true, selected: sel.has(a.id), shown: fullValue.get(a.id) });
+      const fdPickRow = (fd) => selectableSubRow(fd, { selected: sel.has(fd.id),
+        note: fdMatured(fd, todayIso)
+          ? ` <span class="muted fd-maturity-tag">(awaiting payment)</span>` : "" });
+      const placed = new Set();
+      const bankRows = (bankGroup?.rows || []).map((acc) => {
+        const fds = (fdGroup?.rows || []).filter((fd) => fdLinks.get(fd.id) === acc.id);
+        for (const fd of fds) placed.add(fd.id);
+        return `<div class="bank-group">${pickRow(acc)}${
+          fds.length ? `<div class="bank-subs">${fds.map(fdPickRow).join("")}</div>` : ""}</div>`;
+      }).join("");
+      const looseFds = (fdGroup?.rows || []).filter((fd) => !placed.has(fd.id));
+      const loose = looseFds.length ? `<div class="bank-group">
+        <div class="srow"><div class="chip">FD</div>
+          <div><div class="nm">Fixed deposits without a linked account</div>
+            <div class="sub">Each one is its own asset</div></div>
+          <div class="vl">${money(looseFds.reduce((t, fd) =>
+            t + (assetValue(fd).paise || 0), 0))}</div><div class="pc"></div></div>
+        <div class="bank-subs">${looseFds.map(fdPickRow).join("")}</div></div>` : "";
+      const bankSelection = bankRows || loose ? `<details class="asset-group"
+        data-group="bank" open><summary><span class="caret" aria-hidden="true"></span>
+        <h2>Bank accounts &amp; FDs</h2></summary>
+        <div class="card">${bankRows}${loose}</div></details>` : "";
+      const otherAssets = groupAssets(assets.filter((a) =>
+        !["bank", "fd"].includes(categoryOf(a)) && !metaOf(a).cost_only));
+      host.innerHTML = `${head}${bankSelection}${
+        assetGroupsHtml(otherAssets, () => "", { selecting: true, selected: sel })}`;
+      return;
+    }
+    host.innerHTML = `${head}
       ${stale ? staleImportCard() : ""}
       ${showFdsOnly ? `<div class="hero"><div class="lbl">Fixed deposits</div>
         <div class="num">${allFdTotal ? money(allFdTotal) : "—"}</div>
@@ -15698,6 +15811,167 @@ window.bpFdAuto = async (id) => {
   await store.updateAccount(id, { meta: JSON.stringify(meta) });
   window.bpAssetView(id);
 };
+window.bpAssetSelectToggle = () => {
+  window.bpAssetSelecting = !window.bpAssetSelecting;
+  window.bpAssetSel = new Set();
+  window.bpAssetBulkReceipt = "";
+  go("assets", { keepScroll: true });
+};
+window.bpAssetSelectOff = () => {
+  if (!window.bpAssetSelecting) return;
+  window.bpAssetSelecting = false;
+  window.bpAssetSel = new Set();
+  go("assets", { keepScroll: true });
+};
+window.bpAssetPick = (id, on) => {
+  const next = new Set(window.bpAssetSel || []);
+  if (on) next.add(id);
+  else next.delete(id);
+  window.bpAssetSel = next;
+  // The same demat can appear in more than one class row; every row for this
+  // asset follows the one tick.
+  document.querySelectorAll('.selrow input[type="checkbox"]').forEach((box) => {
+    if (box.dataset.assetId !== String(id)) return;
+    box.checked = on;
+    box.closest(".selrow")?.classList.toggle("on", on);
+  });
+  window.bpAssetBulkBarUpdate();
+};
+window.bpAssetBulkBarUpdate = () => {
+  const summary = selectionSummary(window.bpAssetRows || [], window.bpAssetSel || []);
+  const button = document.getElementById("asset-bulk-delete");
+  if (button) {
+    button.disabled = !summary.count;
+    button.textContent = bulkDeleteBarText(summary.count, summary.valuePaise, money);
+  }
+  const status = document.getElementById("asset-bulk-status");
+  if (status) {
+    status.textContent = summary.count
+      ? `${summary.count} asset${summary.count === 1 ? "" : "s"} selected, `
+        + money(summary.valuePaise)
+      : "No assets selected";
+  }
+};
+function bulkReceiptHtml(result, facts) {
+  const labelOf = (id) => {
+    const asset = facts.accounts.find((a) => a.id === id);
+    return asset ? (asset.label || asset.number || asset.id) : id;
+  };
+  const deleted = new Set(result.deleted);
+  const rows = facts.rows.filter((row) => deleted.has(row.asset.id));
+  const holdings = rows.reduce((sum, row) => sum + row.holdings, 0);
+  const transactions = rows.reduce((sum, row) => sum + row.transactions, 0);
+  const total = facts.accounts.length;
+  const lines = [];
+  let title;
+  if (result.failed) {
+    title = `Could not delete ${labelOf(result.failed)}.`;
+  } else if (!result.deleted.length) {
+    title = "Those assets are no longer here.";
+  } else {
+    title = `Deleted ${result.deleted.length} asset${result.deleted.length === 1 ? "" : "s"}`
+      + (holdings ? ` and ${holdings} holding${holdings === 1 ? "" : "s"}` : "") + ".";
+  }
+  if (result.failed) {
+    lines.push(`The delete stopped there${result.error ? `: ${result.error}` : ""}.`);
+    if (result.deleted.length) {
+      lines.push(`${result.deleted.length} of ${total} assets were deleted`
+        + (holdings ? ` and ${holdings} holding${holdings === 1 ? "" : "s"} went with them`
+          : "") + ".");
+    } else {
+      lines.push(`None of the ${total} selected assets were deleted.`);
+    }
+    if (result.remaining.length) {
+      lines.push(`The other ${result.remaining.length} asset`
+        + `${result.remaining.length === 1 ? "" : "s"} `
+        + `${result.remaining.length === 1 ? "was" : "were"} not touched.`);
+    }
+  } else if (result.deleted.length) {
+    if (transactions) {
+      lines.push(`${transactions} imported transaction`
+        + `${transactions === 1 ? "" : "s"} went with them.`);
+    }
+    if (facts.linkedFds) {
+      lines.push(`${facts.linkedFds} linked fixed deposit`
+        + `${facts.linkedFds === 1 ? "" : "s"} stayed and `
+        + `${facts.linkedFds === 1 ? "is" : "are"} now unlinked.`);
+    }
+  }
+  if (result.missing.length) {
+    lines.push(`${result.missing.length} selected asset`
+      + `${result.missing.length === 1 ? " was" : "s were"} already gone.`);
+  }
+  if (result.snapshot) {
+    lines.push("A snapshot was saved first. Open Settings to restore it.");
+  } else if (result.snapshotError) {
+    lines.push(window.bp.demo
+      ? "Sample data is temporary. Reload the page to bring it back."
+      : "The snapshot could not be saved, so this delete cannot be undone from "
+        + "this device.");
+  }
+  return `<div class="card pad bulk-receipt" role="status"><b>${esc(title)}</b>
+    ${lines.map((line) => `<p class="muted">${esc(line)}</p>`).join("")}
+    <div class="bulk-actions">${result.snapshot
+      ? `<button class="btn" onclick="bpOpenSnapshots()">Open Settings snapshots</button>`
+      : ""}<button class="btn ghost"
+      onclick="bpAssetBulkReceiptDismiss()">Dismiss</button></div></div>`;
+}
+window.bpAssetBulkReceiptDismiss = () => {
+  window.bpAssetBulkReceipt = "";
+  go("assets", { keepScroll: true });
+};
+window.bpOpenSnapshots = () => {
+  window.bpAssetBulkReceipt = "";
+  go("settings");
+  setTimeout(() => {
+    document.getElementById("snapshots-section")?.scrollIntoView({ block: "start" });
+  }, 150);
+};
+window.bpAssetBulkDelete = async () => {
+  const ids = [...(window.bpAssetSel || [])];
+  if (!ids.length) return;
+  const store = await import("./db.js");
+  let facts;
+  try {
+    facts = await bulkDeleteFacts(store, ids);
+  } catch (e) {
+    alert("Could not read the selected assets: " + (e.message || e));
+    return;
+  }
+  if (!facts.accounts.length) {
+    window.bpAssetBulkReceipt = bulkReceiptHtml({ deleted: [], missing: ids,
+      failed: null, remaining: [], snapshot: null, snapshotError: "" }, facts);
+    window.bpAssetSelecting = false;
+    window.bpAssetSel = new Set();
+    go("assets", { keepScroll: true });
+    return;
+  }
+  const count = facts.accounts.length;
+  if (!confirm(bulkDeleteConfirmText({ count, holdings: facts.holdings,
+    transactions: facts.transactions, linkedFds: facts.linkedFds,
+    linkedFdNames: facts.linkedFdNames }))) return;
+  const button = document.getElementById("asset-bulk-delete");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Deleting…";
+  }
+  let result;
+  try {
+    result = await bulkDeleteAssets({ store, ids: facts.accounts.map((a) => a.id),
+      label: `Before deleting ${count} asset${count === 1 ? "" : "s"}` });
+  } catch (e) {
+    alert("Could not delete the selected assets: " + (e.message || e));
+    window.bpAssetBulkBarUpdate();
+    return;
+  }
+  window.bpAssetBulkReceipt = bulkReceiptHtml(result, facts);
+  window.bpAssetSelecting = false;
+  window.bpAssetSel = new Set();
+  go("assets");
+};
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && window.bpAssetSelecting) window.bpAssetSelectOff();
+});
 window.bpAssetDelete = async (id) => {
   const store = await import("./db.js");
   const { account, totals } = await store.accountDetail(id);
