@@ -695,6 +695,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-type-links a{display:inline-flex;align-items:center;min-height:44px}
 .import-bank-hint{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.45}
 .import-queue-card{margin-bottom:14px}
+.import-queue-card[hidden]{display:none}
 .import-queue-alert{font-size:12px;color:var(--red);line-height:1.45;margin:0 0 6px}
 .import-empty{font-size:13.5px;color:var(--muted);line-height:1.5;padding:6px 0 2px}
 .import-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;
@@ -3452,7 +3453,7 @@ function renderImport() {
       per account.</p>
   </div>
 
-  <div class="card pad import-queue-card">
+  <div class="card pad import-queue-card"${hasFiles ? "" : " hidden"}>
     <div id="import-inbox-status" class="import-status sr-only" role="status"
       aria-live="polite"></div>
     <div id="import-inbox-alert" class="import-queue-alert" role="alert"></div>
@@ -9653,11 +9654,12 @@ function bpImportInboxRender() {
   const looseHtml = loose.map(bpImportLooseRowHtml).join("");
   const bank = bpImportBankRows();
   const receipts = bpImportQueueReceipts();
-  const empty = !planHtml && !looseHtml && !bank.active && !receipts
-    ? `<div class="import-empty">No files yet. Add a statement above to see where it goes.</div>`
-    : "";
-  host.innerHTML = `${planHtml}${looseHtml}${bank.html}${empty}${receipts}${
+  const empty = !planHtml && !looseHtml && !bank.active && !receipts;
+  // An empty queue is not a card with nothing in it. The drop zone above already
+  // says what to do, so the card and its bar wait for the first staged file.
+  host.innerHTML = empty ? "" : `${planHtml}${looseHtml}${bank.html}${receipts}${
     bpImportBatchBarHtml()}`;
+  host.closest(".import-queue-card")?.toggleAttribute("hidden", empty);
   bpImportSyncShell();
 }
 

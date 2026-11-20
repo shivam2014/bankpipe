@@ -238,9 +238,9 @@ const SCENARIOS = [
     checks: (state) => {
       const wrong = [];
       if (state.rows !== 0) wrong.push(`rows: ${state.rows}`);
-      if (state.bar !== "Import 0 ready files") wrong.push(`bar: ${state.bar}`);
-      if (!state.barDisabled) wrong.push("the empty bar is enabled");
-      if (state.emptyText !== "No files yet. Add a statement above to see where it goes.") {
+      if (state.cardShown) wrong.push("the empty queue card is on screen");
+      if (state.bar !== "") wrong.push(`bar: ${JSON.stringify(state.bar)}`);
+      if (state.emptyText !== "") {
         wrong.push(`empty copy: ${JSON.stringify(state.emptyText)}`);
       }
       return wrong;
@@ -254,6 +254,7 @@ const SCENARIOS = [
     checks: (state) => {
       const wrong = [];
       if (state.rows !== 1) wrong.push(`rows: ${state.rows}`);
+      if (!state.cardShown) wrong.push("the first file did not bring the queue card back");
       if (state.pills[0] !== "Ready") wrong.push(`pill: ${JSON.stringify(state.pills)}`);
       if (!/17 holdings/.test(state.facts[0] || "")) {
         wrong.push(`consequence: ${JSON.stringify(state.facts)}`);
@@ -503,6 +504,7 @@ function pageScript(scenario) {
     bubbles: bubbles.length,
     bubbleLabels: bubbles.map(text),
     drop: !!drop,
+    cardShown: !!document.querySelector(".import-queue-card")?.getClientRects().length,
     rows: rows.length,
     plans: (state.plans || []).length,
     pills: rows.map((row) => text(row.querySelector(".import-row-pill"))),
