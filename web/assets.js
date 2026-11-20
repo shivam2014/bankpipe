@@ -67,12 +67,30 @@ export function isDepositoryAccount(asset) {
   return isImportAccount(asset) && categoryOf(asset) === "demat";
 }
 
+// An ETF is a market position even though its ISIN starts with INF like a
+// fund's. The ISIN cannot tell them apart; the name can, because a broker and a
+// CAS print the exchange marker in it: "ETF", the BeES family name, the
+// spelled-out exchange traded fund, or the "-E" series suffix. A fund of funds
+// buys ETFs but is still a folio fund, so it keeps the fund class.
+const ETF_NAME = /ETF(?:$|[^A-Za-z])|BEES|EXCHANGE\s+TRADED\s+FUND|(?:^|[\s\-_])E$/i;
+const FUND_OF_FUND = /FUND\s+OF\s+FUNDS?|\bFOF\b/i;
+
+export function isEtfHolding(row) {
+  const name = String(row?.label || row?.symbol || "").trim();
+  if (!name || FUND_OF_FUND.test(name)) return false;
+  return ETF_NAME.test(name);
+}
+
 // One class per holding row, shared by the account page and the class pages.
-// A bond is bond first; a fund by its category, its legacy category or an INF
-// ISIN; everything else is a share. The SQL totals in db.js mirror this rule.
-export function holdingClass(row) {
+// A bond is bond first; a folio holds fund units only, so every non-bond row in
+// one is a fund; an ETF is an equity position; anything else carrying a fund
+// category or an INF ISIN is a fund; the rest is a share. The SQL totals in
+// db.js mirror the row rule.
+export function holdingClass(row, account = null) {
   const cat = String(row?.category || "").trim().toLowerCase();
   if (cat === "bond") return "bond";
+  if (account && isFundAccount(account)) return "mf";
+  if (isEtfHolding(row)) return "equity";
   if (["mf", "mutual fund", "mutualfund", "fund"].includes(cat)) return "mf";
   if (/^INF/i.test(String(row?.security_id || "").trim())) return "mf";
   return "equity";
@@ -326,7 +344,7 @@ export function classPage(accounts, holdingsByAccount, kind) {
     // uses the same measure as the class total: market value when it has one,
     // cost when it does not.
     const holdings = (holdingsByAccount?.[asset.id] || [])
-      .filter((h) => !h.disposed_at && holdingClass(h) === kind);
+      .filter((h) => !h.disposed_at && holdingClass(h, asset) === kind);
     if (!holdings.length && !part) continue;
     const rows = holdings.map((h) => {
       const row = { ...h };

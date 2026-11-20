@@ -14875,7 +14875,7 @@ function classFocusFor(a, rows, requested) {
   const kinds = ["bond", "equity", "mf"];
   if (!kinds.includes(requested)) return "all";
   const live = (rows || []).filter((row) => !row.disposed_at);
-  if (live.some((row) => holdingClass(row) === requested)) return requested;
+  if (live.some((row) => holdingClass(row, a) === requested)) return requested;
   // A folio is one class. Its account value is the fund's value even before the
   // first row exists, and its page has no class tabs to disagree with.
   if (isFundAccount(a) && requested === "mf") {
@@ -14928,7 +14928,7 @@ function holdingsBlock(rows, assetId) {
       <div class="holding-head-actions">${add}</div></div>${soldHtml}`;
   }
   const groups = { bond: [], equity: [], mf: [] };
-  for (const row of list) groups[holdingClass(row)].push(row);
+  for (const row of list) groups[holdingClass(row, asset)].push(row);
   const filled = Object.entries(groups).filter(([, groupRows]) => groupRows.length);
   const labels = { bond: "Bonds", equity: "Equities", mf: "Mutual funds" };
   const requested = ["bond", "equity", "mf"].includes(window.bpState?.assetClass)
@@ -15435,7 +15435,7 @@ function classFocusCard(a, holdings, kind) {
   // therefore still belongs in its class instead of disappearing behind its
   // cost.
   const classRows = splitHoldings(holdings || []).live
-    .filter((h) => holdingClass(h) === kind);
+    .filter((h) => holdingClass(h, a) === kind);
   const rows = classRows.map((h) => {
     const value = holdingValue(h);
     return { ...h, value_paise: value,
@@ -16127,7 +16127,7 @@ function renderManualHoldingForm() {
     }
     const asset = (window.bpAssetsForFocus || []).find((a) => a.id === assetId);
     const folio = isFundAccount(asset);
-    const kind = h ? holdingClass(h) : (folio ? "mf" : (window.bpState?.manualHoldingClass || "mf"));
+    const kind = h ? holdingClass(h, asset) : (folio ? "mf" : (window.bpState?.manualHoldingClass || "mf"));
     const fixed = folio || !!h;
     const what = kind === "mf" ? "mutual fund" : "equity";
     const val = (field) => (h && h[field] !== null && h[field] !== undefined ? h[field] : "");

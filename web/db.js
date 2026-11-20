@@ -17,12 +17,22 @@ import { bondHomeOf, isLiveBondRow } from "./bonds.js";
 const DB_KEY = "bankpipe.db.v1";
 
 // The class of a holding row, in SQL, matching holdingClass() in assets.js.
-// A bond wins first; a fund is its category, its legacy category or an INF ISIN;
-// everything else is a share. The three expressions partition the rows, so their
-// totals add up to holdings_live_value: market value when the row has one, cost
-// when it does not. A disposed row is history and is in none of them.
+// A bond wins first; an ETF is an equity position even though its INF ISIN
+// looks like a fund's; a fund is its category, its legacy category or an INF
+// ISIN; everything else is a share. The ETF marker is the name's "ETF", "BEES",
+// spelled-out exchange traded fund or "-E" suffix, except a fund of funds. The
+// three expressions partition the rows, so their totals add up to
+// holdings_live_value: market value when the row has one, cost when it does
+// not. A disposed row is history and is in none of them.
 const HOLDING_BOND_SQL = "LOWER(COALESCE(h.category,''))='bond'";
-const HOLDING_MF_SQL = "(NOT (" + HOLDING_BOND_SQL + ") AND ("
+const HOLDING_FOF_SQL = "(UPPER(COALESCE(h.label,'')) LIKE '%FUND OF FUND%'"
+  + " OR UPPER(COALESCE(h.label,'')) LIKE '%FOF%')";
+const HOLDING_ETF_SQL = "(NOT " + HOLDING_FOF_SQL + " AND ("
+  + "UPPER(COALESCE(h.label,'')) LIKE '%ETF%'"
+  + " OR UPPER(COALESCE(h.label,'')) LIKE '%BEES%'"
+  + " OR UPPER(COALESCE(h.label,'')) LIKE '%EXCHANGE TRADED FUND%'"
+  + " OR UPPER(TRIM(COALESCE(h.label,''))) LIKE '%-E'))";
+const HOLDING_MF_SQL = "(NOT (" + HOLDING_BOND_SQL + ") AND NOT " + HOLDING_ETF_SQL + " AND ("
   + "LOWER(COALESCE(h.category,'')) IN ('mf','mutual fund','mutualfund','fund')"
   + " OR UPPER(COALESCE(h.security_id,'')) LIKE 'INF%'))";
 const HOLDING_EQUITY_SQL = "(NOT (" + HOLDING_BOND_SQL + ") AND NOT " + HOLDING_MF_SQL + ")";
