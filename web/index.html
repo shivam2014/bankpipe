@@ -794,9 +794,25 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-row-more summary{cursor:pointer;font-size:12px;color:var(--muted);
  display:flex;align-items:center;min-height:44px}
 .import-row-more summary:hover{color:var(--ink)}
+.import-row-more summary .import-row-chevron{margin-left:4px}
+.import-row-more[open] > summary .import-row-chevron{transform:rotate(90deg)}
 .import-row-more select{min-height:44px;width:100%}
 .import-row-more .import-section{border-top:0;margin-top:0;padding-top:0}
 .import-row-more .import-empty-state{font-size:12px}
+/* Finished files sit under the bar, quiet: one line per import, no action. */
+.import-history{margin-top:10px;border-top:1px solid var(--hair);padding-top:4px}
+.import-history summary{justify-content:space-between}
+.import-history-chevron{display:inline-block;transition:transform .15s ease}
+.import-history[open] .import-history-chevron{transform:rotate(90deg)}
+.import-history-row{display:grid;grid-template-columns:minmax(0,1fr) auto;
+  gap:1px 12px;padding:6px 0;border-top:1px solid var(--hair)}
+.import-history-row:first-of-type{border-top:0}
+.import-history-name{font-size:13.5px;font-weight:620;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.import-history-what{grid-column:1/-1;font-size:12px;color:var(--muted);
+  overflow-wrap:anywhere}
+.import-history-when{font-size:12px;color:var(--muted);white-space:nowrap}
+.import-history .import-row-pill{display:none}
 .import-batchbar{display:flex;gap:12px;align-items:center;justify-content:space-between;
  flex-wrap:wrap;border:1px solid var(--line);border-radius:16px;padding:10px 12px;
  margin-top:14px;background:var(--hair)}
@@ -895,7 +911,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
  color:var(--muted);font-weight:680}
 .import-account-list{display:grid;gap:6px;margin-top:7px}
 .import-account-choice{display:flex;justify-content:space-between;gap:10px;align-items:center;
- width:100%;min-height:44px;text-align:left;border:1px solid var(--line);border-radius:10px;
+ width:100%;min-width:0;min-height:44px;text-align:left;border:1px solid var(--line);border-radius:10px;
  background:var(--card);color:var(--ink);font:inherit;padding:9px 11px;cursor:pointer}
 .import-account-choice:hover{border-color:var(--green)}
 .import-account-choice.on{border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
@@ -2521,6 +2537,8 @@ window.bpBatchImport = async () => {
       try {
         await bpBatchImportOne(entry, batch);
         entry.status = "done";
+        // The batch time is already the import_run timestamp; reuse it.
+        entry.importedAt = batch;
       } catch (e) {
         entry.status = "error";
         entry.message = String((e && e.message) || e).slice(0, 160);
@@ -7417,11 +7435,22 @@ function bpImportAccountName(account) {
   return String(account?.number || "").trim();
 }
 
+// The id is already the name's tail when the label's last token is it. "Demat ·
+// Zerodha · SYN500" plus "Client SYN500" is one id, not two. Keep the prefix
+// only when the id is a different key from the tail the label already prints.
+function bpImportAccountIdSuffix(label, number) {
+  const text = String(number || "").trim();
+  if (!text) return "";
+  const key = text.replace(/^(?:Client|UCID)\s+/i, "").trim();
+  const own = String(label || "").trim().toUpperCase().split(/[·\s]+/).filter(Boolean).pop();
+  return key && own === key.toUpperCase() ? "" : text;
+}
+
 function bpImportAttachLabel(match) {
   const account = match?.account || {};
   const label = match?.label || account.label || "Demat";
-  const number = bpImportAccountName(account);
-  return `Attach to ${label}${number && !String(label).includes(number) ? ` · ${number}` : ""}`;
+  const number = bpImportAccountIdSuffix(label, bpImportAccountName(account));
+  return `Attach to ${label}${number ? ` · ${number}` : ""}`;
 }
 
 function bpImportAttachWhy(bundle) {
@@ -7456,8 +7485,8 @@ function bpImportAccountsHtml() {
   const rows = state.accountRows.map((row, index) => {
     const status = bpImportAccountState(row);
     const label = row.account.label || row.account.bank || row.account.id;
-    const number = bpImportAccountName(row.account);
-    const bits = [status.countText, number && !String(label).includes(number) ? number : "",
+    const number = bpImportAccountIdSuffix(label, bpImportAccountName(row.account));
+    const bits = [status.countText, number,
       status.dates, status.brokerOnly ? "No CAS to reconcile against" : ""]
       .filter(Boolean).join(" · ");
     const gap = gaps[index];
@@ -8299,17 +8328,14 @@ function bpImportMatchHtml(bundle) {
   // A plan with nothing to write has no account to choose. Its reason line and
   // the More disclosure say why, instead of offering an account it cannot use.
   if (bundle.noWork) return "";
-  const matches = bundle.match?.matches || [];
+  // Every depository account is a possible home, not only the ones the matcher
+  // scored. A person may file this report under another demat on purpose.
+  const matches = bpImportAccountCandidates(bundle);
   const chosen = bundle.targetId || "";
   const rows = matches.map((match) => {
     const chosenNow = match.id === chosen;
     const best = !match.brokerAccount && bundle.match.attachId === match.id;
-    const meta = match.brokerAccount
-      ? bpImportAttachWhy(bundle)
-      : [
-        match.identityKind ? `${match.identityKind} match` : "ISIN overlap",
-        match.brokerOnly ? "broker-only · no CAS to check against" : "",
-      ].filter(Boolean).join(" · ");
+    const meta = bpImportChoiceEvidence(match);
     return `<button type="button" class="import-account-choice${chosenNow ? " on" : ""}"
       aria-pressed="${chosenNow}" onclick="bpImportChoose(${jsArg(bundle.key)}, ${jsArg(match.id)})">
       <span class="import-choice-main">
@@ -8318,20 +8344,27 @@ function bpImportMatchHtml(bundle) {
           ? ' <span class="import-pill good">Best match</span>' : ""}</span>
         <span class="import-choice-meta">${esc(meta)}</span>
       </span>
-      <span class="import-choice-hits">${match.brokerAccount
-        ? "Attach" : `${match.hits} of ${match.of}`}</span>
+      <span class="import-choice-hits">${esc(match.brokerAccount
+        ? "Attach" : bpImportChoiceHits(match))}</span>
     </button>`;
   }).join("");
   const proposal = createProposal({ family: bundle.family, key: bundle.accountKey,
     source: bundle.broker });
-  const create = bundle.create ? `<div class="import-account-list">
+  // Every chooser ends with the same create option. A near match is still a
+  // choice: the person may start the account this file describes instead of
+  // forcing it onto an account that shares two ISINs. A file with no rows has
+  // nothing to create from, so the offer waits for a holdings report.
+  const create = bundle.createOffered && (bundle.rows || []).length
+    ? `<div class="import-account-list">
       <button type="button" class="import-account-choice${bundle.createChoice ? " on" : ""}"
         aria-pressed="${bundle.createChoice ? "true" : "false"}"
         onclick="bpImportChoose(${jsArg(bundle.key)}, '__create__')">
         <span class="import-choice-main">
-          <span class="import-choice-name">${esc(proposal)}</span>
-          <span class="import-choice-meta">${bundle.family === "icici"
-            ? "No demat on file holds these ISINs" : "No account on file matches this file"}</span>
+          <span class="import-choice-name">Create a new account</span>
+          <span class="import-choice-meta">${esc(proposal)} · ${esc(matches.length
+            ? "None of these fits" : bundle.family === "icici"
+              ? "No demat on file holds these ISINs"
+              : "No account on file matches this file")}</span>
         </span>
         <span class="import-choice-hits">New</span>
       </button></div>` : "";
@@ -8990,7 +9023,8 @@ function bpImportAccountDisplay(account) {
   const printed = boId(account.number || "");
   const number = printed.kind === "bo" ? `…${printed.boId.slice(-4)}`
     : bpImportAccountName(account);
-  return `${label}${number && !String(label).includes(number) ? ` · ${number}` : ""}`;
+  const suffix = bpImportAccountIdSuffix(label, number);
+  return `${label}${suffix ? ` · ${suffix}` : ""}`;
 }
 
 function bpImportPlanTarget(plan, bundle = plan.head) {
@@ -9145,7 +9179,8 @@ function bpImportChoiceEvidence(match) {
 function bpImportChoiceHits(match) {
   if (match.identityKind) return "Match";
   if (match.hits) return `${match.hits} of ${match.of}`;
-  return "—";
+  if (match.of) return `0 of ${match.of}`;
+  return "";
 }
 
 function bpImportAccountChoiceHtml(match, choiceKey, current) {
@@ -9191,7 +9226,14 @@ function bpImportSingleAccountMenu(bundle, choiceKey, current,
       </span>
       <span class="import-choice-hits">New</span>
     </button>` : "";
-  return `<div class="import-account-list import-account-listbox">${accounts}${create}</div>`;
+  // The BO ID is the account's identity. A second account under it is the
+  // duplicate the writers refuse, so the menu says why Create is absent
+  // instead of leaving a dead end.
+  const guard = forCas && target?.targetId
+    ? `<div class="import-empty-state">A new account is not offered: this statement's
+      BO ID already names this account, so a second one would duplicate it.</div>`
+    : "";
+  return `<div class="import-account-list import-account-listbox">${accounts}${create}</div>${guard}`;
 }
 
 function bpImportAccountMenuHtml(bundle) {
@@ -9251,8 +9293,7 @@ function bpImportPlanStatus(plan) {
   if (plan.needsChoice) {
     const count = Number((bundle.match?.matches || []).length);
     return { key: "account", label: "Needs an account", tone: "warn",
-      note: count > 1 ? `${count} accounts match this file. Choose one.`
-        : "One account is close. Choose it or create a new one." };
+      note: count > 1 ? `${count} accounts match this file. Choose one.` : "" };
   }
   if (!bundle.targetId) {
     return { key: "account", label: "Needs an account", tone: "warn",
@@ -9304,15 +9345,20 @@ function bpImportPlanReviewDetails(plan) {
   const bundle = plan.head;
   const parts = [];
   if (bundle.saleLines?.length) {
-    parts.push(casSaleHtml(bundle.saleLines, bundle.saleConflicts || [],
-      bundle.saleWarnings || []));
+    const sales = casSaleHtml(bundle.saleLines, bundle.saleConflicts || [],
+      bundle.saleWarnings || []);
+    if (sales.trim()) parts.push(sales);
   }
-  if (!plan.noWork && (plan.warnings || []).length) {
+  // A warning that is only whitespace leaves an empty body under the summary.
+  // The link exists to reveal something, so it is not drawn without it.
+  const warnings = (plan.warnings || []).filter((item) => String(item || "").trim());
+  if (!plan.noWork && warnings.length) {
     parts.push(`<div class="import-change"><b>Notes</b><ul>${
-      (plan.warnings || []).map((item) => `<li>${esc(item)}</li>`).join("")}</ul></div>`);
+      warnings.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></div>`);
   }
   if (!parts.length) return "";
-  return `<details class="import-row-more"><summary>Review</summary>
+  return `<details class="import-row-more"><summary>Review <span
+    class="import-row-chevron" aria-hidden="true">›</span></summary>
     ${parts.join("")}</details>`;
 }
 
@@ -9350,9 +9396,6 @@ function bpImportPlanActions(plan, status, entry, first = true) {
       buttons.push(`<button class="btn primary import-create-btn"
         onclick="bpImportCreateAndImport(${jsArg(plan.key)}, ${jsArg(bundle.key)},
           ${jsArg(bundle.key)})">${esc(proposal)} and import</button>`);
-    } else {
-      buttons.push(`<button class="btn primary"
-        onclick="bpImportOpenAccount(${jsArg(plan.key)})">Choose the account</button>`);
     }
   } else if (status.key === "review" && Number(plan.summary?.ask || 0) > 0
     && !plan.acceptAsk) {
@@ -9564,34 +9607,68 @@ function bpImportBankRows() {
   return { html: active.map(bpImportBankRowHtml).join(""), active: active.length };
 }
 
-function bpImportBankReceiptRows() {
-  const state = window.bpBatch;
-  if (!state || !Array.isArray(state.entries)) return "";
-  return state.entries.filter((entry) => entry.status === "done").map((entry) => {
-    const result = entry.result || {};
-    const counts = `${result.inserted || 0} new · ${result.duplicates || 0} already held${
-      result.breaks ? ` · ${result.breaks} breaks` : ""}`;
-    const label = accountLabel(entry, state.accounts || []);
-    return bpImportReceiptRowHtml({ name: entry.name,
-      text: `${counts}${label ? ` into ${label}` : ""}${
-        result.browserOnly ? " · browser only" : ""}` });
-  }).join("");
+function bpImportBankReceipt(entry) {
+  const result = entry.result || {};
+  const counts = `${result.inserted || 0} new · ${result.duplicates || 0} already held${
+    result.breaks ? ` · ${result.breaks} breaks` : ""}`;
+  const label = accountLabel(entry, bpBatchState().accounts || []);
+  return { name: entry.name,
+    text: `${counts}${label ? ` into ${label}` : ""}${
+      result.browserOnly ? " · browser only" : ""}`,
+    at: entry.importedAt || "" };
 }
 
-function bpImportReceiptRowHtml(receipt) {
-  return `<div class="import-row import-row-receipt">
-    <div class="import-row-main">
-      <div class="import-row-name">${esc(receipt.name)}</div>
-      <div class="import-row-note">${esc(receipt.text)}</div>
-    </div>
+// A finished import is a time, not a state: "today 14:32" is enough to find it
+// in the day, and an older run needs the date. Local time, because the person
+// imported it here.
+function bpImportWhen(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const day = (item) => `${item.getFullYear()}-${item.getMonth()}-${item.getDate()}`;
+  const clock = `${String(date.getHours()).padStart(2, "0")}:${
+    String(date.getMinutes()).padStart(2, "0")}`;
+  const now = new Date();
+  if (day(date) === day(now)) return `today ${clock}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (day(date) === day(yesterday)) return `yesterday ${clock}`;
+  return date.toLocaleDateString("en-IN",
+    { day: "numeric", month: "short", year: "numeric" });
+}
+
+function bpImportHistoryRowHtml(receipt) {
+  const when = bpImportWhen(receipt.at);
+  return `<div class="import-row-receipt import-history-row">
+    <span class="import-row-name import-history-name">${esc(receipt.name)}</span>
+    ${when ? `<span class="import-history-when">${esc(when)}</span>` : ""}
+    <span class="import-row-note import-history-what">${esc(receipt.text)}</span>
     <span class="import-row-pill good">Imported</span>
   </div>`;
 }
 
+// Finished files leave the queue and collect under the bar. The block is quiet:
+// one line per import, no action, no pill. It is also the only content left
+// when the session has imported everything it staged.
 function bpImportQueueReceipts() {
   const state = bpImportInboxState();
-  return (state.receipts || []).map(bpImportReceiptRowHtml).join("")
-    + bpImportBankReceiptRows();
+  const receipts = [
+    ...(state.receipts || []).map((receipt) => ({
+      name: receipt.name, text: receipt.text, at: receipt.at || "",
+    })),
+    ...(window.bpBatch?.entries || []).filter((entry) => entry.status === "done")
+      .map(bpImportBankReceipt),
+  ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  if (!receipts.length) return "";
+  const keep = 12;
+  const shown = receipts.slice(0, keep);
+  return `<details class="import-history import-row-more" open>
+    <summary><span>${receipts.length} imported</span><span
+      class="import-history-chevron" aria-hidden="true">›</span></summary>
+    ${shown.map(bpImportHistoryRowHtml).join("")}
+    ${receipts.length > keep ? `<div class="muted import-note">Showing the last ${keep}
+      imports from this session. Earlier imports are already in the ledger.</div>` : ""}
+  </details>`;
 }
 
 function bpImportQueueCounts() {
@@ -9659,10 +9736,20 @@ function bpImportInboxRender() {
   const bank = bpImportBankRows();
   const receipts = bpImportQueueReceipts();
   const empty = !planHtml && !looseHtml && !bank.active && !receipts;
-  // An empty queue is not a card with nothing in it. The drop zone above already
-  // says what to do, so the card and its bar wait for the first staged file.
-  host.innerHTML = empty ? "" : `${planHtml}${looseHtml}${bank.html}${receipts}${
-    bpImportBatchBarHtml()}`;
+  // The file about to be imported and the button that imports it are adjacent:
+  // active rows, then the bar, then the finished files below it. An empty queue
+  // is not a card with nothing in it; the drop zone above already says what to
+  // do, so the card and its bar wait for the first staged file.
+  host.innerHTML = empty ? "" : `${planHtml}${looseHtml}${bank.html}${
+    bpImportBatchBarHtml()}${receipts}`;
+  // A row that cannot continue shows its choices. Put the keyboard on the first
+  // one so the way forward is visible, not behind a chevron. Never take focus
+  // from a control the person is already using.
+  if (!empty && (!document.activeElement || document.activeElement === document.body)
+    && !host.querySelector(".import-row-pw input")) {
+    host.querySelector(".import-row-more.import-row-account[open] .import-account-choice")
+      ?.focus?.({ preventScroll: true });
+  }
   host.closest(".import-queue-card")?.toggleAttribute("hidden", empty);
   bpImportSyncShell();
 }
@@ -9671,7 +9758,9 @@ function bpImportInboxRender() {
 // lands they shrink to one compact row, so the file and the bar reach the phone
 // screen without hiding the teaching.
 function bpImportSyncShell() {
-  const hasFiles = (bpImportInboxState().entries || []).length > 0
+  const state = bpImportInboxState();
+  const hasFiles = (state.entries || []).length > 0
+    || (state.receipts || []).length > 0
     || (window.bpBatch?.entries || []).length > 0;
   document.querySelector(".import-shell")?.classList.toggle("has-files", hasFiles);
 }
@@ -9691,15 +9780,6 @@ function bpImportBatchState(plans) {
   return waiting.length === 1 ? "1 plan needs attention"
     : `${waiting.length} plans need attention`;
 }
-
-window.bpImportOpenAccount = (key) => {
-  const row = document.querySelector(`.import-row[data-plan="${CSS.escape(String(key))}"]`);
-  const details = row?.querySelector("details.import-row-account");
-  if (!details) return;
-  details.open = true;
-  details.scrollIntoView({ block: "center", behavior: bpImportScrollBehavior() });
-  details.querySelector(".import-account-choice, .btn, select")?.focus?.({ preventScroll: true });
-};
 
 window.bpImportInboxRetryRow = (id) => {
   const state = bpImportInboxState();
@@ -10804,8 +10884,10 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
     const receiptText = keptOnly ? parts.join("; ")
       : `${parts.join("; ")} into ${label}.`;
     state.receipts = state.receipts || [];
+    // One write time for every file in this plan; the history reads it back.
+    const importedAt = new Date().toISOString();
     receiptFiles.forEach((name, index) => {
-      state.receipts.push({ name,
+      state.receipts.push({ name, at: importedAt,
         text: index === 0 ? receiptText
           : `Imported with the file above into ${label}.` });
     });
