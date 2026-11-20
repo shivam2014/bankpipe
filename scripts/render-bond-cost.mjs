@@ -171,8 +171,11 @@ function verify(state, { width, theme }) {
   }
   for (const card of state.cards) {
     if (!card.value.includes("Value now")) fail(`${card.name}: ${card.value}`);
-    if (!card.value.includes("held at cost · cost from the report")) {
-      fail(`${card.name} does not name the cost's source: ${card.value}`);
+    if (!card.value.includes("held at cost")) {
+      fail(`${card.name} does not say the value is the cost: ${card.value}`);
+    }
+    if (/cost from the report/.test(card.value)) {
+      fail(`${card.name} prints a bare report as the cost's source: ${card.value}`);
     }
     if (!card.gain.includes("no market value yet")) {
       fail(`${card.name} gain is ${card.gain}`);
@@ -243,7 +246,7 @@ try {
     console.log(out);
   }
   console.log("bond cost: one measure at 390 and 1280, light and dark · "
-    + "every card names the cost and its source, the gain waits for a price");
+    + "every card says the value is the cost, the gain waits for a price");
 } finally {
   server.child.kill();
   rmSync(dir, { recursive: true, force: true });

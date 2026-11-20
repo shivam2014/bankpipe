@@ -483,7 +483,7 @@ test("a hand-entered or fetched value does not file a typed account", () => {
   assert.deepEqual(gapText(gaps),
     ["Could add cost for 1 holding", "Could add the missing coupon or maturity for 1 bond"]);
   assert.equal(bondGapBanner(typed, manual, "2026-11-14").text,
-    "1 bond needs cost and terms — import a broker report",
+    "1 bond needs cost and terms — import a dealer report",
     "a typed demat is still an import account");
   const bse = [{ ...manual[0], value_source: "BSE" }];
   assert.equal(importAccountGaps(typed, bse, (value) => value, "2026-11-14").manual,
@@ -509,14 +509,14 @@ const bondLot = (n, over = {}) => ({
 const filed = account({ meta: meta({ holdings_source: "cas",
   holdings_as_of: "2026-10-31" }) });
 
-test("the banner names sixteen bonds that a broker report fills", () => {
+test("the banner names sixteen bonds that a dealer report fills", () => {
   const lots = Array.from({ length: 16 }, (_, index) => bondLot(index + 20));
   const banner = bondGapBanner(filed, lots, "2026-11-14");
   assert.equal(banner.count, 16);
   assert.equal(banner.text,
-    "16 bonds need cost and terms — import a broker report");
+    "16 bonds need cost and terms — import a dealer report");
   const singular = bondGapBanner(filed, [bondLot(21)], "2026-11-14");
-  assert.equal(singular.text, "1 bond needs cost and terms — import a broker report");
+  assert.equal(singular.text, "1 bond needs cost and terms — import a dealer report");
 });
 
 test("the banner is quiet when there is nothing a report can fill", () => {
@@ -535,26 +535,26 @@ test("the banner says which input is missing when the lots disagree", () => {
     bondLot(21, { cost_paise: 1000 }),
   ];
   assert.equal(bondGapBanner(filed, mixed, "2026-11-14").text,
-    "2 bonds need cost or terms — import a broker report");
+    "2 bonds need cost or terms — import a dealer report");
   const costOnly = [bondLot(20, { label: "7.15% TEST BOND 15 May 2030" })];
   assert.equal(bondGapBanner(filed, costOnly, "2026-11-14").text,
-    "1 bond needs cost — import a broker report");
+    "1 bond needs cost — import a dealer report");
   const termsOnly = [bondLot(21, { cost_paise: 1000 })];
   assert.equal(bondGapBanner(filed, termsOnly, "2026-11-14").text,
-    "1 bond needs terms — import a broker report");
+    "1 bond needs terms — import a dealer report");
 });
 
 test("a typed demat is an import account and gets the banner", () => {
   const typed = account({ meta: "" });
   const lots = [bondLot(20, { value_source: "", source: "" })];
   assert.equal(bondGapBanner(typed, lots, "2026-11-14").text,
-    "1 bond needs cost and terms — import a broker report");
+    "1 bond needs cost and terms — import a dealer report");
 });
 
 test("a bonds portfolio gets the banner, a cost-only record does not", () => {
   const bonds = account({ id: "bonds-1", category: "bonds", subtype: "bond" });
   assert.equal(bondGapBanner(bonds, [bondLot(20)], "2026-11-14").text,
-    "1 bond needs cost and terms — import a broker report");
+    "1 bond needs cost and terms — import a dealer report");
   const cost = account({ id: "cost-1", category: "bonds", subtype: "bond",
     meta: meta({ cost_only: true }) });
   assert.equal(bondGapBanner(cost, [bondLot(20)], "2026-11-14"), null);
