@@ -194,6 +194,38 @@ function importLayoutWrong(state) {
       wrong.push(`bubble labels differ at ${state.width}: ${JSON.stringify(labels)}`);
     }
   }
+  const menu = state.menuRows || [];
+  if (menu.length) {
+    const rows = menu.map((item) => item.h);
+    if (Math.min(...rows) < 44) {
+      wrong.push(`an option row is under 44px at ${state.width}: ${JSON.stringify(rows)}`);
+    }
+    if (Math.max(...rows) - Math.min(...rows) > 1) {
+      wrong.push(`option rows differ at ${state.width}: ${JSON.stringify(rows)}`);
+    }
+    const lefts = menu.map((item) => item.hitsLeft).filter((item) => item != null);
+    if (lefts.length === menu.length
+      && Math.max(...lefts) - Math.min(...lefts) > 1) {
+      wrong.push(`the evidence column is ragged at ${state.width}: ${JSON.stringify(lefts)}`);
+    }
+    const selected = menu.filter((item) => item.selected);
+    if (selected.length !== 1) {
+      wrong.push(`selected options: ${selected.length} at ${state.width}`);
+    } else {
+      if (selected[0].check !== "✓") {
+        wrong.push(`the selected row has no check at ${state.width}`);
+      }
+      if (selected[0].badge !== "Current") {
+        wrong.push(`the selected badge is ${selected[0].badge} at ${state.width}`);
+      }
+    }
+  }
+  if (state.menuLastBottom != null && state.barTop != null) {
+    const gap = state.barTop - state.menuLastBottom;
+    if (gap < 0 || gap > 13) {
+      wrong.push(`the gap after the menu is ${gap}px at ${state.width}`);
+    }
+  }
   return wrong;
 }
 
@@ -434,6 +466,22 @@ function pageScript(scenario) {
     return { h: Math.round(node.getBoundingClientRect().height),
       labelH: label ? Math.round(label.getBoundingClientRect().height) : 0 };
   });
+  const menuRowNodes = [...host.querySelectorAll(
+    ".import-row-account-control[open] .import-account-listbox .import-account-choice")];
+  const menuRows = menuRowNodes.map((node) => {
+    const box = node.getBoundingClientRect();
+    const hits = node.querySelector(".import-choice-hits");
+    const hitsBox = hits?.getBoundingClientRect();
+    return { h: Math.round(box.height),
+      hitsLeft: hitsBox ? Math.round(hitsBox.left) : null,
+      selected: node.classList.contains("on"),
+      check: text(node.querySelector(".import-choice-check")),
+      badge: text(hits),
+      name: text(node.querySelector(".import-choice-name")) };
+  });
+  const menuLastBottom = menuRowNodes.length
+    ? Math.round(menuRowNodes[menuRowNodes.length - 1]
+      .getBoundingClientRect().bottom) : null;
   const actionButtons = [...host.querySelectorAll(".import-row-actions .btn")];
   const barBox = host.querySelector(".import-batchbar");
   const removeBottom = actionButtons.length
@@ -471,6 +519,7 @@ function pageScript(scenario) {
     emptyText: text(empty),
     menuItems: [...document.querySelectorAll(
       ".import-row-account-control[open] .import-account-choice")].map(text),
+    menuRows, menuLastBottom,
     controls: controls.length,
     shortControls: short,
     docWidth: document.documentElement.scrollWidth,

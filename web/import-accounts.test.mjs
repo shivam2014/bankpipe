@@ -793,14 +793,48 @@ test("the account line is the control and ends in a chevron", () => {
   assert.doesNotMatch(chevron[1], /border:/, "no capsule border");
   assert.doesNotMatch(chevron[1], /background:/, "no filled chip");
   assert.match(chevron[1], /min-height:44px/);
-  assert.match(html, /\.import-row-account-control\[open\] summary\{background:var\(--hair\)\}/,
-    "opening tints the line");
+  assert.match(html, /\[open\] summary\{background:transparent;/,
+    "opening does not paint a filled bar");
   assert.match(html, /\[open\] \.import-row-chevron\{transform:rotate\(90deg\)\}/,
     "the chevron turns down without widening its box");
   assert.match(html, /summary:hover\{background:var\(--hair\)\}/,
     "the pointer hovers the line");
   assert.match(html, /summary:focus-visible\{[^}]*background:var\(--hair\)/,
     "keyboard focus tints the line");
+});
+
+test("the open account menu is a list of rows", () => {
+  const choice = between("function bpImportAccountChoiceHtml",
+    "function bpImportSingleAccountMenu");
+  assert.match(choice, /import-choice-check/);
+  assert.match(choice, /chosen \? "Current"/, "the current option is named Current");
+  const menu = between("function bpImportSingleAccountMenu",
+    "function bpImportAccountMenuHtml");
+  assert.match(menu, /import-account-list import-account-listbox/);
+  assert.match(html,
+    /\.import-row-account-menu \.import-account-listbox\{display:block\}/);
+  assert.match(html, /grid-template-columns:20px minmax\(0,1fr\) 72px/);
+  assert.match(html,
+    /\.import-account-listbox \.import-account-choice \+ \.import-account-choice\{[\s\S]*?border-top:1px solid var\(--hair\)/);
+  assert.match(html,
+    /\.import-account-listbox \.import-account-choice\.on \.import-choice-name\{font-weight:700\}/);
+});
+
+test("the open summary is a hairline and a left accent, not a filled bar", () => {
+  assert.match(html,
+    /\[open\] summary\{background:transparent;[\s\S]*?box-shadow:inset 0 -1px 0 var\(--line\)/);
+  assert.match(html,
+    /\[open\] summary::before\{[\s\S]*?left:-6px;[\s\S]*?width:2px;background:var\(--green\)/);
+  assert.doesNotMatch(html, /\[open\] summary\{background:var\(--hair\)\}/);
+});
+
+test("Remove sits in the row header, not under the menu", () => {
+  const row = between("function bpImportPlanRowHtml",
+    "function bpImportPasswordRowHtml");
+  assert.match(row,
+    /<div class="import-row-head">[\s\S]*?import-row-remove[\s\S]*?import-row-pill/);
+  const actions = between("function bpImportPlanActions", "function bpImportPlanRowHtml");
+  assert.doesNotMatch(actions, /import-row-remove/);
 });
 
 test("the import cards cap on a wide desktop", () => {

@@ -705,9 +705,15 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .import-row-account b{font-weight:620}
 .import-row-account-control{grid-column:1/-1;min-width:0}
-.import-row-account-control summary{display:grid;grid-template-columns:minmax(0,1fr) auto;
- gap:8px;align-items:center;min-height:44px;border-radius:8px;cursor:pointer;
- list-style:none;transition:background .15s}
+.import-row-head{grid-column:2;grid-row:1 / span 2;display:flex;align-items:flex-start;
+ justify-content:flex-end;gap:8px;min-width:0}
+.import-row-head .import-row-remove{padding:0 4px}
+@media (max-width:340px){
+  .import-row-head{flex-direction:column-reverse;align-items:flex-end;gap:0}
+}
+.import-row-account-control summary{position:relative;display:grid;
+ grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;min-height:44px;
+ border-radius:8px;cursor:pointer;list-style:none;transition:background .15s}
 .import-row-account-control summary::-webkit-details-marker{display:none}
 .import-row-account-control summary:focus-visible{outline:2px solid var(--green);
  outline-offset:2px;background:var(--hair)}
@@ -716,16 +722,39 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
   .import-row-account-control summary:hover .import-row-change{color:var(--ink)}
 }
 .import-row-account-control summary:focus-visible .import-row-change{color:var(--ink)}
-.import-row-account-control[open] summary{background:var(--hair)}
+.import-row-account-control[open] summary{background:transparent;
+ border-radius:8px 8px 0 0;box-shadow:inset 0 -1px 0 var(--line)}
+.import-row-account-control[open] summary::before{content:"";position:absolute;
+ left:-6px;top:8px;bottom:8px;width:2px;background:var(--green);border-radius:99px}
 .import-row-change{display:inline-flex;align-items:center;justify-content:flex-end;
  min-width:16px;min-height:44px;font-size:17px;line-height:1;color:var(--muted);
  white-space:nowrap;transition:color .15s}
 .import-row-chevron{display:inline-block;line-height:1;transition:transform .15s}
 .import-row-account-control[open] .import-row-change{color:var(--ink)}
 .import-row-account-control[open] .import-row-chevron{transform:rotate(90deg)}
-.import-row-account-menu{margin-top:4px;border-top:1px solid var(--hair);padding-top:6px;
- max-height:360px;overflow-y:auto}
-.import-row-account-menu .import-account-list{margin-top:6px}
+.import-row-account-menu{margin-top:0;max-height:360px;overflow-y:auto}
+.import-row-account-menu .import-account-list{margin-top:0}
+.import-row-account-menu .import-account-listbox{display:block}
+.import-account-listbox .import-account-choice{display:grid;
+ grid-template-columns:20px minmax(0,1fr) 72px;gap:8px;align-items:center;width:100%;
+ min-height:44px;padding:8px 4px 8px 0;border:0;border-radius:0;background:transparent;
+ font:inherit;text-align:left;cursor:pointer}
+.import-account-listbox .import-account-choice + .import-account-choice{
+ border-top:1px solid var(--hair)}
+.import-account-listbox .import-account-choice:hover{background:var(--hair)}
+.import-account-listbox .import-account-choice.on{border:0;box-shadow:none;
+ background:transparent}
+.import-account-listbox .import-choice-check{display:flex;align-items:center;
+ justify-content:center;color:var(--green);font-size:13.5px;font-weight:700}
+.import-account-listbox .import-choice-main{min-width:0}
+.import-account-listbox .import-choice-name{font-weight:400;white-space:nowrap;
+ overflow:hidden;text-overflow:ellipsis}
+.import-account-listbox .import-choice-meta{white-space:nowrap;overflow:hidden;
+ text-overflow:ellipsis}
+.import-account-listbox .import-account-choice.on .import-choice-name{font-weight:700}
+.import-account-listbox .import-choice-hits{font-size:12px;font-weight:620;
+ color:var(--muted);white-space:nowrap;text-align:left}
+.import-account-listbox .import-account-choice.on .import-choice-hits{color:var(--ink)}
 .import-row-account-menu select{min-height:44px;width:100%}
 .import-row-account-menu input{width:100%;min-height:44px;margin-top:6px}
 .import-row-note{grid-column:1/-1;font-size:12px;color:var(--muted);
@@ -741,7 +770,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-row-actions{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
  margin-top:0}
 .import-row-actions .btn{min-height:44px}
-.import-row-remove{padding-left:0;padding-top:0;padding-bottom:0;
+.import-row-remove{min-height:44px;padding-left:0;padding-top:0;padding-bottom:0;
  align-items:flex-start}
 .import-row-pw{grid-column:1/-1;display:grid;gap:6px;margin-top:8px}
 .import-row-pw-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -9119,11 +9148,13 @@ function bpImportAccountChoiceHtml(match, choiceKey, current) {
   return `<button type="button" class="import-account-choice${chosen ? " on" : ""}"
     aria-pressed="${chosen ? "true" : "false"}"
     onclick="bpImportChoose(${jsArg(choiceKey)}, ${jsArg(match.id)})">
+    <span class="import-choice-check" aria-hidden="true">${chosen ? "✓" : ""}</span>
     <span class="import-choice-main">
       <span class="import-choice-name">${esc(account)}</span>
       <span class="import-choice-meta">${esc(bpImportChoiceEvidence(match))}</span>
     </span>
-    <span class="import-choice-hits">${esc(bpImportChoiceHits(match))}</span>
+    <span class="import-choice-hits">${esc(chosen ? "Current"
+      : bpImportChoiceHits(match))}</span>
   </button>`;
 }
 
@@ -9146,13 +9177,15 @@ function bpImportSingleAccountMenu(bundle, choiceKey, current,
       class="import-account-choice${current === "__create__" ? " on" : ""}"
       aria-pressed="${current === "__create__" ? "true" : "false"}"
       onclick="bpImportChoose(${jsArg(choiceKey)}, '__create__')">
+      <span class="import-choice-check" aria-hidden="true">${
+        current === "__create__" ? "✓" : ""}</span>
       <span class="import-choice-main">
         <span class="import-choice-name">Create a new account</span>
         <span class="import-choice-meta">${esc(proposal)}</span>
       </span>
       <span class="import-choice-hits">New</span>
     </button>` : "";
-  return `<div class="import-account-list">${accounts}${create}</div>`;
+  return `<div class="import-account-list import-account-listbox">${accounts}${create}</div>`;
 }
 
 function bpImportAccountMenuHtml(bundle) {
@@ -9290,10 +9323,7 @@ function bpImportPlanAskDetails(plan) {
 function bpImportPlanActions(plan, status, entry, first = true) {
   const bundle = plan.head;
   const buttons = [];
-  if (!first) {
-    return `<div class="import-row-actions"><button class="btn ghost import-row-remove"
-      onclick="bpImportDropEntry(${jsArg(entry.id)})">Remove</button></div>`;
-  }
+  if (!first) return "";
   if (status.key === "gate") {
     buttons.push(`<button class="btn" onclick="bpImportGoToPlan(${jsArg(plan.gate.key)})">
       Go to the ${esc(plan.gate.label)} report</button>`);
@@ -9322,8 +9352,7 @@ function bpImportPlanActions(plan, status, entry, first = true) {
     buttons.push(`<button class="btn primary"
       onclick="bpImportAccept(${jsArg(plan.key)})">Use the file's values · ${ask}</button>`);
   }
-  buttons.push(`<button class="btn ghost import-row-remove"
-    onclick="bpImportDropEntry(${jsArg(entry.id)})">Remove</button>`);
+  if (!buttons.length) return "";
   return `<div class="import-row-actions">${buttons.join("")}</div>`;
 }
 
@@ -9356,7 +9385,11 @@ function bpImportPlanRowHtml(plan, file, first) {
       ${note ? `<div class="import-row-note${status.key === "empty" ? "" : ""}">${
         esc(note)}</div>` : ""}
     </div>
-    <span class="import-row-pill ${status.tone}">${esc(status.label)}</span>
+    <div class="import-row-head">
+      <button class="btn ghost import-row-remove"
+        onclick="bpImportDropEntry(${jsArg(entry.id)})">Remove</button>
+      <span class="import-row-pill ${status.tone}">${esc(status.label)}</span>
+    </div>
     ${bpImportPlanActions(plan, status, entry, first)}
     ${first ? bpImportPlanAccountDetails(plan, status) : ""}
     ${first ? bpImportPlanAskDetails(plan) : ""}
