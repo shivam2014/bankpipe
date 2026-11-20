@@ -30,7 +30,7 @@ test("the account shortcut never overrides the file's own match", () => {
   const hint = broker.indexOf("window.bpImportTarget");
   assert.ok(identity >= 0 && attach > identity, "the file's match runs first");
   assert.ok(hint > attach, "the shortcut is only the last fallback");
-  assert.match(broker, /if \(!targetId && window\.bpImportTarget\)/);
+  assert.match(broker, /if \(!createChoice && !targetId && window\.bpImportTarget\)/);
   assert.match(broker, /brokerDematAccounts\(bundle\.family, \[hint\.account\]\)/);
 });
 

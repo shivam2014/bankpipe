@@ -52,34 +52,36 @@ const between = (start, end) => {
   return html.slice(from, to);
 };
 
-test("the inbox renders both actions from the locked state", () => {
-  const render = between("function bpImportInboxRender()", "// One password gate exists");
-  assert.match(render, /const retry = offersPasswordRetry\(entry\)/);
-  assert.match(render, /bpImportInboxRetry\(\$\{jsArg\(entry\.id\)\}\)/);
-  assert.match(render, /Try the password again<\/button>/);
-  assert.ok(render.includes('<button class="btn primary"'),
-    "the retry is the primary action");
-  assert.match(render, /<button class="btn"\s+onclick="bpImportDropEntry/,
-    "remove is a secondary button, not muted text");
-  assert.doesNotMatch(render, /btn ghost/, "remove never reads as a link");
-  assert.match(render, /!retry && isError/,
-    "a locked entry offers two actions, not a third");
+test("the row carries the password field, the retry and the remove", () => {
+  const row = between("function bpImportPasswordRowHtml", "function bpImportLooseRowHtml");
+  assert.match(row, /type="password"/, "the field lives in the file's own row");
+  assert.match(row, /bpImportInboxRetryRow\(\$\{jsArg\(entry\.id\)\}\)/);
+  assert.match(row, /Try the password again/);
+  assert.match(row, /Unlock/);
+  assert.match(row, /bpImportDropEntry\(\$\{jsArg\(entry\.id\)\}\)/);
+  assert.match(row, /used once, not stored/);
+  assert.match(row, /<button class="btn ghost"/,
+    "remove stays a real button with a 44px target");
 });
 
-test("a retry reads the same entry again instead of adding a second one", () => {
+test("a retry reads the same entry again with the password in hand", () => {
   const retry = between("window.bpImportInboxRetry = async", "window.bpImportDropPlan");
   assert.match(retry, /state\.entries\.find\(\(item\) => item\.id === id\)/);
   assert.doesNotMatch(retry, /entries\.push/, "a retry never duplicates the file");
+  assert.match(retry, /id, password = ""/, "the row can hand back its field");
+  assert.match(retry, /entry\.retryPassword = String\(password \|\| ""\)/);
   assert.match(retry, /bpImportInboxReadQueue\(\(\) => bpImportInboxReadOne\(entry\)\)/);
   assert.match(retry, /bpImportInboxPrepare\(true\)/,
     "a successful retry rebuilds the same plan");
 });
 
-test("the gate asks again without counting the attempts", () => {
+test("the prompt stays inline and counts no attempts", () => {
   const gate = between("function bpImportInboxPassword(entry, wrong)", "window.bpImportInboxAdd");
-  assert.match(gate, /wrong \? "Try the password again" : "This PDF is password protected"/);
+  assert.match(gate, /entry\.passwordPrompt = \{ wrong: !!wrong \}/);
+  assert.match(gate, /entry\.passwordResolve = resolve/);
+  assert.match(gate, /bpImportInboxRender\(\)/);
   assert.equal(/\b(attempt|tries|left)\b/i.test(gate), false,
-    "the gate carries no attempt count");
+    "the prompt carries no attempt count");
 });
 
 test("the page says the password failure once, in the entry", () => {
