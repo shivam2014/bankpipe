@@ -972,8 +972,10 @@ test("the batch imports only the rows that are ready and reports each one", () =
   assert.match(receipt, /state\.receipts\.push/);
 });
 
-test("the bar counts ready files, disables at zero and never blocks on a locked one", () => {
+test("the bar renders only when a ready file can run", () => {
   const bar = between("function bpImportBatchBarHtml", "function bpImportInboxRender");
+  assert.match(bar, /if \(!counts\.ready && !busy\) return ""/,
+    "a bar with nothing to run is not drawn");
   assert.match(bar, /importButtonLabel\(counts\.ready\)/);
   assert.match(bar, /counts\.ready && !busy \? "" : " disabled"/);
   assert.match(bar, /waitingText\(counts\)/);
@@ -981,6 +983,21 @@ test("the bar counts ready files, disables at zero and never blocks on a locked 
   assert.match(counts, /entry\.status === "locked"/);
   assert.match(counts, /counts\.password/,
     "a locked file is named but never added to the ready count");
+});
+
+test("the row's Create writes the account and its rows in one press", () => {
+  const actions = between("function bpImportPlanActions", "function bpImportPlanRowHtml");
+  assert.match(actions, /bpImportCreateAndImport\(\$\{jsArg\(plan\.key\)\}/,
+    "the primary create control is the one-press path");
+  assert.match(actions, /and import<\/button>/,
+    "the button names the write it performs");
+  const handler = between("window.bpImportCreateAndImport", "window.bpImportAccept");
+  assert.match(handler, /state\.choices\[choiceKey\] = "__create__"/);
+  assert.match(handler, /await bpImportInboxPrepare\(\)/);
+  assert.match(handler, /await window\.bpImportApplyPlan\(after\.key\)/,
+    "the same press applies the plan");
+  assert.match(handler, /delete state\.acceptAsk\[bundleKey\]/,
+    "an accepted difference for another target does not release this write");
 });
 
 test("the batch says ready or names the choice", () => {

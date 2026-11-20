@@ -773,6 +773,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-row-actions{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
  margin-top:0}
 .import-row-actions .btn{min-height:44px}
+.import-row-actions .import-create-btn{white-space:normal;text-align:center;max-width:100%}
 .import-row-remove{min-height:44px;padding-left:0;padding-top:0;padding-bottom:0;
  align-items:flex-start}
 .import-row-pw{grid-column:1/-1;display:grid;gap:6px;margin-top:8px}
@@ -9213,7 +9214,7 @@ function bpImportAccountControlHtml(bundle, target) {
   return `<details class="import-row-account-control">
     <summary>
       <span class="import-row-account"><b>${esc(target.text)}</b>${
-        target.evidence ? `<span class="import-row-facts"> · ${
+        target.evidence ? ` <span class="import-row-facts">${
           esc(target.evidence)}</span>` : ""}</span>
       <span class="sr-only">Change</span>
       <span class="import-row-change" aria-hidden="true"><span
@@ -9336,15 +9337,17 @@ function bpImportPlanActions(plan, status, entry, first = true) {
   } else if (status.key === "account") {
     const casTarget = bpImportCasInlineCreate(plan);
     if (casTarget) {
-      buttons.push(`<button class="btn primary"
-        onclick="bpImportChoose(${jsArg(`${bundle.key}:${casTarget.boId}`)},
-          '__create__')">${esc(bpImportCasProposal(casTarget))}</button>`);
+      buttons.push(`<button class="btn primary import-create-btn"
+        onclick="bpImportCreateAndImport(${jsArg(plan.key)},
+          ${jsArg(`${bundle.key}:${casTarget.boId}`)}, ${jsArg(bundle.key)})">${
+        esc(bpImportCasProposal(casTarget))} and import</button>`);
     } else if (bundle.family !== "cas" && bundle.create && !bundle.createChoice
       && !bundle.needsChoice) {
       const proposal = createProposal({ family: bundle.family, key: bundle.accountKey,
         source: bundle.broker });
-      buttons.push(`<button class="btn primary"
-        onclick="bpImportChoose(${jsArg(bundle.key)}, '__create__')">${esc(proposal)}</button>`);
+      buttons.push(`<button class="btn primary import-create-btn"
+        onclick="bpImportCreateAndImport(${jsArg(plan.key)}, ${jsArg(bundle.key)},
+          ${jsArg(bundle.key)})">${esc(proposal)} and import</button>`);
     } else {
       buttons.push(`<button class="btn primary"
         onclick="bpImportOpenAccount(${jsArg(plan.key)})">Choose the account</button>`);
@@ -9512,7 +9515,7 @@ function bpImportBankRowHtml(entry) {
   const targetControl = target ? `<details class="import-row-account-control">
       <summary>
         <span class="import-row-account"><b>${esc(target.text)}</b>${
-          target.evidence ? `<span class="import-row-facts"> · ${
+          target.evidence ? ` <span class="import-row-facts">${
             esc(target.evidence)}</span>` : ""}</span>
         <span class="import-row-change">Change</span>
       </summary>
@@ -9624,14 +9627,14 @@ function bpImportBatchBarHtml() {
   const state = bpImportInboxState();
   const counts = bpImportQueueCounts();
   const busy = !!(state.batchBusy || window.bpBatch?.busy);
+  // The bar runs ready files. When nothing can run, the rows already say what
+  // each one needs; an inert bar with a disabled primary only repeats them.
+  if (!counts.ready && !busy) return "";
   const waiting = waitingText(counts);
-  const imported = (state.receipts || []).length
-    + (window.bpBatch?.entries || []).filter((entry) => entry.status === "done").length;
   return `<div class="import-batchbar" aria-busy="${busy ? "true" : "false"}">
     <div class="import-batchbar-copy"><b>${counts.ready} ready${
       counts.waiting ? ` · ${counts.waiting} waiting` : ""}</b>
-      <span class="muted">${esc(waiting || (counts.ready
-        ? "Ready when you are." : imported ? "Nothing waiting." : "Add a file to start."))}</span></div>
+      <span class="muted">${esc(waiting || "Ready when you are.")}</span></div>
     <button class="btn primary"${counts.ready && !busy ? "" : " disabled"}
       onclick="bpImportQueueImport()">${
       busy ? "Importing…" : importButtonLabel(counts.ready)}</button>
@@ -10100,6 +10103,33 @@ window.bpImportChoose = async (key, accountId) => {
   }
   await bpImportInboxPrepare();
   bpImportInboxSettleStatus();
+};
+
+// The row's Create is the consent for this file. Creating the account and
+// writing its rows are one decision, so one press does both. The bar would
+// only ask the same question a second time.
+window.bpImportCreateAndImport = async (planKey, choiceKey, bundleKey) => {
+  const state = bpImportInboxState();
+  if (state.applying || state.batchBusy) return;
+  const plan = (state.plans || []).find((item) => item.key === planKey);
+  if (!plan) return;
+  const bundle = (state.bundles || []).find((item) => item.key === bundleKey);
+  state.choices[choiceKey] = "__create__";
+  // A create answer is a new target, exactly like a manual choice: an accepted
+  // difference belonged to the account that is no longer being written.
+  delete state.acceptAsk[bundleKey];
+  delete state.acceptAsk[choiceKey];
+  for (const item of state.plans || []) {
+    if ((item.bundles || []).includes(bundle)) delete state.acceptAsk[item.key];
+  }
+  await bpImportInboxPrepare();
+  // Choosing Create can move a plan's key, so apply the plan that now owns
+  // this bundle instead of trusting the key from the first render.
+  const after = (state.plans || []).find((item) => item.key === planKey)
+    || (state.plans || []).find((item) => (item.bundles || [])
+      .some((entry) => entry.key === bundleKey));
+  if (!after) return;
+  await window.bpImportApplyPlan(after.key);
 };
 
 window.bpImportAccept = async (key) => {

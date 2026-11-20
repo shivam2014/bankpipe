@@ -51,14 +51,17 @@ export function digitsOf(value) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
-// The last four characters are all a person reads back. A short key stays
-// whole: "…3122" for a number, "…8054" for a BO ID, "…4567" for a client code.
+// The last four characters are all a person reads back from a long number:
+// "…3122" for an account, "…8054" for a BO ID. A short alphanumeric id is
+// printed whole, because four characters cut the part that tells it apart:
+// "SYN500", never "…T500".
 export function tail(value, size = 4) {
   const text = String(value ?? "").trim();
   if (!text) return "";
   const digits = digitsOf(text);
   if (digits.length >= size) return `…${digits.slice(-size)}`;
   if (text.length <= size) return `…${text}`;
+  if (text.length <= size + 4) return text;
   return `…${text.slice(-size)}`;
 }
 
