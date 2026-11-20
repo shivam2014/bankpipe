@@ -1128,6 +1128,25 @@ test("the shell is one promise, one drop zone and five teaching bubbles", () => 
     "the old list, account card and second drop zone are gone");
 });
 
+test("the five sources wrap into view, led by where to get each statement", () => {
+  const page = between("function renderImport", "function slug(s)");
+  assert.match(page, /class="import-types-lead"[^>]*>Where to get each\s+statement</);
+  assert.match(page, /aria-labelledby="import-types-lead"/);
+  assert.doesNotMatch(page, /import-type-logo|guide\.logo/,
+    "no chip mark at a size that cannot be read");
+  const group = html.match(/\.import-types\{([^}]*)\}/);
+  assert.ok(group, "the source group has a rule");
+  assert.doesNotMatch(group[1], /overflow-x/, "the source group never scrolls sideways");
+  assert.match(group[1], /flex-wrap:wrap/, "above the phone width it still wraps");
+  const phone = html.match(/@media \(max-width:640px\)\{\s*\.import-types\{([^}]*)\}/);
+  assert.ok(phone, "phones get a grid, not a scroll row");
+  assert.match(phone[1], /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(phone[1], /grid-auto-rows:1fr/,
+    "a wrapped label keeps every chip row the same height");
+  assert.match(html, /\.import-type:last-child:nth-child\(odd\)\{grid-column:1\/-1\}/,
+    "a lone last chip takes the full row");
+});
+
 test("a bubble opens one short guide and never filters the drop zone", () => {
   const guide = between("function bpImportTypeGuideHtml", "window.bpImportTypeToggle");
   assert.match(guide, /data-guide="\$\{guide\.key\}" hidden/);
@@ -1138,6 +1157,8 @@ test("a bubble opens one short guide and never filters the drop zone", () => {
   assert.match(toggle, /window\.bpImportTypeOpen === key \? "" : key/);
   assert.match(toggle, /aria-expanded/);
   assert.match(toggle, /guide\.hidden = guide\.dataset\.guide !== open/);
+  assert.doesNotMatch(toggle, /scrollIntoView/,
+    "opening a guide never scrolls a source into view");
   assert.doesNotMatch(toggle, /import-inbox-files|files|accept=/,
     "a bubble never changes what the drop zone accepts");
 });
