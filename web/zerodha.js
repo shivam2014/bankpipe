@@ -11,6 +11,7 @@
 
 import { findHeaderRow, headerMessage, cellText, readNumber,
   refusalResult, parseDate, tableWhere } from "./table-schema.js";
+import { isImportAccount } from "./assets.js";
 
 const text = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
 const ISIN = /^IN[A-Z0-9]{10}$/;
@@ -180,6 +181,58 @@ export function parseZerodhaHoldings(matrix, source = {}) {
     return { rows: [], asOf, clientId, skipped, headerRow: header.index, error };
   }
   return { rows: out, asOf, clientId, skipped, headerRow: header.index, error: null };
+}
+
+/**
+ * What one holdings file would change on the accounts already on file.
+ *
+ * The join is the ISIN, and the account kind is not a filter: a share can sit
+ * on a demat, a legacy account whose type says "bond", or a bond portfolio that
+ * was the only place its lot was recorded. Any account that can hold a security
+ * is a cost target. A bank account or an FD cannot hold one, and a cost-only
+ * record is bookkeeping rather than a custody account.
+ *
+ * The file's own total is returned beside the matched total so a card can print
+ * both. A file with no match still carries its invested value; printing only the
+ * matched share would read as zero.
+ *
+ * Pure: each account carries its own `holdings` array.
+ *
+ * @param {Array<{isin: string, quantity: number, averagePrice: number}>} rows
+ * @param {Array<object>} accounts raw accounts, each with `holdings`
+ * @returns {{plan: Array<{row: object, matches: Array<object>}>,
+ *   matched: Array<{row: object, matches: Array<object>}>,
+ *   unmatched: Array<{row: object, matches: Array<object>}>,
+ *   filePaise: number, matchedPaise: number}}
+ */
+export function planZerodhaCosts(rows = [], accounts = []) {
+  const byIsin = new Map();
+  for (const account of accounts || []) {
+    if (!isImportAccount(account)) continue;
+    for (const holding of account.holdings || []) {
+      const isin = String(holding?.security_id || holding?.isin || "").toUpperCase();
+      if (!ISIN.test(isin)) continue;
+      if (!byIsin.has(isin)) byIsin.set(isin, []);
+      byIsin.get(isin).push({ ...holding, _asset: account });
+    }
+  }
+  const plan = (rows || []).map((row) => ({
+    row,
+    matches: byIsin.get(String(row?.isin || "").toUpperCase()) || [],
+  }));
+  const matched = plan.filter((item) => item.matches.length);
+  const filePaise = plan.reduce((total, item) =>
+    total + Math.round(item.row.quantity * item.row.averagePrice * 100), 0);
+  const matchedPaise = matched.reduce((total, item) =>
+    total + Math.round(item.row.averagePrice
+      * (Number(item.matches[0].quantity) || item.row.quantity) * 100), 0);
+  return {
+    plan,
+    matched,
+    unmatched: plan.filter((item) => !item.matches.length),
+    filePaise,
+    matchedPaise,
+  };
 }
 
 function sheetRole(name) {

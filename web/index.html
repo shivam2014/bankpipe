@@ -1661,7 +1661,7 @@ import { bondLabelText, bondHoldingPatch, bondKeptLine } from "./bond-holding.js
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
-import { parseZerodhaHoldingsSheets } from "./zerodha.js";
+import { parseZerodhaHoldingsSheets, planZerodhaCosts } from "./zerodha.js";
 import { parseMotilalPages, motilalHoldingPatch as motilalPatch } from "./motilal.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
 import { parsePortfolioReport, parseInvestmentReport, parseTransactionReport,
@@ -11905,8 +11905,10 @@ window.bpZerodhaTargetNote = async () => {
   if (!host) return;
   try {
     const store = await import("./db.js");
+    // A mutual fund folio is filed under the demat category but cannot hold a
+    // share. Counting it here would promise a match target that never exists.
     const accounts = (await store.listAccounts())
-      .filter((a) => categoryOf(a) === "demat");
+      .filter((a) => categoryOf(a) === "demat" && !isFundAccount(a));
     if (!accounts.length) {
       host.textContent = "No demat account yet. A Zerodha holdings file can create a broker-only account in the import inbox.";
       return;
@@ -11942,44 +11944,40 @@ window.bpZerodhaHoldings = async (file, opts = {}) => {
       return;
     }
     const store = await import("./db.js");
-    const accounts = (await store.listAccounts())
-      .filter((a) => categoryOf(a) === "demat");
-    if (!accounts.length) {
+    // A share can sit on a demat, a bond portfolio or a legacy account whose
+    // type still says "bond". Every securities account is a cost target; the
+    // account kind is not a filter. Only a custody demat can start the card's
+    // account count, because a fund folio cannot hold a share.
+    const accounts = [];
+    for (const account of (await store.listAccounts()).filter(isImportAccount)) {
+      accounts.push({ ...account, holdings: await store.listHoldings(account.id) });
+    }
+    const isCustodyDemat = (account) =>
+      categoryOf(account) === "demat" && !isFundAccount(account);
+    const target = window.bpEquityImportTarget
+      ? accounts.find((a) => a.id === window.bpEquityImportTarget) : null;
+    const cost = planZerodhaCosts(parsed.rows, target ? [target] : accounts);
+    const { plan, matched, unmatched } = cost;
+    if (!matched.length && !accounts.some(isCustodyDemat)) {
       window.bpZerodhaPendingFile = file;
       host.innerHTML = `<div class="card pad eq-preview">
         <b class="eq-preview-title">No demat account yet.</b>
         <div class="eq-summary">${parsed.clientId
-          ? `This file names Client ID ${esc(parsed.clientId)}. ` : ""}A broker holding can
-          start an account on its own; the account stays broker-only until a CAS arrives.</div>
+          ? `This file names Client ID ${esc(parsed.clientId)}. ` : ""}It carries
+          ${money(cost.filePaise)} invested across ${parsed.rows.length} holdings.
+          No account on file holds any of them.
+          A broker holding can start an account on its own; the account stays
+          broker-only until a CAS arrives.</div>
         <div class="eq-actions"><button class="btn primary" onclick="bpZerodhaUseInbox()">
           Create broker-only account</button></div></div>`;
       return;
     }
-    const target = window.bpEquityImportTarget
-      ? accounts.find((a) => a.id === window.bpEquityImportTarget) : null;
-    const scoped = target ? [target] : accounts;
-    const holdings = [];
-    for (const account of scoped) {
-      for (const h of await store.listHoldings(account.id)) {
-        holdings.push({ ...h, _asset: account });
-      }
-    }
-    const byIsin = new Map();
-    for (const h of holdings) {
-      const isin = String(h.security_id || "").toUpperCase();
-      if (!/^IN[A-Z0-9]{10}$/.test(isin)) continue;
-      if (!byIsin.has(isin)) byIsin.set(isin, []);
-      byIsin.get(isin).push(h);
-    }
-    const plan = parsed.rows.map((row) => ({ row, matches: byIsin.get(row.isin) || [] }));
-    const matched = plan.filter((p) => p.matches.length);
-    const unmatched = plan.filter((p) => !p.matches.length);
     const costOf = (row, h) => Math.round(row.averagePrice
       * (Number(h.quantity) || row.quantity) * 100);
     const sameOf = (row, h) => Number(h.cost_paise) > 0
       && Math.abs(Number(h.cost_paise) - costOf(row, h)) <= 1;
-    const total = matched.reduce((t, p) => t + costOf(p.row, p.matches[0]), 0);
     const hasUpdates = matched.some((p) => !sameOf(p.row, p.matches[0]));
+    if (!matched.length) window.bpZerodhaPendingFile = file;
     window.bpZerodhaPlan = { parsed, plan, fileName: file.name, hostId: host.id };
     const rows = matched.map(({ row, matches }) => {
       const h = matches[0];
@@ -11992,7 +11990,7 @@ window.bpZerodhaHoldings = async (file, opts = {}) => {
         <div class="eq-plan-side"><b>${money(costOf(row, h))}</b>
           <div class="status ${same ? "same" : "update"}">${same
             ? "already set" : "will update"}${qtyDiff ? " · quantity differs" : ""}${
-            matches.length > 1 ? " · first demat" : ""}</div></div>
+            matches.length > 1 ? " · first account" : ""}</div></div>
       </div>`;
     }).join("");
     const unmatchedRows = unmatched.map(({ row }) =>
@@ -12003,15 +12001,19 @@ window.bpZerodhaHoldings = async (file, opts = {}) => {
         <span class="muted">${parsed.asOf ? `as on ${dateLabel(parsed.asOf)}`
           : "snapshot date not read"}</span></div>
       <div class="eq-summary">${matched.length} of ${parsed.rows.length} ISINs match.
-        Invested ${money(total)}.${unmatched.length ? ` ${unmatched.length} not in ${
-          target ? "this demat" : "your demat accounts"}.` : ""}</div>
+        The file carries ${money(cost.filePaise)} invested${matched.length
+          ? `, ${money(cost.matchedPaise)} on the rows that match` : ""}.${
+          unmatched.length ? ` ${unmatched.length} not in ${
+          target ? "this demat" : "an account on file"}.` : ""}</div>
       ${matched.length ? `<div class="eq-plan">${rows}</div>` : ""}
       ${unmatched.length ? `<details class="eq-unmatched">
-        <summary>${unmatched.length} not in ${target ? "this demat" : "your demat accounts"}</summary>
+        <summary>${unmatched.length} not in ${target ? "this demat" : "an account on file"}</summary>
         <div class="eq-unmatched-list">${unmatchedRows}</div></details>` : ""}
       <div class="eq-actions">
-        <button class="btn primary" ${hasUpdates ? "" : "disabled"}
-          onclick="bpZerodhaApply()">Save invested amounts</button>
+        ${matched.length ? `<button class="btn primary" ${hasUpdates ? "" : "disabled"}
+          onclick="bpZerodhaApply()">Save invested amounts</button>`
+          : `<button class="btn primary" onclick="bpZerodhaUseInbox()">
+          Create an account from this file</button>`}
         <button class="btn" onclick="bpZerodhaCancel()">Cancel</button>
       </div>
       <div class="eq-summary">Quantity and market value are not changed. Purchase date stays
