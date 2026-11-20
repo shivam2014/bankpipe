@@ -3423,8 +3423,8 @@ function renderImport() {
   const hasFiles = (bpImportInboxState().entries || []).length > 0
     || (window.bpBatch?.entries || []).length > 0;
   return `<h1>Import</h1>
-  <p class="import-promise">Drop a statement. See where every file goes before anything
-  is saved.</p>
+  <p class="import-promise">Drop a file. A demat statement gives quantity and value;
+  a dealer report adds cost and terms. Nothing is saved until you press Import.</p>
 
   <div class="card pad import-shell${hasFiles ? " has-files" : ""}">
     <label class="import-drop" id="import-inbox-drop" for="import-inbox-files"
@@ -11581,13 +11581,13 @@ window.bpCostFill = async () => {
       ? `${missing.length} of ${live.length} bond${live.length === 1 ? "" : "s"} need a purchase price`
       : `${source ? `${source.label} · ` : ""}${filled}`;
     host.innerHTML = `<div class="card pad asset-import-card">
-      <div class="asset-import-head"><b>Broker data</b>
+      <div class="asset-import-head"><b>Demat and dealer files</b>
         <span class="muted">${status}</span></div>
-      <div class="muted asset-import-copy">The CAS creates this demat and its holdings.
-        Broker reports fill invested, purchase date and terms. Both are imported on the
-        Import page: a new portfolio starts with the CAS, an existing one adds the broker
-        files there.</div>
-      <button class="btn" onclick="bpAssetImportBroker(${jsArg(id)})">Open Import</button>
+      <div class="muted asset-import-copy">A demat statement gives this account its
+        holdings and value. A dealer report adds the cost and terms. Both are imported on
+        the Import page: a new account starts with the demat statement, an existing one
+        adds the dealer report there.</div>
+      <button class="btn" onclick="bpBondDealerImport(${jsArg(id)})">Open Import</button>
     </div>`;
     window.bpCostPlan = null;
   } catch (e) {
@@ -11935,6 +11935,16 @@ window.bpEquityImport = (assetId = "") => {
   if (window.bpEquityBrokerChoice) window.bpImportBrokerChoice = window.bpEquityBrokerChoice;
   go("import");
   setTimeout(() => document.getElementById("import-broker-step")
+    ?.scrollIntoView({ block: "start", behavior: "smooth" }), 150);
+};
+// A bond's missing cost and terms come from the dealer that sold it, not from
+// the demat statement that already supplied its quantity and value. Land on
+// Import with the account carried over and the file control in view.
+window.bpBondDealerImport = (assetId = "") => {
+  window.bpImportTarget = String(assetId || "");
+  window.bpImportTargetOnce = true;
+  go("import");
+  setTimeout(() => document.getElementById("import-inbox-drop")
     ?.scrollIntoView({ block: "start", behavior: "smooth" }), 150);
 };
 window.bpEquityBrokerChoose = (id) => {
@@ -14333,7 +14343,7 @@ function positionCard(a, holdings) {
         ? `No current holdings. ${matured.length} matured lot${matured.length === 1 ? "" : "s"}
            ${matured.length === 1 ? "is" : "are"} listed below${maturedValue
              ? `, ${money(maturedValue)} awaiting payment and included in the account value` : ""}.`
-        : "No holdings yet. Add one, or import a broker report."}</div></div>`;
+        : "No holdings yet. Add one, or import a dealer report."}</div></div>`;
   }
   const rows = [
     ["Invested", m.invested], ["Value now", m.value], ["Gain", m.gain],
@@ -14833,7 +14843,7 @@ function holdingsBlock(rows, assetId) {
         ? "Add the fund, units and value by hand, or import a CAS."
         : isDemat
           ? "Add a fund or share by hand, add a bond, or import a statement."
-          : "Add a lot by hand, or import a broker report."}</div>
+          : "Add a lot by hand, or import a dealer report."}</div>
       <div class="holding-head-actions">${add}</div></div>${soldHtml}`;
   }
   const groups = { bond: [], equity: [], mf: [] };
@@ -16670,24 +16680,6 @@ window.bpAccountNewFd = () => {
 window.bpAsset = (id, classPart = "all") => {
   window.bpState = { ...(window.bpState || {}), asset: id, assetClass: classPart || "all" };
   go("asset");
-};
-// The CAS is the first import; the broker reports only fill what the CAS
-// leaves out. Both live on the Import page, so the asset page is a status card
-// and a link, not a second importer. The broker that last touched this account
-// is preselected for the person.
-window.bpAssetImportBroker = async (id) => {
-  try {
-    const store = await import("./db.js");
-    const asset = (await store.listAccounts()).find((a) => a.id === id);
-    window.bpImportBrokerChoice = metaOf(asset || {}).broker_source || "";
-  } catch (e) {
-    window.bpImportBrokerChoice = "";
-  }
-  go("import");
-  setTimeout(() => {
-    const step = document.getElementById("import-broker-step");
-    step?.scrollIntoView({ block: "start", behavior: "smooth" });
-  }, 150);
 };
 // Re-render the page the person is already reading without moving them to the
 // top. Fetch online writes into this page, so it must keep the scroll position

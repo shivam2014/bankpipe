@@ -78,7 +78,10 @@ test("a cost-only lot beside a priced lot is shown held at cost", () => {
   assert.match(atCostValue, /<span class="k">Value now<\/span>/);
   assert.ok(atCostValue.includes(`<span class="v ">${moneyText(80000000)}`),
     "the card shows the cost as its value");
-  assert.match(atCostValue, /held at cost · cost from the report/);
+  assert.ok(atCostValue.includes("held at cost"),
+    "the cost is named as the cost");
+  assert.doesNotMatch(atCostValue, /cost from the report/,
+    "a bare noun is not a source");
   assert.match(atCostValue, /Enter market value/);
   assert.doesNotMatch(atCostValue, /not recorded/);
 

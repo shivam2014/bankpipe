@@ -1206,11 +1206,11 @@ export function importAccountGaps(account, holdings = [],
 }
 
 /**
- * The page-level sentence above a bond book: how many live bond lots a broker
- * holdings report can fill, and with which fields. Lots, not gaps: one lot
- * missing both is one bond, not two. Only an import account gets a banner; a
- * typed demat still is one, a cost-only record is not. Returns null when no
- * live bond lot has a fillable gap.
+ * The page-level sentence above a bond book: how many live bond lots a dealer
+ * report can fill, and with which fields. Lots, not gaps: one lot missing both
+ * is one bond, not two. Only an import account gets a banner; a typed demat
+ * still is one, a cost-only record is not. Returns null when no live bond lot
+ * has a fillable gap.
  *
  * @param {object} account
  * @param {Array<object>} holdings
@@ -1236,15 +1236,16 @@ export function bondGapBanner(account, holdings = [],
   return {
     count, needs,
     text: `${count} bond${count === 1 ? "" : "s"} ${count === 1 ? "needs" : "need"} `
-      + `${needs} — import a broker report`,
+      + `${needs} — import a dealer report`,
   };
 }
 
 /**
- * Where a bond book's Import action may lead. A demat uses the broker section
- * of Import; a bond portfolio uses the generic Import page. A cost-only record
- * receives no target at all, so its banner and card carry no dead link. The
- * gate is the same isImportAccount() the import page uses.
+ * Where a bond book's Import action may lead. A demat opens the dealer report
+ * import, because the demat statement already supplied quantity and value; a
+ * bond portfolio uses the generic Import page. A cost-only record receives no
+ * target at all, so its banner and card carry no dead link. The gate is the
+ * same isImportAccount() the import page uses.
  *
  * @param {object} account
  * @param {string} [assetId]
