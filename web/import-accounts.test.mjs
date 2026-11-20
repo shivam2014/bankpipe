@@ -1163,6 +1163,35 @@ test("a bubble opens one short guide and never filters the drop zone", () => {
     "a bubble never changes what the drop zone accepts");
 });
 
+test("every guide link is the secondary button, arrow kept, new tab", () => {
+  const guide = between("function bpImportTypeGuideHtml", "window.bpImportTypeToggle");
+  assert.match(guide, /<a class="btn" href="\$\{esc\(href\)\}" target="_blank"/);
+  assert.match(guide, /rel="noopener">\$\{esc\(label\)\}<\/a>/);
+  assert.doesNotMatch(html, /\.import-type-links a\{/,
+    "the guide row has no text-link rule");
+  const row = html.match(/\.import-type-links\{([^}]*)\}/);
+  assert.ok(row, "the guide links sit in one row rule");
+  assert.match(row[1], /flex-wrap:wrap/, "a pair stacks when the row is too narrow");
+  assert.match(row[1], /gap:8px/);
+  assert.match(html, /\.import-type-links \.btn\{min-height:44px\}/,
+    "every guide button keeps a 44px touch target");
+  const labels = between("const IMPORT_TYPE_GUIDES", "function bpImportTypeGuideHtml");
+  assert.equal((labels.match(/↗"/g) || []).length, 6,
+    "every guide label keeps its external arrow inside the button");
+});
+
+test("broker guide external links stay buttons, arrow kept, new tab", () => {
+  for (const [start, end] of [
+    ["function zerodhaImportGuideHtml", "function motilalImportGuideHtml"],
+    ["function motilalImportGuideHtml", "function digifinnImportReportsHtml"],
+    ["function iciciImportGuideHtml", "function brokerImportBodyHtml"],
+  ]) {
+    const guide = between(start, end);
+    assert.match(guide, /<a class="btn" href="\$\{esc\(b\.page\.url\)\}" target="_blank"\s+rel="noopener">Open .+ ↗<\/a>/,
+      `${start} opens its page as a secondary button`);
+  }
+});
+
 test("the old per-type picker and its file inputs are not in the shell", () => {
   const page = between("function renderImport", "function slug(s)");
   assert.doesNotMatch(page, /What can I add/);
