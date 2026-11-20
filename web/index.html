@@ -673,26 +673,32 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-promise{font-size:15px;line-height:1.5;color:var(--muted);margin:-4px 0 14px;
  max-width:62ch}
 .import-shell{margin-bottom:14px}
-.import-types{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;
- margin-top:14px}
-.import-type{display:grid;justify-items:center;align-content:center;gap:2px;text-align:center;
- min-height:64px;padding:10px 8px;border:1px solid var(--line);border-radius:16px;
- background:var(--card);color:var(--ink);font:inherit;cursor:pointer;
- transition:border-color .15s,background .15s}
+/* The five sources are controls, not cards: one 44px line each, with the
+   broker's mark before the name and the format after it. The row scrolls
+   sideways rather than wrapping into a ragged second line. */
+.import-types{display:flex;gap:6px;margin-top:14px;overflow-x:auto;
+ overscroll-behavior-x:contain;padding:2px 2px 4px;margin-left:-2px;margin-right:-2px}
+.import-type{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;
+ min-height:44px;padding:0 8px;border:1px solid var(--line);border-radius:10px;
+ background:var(--card);color:var(--ink);font:inherit;font-size:12px;font-weight:640;
+ white-space:nowrap;cursor:pointer;transition:border-color .15s,background .15s}
 .import-type:hover{border-color:var(--green)}
-.import-type[aria-expanded="true"]{border-color:var(--green);
- background:color-mix(in srgb,var(--green) 7%,var(--card))}
-.import-type-name{font-size:12px;font-weight:640;overflow-wrap:anywhere}
-.import-type-name.long{font-size:11px;line-height:1.25;overflow-wrap:normal;word-break:keep-all}
-.import-type.long{padding-left:4px;padding-right:4px}
-.import-type-note{font-size:11px;color:var(--muted)}
-.import-type-guide{margin-top:10px;border-top:1px solid var(--hair);padding-top:10px;
- font-size:13.5px;line-height:1.5}
+.import-type:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.import-type[aria-expanded="true"]{border-color:var(--ink);
+ background:color-mix(in srgb,var(--green) 8%,var(--card))}
+.import-type-logo{flex:none;width:24px;height:24px;object-fit:contain;
+ background:#fff;border-radius:8px;padding:2px}
+.import-type-name{font-size:12px;font-weight:640;line-height:1}
+.import-type-note{font-size:11px;font-weight:540;color:var(--muted)}
+.import-type-guide{display:grid;gap:4px;margin-top:10px;border-top:1px solid var(--hair);
+ padding-top:10px;font-size:13.5px;line-height:1.5}
 .import-type-guide[hidden]{display:none}
 .import-type-guide b{font-size:13.5px;font-weight:620}
-.import-type-guide .muted{font-size:12px;margin-top:2px}
-.import-type-links{display:flex;gap:4px 14px;flex-wrap:wrap;margin-top:4px;font-size:12px}
-.import-type-links a{display:inline-flex;align-items:center;min-height:44px}
+.import-type-guide .muted{font-size:12px}
+.import-type-links{display:flex;gap:4px 14px;flex-wrap:wrap;font-size:12px}
+.import-type-links a{display:inline-flex;align-items:center;min-height:44px;
+ color:var(--green);text-decoration:underline;text-underline-offset:2px}
+.import-type-links a:focus-visible{outline:2px solid var(--green);outline-offset:2px}
 .import-bank-hint{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.45}
 .import-queue-card{margin-bottom:14px}
 .import-queue-card[hidden]{display:none}
@@ -804,19 +810,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
     z-index:2}
 }
 .import-shell.has-files .import-drop{padding:14px 16px}
-.import-types.compact{grid-template-columns:repeat(5,minmax(0,1fr))}
-.import-types.compact .import-type{min-height:44px;padding:6px 4px;border-radius:10px}
-.import-types.compact .import-type-note{display:none}
 @media (max-width:640px){
-  .import-types{grid-template-columns:repeat(3,minmax(0,1fr))}
-  /* Five cells cannot hold "NSDL/CDSL (CAS)" without splitting a word. The
-     compact row wraps to two 44px lines instead; the name stays whole. Every
-     label reserves the two-line box, so the one-line labels cannot make their
-     bubble read taller than the two-line one. */
-  .import-types.compact{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-  .import-types.compact .import-type{min-height:44px}
-  .import-type-name{display:flex;align-items:center;justify-content:center;
-    min-height:30px;line-height:1.25;overflow-wrap:normal;word-break:keep-all}
   .import-batchbar .btn{width:100%}
 }
 @media (min-width:1100px){
@@ -1660,9 +1654,9 @@ import { bondCardHtml, bondBookSummary, bondCoverageText, bondGapBannerHtml,
   bondRowView, bondSortValue, bondRatingOf, bondFrequency } from "./bond-book.js";
 import { bondLabelText, bondHoldingPatch, bondKeptLine } from "./bond-holding.js";
 import { bondPrefill } from "./bond-source.js";
-import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
+import { BOND_BROKERS, bondBroker, brokerLogo, brokerReport, parseBrokerReport,
   EQUITY_BROKERS, equityBroker } from "./brokers.js";
-import { parseZerodhaHoldingsSheets, planZerodhaCosts } from "./zerodha.js";
+import { parseZerodhaHoldings, parseZerodhaHoldingsSheets, planZerodhaCosts } from "./zerodha.js";
 import { parseMotilalPages, motilalHoldingPatch as motilalPatch } from "./motilal.js";
 import { bondHoldingsCsv } from "./bond-csv.js";
 import { parsePortfolioReport, parseInvestmentReport, parseTransactionReport,
@@ -3369,21 +3363,25 @@ const IMPORT_TYPE_GUIDES = [
     password: "Usually your PAN in capitals.",
     links: [["Open CDSL CAS ↗", "https://www.cdslindia.com/cas/logincas.aspx"],
       ["Open NSDL CAS ↗", "https://nsdlcas.nsdl.com/"]] },
-  { key: "zerodha", label: "Zerodha", note: "XLSX", title: "Zerodha holdings",
-    body: "Console → Portfolio → Holdings → Download XLSX.",
+  { key: "zerodha", label: "Zerodha", note: "CSV or XLSX", title: "Zerodha holdings",
+    body: "Console → Portfolio → Holdings for XLSX, or Kite → Holdings for CSV.",
     password: "A snapshot, not a date range, and not the Tradebook.",
+    logo: brokerLogo("zerodha"),
     links: [["Open Holdings ↗", "https://console.zerodha.com/portfolio/holdings"]] },
   { key: "motilal", label: "Motilal", note: "PDF", title: "Motilal Oswal holdings",
     body: "Reports → Portfolio Holding Summary.",
     password: "The password Motilal sent.",
+    logo: brokerLogo("motilal"),
     links: [["Open Reports ↗", "https://www.motilaloswal.com/"]] },
   { key: "icici", label: "ICICI", note: "CSV", title: "ICICI Direct holdings",
     body: "Portfolio → Demat Holdings → Download CSV.",
     password: "The holdings CSV, not the tradebook.",
+    logo: brokerLogo("icici"),
     links: [["Open Portfolio ↗", "https://www.icicidirect.com/"]] },
   { key: "digifinn", label: "DigiFInn", note: "CSV", title: "DigiFInn reports",
     body: "Reports & Documents → Portfolio Report CSV.",
     password: "The Payouts CSV is optional; it adds interest dates.",
+    logo: brokerLogo("digifinn"),
     links: [["Open DigiFInn ↗", "https://www.digifinn.com/profile"]] },
 ];
 
@@ -3394,8 +3392,8 @@ function bpImportTypeGuideHtml(guide) {
     <div>${esc(guide.body)}</div>
     <div class="muted">${esc(guide.password)}</div>
     <div class="import-type-links">${guide.links.map(([label, href]) =>
-      `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(label)}</a>`).join("")}
-      <span class="muted">Then drop it above.</span></div>
+      `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(label)}</a>`).join("")}</div>
+    <div class="muted">Then drop it above.</div>
   </div>`;
 }
 
@@ -3409,6 +3407,10 @@ window.bpImportTypeToggle = (key) => {
   document.querySelectorAll(".import-type-guide").forEach((guide) => {
     guide.hidden = guide.dataset.guide !== open;
   });
+  // The chip row scrolls sideways on a phone. Keep the opened chip whole so
+  // its ink border is not half past the card edge.
+  document.querySelector(`.import-type[data-type="${CSS.escape(key)}"]`)
+    ?.scrollIntoView({ block: "nearest", inline: "nearest" });
 };
 
 function renderImport() {
@@ -3433,16 +3435,15 @@ function renderImport() {
       <input type="file" id="import-inbox-files" class="import-file-input" multiple
         tabindex="-1" accept=".pdf,.csv,.txt,.xlsx,.xls,.xlsm">
     </label>
-    <div class="import-types${hasFiles ? " compact" : ""}" role="group"
-      aria-label="What each source needs">
-      ${IMPORT_TYPE_GUIDES.map((guide) => `<button type="button" class="import-type${
-        guide.key === "cas" ? " long" : ""}"
+    <div class="import-types" role="group" aria-label="What each source needs">
+      ${IMPORT_TYPE_GUIDES.map((guide) => `<button type="button" class="import-type"
         data-type="${guide.key}" aria-expanded="${openGuide === guide.key ? "true" : "false"}"
         aria-controls="import-guide-${guide.key}"
         onclick="bpImportTypeToggle('${guide.key}')">
-        <span class="import-type-name${guide.key === "cas" ? " long" : ""}">${
-          esc(guide.label)}</span>
-        <span class="import-type-note">${esc(guide.note)}</span>
+        ${guide.logo ? `<img class="import-type-logo" src="${esc(guide.logo)}" alt=""
+          onerror="this.remove()">` : ""}
+        <span class="import-type-name">${esc(guide.label)}</span>
+        <span class="import-type-note">· ${esc(guide.note)}</span>
       </button>`).join("")}
     </div>
     ${IMPORT_TYPE_GUIDES.map((guide) => {
@@ -9670,7 +9671,6 @@ function bpImportSyncShell() {
   const hasFiles = (bpImportInboxState().entries || []).length > 0
     || (window.bpBatch?.entries || []).length > 0;
   document.querySelector(".import-shell")?.classList.toggle("has-files", hasFiles);
-  document.querySelector(".import-types")?.classList.toggle("compact", hasFiles);
 }
 
 // One state line for the whole batch: ready, or what the first plan still needs.
@@ -9927,6 +9927,16 @@ async function bpImportInboxReadOne(entry) {
           yieldPct: group.yield_pct, investmentPaise: group.investment_paise,
           investmentDate: group.investment_date,
         }));
+      } else if (detected.kind === "zerodha-holdings") {
+        const parsed = parseZerodhaHoldings(parseCsv(body), { file: entry.name });
+        if (parsed.error) throw new Error(parsed.error);
+        entry.parsed = parsed;
+        entry.kind = detected.kind;
+        entry.broker = "zerodha";
+        entry.asOf = parsed.asOf;
+        entry.accountKey = parsed.clientId || "";
+        entry.accountKind = parsed.clientId ? "client" : "";
+        entry.rows = bpImportZerodhaRows(parsed);
       } else if (detected.kind === "zerodha-tradebook") {
         const parsed = parseTradebook(body, { file: entry.name });
         if (parsed.error) throw new Error(parsed.error);
@@ -10002,13 +10012,7 @@ async function bpImportInboxReadOne(entry) {
         entry.asOf = parsed.asOf;
         entry.accountKey = parsed.clientId || "";
         entry.accountKind = parsed.clientId ? "client" : "";
-        entry.rows = parsed.rows.map((row) => ({
-          isin: row.isin, label: row.symbol || row.isin, category: row.category || "equity",
-          quantity: row.quantity,
-          valuePaise: null,
-          costPaise: Math.round(row.averagePrice * row.quantity * 100),
-          purchaseDate: "", sourceRow: 0,
-        }));
+        entry.rows = bpImportZerodhaRows(parsed);
       }
     } else {
       throw new Error("This file type is not supported. Choose a PDF, CSV or XLSX.");
@@ -10026,6 +10030,17 @@ async function bpImportInboxReadOne(entry) {
       entry.error = String(e?.message || e) || "The file could not be read.";
     }
   }
+}
+
+// A Kite holdings snapshot, CSV or XLSX, lands as the same rows: the parser
+// already normalises the sheet, so only the shape the inbox stores differs.
+function bpImportZerodhaRows(parsed) {
+  return parsed.rows.map((row) => ({
+    isin: row.isin, label: row.symbol || row.isin, category: row.category || "equity",
+    quantity: row.quantity, valuePaise: null,
+    costPaise: Math.round(row.averagePrice * row.quantity * 100),
+    purchaseDate: "", sourceRow: 0,
+  }));
 }
 
 function bpImportCasRow(holding) {
