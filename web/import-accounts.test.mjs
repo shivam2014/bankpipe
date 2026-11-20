@@ -770,7 +770,7 @@ test("a matched row's account line is the control that can change it", () => {
   const control = between("function bpImportAccountControlHtml",
     "function bpImportPlanStatus");
   assert.match(control, /<details class="import-row-account-control">/);
-  assert.match(control, /<span class="import-row-change">Change<\/span>/);
+  assert.match(control, /<span class="import-row-account">/);
   assert.match(control, /bpImportAccountMenuHtml\(bundle\)/);
   const menu = between("function bpImportSingleAccountMenu",
     "function bpImportAccountMenuHtml");
@@ -781,15 +781,26 @@ test("a matched row's account line is the control that can change it", () => {
     "a new target cannot inherit an answer for the old one");
 });
 
-test("the Change chip has a pointer state and a keyboard state", () => {
-  assert.match(html, /@media \(hover:hover\)\{[\s\S]*?summary:hover \.import-row-change/,
-    "a mouse hover changes the chip");
-  assert.match(html, /summary:focus-visible \.import-row-change/,
-    "keyboard focus changes the chip");
-  const chip = html.match(/\.import-row-change\{display:inline-flex([^}]*)\}/);
-  assert.ok(chip);
-  assert.match(chip[1], /border:1px solid var\(--green\)/);
-  assert.match(chip[1], /min-height:44px/);
+test("the account line is the control and ends in a chevron", () => {
+  const control = between("function bpImportAccountControlHtml", "function bpImportPlanStatus");
+  assert.match(control, /<span class="sr-only">Change<\/span>/,
+    "the action keeps its name for a screen reader");
+  assert.match(control,
+    /class="import-row-change" aria-hidden="true"><span\s+class="import-row-chevron">›/,
+    "the visible mark is a chevron, not a pill");
+  const chevron = html.match(/\.import-row-change\{display:inline-flex([^}]*)\}/);
+  assert.ok(chevron);
+  assert.doesNotMatch(chevron[1], /border:/, "no capsule border");
+  assert.doesNotMatch(chevron[1], /background:/, "no filled chip");
+  assert.match(chevron[1], /min-height:44px/);
+  assert.match(html, /\.import-row-account-control\[open\] summary\{background:var\(--hair\)\}/,
+    "opening tints the line");
+  assert.match(html, /\[open\] \.import-row-chevron\{transform:rotate\(90deg\)\}/,
+    "the chevron turns down without widening its box");
+  assert.match(html, /summary:hover\{background:var\(--hair\)\}/,
+    "the pointer hovers the line");
+  assert.match(html, /summary:focus-visible\{[^}]*background:var\(--hair\)/,
+    "keyboard focus tints the line");
 });
 
 test("the import cards cap on a wide desktop", () => {

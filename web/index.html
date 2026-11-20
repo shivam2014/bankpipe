@@ -706,25 +706,23 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-row-account b{font-weight:620}
 .import-row-account-control{grid-column:1/-1;min-width:0}
 .import-row-account-control summary{display:grid;grid-template-columns:minmax(0,1fr) auto;
- gap:8px;align-items:center;min-height:44px;cursor:pointer;list-style:none}
+ gap:8px;align-items:center;min-height:44px;border-radius:8px;cursor:pointer;
+ list-style:none;transition:background .15s}
 .import-row-account-control summary::-webkit-details-marker{display:none}
 .import-row-account-control summary:focus-visible{outline:2px solid var(--green);
- outline-offset:2px}
+ outline-offset:2px;background:var(--hair)}
 @media (hover:hover){
-  .import-row-account-control summary:hover .import-row-change{
-    border-color:var(--ink);background:color-mix(in srgb,var(--green) 10%,var(--card));
-    color:var(--ink)}
+  .import-row-account-control summary:hover{background:var(--hair)}
+  .import-row-account-control summary:hover .import-row-change{color:var(--ink)}
 }
-.import-row-account-control summary:focus-visible .import-row-change{
-  border-color:var(--ink);background:color-mix(in srgb,var(--green) 10%,var(--card));
-  color:var(--ink)}
-.import-row-change{display:inline-flex;align-items:center;justify-content:center;
- min-width:44px;min-height:44px;padding:0 4px;border:1px solid var(--green);
- border-radius:99px;background:var(--card);font-size:12px;font-weight:620;
- color:var(--green);white-space:nowrap;transition:background .15s,border-color .15s,
- color .15s}
-.import-row-account-control[open] .import-row-change{color:var(--ink);
- border-color:var(--ink)}
+.import-row-account-control summary:focus-visible .import-row-change{color:var(--ink)}
+.import-row-account-control[open] summary{background:var(--hair)}
+.import-row-change{display:inline-flex;align-items:center;justify-content:flex-end;
+ min-width:16px;min-height:44px;font-size:17px;line-height:1;color:var(--muted);
+ white-space:nowrap;transition:color .15s}
+.import-row-chevron{display:inline-block;line-height:1;transition:transform .15s}
+.import-row-account-control[open] .import-row-change{color:var(--ink)}
+.import-row-account-control[open] .import-row-chevron{transform:rotate(90deg)}
 .import-row-account-menu{margin-top:4px;border-top:1px solid var(--hair);padding-top:6px;
  max-height:360px;overflow-y:auto}
 .import-row-account-menu .import-account-list{margin-top:6px}
@@ -766,12 +764,6 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-batchbar-copy .muted{display:block;font-size:12px;margin-top:1px}
 .import-batchbar .btn{min-height:48px}
 .import-row + .import-batchbar{margin-top:0}
-@media (max-width:340px){
-  /* 320 is the narrowest phone. The chip and the smaller name keep the whole
-     account id on the one line; a 13.5px name would clip the last four digits. */
-  .import-row-account{font-size:11px}
-  .import-row-account-control summary{gap:4px}
-}
 @media (max-width:900px){
   /* The one action stays reachable while a long queue scrolls. It sits above
      the tab bar, and the tab bar already carries the safe-area inset. */
@@ -9187,7 +9179,9 @@ function bpImportAccountControlHtml(bundle, target) {
       <span class="import-row-account"><b>${esc(target.text)}</b>${
         target.evidence ? `<span class="import-row-facts"> · ${
           esc(target.evidence)}</span>` : ""}</span>
-      <span class="import-row-change">Change</span>
+      <span class="sr-only">Change</span>
+      <span class="import-row-change" aria-hidden="true"><span
+        class="import-row-chevron">›</span></span>
     </summary>
     <div class="import-row-account-menu">${bpImportAccountMenuHtml(bundle)}</div>
   </details>`;
