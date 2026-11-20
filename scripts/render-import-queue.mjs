@@ -202,6 +202,7 @@ const SCENARIOS = [
     name: "empty",
     seed: null,
     entries: [],
+    wide: true,
     checks: (state) => {
       const wrong = [];
       if (state.rows !== 0) wrong.push(`rows: ${state.rows}`);
@@ -217,6 +218,7 @@ const SCENARIOS = [
     name: "one-file",
     seed: account,
     entries: [brokerEntry()],
+    wide: true,
     checks: (state) => {
       const wrong = [];
       if (state.rows !== 1) wrong.push(`rows: ${state.rows}`);
@@ -258,6 +260,7 @@ const SCENARIOS = [
     seed: [account, hdfcAccount(), bondAccount],
     entries: [brokerEntry()],
     menu: true,
+    wide: true,
     checks: (state) => {
       const wrong = [];
       if (state.rows !== 1) wrong.push(`rows: ${state.rows}`);
@@ -936,6 +939,14 @@ const SHOTS = [
   { width: 320, height: 1600, theme: "light" },
   { width: 320, height: 1600, theme: "dark" },
 ];
+// The row and the source tiles get a real desktop check on the states that
+// carry them, not on every edge case.
+const WIDE_SHOTS = [
+  { width: 1440, height: 1200, theme: "light" },
+  { width: 1440, height: 1200, theme: "dark" },
+  { width: 1920, height: 1200, theme: "light" },
+  { width: 1920, height: 1200, theme: "dark" },
+];
 try {
   // RENDER_ONLY=<scenario-or-flow> is for a quick targeted pass; the normal
   // run renders every state.
@@ -944,7 +955,8 @@ try {
     if (only && scenario.name !== only) continue;
     const pageFile = join(dir, `${scenario.name}.js`);
     writeFileSync(pageFile, pageScript(scenario));
-    for (const shot of SHOTS) {
+    const shots = scenario.wide ? [...SHOTS, ...WIDE_SHOTS] : SHOTS;
+    for (const shot of shots) {
       const out = join(args.outDir,
         `import-queue-${scenario.name}-${shot.width}-${shot.theme}.png`);
       const result = await capture({

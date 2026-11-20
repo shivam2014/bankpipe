@@ -710,10 +710,21 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-row-account-control summary::-webkit-details-marker{display:none}
 .import-row-account-control summary:focus-visible{outline:2px solid var(--green);
  outline-offset:2px}
-.import-row-change{display:inline-flex;align-items:center;justify-content:flex-end;
- min-width:44px;min-height:44px;font-size:12px;font-weight:620;color:var(--green);
- white-space:nowrap}
-.import-row-account-control[open] .import-row-change{color:var(--ink)}
+@media (hover:hover){
+  .import-row-account-control summary:hover .import-row-change{
+    border-color:var(--ink);background:color-mix(in srgb,var(--green) 10%,var(--card));
+    color:var(--ink)}
+}
+.import-row-account-control summary:focus-visible .import-row-change{
+  border-color:var(--ink);background:color-mix(in srgb,var(--green) 10%,var(--card));
+  color:var(--ink)}
+.import-row-change{display:inline-flex;align-items:center;justify-content:center;
+ min-width:44px;min-height:44px;padding:0 4px;border:1px solid var(--green);
+ border-radius:99px;background:var(--card);font-size:12px;font-weight:620;
+ color:var(--green);white-space:nowrap;transition:background .15s,border-color .15s,
+ color .15s}
+.import-row-account-control[open] .import-row-change{color:var(--ink);
+ border-color:var(--ink)}
 .import-row-account-menu{margin-top:4px;border-top:1px solid var(--hair);padding-top:6px;
  max-height:360px;overflow-y:auto}
 .import-row-account-menu .import-account-list{margin-top:6px}
@@ -730,8 +741,10 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-row-pill.warn{color:var(--amber);border-color:var(--amber)}
 .import-row-pill.error{color:var(--red);border-color:var(--red)}
 .import-row-actions{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
- margin-top:8px}
+ margin-top:0}
 .import-row-actions .btn{min-height:44px}
+.import-row-remove{padding-left:0;padding-top:0;padding-bottom:0;
+ align-items:flex-start}
 .import-row-pw{grid-column:1/-1;display:grid;gap:6px;margin-top:8px}
 .import-row-pw-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .import-row-pw .btn{min-height:44px}
@@ -754,10 +767,10 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-batchbar .btn{min-height:48px}
 .import-row + .import-batchbar{margin-top:0}
 @media (max-width:340px){
-  /* 320 is the narrowest phone. A 12px name keeps the whole account id on the
-     one line; the 8px gap would ellipsize the last four digits. */
-  .import-row-account{font-size:12px}
-  .import-row-account-control summary{gap:6px}
+  /* 320 is the narrowest phone. The chip and the smaller name keep the whole
+     account id on the one line; a 13.5px name would clip the last four digits. */
+  .import-row-account{font-size:11px}
+  .import-row-account-control summary{gap:4px}
 }
 @media (max-width:900px){
   /* The one action stays reachable while a long queue scrolls. It sits above
@@ -780,6 +793,12 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
   .import-type-name{display:flex;align-items:center;justify-content:center;
     min-height:30px;line-height:1.25;overflow-wrap:normal;word-break:keep-all}
   .import-batchbar .btn{width:100%}
+}
+@media (min-width:1100px){
+  /* The page caps at 1040px. The import cards stop at 760px so the account
+     line and its Change chip stay a readable row instead of a 1,000px span;
+     the source tiles then sit near 138px and left with the heading. */
+  .import-shell, .import-queue-card{max-width:760px}
 }
 .import-inbox-card{margin-bottom:14px}
 .import-drop{position:relative;display:grid;justify-items:center;gap:4px;text-align:center;
@@ -9278,7 +9297,7 @@ function bpImportPlanActions(plan, status, entry, first = true) {
   const bundle = plan.head;
   const buttons = [];
   if (!first) {
-    return `<div class="import-row-actions"><button class="btn ghost"
+    return `<div class="import-row-actions"><button class="btn ghost import-row-remove"
       onclick="bpImportDropEntry(${jsArg(entry.id)})">Remove</button></div>`;
   }
   if (status.key === "gate") {
@@ -9309,7 +9328,7 @@ function bpImportPlanActions(plan, status, entry, first = true) {
     buttons.push(`<button class="btn primary"
       onclick="bpImportAccept(${jsArg(plan.key)})">Use the file's values · ${ask}</button>`);
   }
-  buttons.push(`<button class="btn ghost"
+  buttons.push(`<button class="btn ghost import-row-remove"
     onclick="bpImportDropEntry(${jsArg(entry.id)})">Remove</button>`);
   return `<div class="import-row-actions">${buttons.join("")}</div>`;
 }
@@ -9398,7 +9417,7 @@ function bpImportLooseRowHtml(entry) {
     </div>
     <span class="import-row-pill ${tone}">${label}</span>
     ${locked ? bpImportPasswordRowHtml(entry, wrong)
-      : `<div class="import-row-actions"><button class="btn ghost"
+      : `<div class="import-row-actions"><button class="btn ghost import-row-remove"
         onclick="bpImportDropEntry(${jsArg(entry.id)})">Remove</button></div>`}
   </div>`;
 }
@@ -9450,7 +9469,7 @@ function bpImportBankRowHtml(entry) {
       onclick="bpBatchSetAccount(${entry.id}, '__new__')">Create ${
       esc(bpBatchCreateName(entry))}</button>`);
   }
-  actions.push(`<button class="btn ghost"
+  actions.push(`<button class="btn ghost import-row-remove"
     onclick="bpBatchRemove(${entry.id})">Remove</button>`);
   const accountSelect = `<select class="mini-select"
       aria-label="Account for ${esc(entry.name)}"

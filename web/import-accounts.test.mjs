@@ -781,6 +781,23 @@ test("a matched row's account line is the control that can change it", () => {
     "a new target cannot inherit an answer for the old one");
 });
 
+test("the Change chip has a pointer state and a keyboard state", () => {
+  assert.match(html, /@media \(hover:hover\)\{[\s\S]*?summary:hover \.import-row-change/,
+    "a mouse hover changes the chip");
+  assert.match(html, /summary:focus-visible \.import-row-change/,
+    "keyboard focus changes the chip");
+  const chip = html.match(/\.import-row-change\{display:inline-flex([^}]*)\}/);
+  assert.ok(chip);
+  assert.match(chip[1], /border:1px solid var\(--green\)/);
+  assert.match(chip[1], /min-height:44px/);
+});
+
+test("the import cards cap on a wide desktop", () => {
+  assert.match(html,
+    /@media \(min-width:1100px\)\{[\s\S]*?\.import-shell, \.import-queue-card\{max-width:760px\}/,
+    "the row and the source tiles stop at a readable column");
+});
+
 test("a broker file that matches something can still start a new account", () => {
   const broker = between("function bpImportResolveBroker", "function bpImportResolveCas");
   assert.match(broker, /bundle\.createOffered = !!bundle\.base/);
