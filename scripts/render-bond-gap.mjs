@@ -139,28 +139,28 @@ const BARE_QUIET = {
 
 const SCENES = {
   gap: { rows: [...BARE, COMPLETE],
-    banner: "16 bonds need cost and terms — import a broker report",
+    banner: "16 bonds need cost and terms — import a dealer report",
     bare: 16, bondRows: 16 },
   edge: { rows: [COMPLETE, COST_LINE, TERMS_MISSING],
-    banner: "2 bonds need cost or terms — import a broker report",
+    banner: "2 bonds need cost or terms — import a dealer report",
     bare: 0, bondRows: 2 },
   bar: { rows: BARE,
-    banner: "16 bonds need cost and terms — import a broker report",
+    banner: "16 bonds need cost and terms — import a dealer report",
     bare: 16, bondRows: 16 },
   long: { rows: [LONG_BARE],
-    banner: "1 bond needs cost and terms — import a broker report",
+    banner: "1 bond needs cost and terms — import a dealer report",
     bare: 1, bondRows: 1 },
   terms: { rows: [TERMS_MISSING],
-    banner: "1 bond needs terms — import a broker report",
+    banner: "1 bond needs terms — import a dealer report",
     bare: 0, bondRows: 1 },
   cas: { rows: [COMPLETE, CAS_WITH_COST, BARE_QUIET],
-    banner: "1 bond needs cost — import a broker report",
+    banner: "1 bond needs cost — import a dealer report",
     bare: 0, bondRows: 0 },
   oneTerm: { rows: [COUPON_ONLY, MATURITY_ONLY],
-    banner: "2 bonds need terms — import a broker report",
+    banner: "2 bonds need terms — import a dealer report",
     bare: 0, bondRows: 2 },
   matured: { rows: [MATURED_CAS, MATURED_BARE, BARE_QUIET],
-    banner: "1 bond needs cost — import a broker report",
+    banner: "1 bond needs cost — import a dealer report",
     bare: 0, bondRows: 0 },
 };
 
@@ -186,8 +186,8 @@ function pageScript({ scene }) {
   const banner = document.querySelector(".bond-gap-banner");
   if (!banner) throw new Error("the gap banner is missing");
   if (banner.tagName !== "BUTTON") throw new Error(\`the banner is a \${banner.tagName}\`);
-  if (!banner.getAttribute("onclick")?.includes("bpEquityImport")) {
-    throw new Error("the banner has no Import handler");
+  if (!banner.getAttribute("onclick")?.includes("bpBondDealerImport")) {
+    throw new Error("the banner has no dealer report handler");
   }
   const bannerText = banner.textContent.replace(/\\s+/g, " ").trim()
     .replace(/\\s*→\\s*$/, "");
@@ -339,7 +339,7 @@ function pageScript({ scene }) {
     if (!cas.statement.includes("₹ 25,000.00") || !cas.statement.includes("from the CAS")) {
       throw new Error(\`the statement fact says \${cas.statement}\`);
     }
-    if (!cas.market.startsWith("—")) {
+    if (!cas.market.startsWith("—") && !cas.market.includes("held at cost")) {
       throw new Error(\`the market slot says \${cas.market}\`);
     }
     for (const [name, text] of [["gain", cas.gain], ["current yield", cas.currentYield],

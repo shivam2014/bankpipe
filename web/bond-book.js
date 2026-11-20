@@ -21,11 +21,13 @@ const numberOrNull = (value) => {
 
 export const DEFAULT_CURRENCY = "₹";
 
-// The four card sentences, in the owner's words. The one-line treatment picks
-// the first or second by whether a market figure survived.
+// The four card sentences, in the owner's words. The demat statement supplies
+// the quantity and value a card already shows; the dealer report is the file
+// that carries cost and terms, so a gap line asks for that file and never
+// denies the statement that produced the row.
 export const BOND_GAP_COPY = Object.freeze({
-  costTermsMarket: "No cost, terms or market value yet. A broker holdings report fills these.",
-  costTerms: "No cost or terms yet. A broker holdings report fills these.",
+  costTermsMarket: "No cost, terms or value yet. Your dealer's report has the cost and terms.",
+  costTerms: "No cost or terms yet. Your dealer's report has both.",
   cost: "Cost not known yet",
   terms: "Coupon or maturity not known yet",
 });
@@ -72,6 +74,73 @@ export function bondTermSourceText(source, asOf = "") {
       : `from ${name}`;
   const day = String(asOf || "").slice(0, 10);
   return day ? `${line} · ${bondDateLabel(day)}` : line;
+}
+
+// A provenance source is named only when the row stores a name for it. Bare
+// `report`, `stored` and `label` are not files, so they print nothing rather
+// than a noun that tells the reader nothing.
+function bondSourceName(source) {
+  const name = String(source || "").trim();
+  if (!name) return "";
+  if (/^(stored|report|source not recorded)$/i.test(name)) return "";
+  const kind = termSourceKind(name);
+  if (kind === "label" || kind === "manual") return "";
+  return name.toLowerCase() === "cas" ? "the CAS" : name;
+}
+
+function bondSourceDay(value) {
+  const day = String(value || "").slice(0, 10);
+  return day ? bondDateLabel(day) : "";
+}
+
+/**
+ * The foot line. Each group of facts names the file that supplied it, with
+ * that file's own date. One source reads as a plain `from ...` fragment; when
+ * both the value file and the terms source appear, each carries its noun so
+ * the pair stays readable. Nothing nameable prints nothing.
+ */
+function bondProvenanceFoot(v, matured) {
+  const day = (value) => {
+    const text = bondSourceDay(value);
+    return text ? ` · ${text}` : "";
+  };
+  const rawValue = String(v.h.value_source ?? v.h.valueSource ?? "").trim();
+  const manual = String(v.h.source || "").toLowerCase() === "manual"
+    || termSourceKind(rawValue) === "manual";
+  const file = manual ? "" : bondSourceName(rawValue);
+  const valuePart = manual ? "entered by hand"
+    : file ? `from ${esc(file)}${day(v.valueAsOf)}` : "";
+  const term = [
+    [v.couponSource, v.couponAsOf],
+    [v.maturitySource, v.maturityAsOf],
+    [v.faceSource, v.faceAsOf],
+  ].map(([source, asOf]) => [bondSourceName(source), asOf])
+    .find(([name]) => name) || ["", ""];
+  const termsPart = term[0] ? `from ${esc(term[0])}${day(term[1])}` : "";
+  if (matured) {
+    if (termsPart) return termsPart;
+    return manual ? "entered by hand" : "";
+  }
+  const parts = [];
+  if (manual) {
+    parts.push("entered by hand");
+    if (termsPart) parts.push(`terms ${termsPart}`);
+  } else if (valuePart && termsPart && valuePart === termsPart) {
+    parts.push(valuePart);
+  } else if (valuePart && termsPart) {
+    parts.push(`value ${valuePart}`, `terms ${termsPart}`);
+  } else {
+    if (valuePart) parts.push(valuePart);
+    if (termsPart) parts.push(termsPart);
+  }
+  const returnedKey = String(v.returnedSource || "").trim().toLowerCase();
+  const returnedName = returnedKey === "smest" ? "SMEST"
+    : returnedKey === "cashflow" ? "Cashflow Future"
+      : returnedKey === "bank" ? "the bank" : "";
+  if (v.returned && returnedName) parts.push(`repayment from ${returnedName}`);
+  if (v.returnedRecordDate) parts.push("record date from BSE");
+  if (v.pastCoupon !== null && v.pastCoupon !== undefined) parts.push("interest estimated");
+  return parts.join(" · ");
 }
 
 export function bondRatingOf(h) {
@@ -255,7 +324,8 @@ export function bondCoverageText(covered, count, noun) {
  */
 export function bondGapBannerHtml(banner, importTarget = "", importVia = "broker") {
   const content = `<span>${esc(banner?.text || "")}</span><span aria-hidden="true">→</span>`;
-  const action = importVia === "page" ? "go('import')" : `bpEquityImport(${jsArg(importTarget)})`;
+  const action = importVia === "page" ? "go('import')"
+    : `bpBondDealerImport(${jsArg(importTarget)})`;
   return importTarget
     ? `<button type="button" class="bond-gap-banner" data-bond-gap-banner onclick="${action}">${content}</button>`
     : `<div class="bond-gap-banner" data-bond-gap-banner>${content}</div>`;
@@ -345,12 +415,14 @@ export function bondFacts(v, {
   const rowSourceKey = rowSource.toLowerCase();
   // A cost-only lot in an at-cost account is measured by what was paid, so its
   // value line carries the cost and names the source. The words are the account
-  // hero's own: held at cost, cost from the report.
+  // hero's own: held at cost, cost from the file.
   const atCostValue = atCost && v.value === null && v.cost !== null;
-  const costSourceLong = rowSourceKey === "report" ? "cost from the report"
+  const costSourceLong = rowSourceKey === "report"
+    ? (rawValueSource && !["MANUAL", "CAS", "BSE"].includes(rawValueSource.toUpperCase())
+      ? `cost from ${esc(rawValueSource)}` : "")
     : rowSourceKey === "cas" ? "cost from the CAS"
       : rowSourceKey === "manual" ? "cost entered by hand"
-        : "cost source not recorded";
+        : "";
   const enterValue = assetId && v.h.id
     ? `<button class="vupdate" data-bond-action="enter-value"
         onclick="bpBondHoldingEdit(${jsArg(assetId)},${jsArg(v.h.id)},true)">${
@@ -365,27 +437,7 @@ export function bondFacts(v, {
   // A cost figure has no market behind it, so the market-derived lines say why
   // they are blank instead of asking for work the account deliberately skips.
   const noMarketSub = atCostValue ? "no market value yet" : "needs a market value";
-  const termsSource = rowSourceKey === "manual" ? "manual"
-    : rowSourceKey === "cas" ? "CAS"
-      : rowSourceKey === "report" ? "report"
-        : rowSource ? esc(rowSource) : "source not recorded";
-  const termsLine = rowSourceKey === "manual" ? "Terms entered by hand"
-    : rowSourceKey === "cas" ? "Terms from the CAS"
-      : rowSourceKey === "report" ? "Terms from the report"
-        : rowSource ? `Terms from ${esc(rowSource)}` : "Terms source not recorded";
-  const returnedKey = String(v.returnedSource || "").trim().toLowerCase();
-  const returnedLabel = !v.returned ? ""
-    : returnedKey === "smest" ? "SMEST"
-      : returnedKey === "cashflow" ? "Cashflow Future"
-        : returnedKey === "bank" ? "bank"
-          : "source not recorded";
-  const sources = matured ? termsLine
-    : [
-      termsSource,
-      returnedLabel,
-      v.returnedRecordDate ? "BSE" : "",
-      v.pastCoupon !== null && v.pastCoupon !== undefined ? "interest estimated" : "",
-    ].filter(Boolean).join(" · ");
+  const sources = bondProvenanceFoot(v, matured);
   const changeTone = v.change ? (v.change.down ? "neg" : "pos") : "";
   // A CAS row can carry the face per unit with no cost, so there is no
   // purchase face to derive. The statement's face and quantity are still a
@@ -552,7 +604,7 @@ export function bondFacts(v, {
     key: "coupon", label: "Interest rate",
     value: v.coupon === null ? "—" : `${v.coupon}%`,
     sub: v.coupon === null ? "not in the statement"
-      : (v.couponGuessed ? "read from the bond name — check it"
+      : (v.couponGuessed ? "read from the bond name"
         : bondTermSourceText(v.couponSource, v.couponAsOf)),
     subTone: v.couponGuessed ? "amber" : "",
     present: v.coupon !== null && v.coupon !== undefined,
@@ -561,9 +613,9 @@ export function bondFacts(v, {
   facts.push({
     key: "maturity", label: "Maturity date",
     value: v.maturity ? dateLabel(v.maturity) : "—",
-    sub: v.maturity ? (v.maturityGuessed ? "read from the bond name — check it"
+    sub: v.maturity ? (v.maturityGuessed ? "read from the bond name"
       : bondTermSourceText(v.maturitySource, v.maturityAsOf))
-      : (v.maturityUnread ? "the date in the name could not be read — check it"
+      : (v.maturityUnread ? "the date in the name could not be read"
         : "not in the statement"),
     subTone: v.maturityGuessed || v.maturityUnread ? "amber" : "",
     // An unreadable date is a present fact about the name: keep the dash and
@@ -720,14 +772,17 @@ export function bondCardHtml(v, assetId, {
     : [issuer ? esc(issuer) : "", esc(v.h.security_id || "no ISIN"),
       v.h.source === "manual" ? "added by hand" : ""].filter(Boolean).join(" · ");
   const importAction = importVia === "page"
-    ? "go('import')" : `bpEquityImport(${jsArg(importTarget)})`;
+    ? "go('import')" : `bpBondDealerImport(${jsArg(importTarget)})`;
   const importLink = importTarget
     ? `<button type="button" class="bond-gap-link" data-bond-action="import-broker"
         onclick="${importAction}">Import</button>` : "";
-  const oneLineBase = gap.noMarket
+  // A statement value is a value. The line must not say the card has none just
+  // because the demat file supplied a statement figure instead of a market
+  // price, so only a row with no figure at all gets the value sentence.
+  const oneLineBase = gap.noMarket && !statementOnly && !atCostValue
     ? BOND_GAP_COPY.costTermsMarket : BOND_GAP_COPY.costTerms;
   const oneLineCopy = importTarget ? oneLineBase
-    : oneLineBase.replace(" A broker holdings report fills these.", "");
+    : `${oneLineBase.split(". ")[0]}.`;
   const gapLine = gap.treatment === "one-line"
     ? `<div class="bond-gap-line">${oneLineCopy}${
       importLink ? ` ${importLink}` : ""}</div>`

@@ -136,7 +136,7 @@ function verify(state, { width, theme }, expect) {
     return;
   }
 
-  const note = "read from the bond name — check it";
+  const note = "read from the bond name";
   if (state.coupon.value !== "11.9%") fail(`coupon is ${state.coupon.value}, want 11.9%`);
   if (state.coupon.sub !== note) fail(`coupon note is ${state.coupon.sub}`);
   if (!state.coupon.subTone.includes("amber")) fail("the coupon note is not amber");
