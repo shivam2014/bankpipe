@@ -18,6 +18,11 @@ test("a number is read back by its last four digits", () => {
   assert.equal(tail(""), "");
 });
 
+test("a short client id is read whole, not cut to four characters", () => {
+  assert.equal(tail("SYN500"), "SYN500");
+  assert.equal(tail("TEST500"), "TEST500");
+});
+
 test("a known source reads as the name a person uses", () => {
   assert.equal(sourceName("ICICI BANK LIMITED"), "ICICI Direct");
   assert.equal(sourceName("Zerodha Broking Ltd"), "Zerodha");
@@ -53,6 +58,8 @@ test("a match says how it was found, and a partial match says the score", () => 
 test("a proposed account is named by its source and its number", () => {
   assert.equal(createProposal({ family: "zerodha", key: "AB1234567" }),
     "Create Zerodha demat …4567");
+  assert.equal(createProposal({ family: "zerodha", key: "SYN500" }),
+    "Create Zerodha demat SYN500");
   assert.equal(createProposal({ family: "cas", source: "ICICI BANK LIMITED",
     key: "1200000012348054" }), "Create ICICI Direct demat …8054");
   assert.equal(createProposal({ folio: true, amc: "HDFC Mutual Fund",

@@ -35,6 +35,15 @@ const rows = Array.from({ length: 17 }, (_, at) => ({
   purchaseDate: "", sourceRow: at,
 }));
 
+// The owner's file: 28 holdings under a short alphanumeric client id. The id
+// is printed whole, never cut to "…T500", because the missing characters are
+// what tell this account apart from another.
+const rows28 = Array.from({ length: 28 }, (_, at) => ({
+  ...rows[at % rows.length], isin: isin(1200 + at),
+  label: `TEST EQUITY ${at + 1}`, quantity: 5 + at,
+  valuePaise: 100000 * (at + 1), sourceRow: at,
+}));
+
 const account = {
   id: "demat-zerodha", label: "Demat · Zerodha · …8054", bank: "Zerodha",
   category: "demat", subtype: "equity", type: "equity", number: BO,
@@ -109,7 +118,7 @@ const holding = (over = {}) => ({
 
 const brokerEntry = (accountKey = CLIENT_ID, entryRows = rows) => ({
   id: `inbox-render-${accountKey}`,
-  name: "holdings-AB1234567.xlsx", size: 2048, status: "ready",
+  name: `holdings-${accountKey || "unknown"}.xlsx`, size: 2048, status: "ready",
   kind: "zerodha-holdings", broker: "zerodha", asOf: AS_OF,
   accountKey, accountKind: accountKey ? "client" : "", rows: entryRows,
   firstBuyByIsin: {}, termsByIsin: [], termsByLabel: [], error: "", file: null,
@@ -163,8 +172,11 @@ function importLayoutWrong(state) {
   const wrong = [];
   for (const item of state.accountLines || []) {
     const line = Number.parseFloat(item.lineHeight) || 19;
-    if (item.h > line * 1.3 + 0.5) {
-      wrong.push(`the account line wraps to ${item.h}px at ${state.width}`);
+    // The evidence is its own line by design. The name above it must stay one
+    // ellipsized line; measuring the wrapper would count the evidence too.
+    const nameHeight = item.nameH || item.h;
+    if (nameHeight > line * 1.3 + 0.5) {
+      wrong.push(`the account name wraps to ${nameHeight}px at ${state.width}`);
     }
     if (item.whiteSpace !== "nowrap" || item.textOverflow !== "ellipsis") {
       wrong.push(`the account line is not a single ellipsized line at ${state.width}`);
@@ -239,7 +251,9 @@ const SCENARIOS = [
       const wrong = [];
       if (state.rows !== 0) wrong.push(`rows: ${state.rows}`);
       if (state.cardShown) wrong.push("the empty queue card is on screen");
-      if (state.bar !== "") wrong.push(`bar: ${JSON.stringify(state.bar)}`);
+      if (state.bar !== "") {
+        wrong.push(`bar: ${JSON.stringify(state.bar)} (an inert bar is not drawn)`);
+      }
       if (state.emptyText !== "") {
         wrong.push(`empty copy: ${JSON.stringify(state.emptyText)}`);
       }
@@ -334,7 +348,9 @@ const SCENARIOS = [
         wrong.push(`hint: ${JSON.stringify(state.passwordHint)}`);
       }
       if (state.accounts.length) wrong.push("a locked file named an account before it opened");
-      if (state.bar !== "Import 0 ready files") wrong.push(`bar: ${state.bar}`);
+      if (state.bar !== "") {
+        wrong.push(`bar: ${JSON.stringify(state.bar)} (an inert bar is not drawn)`);
+      }
       return wrong;
     },
   },
@@ -346,11 +362,32 @@ const SCENARIOS = [
       const wrong = [];
       if (state.rows !== 1) wrong.push(`rows: ${state.rows}`);
       if (state.pills[0] !== "Needs an account") wrong.push(`pill: ${JSON.stringify(state.pills)}`);
-      if (!/Create Zerodha demat …9999/.test(state.proposals.join(" "))) {
+      if (!/Create Zerodha demat …9999 and import/.test(state.proposals.join(" "))) {
         wrong.push(`proposal: ${JSON.stringify(state.proposals)}`);
       }
       if (state.accounts.length) wrong.push("an unresolved file named a target account");
-      if (state.bar !== "Import 0 ready files") wrong.push(`bar: ${state.bar}`);
+      if (state.bar !== "") {
+        wrong.push(`bar: ${JSON.stringify(state.bar)} (an inert bar is not drawn)`);
+      }
+      return wrong;
+    },
+  },
+  {
+    name: "create-target",
+    seed: null,
+    entries: [brokerEntry("SYN500", rows28)],
+    choices: { "zerodha:SYN500": "__create__" },
+    checks: (state) => {
+      const wrong = [];
+      if (state.rows !== 1) wrong.push(`rows: ${state.rows}`);
+      if (state.pills[0] !== "Ready") wrong.push(`pill: ${JSON.stringify(state.pills)}`);
+      if (state.accounts[0] !== "Create Zerodha demat SYN500 New account") {
+        wrong.push(`account line: ${JSON.stringify(state.accounts)}`);
+      }
+      if (state.accounts.some((line) => /^·| · /.test(line))) {
+        wrong.push(`the evidence starts with a separator: ${JSON.stringify(state.accounts)}`);
+      }
+      if (state.bar !== "Import 1 ready file") wrong.push(`bar: ${state.bar}`);
       return wrong;
     },
   },
@@ -391,7 +428,9 @@ const SCENARIOS = [
       if (!/not a CAS, broker holdings report or bank statement/.test(state.notes[0] || "")) {
         wrong.push(`note: ${JSON.stringify(state.notes)}`);
       }
-      if (state.bar !== "Import 0 ready files") wrong.push(`bar: ${state.bar}`);
+      if (state.bar !== "") {
+        wrong.push(`bar: ${JSON.stringify(state.bar)} (an inert bar is not drawn)`);
+      }
       return wrong;
     },
   },
@@ -415,7 +454,7 @@ function pageScript(scenario) {
   state.entries.length = 0;
   state.bundles.length = 0;
   state.plans.length = 0;
-  state.choices = {};
+  state.choices = ${JSON.stringify(scenario.choices || {})};
   state.acceptAsk = {};
   state.receipts = [];
   state.accountRows = null;
@@ -450,8 +489,11 @@ function pageScript(scenario) {
   const accountLines = [...document.querySelectorAll(".import-row-account")]
     .map((node) => {
       const box = node.getBoundingClientRect();
+      const name = node.querySelector("b");
       const style = getComputedStyle(node);
-      return { h: Math.round(box.height), lineHeight: style.lineHeight,
+      return { h: Math.round(box.height),
+        nameH: name ? Math.round(name.getBoundingClientRect().height) : 0,
+        lineHeight: style.lineHeight,
         whiteSpace: style.whiteSpace, textOverflow: style.textOverflow,
         scrollW: node.scrollWidth, clientW: node.clientWidth };
     });
@@ -553,7 +595,9 @@ const FLOWS = [
     `,
     checks: (state) => {
       const wrong = [];
-      if (state.after !== "Import 0 ready files") wrong.push(`bar after: ${state.after}`);
+      if (state.after !== "") {
+        wrong.push(`bar after: ${JSON.stringify(state.after)} (nothing was left to run)`);
+      }
       if (state.receipts.length !== 2) wrong.push(`receipts: ${state.receipts.length}`);
       if (state.receipts.some((item) => item.pill !== "Imported")) {
         wrong.push(`receipt pills: ${JSON.stringify(state.receipts)}`);
@@ -588,7 +632,9 @@ const FLOWS = [
     checks: (state) => {
       const wrong = [];
       if (state.before !== "Import 1 ready file") wrong.push(`bar before: ${state.before}`);
-      if (state.after !== "Import 0 ready files") wrong.push(`bar after: ${state.after}`);
+      if (state.after !== "") {
+        wrong.push(`bar after: ${JSON.stringify(state.after)} (nothing was left to run)`);
+      }
       if (!state.rows.some((row) => row.pill === "Needs password")) {
         wrong.push(`the locked row left: ${JSON.stringify(state.rows)}`);
       }
@@ -604,25 +650,30 @@ const FLOWS = [
       const row = () => document.querySelector("#import-inbox-host .import-row");
       const pill = () => text(row()?.querySelector(".import-row-pill"));
       if (pill() !== "Needs an account") throw new Error("pill before: " + pill());
+      const barBefore = document.querySelector("#import-inbox-host .import-batchbar");
+      if (barBefore) throw new Error("an inert bar was drawn before Create");
       const create = [...row().querySelectorAll(".btn.primary")]
         .find((button) => /^Create Zerodha demat/.test(text(button)));
       if (!create) throw new Error("the CAS Create proposal is missing");
       const label = text(create);
       create.click();
-      await waitFor(() => pill() === "Ready", "the CAS row to become ready");
-      const bar = text(document.querySelector(".import-batchbar .btn"));
-      document.querySelector(".import-batchbar .btn").click();
       await waitFor(() => document.querySelectorAll(".import-row-receipt").length === 1,
         "the CAS receipt");
       const accounts = await store.listAccounts();
       const holdings = accounts[0] ? (await store.listHoldings(accounts[0].id)).length : 0;
-      return JSON.stringify({ label, bar, accounts: accounts.map((item) => item.label),
+      return JSON.stringify({ label,
+        bar: text(document.querySelector("#import-inbox-host .import-batchbar .btn")),
+        accounts: accounts.map((item) => item.label),
         holdings, receipts: document.querySelectorAll(".import-row-receipt").length });
     `,
     checks: (state) => {
       const wrong = [];
-      if (state.label !== "Create Zerodha demat …8054") wrong.push(`proposal: ${state.label}`);
-      if (state.bar !== "Import 1 ready file") wrong.push(`bar: ${state.bar}`);
+      if (state.label !== "Create Zerodha demat …8054 and import") {
+        wrong.push(`proposal: ${state.label}`);
+      }
+      if (state.bar !== "") {
+        wrong.push(`bar: ${JSON.stringify(state.bar)} (one press leaves nothing to run)`);
+      }
       if (state.receipts !== 1) wrong.push(`receipts: ${state.receipts}`);
       if (state.holdings !== 12) wrong.push(`holdings: ${state.holdings}`);
       return wrong;
@@ -735,6 +786,12 @@ const FLOWS = [
       if (state.barAfter !== "Import 1 ready file") wrong.push(`bar after: ${state.barAfter}`);
       if (!/^Create Zerodha demat/.test(state.createTarget)) {
         wrong.push(`create target: ${state.createTarget}`);
+      }
+      if (/· New account/.test(state.createTarget)) {
+        wrong.push(`the evidence line starts with a separator: ${state.createTarget}`);
+      }
+      if (!/ New account$/.test(state.createTarget)) {
+        wrong.push(`the new-account evidence left the line: ${state.createTarget}`);
       }
       if (!/17 holdings/.test(state.createFacts)) {
         wrong.push(`create consequence: ${state.createFacts}`);
@@ -854,42 +911,92 @@ const FLOWS = [
       if (!/Zerodha holdings/.test(state.facts)) {
         wrong.push(`the type left the row: ${state.facts}`);
       }
-      if (state.bar !== "Import 0 ready files") wrong.push(`bar after: ${state.bar}`);
+      if (state.bar !== "") {
+        wrong.push(`bar after: ${JSON.stringify(state.bar)} (an inert bar is not drawn)`);
+      }
       return wrong;
     },
   },
   {
     name: "create-one-press",
     seed: null,
-    entries: [brokerEntry(UNMATCHED_ID)],
+    entries: [brokerEntry("SYN500", rows28)],
     body: `
       const row = () => document.querySelector("#import-inbox-host .import-row");
       const pill = () => text(row()?.querySelector(".import-row-pill"));
       if (pill() !== "Needs an account") throw new Error("pill before: " + pill());
+      const barBefore = document.querySelector("#import-inbox-host .import-batchbar");
+      if (barBefore) throw new Error("an inert bar was drawn before Create");
       const create = [...row().querySelectorAll(".btn.primary")]
         .find((button) => /^Create Zerodha demat/.test(text(button)));
       if (!create) throw new Error("the Create proposal is missing");
       const label = text(create);
       create.click();
-      await waitFor(() => pill() === "Ready", "the row to become ready");
-      const bar = text(document.querySelector(".import-batchbar .btn"));
-      document.querySelector(".import-batchbar .btn").click();
       await waitFor(() => document.querySelectorAll(".import-row-receipt").length === 1,
         "one receipt");
+      const receipt = document.querySelector(".import-row-receipt");
       const accounts = await store.listAccounts();
-      return JSON.stringify({ label, bar, accounts: accounts.map((item) => item.label),
-        receipts: document.querySelectorAll(".import-row-receipt").length });
+      const holdings = accounts[0] ? (await store.listHoldings(accounts[0].id)).length : 0;
+      return JSON.stringify({ label,
+        bar: text(document.querySelector("#import-inbox-host .import-batchbar .btn")),
+        pill: text(receipt?.querySelector(".import-row-pill")),
+        receipt: text(receipt?.querySelector(".import-row-note")),
+        accounts: accounts.map((item) => item.label),
+        holdings, receipts: document.querySelectorAll(".import-row-receipt").length });
     `,
     checks: (state) => {
       const wrong = [];
-      if (state.label !== "Create Zerodha demat …9999") {
+      if (state.label !== "Create Zerodha demat SYN500 and import") {
         wrong.push(`proposal: ${state.label}`);
       }
-      if (state.bar !== "Import 1 ready file") wrong.push(`bar: ${state.bar}`);
-      if (state.receipts !== 1) wrong.push(`receipts: ${state.receipts}`);
-      if (!state.accounts.some((label) => /Zerodha/.test(label))) {
-        wrong.push(`accounts: ${JSON.stringify(state.accounts)}`);
+      if (state.bar !== "") {
+        wrong.push(`bar: ${JSON.stringify(state.bar)} (one press leaves nothing to run)`);
       }
+      if (state.pill !== "Imported") wrong.push(`receipt pill: ${state.pill}`);
+      if (!/28 holdings imported/.test(state.receipt || "")) {
+        wrong.push(`receipt: ${JSON.stringify(state.receipt)}`);
+      }
+      if (state.holdings !== 28) wrong.push(`holdings: ${state.holdings}`);
+      if (!state.accounts.some((label) => /SYN500/.test(label))) {
+        wrong.push(`new account: ${JSON.stringify(state.accounts)}`);
+      }
+      if (state.receipts !== 1) wrong.push(`receipts: ${state.receipts}`);
+      return wrong;
+    },
+  },
+  {
+    name: "create-target-bar",
+    seed: null,
+    entries: [brokerEntry("SYN500", rows28)],
+    choices: { "zerodha:SYN500": "__create__" },
+    body: `
+      const row = () => document.querySelector("#import-inbox-host .import-row");
+      if (!/^Create Zerodha demat SYN500/.test(text(row()?.querySelector(".import-row-account")))) {
+        throw new Error("the create target is not on the row");
+      }
+      const bar = document.querySelector("#import-inbox-host .import-batchbar .btn");
+      const before = text(bar);
+      if (before !== "Import 1 ready file") throw new Error("bar before: " + before);
+      bar.click();
+      await waitFor(() => document.querySelectorAll(".import-row-receipt").length === 1,
+        "the receipt");
+      const accounts = await store.listAccounts();
+      const holdings = accounts[0] ? (await store.listHoldings(accounts[0].id)).length : 0;
+      return JSON.stringify({ before,
+        bar: text(document.querySelector("#import-inbox-host .import-batchbar .btn")),
+        receipt: text(document.querySelector(".import-row-receipt .import-row-note")),
+        holdings });
+    `,
+    checks: (state) => {
+      const wrong = [];
+      if (state.before !== "Import 1 ready file") wrong.push(`bar before: ${state.before}`);
+      if (state.bar !== "") {
+        wrong.push(`bar after: ${JSON.stringify(state.bar)} (nothing was left to run)`);
+      }
+      if (!/28 holdings imported/.test(state.receipt || "")) {
+        wrong.push(`receipt: ${JSON.stringify(state.receipt)}`);
+      }
+      if (state.holdings !== 28) wrong.push(`holdings: ${state.holdings}`);
       return wrong;
     },
   },
@@ -921,7 +1028,7 @@ function flowScript(flow) {
   state.entries.length = 0;
   state.bundles.length = 0;
   state.plans.length = 0;
-  state.choices = {};
+  state.choices = ${JSON.stringify(flow.choices || {})};
   state.acceptAsk = {};
   state.receipts = [];
   state.accountRows = null;
