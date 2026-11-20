@@ -8,6 +8,8 @@ import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
   importNoWorkCopy } from "./import-flow.js";
 import { casReplacePlan } from "./cas-apply.js";
 import { casRoute } from "./cas.js";
+import { parseZerodhaHoldings } from "./zerodha.js";
+import { rowsFromCsv } from "./parse.js";
 
 // Synthetic identifiers only. The real files are never committed.
 const isin = (n) => `INE${String(n).padStart(9, "0")}`;
@@ -60,6 +62,32 @@ test("detects each supported depository and broker file from its contents", () =
   longPreamble.push(["TESTLATE", "INE000000099", 3, 10]);
   assert.equal(detectImportFile({ name: "holdings.xlsx", matrix: longPreamble }).kind,
     "zerodha-holdings");
+});
+
+const ZERODHA_HOLDINGS_ROWS = [
+  ["Client ID", "TEST500"],
+  ["Equity Holdings Statement as on 12 Nov 2026"],
+  ["Symbol", "ISIN", "Sector", "Quantity Available", "Average Price",
+    "Previous Closing Price", "Unrealized P&L"],
+  ...Array.from({ length: 28 }, (_, at) => [
+    `TEST EQUITY ${at + 1}`, isin(600 + at), "ENERGY", 10 + at, 100 + at,
+    101 + at, (at + 1) * 10,
+  ]),
+];
+const ZERODHA_HOLDINGS_CSV = ZERODHA_HOLDINGS_ROWS.map((row) => row.join(",")).join("\n");
+
+test("a Zerodha holdings CSV is detected by its header, not its file name", () => {
+  const detected = detectImportFile({ name: "holdings-AB1234567.csv",
+    text: ZERODHA_HOLDINGS_CSV });
+  assert.equal(detected.kind, "zerodha-holdings");
+  assert.equal(detected.confidence, "content");
+  assert.equal(detected.asOf, "2026-11-12");
+  const fromCsv = parseZerodhaHoldings(rowsFromCsv(ZERODHA_HOLDINGS_CSV));
+  const fromSheet = parseZerodhaHoldings(ZERODHA_HOLDINGS_ROWS);
+  assert.equal(fromCsv.error, null);
+  assert.equal(fromCsv.rows.length, 28);
+  assert.deepEqual(fromCsv.rows, fromSheet.rows,
+    "the CSV and the workbook read the same holdings");
 });
 
 test("a Motilal PDF in the CAS input is recognised as Motilal, not CAS", () => {

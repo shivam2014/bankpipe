@@ -12,7 +12,7 @@ import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
 import { bondInputsMissing, bondMaturity, isDisposed, termSourceRank } from "./bonds.js";
 import { findHeaderRow, headerMessage, readDate, readNumber, cellText,
   refusalResult, tableWhere } from "./table-schema.js";
-import { looksLikeZerodhaHoldings } from "./zerodha.js";
+import { looksLikeZerodhaHoldings, ZERODHA_HOLDINGS_SCHEMA } from "./zerodha.js";
 import { looksLikeIciciHoldings, ICICI_DETECTION_SCHEMA } from "./icici.js";
 import { PAYOUTS_DETECTION_SCHEMA } from "./digifinn.js";
 import { PORTFOLIO_DETECTION_SCHEMA, INVESTMENT_SCHEMA,
@@ -174,6 +174,14 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
 
   const tradebook = findHeaderRow(bodyRows, TRADEBOOK_SCHEMA);
   if (tradebook.index >= 0) return info("zerodha-tradebook", "content");
+
+  // A Kite holdings CSV prints the same header as its workbook. The workbook
+  // path hands over a matrix; a CSV has only text, so its rows are checked
+  // against the full schema, average price included, before the looser
+  // DigiFInn signatures can claim a file merely called holdings.csv.
+  if (headerIn(ZERODHA_HOLDINGS_SCHEMA)) {
+    return info("zerodha-holdings", "content", date);
+  }
 
   if (headerIn(PAYOUTS_DETECTION_SCHEMA)) {
     return info("digifinn-payouts", "content", date);
