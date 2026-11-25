@@ -1,4 +1,4 @@
-// Brokers that publish a holding report you can import. DigiFInn and Motilal
+// Brokers that publish a holding report you can import. DigiFinn and Motilal
 // Oswal are the first two; adding another is a new entry here plus its parser,
 // not a rewrite of the portfolio page.
 //
@@ -12,7 +12,7 @@ import { parseReportFile } from "./digifinn-reports.js";
 export const BOND_BROKERS = [
   {
     id: "digifinn",
-    label: "DigiFInn",
+    label: "DigiFinn",
     logo: "broker-logos/digifinn.webp",
     parser: "digifinn",
     page: { url: "https://www.digifinn.com/profile", where: "Reports & Documents" },
@@ -82,7 +82,7 @@ export const EQUITY_BROKERS = [
     page: { url: "https://console.zerodha.com/portfolio/holdings",
       where: "Portfolio → Holdings" } },
   { id: "icici", label: "ICICI Direct", logo: "broker-logos/icici-direct.png",
-    page: { url: "https://www.icicidirect.com/", where: "Portfolio → Demat Holdings" } },
+    page: { url: "https://www.icicidirect.com/", where: "Stocks → Demat holdings" } },
 ];
 
 export function equityBroker(id) {

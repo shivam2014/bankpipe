@@ -38,7 +38,7 @@ Deep links:
   merging, balance-chain checks and SQLite persistence. Password-protected XLSX is read
   on-device, and a PDF is read from its text layer.
 - **Holdings** CSV/XLSX import for equities.
-- **Bonds** from DigiFInn reports, a ratings CSV, or manual lots; BSE prices and SMEST
+- **Bonds** from DigiFinn reports, a ratings CSV, or manual lots; BSE prices and SMEST
   details on the local server.
 - Dashboard, accounts, assets, upcoming, review and transactions views.
 - Encrypted database at rest and optional Google Drive backup.

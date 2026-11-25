@@ -185,7 +185,7 @@ test("tradebook: an unreadable trade type or price refuses instead of dropping t
   assert.match(two.error, /"Price" is not a number \("3,9OO"\)/);
 });
 
-// --- DigiFInn ---------------------------------------------------------------
+// --- DigiFinn ---------------------------------------------------------------
 
 const PORTFOLIO = [
   ["DIGIFINN - HOLDINGS REPORT"],
@@ -432,7 +432,7 @@ const GENERIC = [
   ["INE000000027", "TEST CAPITAL NCD", 25, "2,50,000", "2,61,000", "01 Apr 2023"],
 ];
 
-test("a DigiFInn transactions CSV is not taken for a Zerodha tradebook", () => {
+test("a DigiFinn transactions CSV is not taken for a Zerodha tradebook", () => {
   // Both print a date, a quantity and a price. The transactions report names a
   // "Transaction Type" and no trade term, so the more specific reader wins.
   const transactions = [
@@ -443,7 +443,7 @@ test("a DigiFInn transactions CSV is not taken for a Zerodha tradebook", () => {
     "digifinn-transactions");
 });
 
-test("a generic holdings sheet with Security Name is not taken for a DigiFInn report", () => {
+test("a generic holdings sheet with Security Name is not taken for a DigiFinn report", () => {
   const generic = [
     "ISIN,Security Name,Quantity,Buy Value,Current Value",
     "INE000000029,TEST FINANCE NCD 2029,10,100000,108500",

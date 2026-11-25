@@ -492,7 +492,7 @@ try {
     if (args.verify) {
       const expected = [
         "Depository statement (CAS) — CDSL or NSDL, after month end",
-        "Broker holdings report — Zerodha, Motilal Oswal, DigiFInn",
+        "Broker holdings report — Zerodha, Motilal Oswal, DigiFinn",
         "Bank statement — CSV, XLSX or PDF",
       ];
       const wrong = [];

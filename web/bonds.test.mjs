@@ -169,7 +169,7 @@ test("term sources rank a statement above a lookup above the name", () => {
   assert.equal(termSourceRank("label"), 1);
   assert.equal(termSourceRank("SMEST"), 2);
   assert.equal(termSourceRank("BSE"), 2);
-  assert.equal(termSourceRank("DigiFInn investment report"), 3);
+  assert.equal(termSourceRank("DigiFinn investment report"), 3);
   assert.equal(termSourceRank("Manual"), 3);
   assert.equal(termSourceRank(""), 0);
 });
@@ -473,7 +473,7 @@ test("a lookup replaces a name guess but not a report or a person", () => {
   assert.equal(fromLookup.patch.coupon_source, "SMEST");
   assert.equal(fromLookup.patch.maturity_source, "SMEST");
 
-  for (const source of ["Manual", "DigiFInn investment report", "CAS"]) {
+  for (const source of ["Manual", "DigiFinn investment report", "CAS"]) {
     const stated = bondFillPlan({ quantity: 1, cost_paise: 10000000,
       coupon_pct: 8, coupon_source: source, maturity: "2030-01-01",
       maturity_source: source }, fetched, "2026-11-16");

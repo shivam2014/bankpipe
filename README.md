@@ -92,7 +92,7 @@ balance. A single-date file is ordered by its running balance, not by file order
 | Fixed deposits | principal, rate, start, maturity, linked account | family workbook, auto-matched to a bank account, or by hand |
 | PPF | balance, start, maturity | family workbook or by hand |
 | Equity and mutual funds | quantity, invested and current value | broker holdings, family workbook or by hand |
-| Bonds | ISIN, coupon, maturity, rating, cashflow | DigiFInn reports, ratings CSV, manual lots |
+| Bonds | ISIN, coupon, maturity, rating, cashflow | DigiFinn reports, ratings CSV, manual lots |
 | Gold | grams, buy price and current price per gram | by hand |
 | Insurance | policy, cover, premium, maturity | family workbook or by hand |
 | Cash, property, other | balance or value, and notes | by hand |

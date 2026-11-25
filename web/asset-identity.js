@@ -3,7 +3,7 @@
 // here, so they cannot drift apart. Missing fields drop their clause instead
 // of leaving an empty separator or `""`.
 //
-//   row        DigiFInn · IN99990003000000 · TEST HOLDER
+//   row        DigiFinn · IN99990003000000 · TEST HOLDER
 //   name       Bonds · portfolio 2 (TEST HOLDER)
 //   full       Bonds · portfolio 1 · IN99990003000000 (TEST HOLDER)
 //   numberLine Demat 1200000000000000 (TEST HOLDER)

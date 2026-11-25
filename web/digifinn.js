@@ -1,4 +1,4 @@
-// DigiFInn bond portfolio imports. The portal exports two different CSVs:
+// DigiFinn bond portfolio imports. The portal exports two different CSVs:
 //   upcoming-payouts.csv  one row per payout, with ISIN, units and dates
 //   portfolio-cashflow-all.csv  a wide sheet, one column group per bond, with
 //                                yield, frequency, maturity, invested value/date
@@ -106,7 +106,7 @@ export function labelMaturity(label) {
 
 // The Upcoming Payouts table. Its units column has been printed as "Units",
 // "Quantity" and "Qty"; the detection schema asks for the two columns that no
-// other DigiFInn report carries, so a portfolio row is never taken for a payout.
+// other DigiFinn report carries, so a portfolio row is never taken for a payout.
 export const PAYOUTS_SCHEMA = {
   isin: { label: "ISIN", required: true, aliases: ["ISIN", "ISIN Code"] },
   units: { label: "Units", required: true, aliases: ["Units", "Quantity", "Qty"] },

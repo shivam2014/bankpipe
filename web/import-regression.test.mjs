@@ -147,7 +147,7 @@ test("a three-sheet workbook with no Kite header is still unknown", () => {
   assert.equal(parsed.rows.length, 0);
 });
 
-test("the five DigiFInn reports still group as one account set", () => {
+test("the five DigiFinn reports still group as one account set", () => {
   const files = DIGIFINN_FILES.map((file) => ({ ...file }));
   const bundles = groupBundles(files);
   assert.equal(bundles.length, 1);

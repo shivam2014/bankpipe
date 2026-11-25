@@ -451,7 +451,7 @@ const ZERODHA_FILES = () => [
     firstBuyByIsin: { [other(3)]: "2025-11-13" } }),
 ];
 
-test("a DigiFInn set groups as one bundle and each optional file adds its facts", () => {
+test("a DigiFinn set groups as one bundle and each optional file adds its facts", () => {
   const bundles = groupBundles(DIGIFINN_FILES());
   assert.equal(bundles.length, 1);
   const bundle = bundles[0];

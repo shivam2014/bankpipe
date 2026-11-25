@@ -1,7 +1,8 @@
 // A cost record is what was paid for lots that sit in a demat. It is not an
 // account and not an asset, so it never becomes an asset row. The only thing
-// the Assets page owes the reader is a task when the record is not attached to
-// a live demat yet, and that task has to name the account it would join.
+// its own portfolio page owes the reader is a task when the record is not
+// attached to a live demat yet, and that task has to name the account it would
+// join. The Assets page lists assets, so it renders no task.
 //
 // Pure: the page passes the accounts and their rows; nothing here reads storage.
 

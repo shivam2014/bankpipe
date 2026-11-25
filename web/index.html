@@ -1819,7 +1819,7 @@ function uploadPanel(mode) {
     return `<div class="card pad">
       <h3 style="margin:0 0 4px;font-size:15px">Add holdings</h3>
       <p class="muted" style="margin:0 0 10px;font-size:13px">A depository CAS gives
-      <b>what you hold and where</b>. A broker or DigiFInn report gives <b>what it cost</b>.
+      <b>what you hold and where</b>. A broker or DigiFinn report gives <b>what it cost</b>.
       Bring both and the app joins them by ISIN on import. Nothing is written until you have
       seen what changed.</p>
       <input type="file" id="hf" accept=".csv,.xlsx,.xls,.pdf"
@@ -3078,7 +3078,7 @@ function fieldSourcesHtml(broker) {
       ${row("Portfolio Report", "invested (what you paid) · purchase date")}
       ${row("Upcoming Payouts", "payment frequency · next interest · next interest date")}
       <div class="muted field-source-fields">Optional. It also carries the principal-return
-        schedule when DigiFInn provides one. Without it, the payment frequency and the next
+        schedule when DigiFinn provides one. Without it, the payment frequency and the next
         interest date are estimated from the coupon and maturity, and a part redemption is
         known only when SMEST or BSE shows a reduced face.</div>
       ${row("Fetch online (SMEST + BSE)", "credit rating · current market value")}
@@ -3113,7 +3113,7 @@ function zerodhaImportGuideHtml(b) {
       <label class="btn primary">Choose Holdings XLSX
         <input type="file" accept=".xlsx,.xls" style="display:none"
           onchange="bpZerodhaHoldings(this.files[0]);this.value=''"></label>
-      <a class="btn" href="${esc(b.page.url)}" target="_blank"
+      <a class="btn primary" href="${esc(b.page.url)}" target="_blank"
         rel="noopener">Open Holdings ↗</a>
     </div>
     <div id="eq-target-note" class="eq-target-note"></div>
@@ -3133,7 +3133,7 @@ function motilalImportGuideHtml(b) {
       <label class="btn primary">Choose Portfolio Holding Summary
         <input type="file" accept=".pdf" style="display:none"
           onchange="bpMotilalFile(this.files[0],{host:'eq-motilal-preview'});this.value=''"></label>
-      <a class="btn" href="${esc(b.page.url)}" target="_blank"
+      <a class="btn primary" href="${esc(b.page.url)}" target="_blank"
         rel="noopener">Open Motilal reports ↗</a>
     </div>
     <div id="eq-target-note" class="eq-target-note"></div>
@@ -3153,9 +3153,8 @@ function digifinnImportReportsHtml(b) {
       </div>`).join("");
   return `<div class="eq-guide">
     <ol class="eq-guide-steps">
-      <li>Open DigiFInn → Reports &amp; Documents.</li>
-      <li>Download the Portfolio Report CSV.</li>
-      <li>Optional: the Payouts CSV for frequency and part redemptions.</li>
+      <li>Portfolio Report CSV — Reports &amp; Documents.</li>
+      <li>[Optional] Payouts CSV — adds interest dates.</li>
     </ol>
     <div class="muted import-step-note">Format: CSV. Not used: Transaction,
       Investment, KYC, MITC.</div>
@@ -3167,15 +3166,15 @@ function iciciImportGuideHtml(b) {
   return `<div class="eq-guide">
     <b class="eq-guide-title">ICICI Direct demat holdings CSV</b>
     <ol class="eq-guide-steps">
-      <li>Open Portfolio → Demat Holdings.</li>
+      <li>Open Stocks → Demat holdings.</li>
       <li>Click the download icon, then Excel or CSV.</li>
     </ol>
-    <div class="eq-guide-note">Format: CSV from Demat Holdings. Not the tradebook.</div>
+    <div class="eq-guide-note">Format: CSV from Demat holdings. Not the tradebook.</div>
     <div class="eq-guide-actions">
       <label class="btn primary">Choose holdings CSV
         <input type="file" accept=".csv" style="display:none"
           onchange="bpImportInboxAdd([...this.files]);this.value=''"></label>
-      <a class="btn" href="${esc(b.page.url)}" target="_blank"
+      <a class="btn primary" href="${esc(b.page.url)}" target="_blank"
         rel="noopener">Open Demat Holdings ↗</a>
     </div>
   </div>`;
@@ -3214,23 +3213,26 @@ const IMPORT_TYPE_GUIDES = [
     password: "The password Motilal sent.",
     links: [["Open Reports ↗", "https://www.motilaloswal.com/"]] },
   { key: "icici", label: "ICICI", note: "CSV", title: "ICICI Direct holdings",
-    body: "Portfolio → Demat Holdings → Download CSV.",
+    body: "Stocks → Demat holdings → Download CSV.",
     password: "The holdings CSV, not the tradebook.",
-    links: [["Open Portfolio ↗", "https://www.icicidirect.com/"]] },
-  { key: "digifinn", label: "DigiFInn", note: "CSV", title: "DigiFInn reports",
-    body: "Reports & Documents → Portfolio Report CSV.",
-    password: "The Payouts CSV is optional; it adds interest dates.",
-    links: [["Open DigiFInn ↗", "https://www.digifinn.com/profile"]] },
+    links: [["Open Demat Holdings ↗", "https://www.icicidirect.com/"]] },
+  { key: "digifinn", label: "DigiFinn", note: "CSV", title: "DigiFinn reports",
+    steps: ["Portfolio Report CSV — Reports & Documents.",
+      "[Optional] Payouts CSV — adds interest dates."],
+    links: [["Open DigiFinn ↗", "https://www.digifinn.com/profile"]] },
 ];
 
 function bpImportTypeGuideHtml(guide) {
   return `<div class="import-type-guide" id="import-guide-${guide.key}"
       data-guide="${guide.key}" hidden>
     <b>${esc(guide.title)}</b>
-    <div>${esc(guide.body)}</div>
-    <div class="muted">${esc(guide.password)}</div>
+    ${guide.steps
+      ? `<ol class="eq-guide-steps">${guide.steps.map((step) =>
+        `<li>${esc(step)}</li>`).join("")}</ol>`
+      : `<div>${esc(guide.body)}</div>`}
+    ${guide.password ? `<div class="muted">${esc(guide.password)}</div>` : ""}
     <div class="import-type-links">${guide.links.map(([label, href]) =>
-      `<a class="btn" href="${esc(href)}" target="_blank" rel="noopener">${esc(label)}</a>`).join("")}</div>
+      `<a class="btn primary" href="${esc(href)}" target="_blank" rel="noopener">${esc(label)}</a>`).join("")}</div>
     <div class="muted">Then drop it above.</div>
   </div>`;
 }
@@ -6317,9 +6319,7 @@ function renderSettings() {
       <div style="font-weight:600;font-size:13.5px">Google Drive</div>
       <p class="muted" style="font-size:12.5px;margin:4px 0 8px">Backups go to your own Drive,
       encrypted before they leave. The passphrase never leaves this device.</p>
-      <a class="btn" href="backup.html" style="display:inline-block;padding:9px 14px;
-        border-radius:9px;background:var(--green);color:#fff;text-decoration:none">
-        Open Google Drive backup</a>
+      <a class="btn primary" href="backup.html">Open Google Drive backup</a>
       <div class="muted" style="font-size:12px;margin-top:8px">Last backup: ${lastBackupText}</div>
     </div>
   </div>
@@ -6357,7 +6357,7 @@ function renderSettings() {
     <p class="muted" style="font-size:13px">Save each bank's login URL, customer ID and
     password. They are sealed with your database passphrase, so there is no second
     passphrase and the database and its backups only hold ciphertext.</p>
-    <button class="btn" onclick="go('logins')">Open bank logins</button>
+    <button class="btn primary" onclick="go('logins')">Open bank logins</button>
   </div>
   <div class="card pad" style="margin-top:14px">
     <h2 style="margin-top:0">What is local and what is not</h2>
@@ -6801,7 +6801,7 @@ async function renderGaps() {
 
       <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
         ${breaks ? `<button class="btn" onclick="bpIssuesFor('','balance_break')">Review ${breaks} balance breaks</button>` : ""}
-        <button class="btn" onclick="go('assets')">Open assets</button>
+        <button class="btn primary" onclick="go('assets')">Open assets</button>
         <button class="btn" onclick="go('import')">Re-import workbook</button>
       </div>`;
   } catch (e) {
@@ -7131,7 +7131,7 @@ window.bpImportRun = async () => {
       host.insertAdjacentHTML("beforeend", `<div class="card pad" style="margin-bottom:12px;font-size:13px">
         <b>Broker holdings are added on the demat account.</b>
         <div class="muted" style="margin-top:4px">Open Assets → the demat account →
-        <b>Broker holdings</b> and choose the DigiFInn Holdings Report there. This file was
+        <b>Broker holdings</b> and choose the DigiFinn Holdings Report there. This file was
         not read here.</div></div>`);
     } else {
       holdingsPanel();
@@ -7230,14 +7230,14 @@ function bpImportBundleLabel(bundle) {
     : bundle.family === "motilal" ? "Motilal Oswal holdings report"
       : bundle.family === "zerodha" ? (bundle.base ? "Zerodha holdings" : "Zerodha tradebook")
         : bundle.family === "icici" ? "ICICI Direct holdings"
-          : bundle.family === "digifinn" ? "DigiFInn bundle" : "Holdings report";
+          : bundle.family === "digifinn" ? "DigiFinn bundle" : "Holdings report";
 }
 
 function bpImportBrokerName(family) {
   return family === "motilal" ? "Motilal Oswal"
     : family === "zerodha" ? "Zerodha"
       : family === "icici" ? "ICICI Direct"
-        : family === "digifinn" ? "DigiFInn" : "";
+        : family === "digifinn" ? "DigiFinn" : "";
 }
 
 function bpImportBrokerOnlyLabel(bundle) {
@@ -7246,7 +7246,7 @@ function bpImportBrokerOnlyLabel(bundle) {
   if (bundle.family === "motilal") return `Demat · Motilal Oswal${number}`;
   if (bundle.family === "zerodha") return `Demat · Zerodha${number}`;
   if (bundle.family === "icici") return `Demat · ICICI Direct${number}`;
-  if (bundle.family === "digifinn") return `Demat · DigiFInn${number}`;
+  if (bundle.family === "digifinn") return `Demat · DigiFinn${number}`;
   return `Demat · ${bpImportBrokerName(bundle.family) || "Broker"}${number}`;
 }
 
@@ -7886,7 +7886,7 @@ function bpImportBrokerShort(family) {
   return family === "motilal" ? "Motilal"
     : family === "zerodha" ? "Zerodha"
       : family === "icici" ? "ICICI Direct"
-        : family === "digifinn" ? "DigiFInn" : "broker";
+        : family === "digifinn" ? "DigiFinn" : "broker";
 }
 
 function bpImportPlanChanges(plan) {
@@ -9879,7 +9879,7 @@ async function bpImportInboxReadOne(entry) {
       detected = detectImportFile({ name: entry.name, text: body });
       if (detected.kind === "digifinn-portfolio") {
         const parsed = parsePortfolioReport(body, entry.name);
-        if (!parsed) throw new Error("That is not the DigiFInn holdings report.");
+        if (!parsed) throw new Error("That is not the DigiFinn holdings report.");
         if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
@@ -9894,7 +9894,7 @@ async function bpImportInboxReadOne(entry) {
         }));
       } else if (detected.kind === "digifinn-investment") {
         const parsed = parseInvestmentReport(body, entry.name);
-        if (!parsed) throw new Error("That is not the DigiFInn investment report.");
+        if (!parsed) throw new Error("That is not the DigiFinn investment report.");
         if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
@@ -9905,7 +9905,7 @@ async function bpImportInboxReadOne(entry) {
         }));
       } else if (detected.kind === "digifinn-transactions") {
         const parsed = parseTransactionReport(body, entry.name);
-        if (!parsed) throw new Error("That is not the DigiFInn transactions report.");
+        if (!parsed) throw new Error("That is not the DigiFinn transactions report.");
         if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
@@ -9919,7 +9919,7 @@ async function bpImportInboxReadOne(entry) {
         }
       } else if (detected.kind === "digifinn-payouts") {
         const parsed = parsePayoutReport(body, entry.name);
-        if (!parsed) throw new Error("That is not the DigiFInn payouts report.");
+        if (!parsed) throw new Error("That is not the DigiFinn payouts report.");
         if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
@@ -9930,7 +9930,7 @@ async function bpImportInboxReadOne(entry) {
         }));
       } else if (detected.kind === "digifinn-cashflow") {
         const parsed = parseCashflowReport(body, entry.name);
-        if (!parsed) throw new Error("That is not the DigiFInn cashflow report.");
+        if (!parsed) throw new Error("That is not the DigiFinn cashflow report.");
         if (parsed.error) throw new Error(parsed.error);
         entry.parsed = parsed;
         entry.kind = detected.kind;
@@ -10367,7 +10367,7 @@ async function bpImportCreateBrokerAccount(bundle) {
     depository: bundle.family === "digifinn" ? "CDSL" : "",
     dp: bundle.family === "motilal" ? "Motilal Oswal"
       : bundle.family === "zerodha" ? "Zerodha"
-        : bundle.family === "icici" ? "ICICI Direct" : "DigiFInn",
+        : bundle.family === "icici" ? "ICICI Direct" : "DigiFinn",
   };
   if (bundle.family === "motilal" && bundle.accountKey) meta.ucid = bundle.accountKey;
   if (bundle.family === "zerodha" && bundle.accountKey) meta.client_id = bundle.accountKey;
@@ -11517,7 +11517,7 @@ window.bpAttachFill = async () => {
           : `${sources.length} bond portfolios`}</h2>
         <span class="muted" style="font-size:11.5px">${ready} of ${missing.length} match</span></div>
       <div class="muted" style="font-size:12.5px;margin-top:5px">Quantity comes from the
-      depository; cost and purchase date come from DigiFInn, joined by ISIN. A bond whose
+      depository; cost and purchase date come from DigiFinn, joined by ISIN. A bond whose
       quantities differ is left alone.</div>
       ${ready ? `<button class="btn primary" style="margin-top:10px"
         onclick="bpAttachCost()">Attach cost to ${ready} bond${ready === 1 ? "" : "s"}</button>` : ""}
@@ -11586,7 +11586,7 @@ window.bpCostFill = async () => {
     const payoutsFile = meta.payout_file || meta.cashflow_file || "";
     const hasPayouts = !!payoutsFile;
     // A source is remembered per account. An account imported before the
-    // registry existed has files but no source; DigiFInn is the only one those
+    // registry existed has files but no source; DigiFinn is the only one those
     // files could have come from.
     const chosen = meta.broker_source
       || (meta.cost_file || payoutsFile ? "digifinn" : "");
@@ -11604,7 +11604,7 @@ window.bpCostFill = async () => {
         holdings and value. A dealer report adds the cost and terms. Both are imported on
         the Import page: a new account starts with the demat statement, an existing one
         adds the dealer report there.</div>
-      <button class="btn" onclick="bpBondDealerImport(${jsArg(id)})">Open Import</button>
+      <button class="btn primary" onclick="bpBondDealerImport(${jsArg(id)})">Open Import</button>
     </div>`;
     window.bpCostPlan = null;
   } catch (e) {
@@ -11662,7 +11662,7 @@ window.bpCostFile = async (file, opts = {}) => {
       if (target.id !== me.id) {
         if (host) host.innerHTML = `<div class="card pad" style="font-size:13px">
           This report belongs to <b>${esc(target.label)}</b>, not ${esc(me.label)}.
-          <div style="margin-top:8px"><button class="btn"
+          <div style="margin-top:8px"><button class="btn primary"
             onclick="bpAsset(${jsArg(target.id)})">Open that account</button></div></div>`;
         return;
       }
@@ -12413,7 +12413,7 @@ window.bpImportBroker = async (slot, brokerId, file) => {
     }
     const isins = (slot === "portfolio" ? parsed.rows : parsed.groups)
       .map((r) => String(r.isin || "").toUpperCase()).filter(Boolean);
-    if (!isins.length) { fail("The report has no rows. Download it again from DigiFInn."); return; }
+    if (!isins.length) { fail("The report has no rows. Download it again from DigiFinn."); return; }
     const scored = [];
     for (const a of demats) {
       const held = new Set((await store.listHoldings(a.id))
@@ -12558,7 +12558,7 @@ window.bpConsolidate = async ({ ask = false, sourceId = "", targetId = "" } = {}
       const label = home.labels.join(" + ");
       const linked = assets.find((a) => a.id === home.primary);
       const patch = {};
-      if (!String(asset.bank || "").trim()) patch.bank = "DigiFInn";
+      if (!String(asset.bank || "").trim()) patch.bank = "DigiFinn";
       // The number follows the demat it is linked to; the link is derived, so a
       // corrected demat number must not leave the portfolio quoting the old one.
       if (linked && String(asset.number || "").trim() !== String(linked.number || "").trim()) {
@@ -12708,10 +12708,10 @@ window.bpConsolidate = async ({ ask = false, sourceId = "", targetId = "" } = {}
       const home = homeOf(sourceRows.find((s) => s.id === id)?.lots || [], asset);
       const linked = assets.find((a) => a.id === home.primary);
       const meta = metaOf(asset);
-      // The portfolio is reached through DigiFInn and held at the demat it feeds.
+      // The portfolio is reached through DigiFinn and held at the demat it feeds.
       // Filling those two fields is what makes the account describe itself.
       const patch = {};
-      if (!String(asset.bank || "").trim()) patch.bank = "DigiFInn";
+      if (!String(asset.bank || "").trim()) patch.bank = "DigiFinn";
       if (!String(asset.number || "").trim() && linked) patch.number = linked.number || "";
       await store.updateAccount(id, { ...patch, meta: JSON.stringify({ ...meta,
         cost_only: "1", linked_asset: home.primary, linked_label: home.labels.join(" + "),
@@ -12743,6 +12743,9 @@ window.bpConsolidateBonds = async () => { await window.bpConsolidate({ ask: true
 window.bpAttachCostRecord = async (sourceId, targetId) => {
   const out = await window.bpConsolidate({ sourceId, targetId });
   if (bpCurrentEntry?.view === "assets") go("assets");
+  // The task now lives on the record's own page. Attaching it there must clear
+  // the notification without moving the reader off the bonds it just costed.
+  else if (window.bpState?.asset === sourceId) window.bpAssetRefresh(sourceId);
   return out;
 };
 // The manual target has no route entry, so its preview is planned when it is
@@ -13930,20 +13933,33 @@ function renderAssets() {
   renderRealAssets(document.getElementById("view"));
   return `<h1>Assets${samplePill()}</h1><div class='card pad'>loading…</div>`;
 }
-// Holdings are read only when a record actually needs a task. Opening every
-// demat on every Assets visit would turn one page into N storage calls for a
-// block that is usually absent.
-async function costTasksFor(store, assets) {
-  const open = unattachedCostRecords(assets);
-  if (!open.length) return [];
+// Holdings are read only when a record actually needs a task. The Assets page
+// no longer reads them: an orphan cost record is a task on its own portfolio
+// page, where the bond cards it affects are already on screen.
+async function costTaskFor(store, assets, id) {
+  const record = assets.find((asset) => asset.id === id);
+  if (!record || categoryOf(record) !== "bonds" || !isCostRecord(record)) return null;
+  if (!unattachedCostRecords(assets).some((asset) => asset.id === id)) return null;
   const [dematRows, recordRows] = await Promise.all([
     Promise.all(liveDemats(assets).map(async (demat) =>
       [demat.id, await store.listHoldings(demat.id)])),
-    Promise.all(open.map(async (record) =>
-      [record.id, await store.listHoldings(record.id)])),
+    store.listHoldings(id),
   ]);
-  return costRecordTasks({ assets, lots: new Map(recordRows),
-    positions: new Map(dematRows) });
+  return costRecordTasks({ assets, lots: new Map([[id, recordRows]]),
+    positions: new Map(dematRows) }).find((task) => task.record.id === id) || null;
+}
+// One notification on the portfolio page, above the bond cards. The record is
+// the page, so the task no longer repeats its name or links to itself.
+function costTaskNoticeHtml(task) {
+  return `<section class="cost-task" aria-label="Cost record without an account">
+    <div class="cost-task-line">${esc(costRecordSentence(1))}</div>
+    <div class="cost-task-item">
+      ${task.target
+        ? `<button class="btn" onclick="bpAttachCostRecord(${jsArg(task.record.id)},${jsArg(task.target.id)})">${esc(attachActionLabel(task.target))}</button>`
+        : `<span class="cost-task-none">${esc(NO_DEMAT_SENTENCE)}</span>
+          <button class="btn" onclick="go('import')">Import a CAS</button>`}
+    </div>
+  </section>`;
 }
 async function renderRealAssets(host) {
   try {
@@ -13969,23 +13985,8 @@ async function renderRealAssets(host) {
     const bankGroup = groups.find((g) => g.id === "bank") || null;
     const fdGroup = groups.find((g) => g.id === "fd") || null;
     const otherGroups = groups.filter((g) => g.id !== "bank" && g.id !== "fd");
-    // A cost record is a task only while it has no live demat. Every record
-    // that is attached is silent here; the account page already owns its cost.
-    // Selection mode has no task block and no ticks for a cost record, so it
-    // does not pay for the holdings read either.
-    const costTasks = selecting ? [] : await costTasksFor(store, assets);
-    const costRecordsHtml = costTasks.length ? `<section class="cost-task"
-      aria-label="Cost records without an account">
-      <div class="cost-task-line">${esc(costRecordSentence(costTasks.length))}</div>
-      ${costTasks.map((task) => `<div class="cost-task-item">
-        <a class="cost-task-name" href="#"
-          onclick="bpAsset(${jsArg(task.record.id)});return false">${esc(task.record.label || task.record.id)}</a>
-        ${task.target
-          ? `<button class="btn" onclick="bpAttachCostRecord(${jsArg(task.record.id)},${jsArg(task.target.id)})">${esc(attachActionLabel(task.target))}</button>`
-          : `<span class="cost-task-none">${esc(NO_DEMAT_SENTENCE)}</span>
-            <button class="btn" onclick="go('import')">Import a CAS</button>`}
-      </div>`).join("")}
-    </section>` : "";
+    // A cost record is a task only while it has no live demat, and only on the
+    // portfolio page it names. The Assets page lists assets, not tasks.
     const fdLinks = await linkFds(store, bankGroups(assets));
     const lockerMap = selecting ? new Map() : new Map(await Promise.all(
       (bankGroup?.rows || []).map(async (acc) =>
@@ -14260,8 +14261,7 @@ async function renderRealAssets(host) {
       ${bankSection}
       ${showFdsOnly ? "" : assetGroupsHtml(otherGroups, (a) =>
         (["bank", "cash"].includes(categoryOf(a)) && a.facts > 0)
-          ? `bpAccount(${jsArg(a.id)})` : assetOpen(a))}
-      ${showFdsOnly ? "" : costRecordsHtml}`;
+          ? `bpAccount(${jsArg(a.id)})` : assetOpen(a))}`;
   } catch (e) {
     if (/locked/i.test(String(e.message || e))) {
       host.innerHTML = lockedCard("Assets");
@@ -15306,7 +15306,7 @@ function assetDetailCard(a) {
     ${atDemat && window.bpAssetDemat
       && (!String(a.number || "").trim() || !String(a.holder || "").trim())
       ? `<div class="muted" style="font-size:11.5px;margin-top:10px">
-        The DigiFInn import behind this portfolio is on file.
+        The DigiFinn import behind this portfolio is on file.
         <a class="link" href="#" onclick="bpFillFromImport(${jsArg(a.id)});return false">Fill the empty fields from it</a>
       </div>` : ""}
   </div>`;
@@ -15432,7 +15432,7 @@ function classFocusCard(a, holdings, kind) {
       <div class="holding-head-actions">${add}</div>
     </div></div>`;
 }
-function assetForm(a, factCount, defaultCat, holdings) {
+function assetForm(a, factCount, defaultCat, holdings, costTask) {
   const cat = a ? categoryOf(a) : (defaultCat || "bank");
   const kinds = typesFor(cat);
   const sub = (a && (a.subtype || a.type)) || kinds[0];
@@ -15489,6 +15489,7 @@ function assetForm(a, factCount, defaultCat, holdings) {
     ? (reconDismissed(a.id) ? reconHiddenHtml() : `<div id="recon-card"></div>`)
     : ""}
   ${a ? valuationCard(a) : ""}
+  ${a && cat === "bonds" && costTask ? costTaskNoticeHtml(costTask) : ""}
   ${a ? holdingsBlock(holdings, id) : ""}
   ${a && !lean ? `<details class="all-fields"><summary>All fields and category</summary>` : ""}
   <div class="card pad"${a ? ` style="margin-top:10px${lean ? ";display:none" : ""}"` : ""}>
@@ -15722,9 +15723,9 @@ function renderBondHoldingForm() {
     const kept = bondKeptLine(h, currency());
     host.innerHTML = `<h1>${holdingId ? "Edit holding" : "Add holding"}</h1>
       <p class="muted" style="margin:-6px 0 14px;font-size:13px">${h && h.source === "manual"
-        ? "Added by hand, so a DigiFInn sync leaves it alone."
+        ? "Added by hand, so a DigiFinn sync leaves it alone."
         : h ? "This lot came from a report. Name, units and invested last until the next sync; ratings and values are kept."
-        : "A holding you add here is marked manual and is never deleted by a DigiFInn sync. If a report later carries the same ISIN, the report replaces it."}</p>
+        : "A holding you add here is marked manual and is never deleted by a DigiFinn sync. If a report later carries the same ISIN, the report replaces it."}</p>
       <div class="card pad"><div class="form">
         <label class="field wide">Bond name
           <input id="bh-name" value="${esc(parts.name)}" autocomplete="off"
@@ -16322,6 +16323,9 @@ function renderAsset() {
       }
     }
     window.bpAssetsForFocus = accounts;
+    // The page owns the task for its own cost record. Reading the demat
+    // positions here keeps the notification on the page that can act on it.
+    const costTask = await costTaskFor(store, accounts, id);
     // A demat's gap line names a fund row that its folio already holds, so the
     // folio rows have to be on hand. Only a demat needs them; a folio page does
     // not compare against itself.
@@ -16334,7 +16338,7 @@ function renderAsset() {
     }
     window.bpGapAccountRows = gapRows;
     host.innerHTML = assetForm(enriched ? { ...account, ...enriched } : account,
-      totals?.n || 0, undefined, holdings);
+      totals?.n || 0, undefined, holdings, costTask);
     // An asset that already has an IFSC opens with the derived block, so the
     // five fields it filled are not shown as blanks again.
     window.bpIfscDerived?.(["bank", "fd"].includes(categoryOf(account)));
@@ -16455,7 +16459,7 @@ window.bpFieldView = () => {
 };
 // The report that fed this portfolio knows the demat number and the holder's
 // name, and a bond portfolio *is* that demat account. Fill the empty fields from
-// it instead of making the user copy them across from DigiFInn.
+// it instead of making the user copy them across from DigiFinn.
 window.bpFillFromImport = async (assetId) => {
   const store = await import("./db.js");
   const demat = window.bpAssetDemat || "";
@@ -16466,7 +16470,7 @@ window.bpFillFromImport = async (assetId) => {
   } catch (e) {}
   const account = (await store.listAccounts()).find((x) => x.id === assetId) || {};
   const patch = importFillPlan(account, { demat, holder: identity.name,
-    broker: bondBroker("digifinn")?.label || "DigiFInn" });
+    broker: bondBroker("digifinn")?.label || "DigiFinn" });
   if (Object.keys(patch).length) await store.updateAccount(assetId, patch);
   window.bpAsset(assetId);
 };
@@ -17107,7 +17111,7 @@ function bulkReceiptHtml(result, facts) {
   return `<div class="card pad bulk-receipt" role="status"><b>${esc(title)}</b>
     ${lines.map((line) => `<p class="muted">${esc(line)}</p>`).join("")}
     <div class="bulk-actions">${result.snapshot
-      ? `<button class="btn" onclick="bpOpenSnapshots()">Open Settings snapshots</button>`
+      ? `<button class="btn primary" onclick="bpOpenSnapshots()">Open Settings snapshots</button>`
       : ""}<button class="btn ghost"
       onclick="bpAssetBulkReceiptDismiss()">Dismiss</button></div></div>`;
 }

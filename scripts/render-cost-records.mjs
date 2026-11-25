@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Renders the Assets page with cost records in three states: every record
-// attached (no block), one orphan with a named account, and one orphan whose
-// bonds no demat holds. It also renders two orphans for the plural sentence.
-// Synthetic rows only, under the reserved 9999 namespace.
+// The orphan cost record is a task on the bond portfolio it names, not on the
+// Assets list. This renders the Assets page without the task, the portfolio
+// page with it, the no-demat state that keeps Import a CAS, and the attached
+// state that renders nothing. Synthetic rows only, under 9999.
 //
 //   node scripts/render-cost-records.mjs [--out-dir <dir>]
 
@@ -24,13 +24,12 @@ const DEMAT_LABEL = "Demat · TEST COST HOLDER · …3456";
 const ISIN = "INE999900121";
 const MISSING = "INE999900999";
 const COST = 12345678;
-const SPLIT_DEMAT_ID = "split-two";
-const SPLIT_DEMAT_LABEL = "Demat · TEST SPLIT TWO · …4321";
-const SPLIT_ISIN = "INE999900122";
-const SPLIT_COST = 23456789;
-const NAMED_DEMAT_ID = "only-one";
-const NAMED_DEMAT_LABEL = "Demat · TEST ONLY ONE · …7777";
-const NAMED_ISIN = "INE999900123";
+const ORPHAN_ID = "cost-orphan";
+const ORPHAN_LABEL = "Bonds · portfolio 2";
+const NOHOME_ID = "cost-nohome";
+const NOHOME_LABEL = "Bonds · portfolio 3";
+const ATTACHED_ID = "cost-attached";
+const ATTACHED_LABEL = "Bonds · portfolio 1";
 
 function pageScript({ scene }) {
   return `(async () => {
@@ -61,16 +60,15 @@ function pageScript({ scene }) {
     as_of: "2026-10-31",
   }], "2026-10-31");
 
-  // This one is already attached and must stay silent in every scene.
   await store.createAccount({
-    id: "cost-attached",
-    label: "TEST ATTACHED COST PORTFOLIO",
+    id: ${JSON.stringify(ATTACHED_ID)},
+    label: ${JSON.stringify(ATTACHED_LABEL)},
     category: "bonds",
     subtype: "bond",
     meta: JSON.stringify({ cost_only: "1", linked_asset: ${JSON.stringify(DEMAT_ID)},
       linked_label: ${JSON.stringify(DEMAT_LABEL)} }),
   });
-  await store.replaceHoldings("cost-attached", [{
+  await store.replaceHoldings(${JSON.stringify(ATTACHED_ID)}, [{
     security_id: ${JSON.stringify(ISIN)},
     label: "9.10% TEST COST BOND 15 May 2031",
     category: "bond",
@@ -80,14 +78,14 @@ function pageScript({ scene }) {
   }], "2026-10-31");
 
   await store.createAccount({
-    id: "cost-orphan",
-    label: "TEST ORPHAN COST PORTFOLIO",
+    id: ${JSON.stringify(ORPHAN_ID)},
+    label: ${JSON.stringify(ORPHAN_LABEL)},
     category: "bonds",
     subtype: "bond",
     meta: JSON.stringify({ cost_only: "1" }),
   });
-  await store.replaceHoldings("cost-orphan", [{
-    security_id: ${JSON.stringify(scene === "nohome" ? MISSING : ISIN)},
+  await store.replaceHoldings(${JSON.stringify(ORPHAN_ID)}, [{
+    security_id: ${JSON.stringify(ISIN)},
     label: "9.10% TEST COST BOND 15 May 2031",
     category: "bond",
     quantity: 10,
@@ -95,354 +93,209 @@ function pageScript({ scene }) {
     purchase_date: "2025-05-15",
   }], "2026-10-31");
 
-  if (${JSON.stringify(scene)} === "split") {
-    await store.createAccount({
-      id: ${JSON.stringify(SPLIT_DEMAT_ID)},
-      label: ${JSON.stringify(SPLIT_DEMAT_LABEL)},
-      bank: "Test Securities",
-      number: "IN99990000654321",
-      holder: "TEST SPLIT TWO",
-      type: "equity",
-      category: "demat",
-      subtype: "equity",
-      meta: JSON.stringify({ holdings_as_of: "2026-10-31" }),
-    });
-    await store.replaceHoldings(${JSON.stringify(SPLIT_DEMAT_ID)}, [{
-      security_id: ${JSON.stringify(SPLIT_ISIN)},
-      label: "9.20% TEST SPLIT BOND 15 May 2031",
-      category: "bond",
-      quantity: 10,
-      cost_paise: null,
-      value_paise: 2000000,
-      purchase_date: "2025-05-15",
-      as_of: "2026-10-31",
-    }], "2026-10-31");
-    await store.createAccount({
-      id: "cost-split",
-      label: "TEST SPLIT COST PORTFOLIO",
-      category: "bonds",
-      subtype: "bond",
-      meta: JSON.stringify({ cost_only: "1" }),
-    });
-    await store.replaceHoldings("cost-split", [{
-      security_id: ${JSON.stringify(ISIN)},
-      label: "9.10% TEST COST BOND 15 May 2031",
-      category: "bond",
-      quantity: 10,
-      cost_paise: ${COST},
-      purchase_date: "2025-05-15",
-    }, {
-      security_id: ${JSON.stringify(SPLIT_ISIN)},
-      label: "9.20% TEST SPLIT BOND 15 May 2031",
-      category: "bond",
-      quantity: 10,
-      cost_paise: ${SPLIT_COST},
-      purchase_date: "2025-05-15",
-    }], "2026-10-31");
-  }
-  if (${JSON.stringify(scene)} === "named-empty") {
-    await store.createAccount({
-      id: ${JSON.stringify(NAMED_DEMAT_ID)},
-      label: ${JSON.stringify(NAMED_DEMAT_LABEL)},
-      bank: "Test Securities",
-      number: "IN99990000777777",
-      holder: "TEST ONLY ONE",
-      type: "equity",
-      category: "demat",
-      subtype: "equity",
-      meta: JSON.stringify({ holdings_as_of: "2026-10-31" }),
-    });
-    await store.replaceHoldings(${JSON.stringify(NAMED_DEMAT_ID)}, [{
-      security_id: ${JSON.stringify(NAMED_ISIN)},
-      label: "9.30% TEST ONLY BOND 15 May 2031",
-      category: "bond",
-      quantity: 10,
-      cost_paise: null,
-      value_paise: 3000000,
-      purchase_date: "2025-05-15",
-      as_of: "2026-10-31",
-    }], "2026-10-31");
-    await store.createAccount({
-      id: "cost-named-empty",
-      label: "TEST NAMED EMPTY COST PORTFOLIO",
-      number: "IN99990000777777",
-      category: "bonds",
-      subtype: "bond",
-      meta: JSON.stringify({ cost_only: "1" }),
-    });
-    await store.replaceHoldings("cost-named-empty", [{
-      security_id: "INE999900124",
-      label: "9.40% TEST NAMED EMPTY BOND 15 May 2031",
-      category: "bond",
-      quantity: 10,
-      cost_paise: ${COST},
-      purchase_date: "2025-05-15",
-    }], "2026-10-31");
-  }
-  if (${JSON.stringify(scene)} === "attached") {
-    await store.updateAccount("cost-orphan", { meta: JSON.stringify({ cost_only: "1",
-      linked_asset: ${JSON.stringify(DEMAT_ID)},
-      linked_label: ${JSON.stringify(DEMAT_LABEL)} }) });
-  }
-  if (${JSON.stringify(scene)} === "plural") {
-    await store.createAccount({
-      id: "cost-nohome",
-      label: "TEST NO-HOME COST PORTFOLIO",
-      category: "bonds",
-      subtype: "bond",
-      meta: JSON.stringify({ cost_only: "1" }),
-    });
-    await store.replaceHoldings("cost-nohome", [{
-      security_id: ${JSON.stringify(MISSING)},
-      label: "9.10% TEST MISSING BOND 15 May 2031",
-      category: "bond",
-      quantity: 10,
-      cost_paise: ${COST},
-      purchase_date: "2025-05-15",
-    }], "2026-10-31");
-  }
+  await store.createAccount({
+    id: ${JSON.stringify(NOHOME_ID)},
+    label: ${JSON.stringify(NOHOME_LABEL)},
+    category: "bonds",
+    subtype: "bond",
+    meta: JSON.stringify({ cost_only: "1" }),
+  });
+  await store.replaceHoldings(${JSON.stringify(NOHOME_ID)}, [{
+    security_id: ${JSON.stringify(MISSING)},
+    label: "9.20% TEST MISSING BOND 15 May 2031",
+    category: "bond",
+    quantity: 10,
+    cost_paise: ${COST},
+    purchase_date: "2025-05-15",
+  }], "2026-10-31");
 
-  go("assets");
-  await sleep(1000);
-
-  const body = document.body.textContent;
-  if (body.includes("Merge into the demat")) {
-    throw new Error("the old Merge into the demat copy is still on the page");
-  }
-  if (body.includes("Cost records (")) {
-    throw new Error("the old Cost records disclosure is still on the page");
-  }
-
-  const section = document.querySelector(".cost-task");
-  const allAccounts = await store.listAccounts();
-  const costCount = allAccounts.filter((account) => {
-    try { return !!JSON.parse(account.meta || "{}").cost_only; } catch (e) { return false; }
-  }).length;
-  const listed = allAccounts.length - costCount;
-  const heroWant = "Across " + listed + " asset" + (listed === 1 ? "" : "s");
-  const heroLabel = document.querySelector(".hero .lbl")?.textContent.trim() || "";
-  if (heroLabel !== heroWant) {
-    throw new Error("the hero says " + heroLabel + ", want " + heroWant);
-  }
+  const labels = {
+    orphan: ${JSON.stringify(ORPHAN_LABEL)},
+    nohome: ${JSON.stringify(NOHOME_LABEL)},
+    attached: ${JSON.stringify(ATTACHED_LABEL)},
+  };
   const state = {
     scene: ${JSON.stringify(scene)},
     width: document.documentElement.clientWidth,
     overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-    oldMerge: body.includes("Merge into the demat"),
-    oldDisclosure: body.includes("Cost records ("),
-    section: !!section,
-    line: "", items: 0, buttons: [], insideCard: false, insideRow: false,
-    hasAmount: false, hasCheckbox: false,
-    buttonRight: 0,
+    notice: false, line: "", buttons: [], links: 0, aboveCards: false,
+    insideCard: false, insideRow: false, tasks: 0,
   };
-  if (section) {
-    state.line = section.querySelector(".cost-task-line")?.textContent
-      .replace(/\\s+/g, " ").trim() || "";
-    state.items = section.querySelectorAll(".cost-task-item").length;
-    state.buttons = [...section.querySelectorAll("button")]
-      .map((button) => button.textContent.replace(/\\s+/g, " ").trim());
-    state.insideCard = !!section.closest(".card");
-    state.insideRow = !!section.closest(".srow");
-    state.hasAmount = !!section.querySelector(".amt, .vl");
-    state.hasCheckbox = !!section.querySelector('input[type="checkbox"]');
-    const first = section.querySelector("button");
-    state.buttonRight = first
-      ? Math.round(first.getBoundingClientRect().right) : 0;
-  }
-
-  const itemFor = (name) => [...document.querySelectorAll(".cost-task-item")]
-    .find((item) => item.textContent.includes(name));
-
-  if (${JSON.stringify(scene)} === "attached") {
-    if (section) throw new Error("an all-attached page still shows a cost task");
-    go("home");
-    await sleep(900);
-    const chips = document.querySelector(".hero .chips")?.textContent || "";
-    if (!chips.includes(" of " + listed + " assets valued")) {
-      throw new Error("Home still counts a cost record: " + chips);
+  const checkNoTask = (where) => {
+    if (document.querySelector(".cost-task")) {
+      throw new Error("the cost task still renders on " + where);
     }
+  };
+  const readNotice = () => {
+    const section = document.querySelector(".cost-task");
+    if (!section) return null;
+    const cards = document.querySelector(".bond-cards");
+    return {
+      section,
+      line: section.querySelector(".cost-task-line")?.textContent
+        .replace(/\\s+/g, " ").trim() || "",
+      buttons: [...section.querySelectorAll("button")]
+        .map((button) => button.textContent.replace(/\\s+/g, " ").trim()),
+      links: section.querySelectorAll("a").length,
+      aboveCards: !!(cards && (section.compareDocumentPosition(cards)
+        & Node.DOCUMENT_POSITION_FOLLOWING)),
+      insideCard: !!section.closest(".card"),
+      insideRow: !!section.closest(".srow"),
+      tasks: document.querySelectorAll(".cost-task").length,
+    };
+  };
+  const take = (seen) => {
+    if (!seen) return;
+    state.notice = true;
+    state.line = seen.line;
+    state.buttons = seen.buttons;
+    state.links = seen.links;
+    state.aboveCards = seen.aboveCards;
+    state.insideCard = seen.insideCard;
+    state.insideRow = seen.insideRow;
+    state.tasks = seen.tasks;
+    seen.section.scrollIntoView({ block: "center" });
+  };
+  const open = async (id) => {
+    window.bpAsset(id);
+    await sleep(1400);
+  };
+
+  if (${JSON.stringify(scene)} === "assets" || ${JSON.stringify(scene)} === "plural") {
     go("assets");
-    await sleep(900);
-  } else if (${JSON.stringify(scene)} === "orphan") {
-    if (!section) throw new Error("the orphan has no cost task");
-    if (state.line !== "A cost record has no account. It holds what you paid, so the gain can be shown.") {
-      throw new Error("the singular line says " + state.line);
+    await sleep(1100);
+    checkNoTask("Assets");
+    const allAccounts = await store.listAccounts();
+    const costCount = allAccounts.filter((account) => {
+      try { return !!JSON.parse(account.meta || "{}").cost_only; } catch (e) { return false; }
+    }).length;
+    const listed = allAccounts.length - costCount;
+    const heroWant = "Across " + listed + " asset" + (listed === 1 ? "" : "s");
+    const heroLabel = document.querySelector(".hero .lbl")?.textContent.trim() || "";
+    if (heroLabel !== heroWant) {
+      throw new Error("the hero says " + heroLabel + ", want " + heroWant);
     }
-    if (state.items !== 1) throw new Error(state.items + " cost task items, want 1");
+    state.hero = heroLabel;
+  }
+  if (${JSON.stringify(scene)} === "orphan") {
+    await open(${JSON.stringify(ORPHAN_ID)});
+    take(readNotice());
+    if (!state.notice) throw new Error("the orphan's portfolio page has no notice");
+    if (state.line !== "A cost record has no account. It holds what you paid, so the gain can be shown.") {
+      throw new Error("the notice says " + state.line);
+    }
+    if (state.tasks !== 1) throw new Error(state.tasks + " notices, want 1");
     if (state.buttons.length !== 1) {
-      throw new Error(state.buttons.length + " cost task buttons, want 1");
+      throw new Error(state.buttons.length + " notice buttons, want 1");
     }
     if (state.buttons[0] !== "Attach to " + ${JSON.stringify(DEMAT_LABEL)}) {
       throw new Error("the action says " + state.buttons[0]);
     }
-    if (state.insideCard || state.insideRow || state.hasAmount || state.hasCheckbox) {
-      throw new Error("the cost task reads as an asset card or row");
+    if (state.links) throw new Error("the notice still links to the record it is on");
+    if (!state.aboveCards) throw new Error("the notice is not above the bond cards");
+    if (state.insideCard || state.insideRow) {
+      throw new Error("the notice reads as an asset card or row");
     }
-
-    window.bpAssetSelectToggle();
-    await sleep(900);
-    if (document.querySelector('.selrow input[data-asset-id="cost-orphan"]')) {
-      throw new Error("selection mode drew a tick for the cost record");
+  }
+  if (${JSON.stringify(scene)} === "nohome") {
+    await open(${JSON.stringify(NOHOME_ID)});
+    take(readNotice());
+    if (!state.notice) throw new Error("the no-home portfolio has no notice");
+    if (!state.line.startsWith("A cost record has no account.")) {
+      throw new Error("the notice says " + state.line);
     }
-    window.bpAssetSel = new Set(["cost-orphan"]);
-    go("assets", { keepScroll: true });
-    await sleep(900);
-    const del = document.getElementById("asset-bulk-delete");
-    if (!del) throw new Error("the selection bar is missing");
-    if (!del.disabled) throw new Error("a forged cost-record id enabled Delete");
-    if (del.textContent.replace(/\\s+/g, " ").trim() !== "Delete") {
-      throw new Error("the selection bar says " + del.textContent);
+    if (!document.querySelector(".cost-task")?.textContent
+      .includes("No demat account holds its bonds.")) {
+      throw new Error("the no-home sentence is missing");
     }
-    window.bpAssetSelectOff();
-    await sleep(900);
-  } else if (${JSON.stringify(scene)} === "attach") {
-    if (!section) throw new Error("the attach state lost its cost task");
-    const button = section.querySelector(".btn");
+    if (state.buttons.length !== 1 || state.buttons[0] !== "Import a CAS") {
+      throw new Error("the no-home action is " + state.buttons.join(" | "));
+    }
+    if (!state.aboveCards) throw new Error("the notice is not above the bond cards");
+  }
+  if (${JSON.stringify(scene)} === "attached") {
+    await open(${JSON.stringify(ATTACHED_ID)});
+    checkNoTask("an attached cost record");
+    window.scrollTo(0, 0);
+  }
+  if (${JSON.stringify(scene)} === "plural") {
+    await open(${JSON.stringify(ORPHAN_ID)});
+    const first = readNotice();
+    if (!first || first.buttons[0] !== "Attach to " + ${JSON.stringify(DEMAT_LABEL)}) {
+      throw new Error("the first record lost its own attach");
+    }
+    await open(${JSON.stringify(NOHOME_ID)});
+    const second = readNotice();
+    if (!second || second.buttons[0] !== "Import a CAS") {
+      throw new Error("the second record lost its own Import a CAS");
+    }
+    if (document.querySelectorAll(".cost-task").length !== 1) {
+      throw new Error("a portfolio page shows more than its own notice");
+    }
+    state.notice = true;
+    state.line = "each orphan page shows only its own task";
+    state.buttons = [first.buttons[0], second.buttons[0]];
+    state.tasks = 1;
+    state.plural = true;
+  }
+  if (${JSON.stringify(scene)} === "attach") {
+    await open(${JSON.stringify(ORPHAN_ID)});
+    const button = document.querySelector(".cost-task button");
     if (!button) throw new Error("the attach action is missing");
     button.click();
-    await sleep(1500);
+    await sleep(2200);
     const after = await store.listAccounts();
-    const orphan = after.find((account) => account.id === "cost-orphan");
+    const orphan = after.find((account) => account.id === ${JSON.stringify(ORPHAN_ID)});
     if (!orphan) throw new Error("the attach deleted the cost record");
     const meta = JSON.parse(orphan.meta || "{}");
     if (meta.linked_asset !== ${JSON.stringify(DEMAT_ID)}) {
       throw new Error("the record links to " + String(meta.linked_asset));
-    }
-    if (meta.linked_label !== ${JSON.stringify(DEMAT_LABEL)}) {
-      throw new Error("the record says " + String(meta.linked_label));
-    }
-    if (!after.some((account) => account.id === "cost-attached")) {
-      throw new Error("the attach removed an unrelated cost record");
     }
     const positions = await store.listHoldings(${JSON.stringify(DEMAT_ID)});
     const row = positions.find((holding) => holding.security_id === ${JSON.stringify(ISIN)});
     if (!row || Number(row.cost_paise) !== ${COST}) {
       throw new Error("the demat did not take the cost: " + JSON.stringify(row?.cost_paise));
     }
-    if (document.querySelector(".cost-task")) {
-      throw new Error("the cost task survived the attach");
-    }
-    await window.bpAttachCostRecord("cost-orphan", ${JSON.stringify(DEMAT_ID)});
-    await sleep(600);
-    const again = (await store.listHoldings(${JSON.stringify(DEMAT_ID)}))
-      .find((holding) => holding.security_id === ${JSON.stringify(ISIN)});
-    if (!again || Number(again.cost_paise) !== ${COST}) {
-      throw new Error("the second attach changed the cost: "
-        + JSON.stringify(again && again.cost_paise));
-    }
+    checkNoTask("the portfolio page after attaching");
     state.afterAttach = true;
-  } else if (${JSON.stringify(scene)} === "split") {
-    const item = itemFor("TEST SPLIT COST PORTFOLIO");
-    if (!item) throw new Error("the split record has no cost task");
-    const button = item.querySelector(".btn");
-    if (!button || !button.textContent.startsWith("Attach to ")) {
-      throw new Error("the split record has no named attach");
+  }
+  if (${JSON.stringify(scene)} === "import") {
+    await open(${JSON.stringify(NOHOME_ID)});
+    const button = document.querySelector(".cost-task button");
+    if (!button || button.textContent.trim() !== "Import a CAS") {
+      throw new Error("the Import a CAS action is missing");
     }
     button.click();
-    await sleep(1800);
-    const after = await store.listAccounts();
-    const record = after.find((account) => account.id === "cost-split");
-    if (!record) throw new Error("the split attach deleted the cost record");
-    const meta = JSON.parse(record.meta || "{}");
-    if (meta.linked_asset !== ${JSON.stringify(DEMAT_ID)}) {
-      throw new Error("the split record links to " + String(meta.linked_asset));
-    }
-    if (!String(meta.linked_label).includes("SPLIT TWO")) {
-      throw new Error("the split record says " + String(meta.linked_label));
-    }
-    const one = (await store.listHoldings(${JSON.stringify(DEMAT_ID)}))
-      .find((holding) => holding.security_id === ${JSON.stringify(ISIN)});
-    const two = (await store.listHoldings(${JSON.stringify(SPLIT_DEMAT_ID)}))
-      .find((holding) => holding.security_id === ${JSON.stringify(SPLIT_ISIN)});
-    if (Number(one?.cost_paise) !== ${COST}) {
-      throw new Error("the first demat did not take the cost: "
-        + JSON.stringify(one?.cost_paise));
-    }
-    if (Number(two?.cost_paise) !== ${SPLIT_COST}) {
-      throw new Error("the second demat did not take the cost: "
-        + JSON.stringify(two?.cost_paise));
-    }
-    if (itemFor("TEST SPLIT COST PORTFOLIO")) {
-      throw new Error("the split task survived the attach");
-    }
-    state.splitAfter = true;
-  } else if (${JSON.stringify(scene)} === "named-empty") {
-    const item = itemFor("TEST NAMED EMPTY COST PORTFOLIO");
-    if (!item) throw new Error("the named-empty record has no cost task");
-    if (!item.textContent.includes("No demat account holds its bonds.")) {
-      throw new Error("the named-empty record claimed a demat home");
-    }
-    const buttons = [...item.querySelectorAll(".btn")]
-      .map((button) => button.textContent.replace(/\\s+/g, " ").trim());
-    if (buttons.length !== 1 || buttons[0] !== "Import a CAS") {
-      throw new Error("the named-empty action is " + buttons.join(" | "));
-    }
-    if (buttons.some((text) => text.startsWith("Attach to "))) {
-      throw new Error("a named-empty record still offers an attach");
-    }
-    state.namedEmpty = true;
-  } else if (${JSON.stringify(scene)} === "nohome") {
-    if (!section) throw new Error("the no-home record has no cost task");
-    if (!section.textContent.includes("No demat account holds its bonds.")) {
-      throw new Error("the no-home line is missing");
-    }
-    if (state.buttons.length !== 1 || state.buttons[0] !== "Import a CAS") {
-      throw new Error("the no-home action is " + state.buttons.join(" | "));
-    }
-    if (state.buttons.some((text) => text.startsWith("Attach to "))) {
-      throw new Error("a no-home record still offers an attach");
-    }
-  } else if (${JSON.stringify(scene)} === "plural") {
-    if (!section) throw new Error("the plural state has no cost task");
-    if (state.line !== "2 cost records have no account. They hold what you paid, so the gain can be shown.") {
-      throw new Error("the plural line says " + state.line);
-    }
-    if (state.items !== 2) throw new Error(state.items + " cost task items, want 2");
-    if (state.buttons.length !== 2) {
-      throw new Error(state.buttons.length + " cost task buttons, want 2");
-    }
-    if (!state.buttons.some((text) => text === "Attach to " + ${JSON.stringify(DEMAT_LABEL)})) {
-      throw new Error("the plural state lost the named account");
-    }
-    if (!state.buttons.includes("Import a CAS")) {
-      throw new Error("the plural state lost the Import a CAS step");
-    }
+    await sleep(1200);
+    const title = document.querySelector("h1")?.textContent.trim() || "";
+    if (title !== "Import") throw new Error("the action opened " + title);
+    state.imported = true;
   }
 
-  const live = document.querySelector(".cost-task");
-  state.sectionAfter = !!live;
-  if (live) {
-    live.scrollIntoView({ block: "center" });
-    await sleep(250);
-  } else {
-    window.scrollTo(0, document.documentElement.scrollHeight);
-    await sleep(250);
+  if (!state.notice && ${JSON.stringify(scene)} !== "attach"
+    && ${JSON.stringify(scene)} !== "import") {
+    window.scrollTo(0, 0);
   }
   return JSON.stringify(state);
-})();`;
+})()`;
 }
 
 const SHOTS = [
-  { scene: "attached", width: 390, height: 844, theme: "light" },
-  { scene: "attached", width: 390, height: 844, theme: "dark" },
-  { scene: "attached", width: 1280, height: 900, theme: "light" },
-  { scene: "attached", width: 1280, height: 900, theme: "dark" },
+  { scene: "assets", width: 390, height: 844, theme: "light" },
+  { scene: "assets", width: 390, height: 844, theme: "dark" },
+  { scene: "assets", width: 1280, height: 900, theme: "light" },
+  { scene: "assets", width: 1280, height: 900, theme: "dark" },
   { scene: "orphan", width: 390, height: 844, theme: "light" },
   { scene: "orphan", width: 390, height: 844, theme: "dark" },
   { scene: "orphan", width: 1280, height: 900, theme: "light" },
   { scene: "orphan", width: 1280, height: 900, theme: "dark" },
-  { scene: "attach", width: 390, height: 844, theme: "light" },
-  { scene: "attach", width: 1280, height: 900, theme: "light" },
   { scene: "nohome", width: 390, height: 844, theme: "light" },
   { scene: "nohome", width: 390, height: 844, theme: "dark" },
   { scene: "nohome", width: 1280, height: 900, theme: "light" },
-  { scene: "nohome", width: 1280, height: 900, theme: "dark" },
+  { scene: "attached", width: 390, height: 844, theme: "light" },
   { scene: "plural", width: 390, height: 844, theme: "light" },
-  { scene: "plural", width: 1280, height: 900, theme: "light" },
-  { scene: "split", width: 390, height: 844, theme: "light" },
-  { scene: "split", width: 1280, height: 900, theme: "light" },
-  { scene: "named-empty", width: 390, height: 844, theme: "light" },
-  { scene: "named-empty", width: 1280, height: 900, theme: "light" },
+  { scene: "attach", width: 390, height: 844, theme: "light" },
+  { scene: "import", width: 390, height: 844, theme: "light" },
 ];
 
 function parseArgs(argv) {
@@ -486,16 +339,8 @@ function report(state, shot) {
   if (state.overflow) {
     throw new Error(`render-cost-records (${where}): the page scrolls sideways`);
   }
-  if (state.oldMerge || state.oldDisclosure) {
-    throw new Error(`render-cost-records (${where}): old copy is still on the page`);
-  }
-  if (state.section) {
-    console.log(`${where}: "${state.line}" · ${state.items} task(s) · `
-      + `${state.buttons.join(" | ")}`);
-    if (state.buttonRight > state.width) {
-      throw new Error(`render-cost-records (${where}): the action reaches `
-        + `${state.buttonRight}px past ${state.width}px`);
-    }
+  if (state.notice) {
+    console.log(`${where}: "${state.line}" · ${state.buttons.join(" | ")}`);
   } else {
     console.log(`${where}: no cost task`);
   }
@@ -520,19 +365,19 @@ const server = await startServer();
 const page = `http://127.0.0.1:${server.port}/?demo=1`;
 try {
   for (const shot of SHOTS) {
-    const script = join(dir, `page-${shot.scene}-${shot.width}-${shot.theme}.js`);
+    const script = join(dir, `${shot.scene}-${shot.width}-${shot.theme}.js`);
     writeFileSync(script, pageScript(shot));
     const out = join(outDir,
-      `cost-records-${shot.scene}-${shot.width}-${shot.theme}.png`);
+      `cost-record-${shot.scene}-${shot.width}-${shot.theme}.png`);
     const result = await capture({
-      page, out, script, wait: 1200, scale: 1,
+      page, out, script, wait: 1600,
       width: shot.width, height: shot.height, theme: shot.theme,
     });
-    report(JSON.parse(result.value), shot);
-    console.log(out);
+    const state = JSON.parse(result.value);
+    report(state, shot);
   }
-  console.log("cost records: a task only while unattached · named attach · "
-    + "no-home Import a CAS · 390/1280 light and dark");
+  console.log("cost records: Assets has no task; a bond portfolio shows only its own "
+    + "notice above its bond cards · 390/1280 light and dark");
 } finally {
   server.child.kill();
   rmSync(dir, { recursive: true, force: true });

@@ -1116,7 +1116,7 @@ test("a CAS with no readable account number does not attach to a fund account", 
 
 test("the shell is one promise, one drop zone and five teaching bubbles", () => {
   const shell = between("const IMPORT_TYPE_GUIDES", "function renderImport");
-  for (const label of ["NSDL/CDSL (CAS)", "Zerodha", "Motilal", "ICICI", "DigiFInn"]) {
+  for (const label of ["NSDL/CDSL (CAS)", "Zerodha", "Motilal", "ICICI", "DigiFinn"]) {
     assert.ok(shell.includes(`label: "${label}"`), `${label} has a bubble`);
   }
   assert.equal((shell.match(/label: "/g) || []).length, 5, "exactly five bubbles");
@@ -1164,9 +1164,9 @@ test("a bubble opens one short guide and never filters the drop zone", () => {
     "a bubble never changes what the drop zone accepts");
 });
 
-test("every guide link is the secondary button, arrow kept, new tab", () => {
+test("every guide link is the primary button, arrow kept, new tab", () => {
   const guide = between("function bpImportTypeGuideHtml", "window.bpImportTypeToggle");
-  assert.match(guide, /<a class="btn" href="\$\{esc\(href\)\}" target="_blank"/);
+  assert.match(guide, /<a class="btn primary" href="\$\{esc\(href\)\}" target="_blank"/);
   assert.match(guide, /rel="noopener">\$\{esc\(label\)\}<\/a>/);
   assert.doesNotMatch(html, /\.import-type-links a\{/,
     "the guide row has no text-link rule");
@@ -1181,16 +1181,32 @@ test("every guide link is the secondary button, arrow kept, new tab", () => {
     "every guide label keeps its external arrow inside the button");
 });
 
-test("broker guide external links stay buttons, arrow kept, new tab", () => {
+test("broker guide external links stay primary buttons, arrow kept, new tab", () => {
   for (const [start, end] of [
     ["function zerodhaImportGuideHtml", "function motilalImportGuideHtml"],
     ["function motilalImportGuideHtml", "function digifinnImportReportsHtml"],
     ["function iciciImportGuideHtml", "function brokerImportBodyHtml"],
   ]) {
     const guide = between(start, end);
-    assert.match(guide, /<a class="btn" href="\$\{esc\(b\.page\.url\)\}" target="_blank"\s+rel="noopener">Open .+ ↗<\/a>/,
-      `${start} opens its page as a secondary button`);
+    assert.match(guide, /<a class="btn primary" href="\$\{esc\(b\.page\.url\)\}" target="_blank"\s+rel="noopener">Open .+ ↗<\/a>/,
+      `${start} opens its page as a primary button`);
   }
+});
+
+test("page-opening actions take the primary fill", () => {
+  for (const [label, call] of [
+    ["Open Settings snapshots", "bpOpenSnapshots\\(\\)"],
+    ["Open bank logins", "go\\('logins'\\)"],
+    ["Open assets", "go\\('assets'\\)"],
+    ["Open Import", "bpBondDealerImport\\("],
+    ["Open that account", "bpAsset\\("],
+  ]) {
+    const action = new RegExp(
+      `<button class="btn primary"[^>]*onclick="${call}[^"]*"[^>]*>${label}</button>`);
+    assert.match(html, action, `${label} is not the primary fill`);
+  }
+  assert.match(html,
+    /<a class="btn primary" href="backup\.html">Open Google Drive backup<\/a>/);
 });
 
 test("the old per-type picker and its file inputs are not in the shell", () => {
@@ -1210,9 +1226,17 @@ test("the picker carries its broker's steps and format, once", () => {
   assert.match(motilal, /Format: PDF, not XLSX or CSV/);
   assert.match(motilal, /Since Inception/);
   const icici = between("function iciciImportGuideHtml", "function brokerImportBodyHtml");
-  assert.match(icici, /Demat Holdings/);
+  assert.match(icici, /Stocks → Demat holdings/);
   assert.match(icici, /Format: CSV/);
   assert.match(icici, /bpImportInboxAdd/);
+  const digifinn = between("function digifinnImportReportsHtml", "function iciciImportGuideHtml");
+  assert.match(digifinn,
+    /<li>Portfolio Report CSV — Reports &amp; Documents\.<\/li>/);
+  assert.match(digifinn,
+    /<li>\[Optional\] Payouts CSV — adds interest dates\.<\/li>/);
+  const typeGuides = between("const IMPORT_TYPE_GUIDES", "function bpImportTypeGuideHtml");
+  assert.match(typeGuides,
+    /steps: \["Portfolio Report CSV — Reports & Documents\.",\s*"\[Optional\] Payouts CSV — adds interest dates\."\]/);
 });
 
 test("erasing the browser deletes the database file, not just its rows", () => {

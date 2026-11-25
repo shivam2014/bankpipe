@@ -285,9 +285,9 @@ test("a hand-entered term says so and a report keeps its name", () => {
   assert.equal(manual.subTone, "");
 
   const report = bondFacts(bondRowView({ ...dashedRow,
-    maturity: "2029-10-07", maturity_source: "DigiFInn investment report",
+    maturity: "2029-10-07", maturity_source: "DigiFinn investment report",
     maturity_as_of: "2026-10-31" })).find((fact) => fact.key === "maturity");
-  assert.equal(report.sub, "from DigiFInn investment report · 31 Oct 2026");
+  assert.equal(report.sub, "from DigiFinn investment report · 31 Oct 2026");
   assert.equal(report.subTone, "");
 });
 

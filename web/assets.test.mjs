@@ -106,12 +106,12 @@ test("allocation groups fixed deposits under bank accounts", () => {
 
 test("an import fills an empty account and leaves typed values alone", () => {
   const filled = importFillPlan({ number: "", holder: "", bank: "" },
-    { demat: "1234567890123456", holder: "TEST HOLDER", broker: "DigiFInn" });
-  assert.deepEqual(filled, { number: "1234567890123456", holder: "TEST HOLDER", bank: "DigiFInn" });
+    { demat: "1234567890123456", holder: "TEST HOLDER", broker: "DigiFinn" });
+  assert.deepEqual(filled, { number: "1234567890123456", holder: "TEST HOLDER", bank: "DigiFinn" });
 
   const kept = importFillPlan({ number: "9999", holder: "Typed", bank: "" },
-    { demat: "1234567890123456", holder: "TEST HOLDER", broker: "DigiFInn" });
-  assert.deepEqual(kept, { bank: "DigiFInn" });
+    { demat: "1234567890123456", holder: "TEST HOLDER", broker: "DigiFinn" });
+  assert.deepEqual(kept, { bank: "DigiFinn" });
 
   assert.deepEqual(importFillPlan({}), {});
 });

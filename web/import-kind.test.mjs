@@ -20,7 +20,7 @@ test("a broker holdings export is read from its header row", () => {
   assert.equal(sniffKind({ name: "any.csv", text: csv }), "broker");
 });
 
-test("a DigiFInn holdings report is broker even though it names a Demat Account No.", () => {
+test("a DigiFinn holdings report is broker even though it names a Demat Account No.", () => {
   const csv = "DIGIFINN - HOLDINGS REPORT\nDemat Account No.,1200000012345678"
     + "\nISIN,Bond Name,Purchase date,Qty,Investment Value (₹)"
     + "\nINE000000011,9.25% TESTF 07 OCT 2029,23-Oct-26,20,196406.16";
