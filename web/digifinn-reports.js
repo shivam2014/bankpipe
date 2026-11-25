@@ -1,4 +1,4 @@
-// DigiFInn monthly bond sync. The broker's Profile → Reports & Documents page
+// DigiFinn monthly bond sync. The broker's Profile → Reports & Documents page
 // gives three separate reports; none of them is a complete holding on its own.
 // Portfolio Report: ISIN, quantity, cost, purchase date.
 // Investment Report: issuer, coupon, maturity, purchase yield.
@@ -32,7 +32,7 @@ export const PORTFOLIO_SCHEMA = {
 
 // Detection asks for the canonical name, not the parser's wider aliases: a
 // generic holdings sheet that happens to print "Security Name" must not become
-// a DigiFInn bond report merely because it also has an ISIN and a quantity.
+// a DigiFinn bond report merely because it also has an ISIN and a quantity.
 export const PORTFOLIO_DETECTION_SCHEMA = {
   isin: PORTFOLIO_SCHEMA.isin,
   label: { label: "Bond Name", required: true, aliases: ["Bond Name"] },

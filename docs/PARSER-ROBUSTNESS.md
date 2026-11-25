@@ -78,7 +78,7 @@ has an impossible day.
   number ("7O").`
 
 `holding-import.js` re-exports the date and number readers, so Motilal,
-DigiFInn and the inbox all read the same shapes through one implementation.
+DigiFinn and the inbox all read the same shapes through one implementation.
 
 ## Alias tables
 
@@ -86,9 +86,9 @@ DigiFInn and the inbox all read the same shapes through one implementation.
 |---|---|---|
 | Zerodha holdings | `zerodha.js` `ZERODHA_HOLDINGS_SCHEMA` | ISIN, Quantity Available, Average Price, Symbol, Sector, Long Term, both pledged columns, Previous Close, P&L |
 | Zerodha tradebook | `import-flow.js` `TRADEBOOK_SCHEMA` | Trade Date, Trade Type, Quantity, Price, ISIN, Symbol |
-| DigiFInn portfolio / investment / transactions | `digifinn-reports.js` `PORTFOLIO_SCHEMA`, `INVESTMENT_SCHEMA`, `TRANSACTIONS_SCHEMA` | ISIN, Bond Name, Qty, Investment Value; Issuer, Coupon, Yield, Maturity, Invested; Transaction Type, Quantity, Price, Total/Face Value, Coupon, Maturity |
-| DigiFInn payouts | `digifinn.js` `PAYOUTS_SCHEMA` (and a stricter `PAYOUTS_DETECTION_SCHEMA`) | ISIN, Units, Date, Issuer, Amount, Frequency |
-| DigiFInn cashflow groups | `digifinn.js` `parseCashflow` group spans | Yield, Frequency, Maturity, Investment Value, Investment date, Interest, Principal, Total, Month/Date |
+| DigiFinn portfolio / investment / transactions | `digifinn-reports.js` `PORTFOLIO_SCHEMA`, `INVESTMENT_SCHEMA`, `TRANSACTIONS_SCHEMA` | ISIN, Bond Name, Qty, Investment Value; Issuer, Coupon, Yield, Maturity, Invested; Transaction Type, Quantity, Price, Total/Face Value, Coupon, Maturity |
+| DigiFinn payouts | `digifinn.js` `PAYOUTS_SCHEMA` (and a stricter `PAYOUTS_DETECTION_SCHEMA`) | ISIN, Units, Date, Issuer, Amount, Frequency |
+| DigiFinn cashflow groups | `digifinn.js` `parseCashflow` group spans | Yield, Frequency, Maturity, Investment Value, Investment date, Interest, Principal, Total, Month/Date |
 | Motilal | `motilal.js` `MOTILAL_COLUMNS` | ISIN, Instrument, Principle, Maturity, Coupon, Frequency, Investment Date, Last, Market Value/Price, Rating, Qty, Avg Price, Investment Amount |
 | Generic holdings | `holding-import.js` `HOLDINGS_SCHEMA` | ISIN/Symbol, Security name, Quantity, Buy/Current value, dates, rating, frequency, yield, payout |
 
@@ -103,10 +103,10 @@ them and asserts the parsed holdings are deep-equal.
 |---|---|---|---|---|
 | Zerodha holdings | yes | `Qty`, `Avg Price` | yes | CSV rows vs XLSX matrix |
 | Zerodha tradebook | yes | `Date`, `Type`, `Qty`, `Trade Price` | yes | CSV text vs XLSX matrix, same paise |
-| DigiFInn portfolio | yes | `Quantity`, `Invested Amount` | yes | CSV text vs matrix-through-CSV |
-| DigiFInn investment | yes | `Coupon Rate`, `YTM` | yes | CSV text vs matrix-through-CSV |
-| DigiFInn transactions | yes | `Units`, `Value` | yes | CSV text vs matrix-through-CSV |
-| DigiFInn payouts | yes | `Quantity`, `Payout Amount` | yes | CSV only (the portal exports one shape) |
+| DigiFinn portfolio | yes | `Quantity`, `Invested Amount` | yes | CSV text vs matrix-through-CSV |
+| DigiFinn investment | yes | `Coupon Rate`, `YTM` | yes | CSV text vs matrix-through-CSV |
+| DigiFinn transactions | yes | `Units`, `Value` | yes | CSV text vs matrix-through-CSV |
+| DigiFinn payouts | yes | `Quantity`, `Payout Amount` | yes | CSV only (the portal exports one shape) |
 | Motilal | item order shuffled (geometry decides) | `Units` | yes | PDF only |
 | Bank statement | yes | `Description`, `Withdrawal` | yes | CSV rows vs matrix rows |
 | Generic holdings | yes | `Company`, `Units` | yes | CSV rows vs matrix |
@@ -135,7 +135,7 @@ statement, and `Quantity` in a generic holdings sheet all refuse by name.
   cannot create units. A section with a header but no usable quantity/amount now
   refuses instead of importing a partial portfolio, and a band that maps two
   numbers to one column refuses rather than fusing them into one value.
-- **DigiFInn cashflow column groups.** A group is the span between one `Yield`
+- **DigiFinn cashflow column groups.** A group is the span between one `Yield`
   label and the next, and every field inside it is read by its own name:
   `Frequency` and `Maturity` from the header row, `Investment Value` and
   `Investment date` from the investment row, and `Interest`, `Principal` and

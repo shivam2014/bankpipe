@@ -48,16 +48,16 @@ export const IMPORT_KINDS = {
     broker: "zerodha", where: "Zerodha Console → Reports → Tradebook" },
   "icici-holdings": { label: "ICICI Direct holdings", family: "icici", base: true,
     broker: "icici", where: "ICICI Direct → Portfolio → Holdings → Download" },
-  "digifinn-portfolio": { label: "DigiFInn holdings report", family: "digifinn", base: true,
-    broker: "digifinn", where: "DigiFInn → Reports & Documents → Holdings Report" },
-  "digifinn-investment": { label: "DigiFInn investment report", family: "digifinn", base: false,
-    broker: "digifinn", where: "DigiFInn → Reports & Documents → Investment Report" },
-  "digifinn-transactions": { label: "DigiFInn transactions report", family: "digifinn", base: false,
-    broker: "digifinn", where: "DigiFInn → Reports & Documents → Transactions" },
-  "digifinn-payouts": { label: "DigiFInn upcoming payouts", family: "digifinn", base: false,
-    broker: "digifinn", where: "DigiFInn → Reports & Documents → Upcoming Payouts" },
-  "digifinn-cashflow": { label: "DigiFInn cashflow", family: "digifinn", base: false,
-    broker: "digifinn", where: "DigiFInn → Reports & Documents → Cashflow Future" },
+  "digifinn-portfolio": { label: "DigiFinn holdings report", family: "digifinn", base: true,
+    broker: "digifinn", where: "DigiFinn → Reports & Documents → Holdings Report" },
+  "digifinn-investment": { label: "DigiFinn investment report", family: "digifinn", base: false,
+    broker: "digifinn", where: "DigiFinn → Reports & Documents → Investment Report" },
+  "digifinn-transactions": { label: "DigiFinn transactions report", family: "digifinn", base: false,
+    broker: "digifinn", where: "DigiFinn → Reports & Documents → Transactions" },
+  "digifinn-payouts": { label: "DigiFinn upcoming payouts", family: "digifinn", base: false,
+    broker: "digifinn", where: "DigiFinn → Reports & Documents → Upcoming Payouts" },
+  "digifinn-cashflow": { label: "DigiFinn cashflow", family: "digifinn", base: false,
+    broker: "digifinn", where: "DigiFinn → Reports & Documents → Cashflow Future" },
   bank: { label: "Bank statement", family: "bank", base: true, broker: "",
     where: "Your bank → Statements" },
   unknown: { label: "Unrecognised file", family: "", base: false, broker: "", where: "" },
@@ -138,7 +138,7 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
   });
   // ICICI's three unique column names settle it before any family that reads a
   // wider quantity alias. The check runs on the matrix and on the CSV text, and
-  // before the file-name fallback that used to call any "holdings.csv" DigiFInn.
+  // before the file-name fallback that used to call any "holdings.csv" DigiFinn.
   if (matrixLooksLikeIciciHoldings(matrix)) return info("icici-holdings", "content");
   // A tradebook carries a date, a trade type and a price beside the ISIN; a
   // holdings sheet has none of those names. Reading the more specific shape
@@ -179,7 +179,7 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
   // A Kite holdings CSV prints the same header as its workbook. The workbook
   // path hands over a matrix; a CSV has only text, so its rows are checked
   // against the full schema, average price included, before the looser
-  // DigiFInn signatures can claim a file merely called holdings.csv.
+  // DigiFinn signatures can claim a file merely called holdings.csv.
   if (headerIn(ZERODHA_HOLDINGS_SCHEMA)) {
     return info("zerodha-holdings", "content", date);
   }

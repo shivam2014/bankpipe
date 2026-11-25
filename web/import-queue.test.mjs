@@ -27,7 +27,7 @@ test("a known source reads as the name a person uses", () => {
   assert.equal(sourceName("ICICI BANK LIMITED"), "ICICI Direct");
   assert.equal(sourceName("Zerodha Broking Ltd"), "Zerodha");
   assert.equal(sourceName("Motilal Oswal Financial Services Limited"), "Motilal Oswal");
-  assert.equal(sourceName("", "digifinn"), "DigiFInn");
+  assert.equal(sourceName("", "digifinn"), "DigiFinn");
 });
 
 test("the consequence is the account's own unit", () => {

@@ -77,7 +77,7 @@ export const ICICI_HOLDINGS_SCHEMA = {
 };
 
 // Detection asks for the three names no other importer prints. Zerodha and
-// DigiFInn both fail this signature even when their own quantity aliases are
+// DigiFinn both fail this signature even when their own quantity aliases are
 // wide, and an ICICI file cannot satisfy either holdings schema.
 export const ICICI_DETECTION_SCHEMA = {
   qty: { label: "Allocated Quantity", required: true,

@@ -67,7 +67,7 @@ This change. No live import path changes.
 
 Removes:
 
-- The DigiFInn bond-sync card cluster: `bpDigiFinnReport`,
+- The DigiFinn bond-sync card cluster: `bpDigiFinnReport`,
   `bpDigiFinnRenderStatus`, `digiFinnTargetDemat`, `bpDigiFinnKeepPortfolio`,
   `bpDigiFinnReview`, `bpDigiFinnExistingPrompt`, `bpDigiFinnNewPrompt`,
   `bpDigiFinnChoose`, `bondSyncPreviewBodyHtml`, `bpDigiFinnSyncPreview`,

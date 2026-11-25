@@ -125,7 +125,7 @@ test("an unreadable Market Value refuses by file, column and row", () => {
   assert.match(parsed.error, /"Market Value" is not a number \("5O,OOO"\)/);
 });
 
-test("the exact ICICI header is detected as ICICI, never as DigiFInn or Zerodha", () => {
+test("the exact ICICI header is detected as ICICI, never as DigiFinn or Zerodha", () => {
   for (const name of ["ICICI_Holdings.csv", "holdings.csv", "holdings-report.csv"]) {
     const detected = detectImportFile({ name, text: ICICI_HOLDINGS_TEXT });
     assert.equal(detected.kind, "icici-holdings", name);

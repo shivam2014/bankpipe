@@ -8,11 +8,11 @@ export const TYPE_LABEL = {
   "zerodha-holdings": "Zerodha holdings",
   "zerodha-tradebook": "Zerodha tradebook",
   "icici-holdings": "ICICI Direct holdings",
-  "digifinn-portfolio": "DigiFInn holdings",
-  "digifinn-investment": "DigiFInn investment report",
-  "digifinn-transactions": "DigiFInn transactions",
-  "digifinn-payouts": "DigiFInn payouts",
-  "digifinn-cashflow": "DigiFInn cashflow",
+  "digifinn-portfolio": "DigiFinn holdings",
+  "digifinn-investment": "DigiFinn investment report",
+  "digifinn-transactions": "DigiFinn transactions",
+  "digifinn-payouts": "DigiFinn payouts",
+  "digifinn-cashflow": "DigiFinn cashflow",
   bank: "Bank statement",
   unknown: "File",
 };
@@ -21,14 +21,14 @@ const BROKER = {
   zerodha: "Zerodha",
   motilal: "Motilal Oswal",
   icici: "ICICI Direct",
-  digifinn: "DigiFInn",
+  digifinn: "DigiFinn",
 };
 
 const KNOWN_SOURCE = [
   ["ICICI", "ICICI Direct"],
   ["ZERODHA", "Zerodha"],
   ["MOTILAL", "Motilal Oswal"],
-  ["DIGIFINN", "DigiFInn"],
+  ["DIGIFINN", "DigiFinn"],
   ["HDFC", "HDFC"],
   ["ICICI BANK", "ICICI Bank"],
   ["STATE BANK", "SBI"],

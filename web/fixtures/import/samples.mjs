@@ -5,7 +5,7 @@
 //
 // The shapes mirror the files the parsers actually receive: a CAS text layer, a
 // Motilal holdings summary, a Zerodha holdings workbook, Kite Console's
-// three-sheet export, a Zerodha tradebook, the five DigiFInn reports and a bank
+// three-sheet export, a Zerodha tradebook, the five DigiFinn reports and a bank
 // statement. Keep them small; the test asserts counts and fields, not the
 // contents of a statement.
 

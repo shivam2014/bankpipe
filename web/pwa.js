@@ -95,6 +95,6 @@ export function pwaCard({ state = "none", backupHref = "backup.html" } = {}) {
     ${action}
     <div class="pwa-storage" id="storage-state" data-protected="">Storage: checking…</div>
     <p class="pwa-backup">${BACKUP_TRUTH}</p>
-    <a class="btn pwa-backup-link" href="${backupHref}">Open backup</a>
+    <a class="btn primary pwa-backup-link" href="${backupHref}">Open backup</a>
   </div>`;
 }

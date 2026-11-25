@@ -9,7 +9,7 @@ import {
 test("digifinn is the first broker, with one cost file and one optional payouts file", () => {
   assert.ok(BOND_BROKERS.length >= 1);
   const b = bondBroker("digifinn");
-  assert.equal(b.label, "DigiFInn");
+  assert.equal(b.label, "DigiFinn");
   assert.deepEqual(b.reports.map((r) => r.slot), ["portfolio", "payouts"]);
   assert.ok(b.reports.every((r) => r.title && Array.isArray(r.files) && r.files.length));
   const payouts = b.reports.find((r) => r.slot === "payouts");
@@ -84,6 +84,6 @@ test("a broker's file is read by that broker's parser", () => {
   assert.equal(parsed.kind, "portfolio");
   assert.equal(parsed.rows.length, 1);
   assert.equal(parsed.rows[0].isin, "INE000000024");
-  // An unregistered source must not be read as DigiFInn's format.
+  // An unregistered source must not be read as DigiFinn's format.
   assert.equal(parseBrokerReport("not-a-broker", csv, "x.csv").kind, "unknown");
 });

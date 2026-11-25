@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { boId, sameAccount, boIdShort } from "./bo-id.js";
 
 // The two accounts from the real statements in this project's research: a CDSL
-// BO ID printed by DigiFInn and an NSDL number printed on a Motilal statement.
+// BO ID printed by DigiFinn and an NSDL number printed on a Motilal statement.
 const CDSL = "IN99990001344321";
 const NSDL = "1200000012345678";
 

@@ -6,14 +6,14 @@ import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 const bond = {
   id: "bonds-1",
   label: "Bonds · portfolio 1",
-  bank: "DigiFInn",
+  bank: "DigiFinn",
   number: "IN99990001344321",
   holder: "TEST HOLDER",
 };
 
 test("a bond identity carries broker, Demat and holder", () => {
   const id = assetIdentity(bond, { numberLabel: "Demat" });
-  assert.equal(id.row, "DigiFInn · IN99990001344321 · TEST HOLDER");
+  assert.equal(id.row, "DigiFinn · IN99990001344321 · TEST HOLDER");
   assert.equal(id.name, "Bonds · portfolio 1 (TEST HOLDER)");
   assert.equal(id.full, "Bonds · portfolio 1 · IN99990001344321 (TEST HOLDER)");
   assert.equal(id.numberLine, "Demat IN99990001344321 (TEST HOLDER)");
@@ -28,7 +28,7 @@ test("a missing holder drops the parentheses", () => {
 
 test("a missing number drops the middle clause", () => {
   const id = assetIdentity({ ...bond, number: "" });
-  assert.equal(id.row, "DigiFInn · TEST HOLDER");
+  assert.equal(id.row, "DigiFinn · TEST HOLDER");
   assert.equal(id.name, "Bonds · portfolio 1 (TEST HOLDER)");
   assert.equal(id.full, "Bonds · portfolio 1 (TEST HOLDER)");
   assert.equal(id.numberLine, "TEST HOLDER");
@@ -37,9 +37,9 @@ test("a missing number drops the middle clause", () => {
 
 test("a missing label falls back to the broker without an empty separator", () => {
   const id = assetIdentity({ ...bond, label: "" });
-  assert.equal(id.label, "DigiFInn");
-  assert.equal(id.name, "DigiFInn (TEST HOLDER)");
-  assert.equal(id.row, "DigiFInn · IN99990001344321 · TEST HOLDER");
+  assert.equal(id.label, "DigiFinn");
+  assert.equal(id.name, "DigiFinn (TEST HOLDER)");
+  assert.equal(id.row, "DigiFinn · IN99990001344321 · TEST HOLDER");
 });
 
 test("an empty or quote-only identity becomes empty, not quotes", () => {
