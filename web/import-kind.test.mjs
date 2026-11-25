@@ -32,6 +32,15 @@ test("a bank statement is read from its columns", () => {
   assert.equal(sniffKind({ name: "any.csv", text: csv }), "bank");
 });
 
+test("a Standard Chartered header names Transaction and Running Balance", () => {
+  const csv = "Date,Transaction,Currency,Deposit,Withdrawal,Running Balance"
+    + "\n25/11/2026,TEST PAYMENT,INR,,\"1,000.00\",\"345,861.05\"";
+  assert.equal(sniffKind({ name: "download.csv", text: csv }), "bank");
+  // The same words without a balance column are not a bank statement.
+  const noBalance = "Date,Transaction,Deposit,Withdrawal\n25/11/2026,TEST,1000,,";
+  assert.equal(sniffKind({ name: "download.csv", text: noBalance }), "");
+});
+
 test("content beats the name when they disagree", () => {
   // A bank export saved as "holdings.csv" is still a bank statement.
   const bank = "Date,Particulars,Debit,Credit,Balance\n01/10/2026,Rent,25000,,100000";

@@ -9,6 +9,7 @@ import { accountFolios, duplicateFundPositions, isFolioAccount,
 import { categoryOf, isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
+import { looksLikeBankStatement } from "./parse.js";
 import { bondInputsMissing, bondMaturity, isDisposed, termSourceRank } from "./bonds.js";
 import { findHeaderRow, headerMessage, readDate, readNumber, cellText,
   refusalResult, tableWhere } from "./table-schema.js";
@@ -202,11 +203,10 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
     || /\be-?CAS\b/i.test(bodyText)) {
     return info("cas", "content", date);
   }
-  if (/(withdrawal|deposit|debit|credit)/i.test(bodyText)
-    && /(balance|closing\s*balance)/i.test(bodyText)
-    && /(narration|description|particulars|remarks)/i.test(bodyText)) {
-    return info("bank", "content", date);
-  }
+  // A Standard Chartered export calls its description column "Transaction" and
+  // its balance "Running Balance". The bank reader's shared alias table knows
+  // both; detection asks that table instead of keeping a shorter copy.
+  if (looksLikeBankStatement(bodyText)) return info("bank", "content", date);
 
   const lower = String(name || "").toLowerCase();
   if (/consolidated|\bcas\b|e-?cas|nsdl|cdsl|_txn\b|aa\d{8}/.test(lower)) {

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
   parseTradebookMatrix, groupBundles, groupResolvedPlans, accountMatches, planMerge,
   accountFieldState, normalizeAccount, mergeRowsFromPlan, planStateAfter,
@@ -9,7 +10,7 @@ import { detectImportFile, snapshotAsOf, compareAsOf, parseTradebook,
 import { casReplacePlan } from "./cas-apply.js";
 import { casRoute } from "./cas.js";
 import { parseZerodhaHoldings } from "./zerodha.js";
-import { rowsFromCsv } from "./parse.js";
+import { rowsFromCsv, parseStatement } from "./parse.js";
 
 // Synthetic identifiers only. The real files are never committed.
 const isin = (n) => `INE${String(n).padStart(9, "0")}`;
@@ -110,6 +111,52 @@ test("detects a bank statement and reports an unknown file honestly", () => {
   const bank = "Date,Narration,Withdrawal,Deposit,Balance\n01-11-2026,Salary,0,1000,5000";
   assert.equal(detectImportFile({ name: "statement.csv", text: bank }).kind, "bank");
   assert.equal(detectImportFile({ name: "notes.txt", text: "hello" }).confidence, "none");
+});
+
+test("a Standard Chartered deposit/withdrawal export is a bank statement from its header", () => {
+  const text = readFileSync(new URL("./fixtures/banks/scb-savings-2026-10.csv",
+    import.meta.url), "utf8");
+  const detected = detectImportFile({ name: "scb-account-transactions.csv", text });
+  assert.equal(detected.kind, "bank");
+  assert.equal(detected.confidence, "content");
+  assert.equal(detected.label, "Bank statement");
+  const parsed = parseStatement(rowsFromCsv(text));
+  assert.ok(!parsed.error, parsed.error);
+  assert.equal(parsed.mapping.includes("description"), true);
+});
+
+test("every description and money spelling in the bank table identifies the file", () => {
+  const row = "\n01/10/2026,TEST PAYMENT,INR,100,,100";
+  for (const description of ["Description", "Narration", "Particulars", "Details",
+    "Remarks", "Transaction"]) {
+    const text = `Date,${description},Deposit,Withdrawal,Running Balance${row}`;
+    const detected = detectImportFile({ name: "download.csv", text });
+    assert.equal(detected.kind, "bank", description);
+    assert.equal(detected.confidence, "content", description);
+  }
+  for (const [moneyIn, moneyOut] of [["Deposit", "Withdrawal"], ["Credit", "Debit"],
+    ["Paid In", "Paid Out"]]) {
+    const text = `Date,Transaction,${moneyIn},${moneyOut},Running Balance${row}`;
+    assert.equal(detectImportFile({ name: "download.csv", text }).kind, "bank", moneyIn);
+  }
+  for (const balance of ["Balance", "Running Balance", "Closing Balance"]) {
+    const text = `Date,Transaction,Deposit,Withdrawal,${balance}${row}`;
+    assert.equal(detectImportFile({ name: "download.csv", text }).kind, "bank", balance);
+  }
+});
+
+test("a table that only looks financial is still refused as unknown", () => {
+  const roster = "Name,Office,Salary\nAsha,Delhi,1200000";
+  assert.deepEqual(detectImportFile({ name: "roster.csv", text: roster }), {
+    kind: "unknown", family: "", broker: "", label: "Unrecognised file",
+    confidence: "none", asOf: "",
+  });
+  // Balance without any money-in or money-out column is a ledger, not a statement.
+  const ledger = "Date,Description,Balance\n2026-10-01,Opening,1000";
+  assert.equal(detectImportFile({ name: "ledger.csv", text: ledger }).kind, "unknown");
+  // Money columns without a running balance cannot be audited, so not banked.
+  const trades = "Date,Description,Debit,Credit\n2026-10-01,TEST,100,";
+  assert.equal(detectImportFile({ name: "trades.csv", text: trades }).kind, "unknown");
 });
 
 test("the as-of date is read from the wording each report uses", () => {

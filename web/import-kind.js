@@ -6,6 +6,8 @@
 //
 // Pure: the caller passes a name and whatever text it managed to read.
 
+import { looksLikeBankStatement } from "./parse.js";
+
 export const IMPORT_KINDS = ["bank", "cas", "broker"];
 
 export const IMPORT_KIND_LABEL = {
@@ -25,9 +27,9 @@ const CAS_WORDS = [
 const BROKER_HEADER = (text) => /(^|\n)[^\n]*\bisin\b[^\n]*\b(quantity|qty|units)\b/i.test(text)
   && /(buy\s*value|current\s*value|average\s*cost|investment\s*value|market\s*value)/i.test(text);
 
-const BANK_HEADER = (text) => /(withdrawal|deposit|debit|credit)/i.test(text)
-  && /(balance|closing\s*balance)/i.test(text)
-  && /(narration|description|particulars|remarks)/i.test(text);
+// The bank reader owns the header aliases; this sniffer asks it rather than
+// keeping a second list that can miss a spelling the parser accepts.
+const BANK_HEADER = (text) => looksLikeBankStatement(text);
 
 /**
  * Decide what a file is from its content.

@@ -1,3 +1,20 @@
+// The bank family's header spellings, in one table. SYN reads them for the row
+// parser below and detection reads the same table, so a column name that the
+// parser can read can also identify the file as a bank statement.
+const DESCRIPTION_WORDS = /description|narration|particulars|details|remarks|transaction(?!\s*date)/i;
+const MONEY_OUT_WORDS = /debit|withdrawal|paid\s*out/i;
+const MONEY_IN_WORDS = /credit|deposit|paid\s*in/i;
+const BALANCE_WORDS = /balance/i;
+
+export const BANK_HEADER_ALIASES = Object.freeze({
+  description: DESCRIPTION_WORDS,
+  moneyOut: MONEY_OUT_WORDS,
+  moneyIn: MONEY_IN_WORDS,
+  balance: BALANCE_WORDS,
+});
+
+const anyOf = (...parts) => new RegExp(parts.map((part) => part.source).join("|"), "i");
+
 const SYN = [
   ["value_date", /value\s*date|value\s*dt/i],
   ["date", /txn\s*date|tran\s*date|transaction\s*date|post(ing)?\s*date|^date$|date$/i],
@@ -5,11 +22,11 @@ const SYN = [
   // "Dr Amount" / "Cr Amount" are two words, and some exports print only the
   // bare "Dr" / "Cr". The word boundary keeps "Address" and "Dr Name" out of
   // the debit column.
-  ["debit", /debit|withdrawal|paid\s*out|\bdr\.?(?:\s*(?:amount|amt))?$/i],
-  ["credit", /credit|deposit|paid\s*in|\bcr\.?(?:\s*(?:amount|amt))?$/i],
-  ["balance", /balance/i],
+  ["debit", anyOf(BANK_HEADER_ALIASES.moneyOut, /\bdr\.?(?:\s*(?:amount|amt))?$/i)],
+  ["credit", anyOf(BANK_HEADER_ALIASES.moneyIn, /\bcr\.?(?:\s*(?:amount|amt))?$/i)],
+  ["balance", BANK_HEADER_ALIASES.balance],
   ["amount", /^amount$|transaction\s*amount/i],
-  ["description", /description|narration|particulars|details|remarks|transaction(?!\s*date)/i],
+  ["description", BANK_HEADER_ALIASES.description],
 ];
 export function mapHeader(cells) {
   const m = {}; const taken = new Set();
@@ -41,6 +58,19 @@ export function findHeader(rows) {
     }
   }
   return { idx: -1, map: {} };
+}
+
+/**
+ * True when the text names the three column kinds a bank statement carries:
+ * money in or out, a running balance, and a transaction description. Detection
+ * calls this before routing a file to the bank reader, so the aliases above are
+ * the only list either one consults.
+ */
+export function looksLikeBankStatement(text) {
+  const body = String(text ?? "");
+  const { moneyOut, moneyIn, balance, description } = BANK_HEADER_ALIASES;
+  return (moneyOut.test(body) || moneyIn.test(body))
+    && balance.test(body) && description.test(body);
 }
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
   jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
