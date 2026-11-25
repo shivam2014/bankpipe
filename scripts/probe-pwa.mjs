@@ -268,6 +268,64 @@ async function main() {
         && ${JSON.stringify(cacheReport.names)}.every((old) => !names.includes(old));
     })()`, "the new worker to replace the old cache", 20000);
     check("a new worker deletes the previous cache", true, "bankpipe-shell-probe-3");
+
+    // --- hard reload --------------------------------------------------------
+    // The control must refetch the document and drop the shell, while the two
+    // things a person cannot recreate (the database and their settings) stay.
+    await evaluate(`(async () => {
+      await new Promise((resolve, reject) => {
+        const open = indexedDB.open("bp-probe", 1);
+        open.onupgradeneeded = () => open.result.createObjectStore("sentinel");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction("sentinel", "readwrite");
+          tx.objectStore("sentinel").put("still here", "key");
+          tx.oncomplete = () => { db.close(); resolve(); };
+          tx.onerror = () => reject(tx.error);
+        };
+      });
+      localStorage.setItem("bp.theme", "dark");
+      const stale = await caches.open("bankpipe-shell-stale");
+      await stale.put("/stale.txt", new Response("old build"));
+      const keep = await caches.open("probe-keep");
+      await keep.put("/keep.txt", new Response("unrelated"));
+    })()`);
+
+    await evaluate("window.__bpProbePrevious = true");
+    await evaluate('document.getElementById("reload-app").click()');
+    await waitFor('document.readyState === "complete" && !window.__bpProbePrevious',
+      "the hard reload to commit");
+
+    const hard = await evaluate(`(async () => {
+      const dbValue = await new Promise((resolve) => {
+        const open = indexedDB.open("bp-probe", 1);
+        open.onerror = () => resolve("db-error");
+        open.onsuccess = () => {
+          const db = open.result;
+          const req = db.transaction("sentinel").objectStore("sentinel").get("key");
+          req.onsuccess = () => { const value = req.result; db.close(); resolve(value); };
+          req.onerror = () => { db.close(); resolve("read-error"); };
+        };
+      });
+      const names = await caches.keys();
+      return {
+        href: location.href,
+        busted: new URL(location.href).searchParams.has("bp_reload"),
+        theme: localStorage.getItem("bp.theme"),
+        dbValue,
+        marker: document.querySelector("meta[name=bp-probe-build]")?.content || "",
+        stale: names.includes("bankpipe-shell-stale"),
+        keep: names.includes("probe-keep"),
+      };
+    })()`);
+    check("a hard reload refetches the document with a cache-busting query",
+      hard.busted && hard.marker === "deploy-2", hard.href);
+    check("a hard reload loads the latest build", hard.marker === "deploy-2", hard.marker);
+    check("a hard reload leaves IndexedDB alone", hard.dbValue === "still here", hard.dbValue);
+    check("a hard reload leaves the theme setting alone", hard.theme === "dark", hard.theme);
+    check("a hard reload deletes the stale shell cache", hard.stale === false);
+    check("a hard reload leaves an unrelated cache alone", hard.keep === true);
   } finally {
     try { session?.close?.(); } catch { /* already closed */ }
     try { session?.child?.kill(); } catch { /* already gone */ }

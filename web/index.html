@@ -78,6 +78,21 @@ nav{margin-left:auto;display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;
 .navarrow:hover{color:var(--ink);border-color:var(--muted)}
 .navwrap.overflowing .navarrow{display:grid;place-items:center}
 .navwrap.at-start #nav-left,.navwrap.at-end #nav-right{visibility:hidden}
+/* The hard reload. On a phone the privacy eye owns the corner, so the bar stops
+   64px short of it and the two 44px controls sit side by side. */
+.reload-app{width:44px;height:44px;flex-shrink:0;display:grid;place-items:center;
+ border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--muted);
+ padding:0;cursor:pointer}
+@media (hover:hover){.reload-app:hover{color:var(--green);border-color:var(--green)}}
+.reload-app:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.reload-app[aria-busy="true"]{color:var(--green);cursor:progress}
+.reload-app[aria-busy="true"] svg{animation:bp-reload-spin .8s linear infinite}
+@keyframes bp-reload-spin{to{transform:rotate(360deg)}}
+.reload-status{max-width:1040px;margin:0 auto;padding:0 18px 10px;font-size:12px;
+ color:var(--amber)}
+.reload-status[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){.reload-app[aria-busy="true"] svg{animation:none}}
+@media(max-width:640px){.bar{padding-right:64px}}
 nav button{border:0;background:none;font:inherit;font-size:13.5px;color:var(--muted);
  padding:7px 12px;border-radius:9px;cursor:pointer;white-space:nowrap}
 nav button[aria-current="page"]{background:var(--card);color:var(--ink);font-weight:620;
@@ -1363,7 +1378,15 @@ try {
     <nav id="nav" onscroll="bpNavArrows()"></nav>
     <button class="navarrow" id="nav-right" onclick="bpNavScroll(1)" aria-label="More sections">›</button>
   </div>
-</div></header>
+  <button type="button" id="reload-app" class="reload-app" onclick="bpHardReload()"
+    title="Reload the app" aria-label="Reload the app">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+      <path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+    </svg>
+  </button>
+</div>
+<div id="reload-status" class="reload-status" role="status" aria-live="polite" hidden></div>
+</header>
 <main class="wrap">
   <div class="banner" id="sample-banner" style="display:none" role="status">
   <span><b>Sample data.</b> Demo accounts, holdings and transactions, not yours.
@@ -1671,6 +1694,7 @@ function nav() {
 }
 import { parseStatement, chronological, auditStatement, rowsFromCsv, scanPreamble, guessAccount, parseMoney } from "./parse.js";
 import { installState, ensurePersistence, storageLabel, pwaCard } from "./pwa.js";
+import { hardReload, reloadMessage } from "./reload.js";
 import { reorderByChain } from "./ledger.js";
 import { reorderLine } from "./reorder-line.js";
 import { balanceRunsFromSheet } from "./balance-formula.js";
@@ -17783,6 +17807,43 @@ if ("serviceWorker" in navigator) {
       : null))
     .catch(() => {});
 }
+// The hard reload drops the worker and the shell cache, then refetches the
+// document. The database and every setting live outside this path.
+function bpReloadEnv() {
+  const workers = "serviceWorker" in navigator ? navigator.serviceWorker : null;
+  const store = typeof caches === "undefined" ? null : caches;
+  return {
+    href: location.href,
+    online: async () => {
+      try {
+        // HEAD is not a GET, so the worker steps aside and the network itself
+        // answers. A 404 still proves the network is there.
+        await fetch("./", { method: "HEAD", cache: "no-store" });
+        return true;
+      } catch (e) { return false; }
+    },
+    registrations: workers ? () => workers.getRegistrations() : async () => [],
+    unregister: (worker) => worker.unregister(),
+    cacheNames: store ? () => store.keys() : async () => [],
+    deleteCache: (name) => store.delete(name),
+    navigate: (url) => location.replace(url),
+  };
+}
+window.bpHardReload = async () => {
+  const btn = document.getElementById("reload-app");
+  const status = document.getElementById("reload-status");
+  if (!btn || btn.getAttribute("aria-busy") === "true") return;
+  btn.setAttribute("aria-busy", "true");
+  btn.disabled = true;
+  if (status) { status.textContent = ""; status.hidden = true; }
+  let result;
+  try { result = await hardReload(bpReloadEnv()); }
+  catch (e) { result = { ok: false, reason: "failed" }; }
+  if (result.ok) return;
+  if (status) { status.textContent = reloadMessage(result); status.hidden = false; }
+  btn.disabled = false;
+  btn.removeAttribute("aria-busy");
+};
 window.go = go;
 if (location.search.includes("selftest=seed") || location.search.includes("selftest=reload")) {
   (async () => {
