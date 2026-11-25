@@ -31,7 +31,7 @@ window.addEventListener("appinstalled", function () {
 </script>
 <style>
 :root{--bg:#f5f3ee;--card:#fff;--ink:#0f1216;--muted:#6d6960;--line:#e9e5dc;
- --hair:#f0ece4;--green:#0b6b4f;--amber:#9a5b12;--red:#a32b22;--blue:#24597f;
+ --hair:#f0ece4;--green:#0b6b4f;--on-green:#fff;--amber:#9a5b12;--red:#a32b22;--blue:#24597f;
  --r:16px;--gutter:18px;--sh:0 1px 2px rgba(15,18,22,.05),0 12px 30px -18px rgba(15,18,22,.25);
  --control-font:16px;--tabbar-h:0px;--kb:0px;
  --fab-safe:calc(var(--tabbar-h) + 44px + 12px + env(safe-area-inset-bottom));
@@ -42,15 +42,15 @@ window.addEventListener("appinstalled", function () {
    for "you chose dark". Keep the two blocks in step. */
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c0d0f;
  --card:#15171a;--ink:#f2f0ec;--muted:#9b968d;--line:#24262a;--hair:#1d1f23;
- --green:#4fbb90;--amber:#e0a763;--red:#e08d86;--blue:#8fb8df;--sh:none;
+ --green:#4fbb90;--on-green:#0c0d0f;--amber:#e0a763;--red:#e08d86;--blue:#8fb8df;--sh:none;
  --s1:#4fbb90;--s2:#8fb8df;--s3:#e0a763;--s4:#b9a0d8;--s5:#e08d86;--s6:#6fd0d8;--gold:#e6c15a;
  color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#0c0d0f;--card:#15171a;--ink:#f2f0ec;--muted:#9b968d;
- --line:#24262a;--hair:#1d1f23;--green:#4fbb90;--amber:#e0a763;--red:#e08d86;
+ --line:#24262a;--hair:#1d1f23;--green:#4fbb90;--on-green:#0c0d0f;--amber:#e0a763;--red:#e08d86;
  --blue:#8fb8df;--sh:none;--s1:#4fbb90;--s2:#8fb8df;--s3:#e0a763;--s4:#b9a0d8;
  --s5:#e08d86;--s6:#6fd0d8;--gold:#e6c15a;color-scheme:dark}
 :root[data-theme="light"]{--bg:#f5f3ee;--card:#fff;--ink:#0f1216;--muted:#6d6960;
- --line:#e9e5dc;--hair:#f0ece4;--green:#0b6b4f;--amber:#9a5b12;--red:#a32b22;
+ --line:#e9e5dc;--hair:#f0ece4;--green:#0b6b4f;--on-green:#fff;--amber:#9a5b12;--red:#a32b22;
  --blue:#24597f;--s1:#0b6b4f;--s2:#24597f;--s3:#9a5b12;--s4:#7a5c9e;--s5:#a32b22;--s6:#0e7c86;
  --gold:#a8801f;color-scheme:light}
 *{box-sizing:border-box}
@@ -167,8 +167,8 @@ a.link:hover{border-bottom-color:var(--green);color:var(--green)}
  font:inherit;font-size:13.5px;font-weight:620;padding:9px 14px;border-radius:9px;
  cursor:pointer;text-decoration:none;white-space:nowrap}
 .btn:hover{border-color:var(--green);color:var(--green)}
-.btn.primary{background:var(--green);border-color:var(--green);color:#fff}
-.btn.primary:hover{color:#fff;border-color:var(--green);
+.btn.primary{background:var(--green);border-color:var(--green);color:var(--on-green)}
+.btn.primary:hover{color:var(--on-green);border-color:var(--green);
  background:color-mix(in srgb,var(--green) 88%,#000)}
 .btn.ghost{background:none;border-color:transparent;color:var(--muted)}
 .btn.ghost:hover{color:var(--ink);background:var(--hair);border-color:transparent}
@@ -6024,9 +6024,9 @@ window.bpMarkMode = () => {
   const d = document.getElementById("modeDemo"), r = document.getElementById("modeReal");
   if (d && r) {
     d.style.background = m === "demo" ? "var(--green)" : "var(--card)";
-    d.style.color = m === "demo" ? "#fff" : "inherit";
+    d.style.color = m === "demo" ? "var(--on-green)" : "inherit";
     r.style.background = m === "real" ? "var(--green)" : "var(--card)";
-    r.style.color = m === "real" ? "#fff" : "inherit";
+    r.style.color = m === "real" ? "var(--on-green)" : "inherit";
   }
 };
 function isAppInstalled() {
