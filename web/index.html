@@ -7753,6 +7753,7 @@ function bpImportResolveCas(bundle) {
     return { boId: folioKey(group),
       dpName: `${group.amc || "Folio"} mutual fund · folio …${folioTail(group.folioNo)}`,
       rows: group.rows, match, targetId, plan, offer, folioChoice: choice,
+      createChoice: choice === "__create__",
       home, contested: conflict,
       action: conflict ? "conflict"
         : home ? "update"
@@ -8962,6 +8963,13 @@ function bpImportPlanMissing(plan) {
     const count = plan.summary.ask;
     return `Use the file's values for ${count} difference${count === 1 ? "" : "s"} in ${title}`;
   }
+  const creates = bpImportCasNewTargets(plan.head);
+  if (creates.length) {
+    const count = Number(plan.accountCount) || creates.length;
+    return count === 1
+      ? `Create the account for ${title} and import`
+      : `Create ${count} accounts for ${title} and import`;
+  }
   if (bpImportPlanDateBlocked(plan)) return `Check the date in ${title}`;
   if (plan.noWork) {
     const next = String(plan.noWorkCopy?.next || "").replace(/\.$/, "");
@@ -9294,6 +9302,11 @@ function bpImportPlanStatus(plan) {
     return { key: "account", label: "Needs an account", tone: "warn",
       note: count > 1 ? `${count} accounts match this file. Choose one.` : "" };
   }
+  // Every account this statement names is new. Nothing on file is a candidate,
+  // so there is no account sentence: the row's one action creates them all.
+  if (bpImportCasNewTargets(bundle).length) {
+    return { key: "account", label: "Needs an account", tone: "warn", note: "" };
+  }
   if (!bundle.targetId) {
     return { key: "account", label: "Needs an account", tone: "warn",
       note: "No account on file matches this file." };
@@ -9306,6 +9319,27 @@ function bpImportPlanStatus(plan) {
     note: "Review this file before importing." };
 }
 
+// A target with no account on file and no candidate to choose between. The
+// statement's own rows are enough to create it, and the CAS BO-ID guard still
+// refuses a second account under an identity that is already on file.
+function bpImportCasCreateTargets(bundle) {
+  return (bundle?.casTargets || []).filter((target) =>
+    target.action === "create" && !target.targetId && !target.createChoice
+    && !target.needsChoice
+    && !(target.match?.matches || []).length
+    && !target.offer && !target.home && !target.contested);
+}
+
+// Every account the statement names is new when no target has an account on
+// file to choose between. Then there is nothing to choose: the row is one
+// press, and it names how many accounts it creates.
+function bpImportCasNewTargets(bundle) {
+  const targets = bundle?.casTargets || [];
+  if (bundle?.family !== "cas" || !targets.length) return [];
+  const creates = bpImportCasCreateTargets(bundle);
+  return creates.length === targets.length ? creates : [];
+}
+
 // One unmatched account in a CAS can be accepted from the row itself. A folio
 // choice, a tie, or a second new account keeps the full account list, because
 // hiding either would hide a decision.
@@ -9314,8 +9348,7 @@ function bpImportCasInlineCreate(plan) {
   if (bundle?.family !== "cas") return null;
   const unresolved = (bundle.casTargets || []).filter((target) =>
     !target.targetId && target.action !== "kept" && target.action !== "conflict");
-  const creates = unresolved.filter((target) => target.action === "create"
-    && !target.createChoice && !target.needsChoice);
+  const creates = bpImportCasCreateTargets(bundle);
   return creates.length === 1 && unresolved.length === 1 ? creates[0] : null;
 }
 
@@ -9328,13 +9361,16 @@ function bpImportCasProposal(target) {
 function bpImportPlanAccountDetails(plan, status) {
   if (status.key !== "account") return "";
   const bundle = plan.head;
+  // A statement whose every account is new has no decision to show. A single
+  // new account beside targets that are already resolved is the same case for
+  // its own line, and the row carries the one press.
+  if (bundle.family === "cas"
+    && (bpImportCasNewTargets(bundle).length || bpImportCasInlineCreate(plan))) return "";
   const body = bundle.family === "cas"
     ? bpImportCasAccountsHtml(bundle) : bpImportMatchHtml(bundle);
   if (!body) return "";
-  const inlineCreate = bundle.family !== "cas"
-    ? bundle.create && !bundle.createChoice && !bundle.needsChoice
-    : !!bpImportCasInlineCreate(plan);
-  if (inlineCreate) return "";
+  if (bundle.family !== "cas" && bundle.create && !bundle.createChoice
+    && !bundle.needsChoice) return "";
   return `<details class="import-row-more import-row-account" open>
     <summary>Choose the account</summary>
     ${body}</details>`;
@@ -9382,8 +9418,21 @@ function bpImportPlanActions(plan, status, entry, first = true) {
     buttons.push(`<button class="btn" onclick="bpAssetNew('demat', { number: ${
       jsArg(bundle.movementMissing?.[0] || "")} })">Add the account</button>`);
   } else if (status.key === "account") {
-    const casTarget = bpImportCasInlineCreate(plan);
-    if (casTarget) {
+    const newTargets = bpImportCasNewTargets(bundle);
+    const casTarget = newTargets.length ? null : bpImportCasInlineCreate(plan);
+    if (newTargets.length) {
+      const keys = newTargets.map((target) => `${bundle.key}:${target.boId}`);
+      const count = Number(plan.accountCount) || newTargets.length;
+      const label = count === 1 && newTargets.length === 1
+        ? `${bpImportCasProposal(newTargets[0])} and import`
+        : `Import and create ${count} accounts`;
+      const arg = keys.length === 1 ? jsArg(keys[0])
+        : `[${keys.map((key) => jsArg(key)).join(", ")}]`;
+      buttons.push(`<button class="btn primary import-create-btn"
+        onclick="bpImportCreateAndImport(${jsArg(plan.key)},
+          ${arg}, ${jsArg(bundle.key)})">${
+        esc(label)}</button>`);
+    } else if (casTarget) {
       buttons.push(`<button class="btn primary import-create-btn"
         onclick="bpImportCreateAndImport(${jsArg(plan.key)},
           ${jsArg(`${bundle.key}:${casTarget.boId}`)}, ${jsArg(bundle.key)})">${
@@ -10210,7 +10259,10 @@ window.bpImportCreateAndImport = async (planKey, choiceKey, bundleKey) => {
   const plan = (state.plans || []).find((item) => item.key === planKey);
   if (!plan) return;
   const bundle = (state.bundles || []).find((item) => item.key === bundleKey);
-  state.choices[choiceKey] = "__create__";
+  // The row's one press may cover every new account the statement names, so
+  // the choice is one key or a list of them.
+  const choices = Array.isArray(choiceKey) ? choiceKey : [choiceKey];
+  for (const key of choices) state.choices[key] = "__create__";
   // A create answer is a new target, exactly like a manual choice: an accepted
   // difference belonged to the account that is no longer being written.
   delete state.acceptAsk[bundleKey];
