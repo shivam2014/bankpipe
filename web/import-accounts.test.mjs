@@ -1151,8 +1151,8 @@ test("the five sources wrap into view, led by where to get each statement", () =
 test("a bubble opens one short guide and never filters the drop zone", () => {
   const guide = between("function bpImportTypeGuideHtml", "window.bpImportTypeToggle");
   assert.match(guide, /data-guide="\$\{guide\.key\}" hidden/);
-  assert.match(guide, /guide\.body/);
-  assert.match(guide, /guide\.password/);
+  assert.match(guide, /guide\.steps/);
+  assert.match(guide, /guide\.check/);
   assert.match(guide, /Then drop it above/);
   const toggle = between("window.bpImportTypeToggle", "function renderImport");
   assert.match(toggle, /window\.bpImportTypeOpen === key \? "" : key/);
@@ -1237,6 +1237,39 @@ test("the picker carries its broker's steps and format, once", () => {
   const typeGuides = between("const IMPORT_TYPE_GUIDES", "function bpImportTypeGuideHtml");
   assert.match(typeGuides,
     /steps: \["Portfolio Report CSV — Reports & Documents\.",\s*"\[Optional\] Payouts CSV — adds interest dates\."\]/);
+});
+
+test("every source guide numbers its files and the path to each", () => {
+  const guides = between("const IMPORT_TYPE_GUIDES", "function bpImportTypeGuideHtml");
+  assert.equal((guides.match(/steps: \[/g) || []).length, 5,
+    "five guides each carry a file list");
+  assert.doesNotMatch(guides, /\bbody:/,
+    "no guide falls back to a prose paragraph");
+  const files = {
+    cas: ["Depository statement PDF — NSDL or CDSL → CAS, after month end."],
+    zerodha: ["Holdings XLSX — Console → Portfolio → Holdings → Download XLSX.",
+      "Holdings CSV — Kite → Holdings → Download CSV."],
+    motilal: ["Portfolio Holding Summary PDF — Motilal Oswal → Reports → Portfolio Holding Summary."],
+    icici: ["Demat holdings CSV — Stocks → Demat holdings → Download CSV."],
+    digifinn: ["Portfolio Report CSV — Reports & Documents.",
+      "[Optional] Payouts CSV — adds interest dates."],
+  };
+  for (const [key, lines] of Object.entries(files)) {
+    for (const line of lines) {
+      assert.ok(guides.includes(line), `${key} lists its file: ${line}`);
+      assert.match(line, /PDF|CSV|XLSX/, `${key} names the format: ${line}`);
+    }
+    assert.match(lines.join(" "), /→|Reports & Documents/,
+      `${key} names where to download it`);
+  }
+  for (const line of [
+    "Password is your PAN in capitals.",
+    "Either file works. A snapshot, not a date range, and not the Tradebook.",
+    "Password protected. The password Motilal sent.",
+    "Not the tradebook.",
+  ]) {
+    assert.ok(guides.includes(`check: "${line}"`), `the check line stays: ${line}`);
+  }
 });
 
 test("erasing the browser deletes the database file, not just its rows", () => {

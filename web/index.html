@@ -3230,21 +3230,22 @@ function brokerImportBodyHtml() {
 }
 const IMPORT_TYPE_GUIDES = [
   { key: "cas", label: "NSDL/CDSL (CAS)", note: "PDF", title: "NSDL/CDSL (CAS)",
-    body: "CDSL or NSDL, after month end. Drop the original PDF.",
-    password: "Usually your PAN in capitals.",
+    steps: ["Depository statement PDF — NSDL or CDSL → CAS, after month end."],
+    check: "Password is your PAN in capitals.",
     links: [["Open CDSL CAS ↗", "https://www.cdslindia.com/cas/logincas.aspx"],
       ["Open NSDL CAS ↗", "https://nsdlcas.nsdl.com/"]] },
   { key: "zerodha", label: "Zerodha", note: "CSV or XLSX", title: "Zerodha holdings",
-    body: "Console → Portfolio → Holdings for XLSX, or Kite → Holdings for CSV.",
-    password: "A snapshot, not a date range, and not the Tradebook.",
+    steps: ["Holdings XLSX — Console → Portfolio → Holdings → Download XLSX.",
+      "Holdings CSV — Kite → Holdings → Download CSV."],
+    check: "Either file works. A snapshot, not a date range, and not the Tradebook.",
     links: [["Open Holdings ↗", "https://console.zerodha.com/portfolio/holdings"]] },
   { key: "motilal", label: "Motilal", note: "PDF", title: "Motilal Oswal holdings",
-    body: "Reports → Portfolio Holding Summary.",
-    password: "The password Motilal sent.",
+    steps: ["Portfolio Holding Summary PDF — Motilal Oswal → Reports → Portfolio Holding Summary."],
+    check: "Password protected. The password Motilal sent.",
     links: [["Open Reports ↗", "https://www.motilaloswal.com/"]] },
   { key: "icici", label: "ICICI", note: "CSV", title: "ICICI Direct holdings",
-    body: "Stocks → Demat holdings → Download CSV.",
-    password: "The holdings CSV, not the tradebook.",
+    steps: ["Demat holdings CSV — Stocks → Demat holdings → Download CSV."],
+    check: "Not the tradebook.",
     links: [["Open Demat Holdings ↗", "https://www.icicidirect.com/"]] },
   { key: "digifinn", label: "DigiFinn", note: "CSV", title: "DigiFinn reports",
     steps: ["Portfolio Report CSV — Reports & Documents.",
@@ -3256,11 +3257,9 @@ function bpImportTypeGuideHtml(guide) {
   return `<div class="import-type-guide" id="import-guide-${guide.key}"
       data-guide="${guide.key}" hidden>
     <b>${esc(guide.title)}</b>
-    ${guide.steps
-      ? `<ol class="eq-guide-steps">${guide.steps.map((step) =>
-        `<li>${esc(step)}</li>`).join("")}</ol>`
-      : `<div>${esc(guide.body)}</div>`}
-    ${guide.password ? `<div class="muted">${esc(guide.password)}</div>` : ""}
+    <ol class="eq-guide-steps">${guide.steps.map((step) =>
+      `<li>${esc(step)}</li>`).join("")}</ol>
+    ${guide.check ? `<div class="muted">${esc(guide.check)}</div>` : ""}
     <div class="import-type-links">${guide.links.map(([label, href]) =>
       `<a class="btn primary" href="${esc(href)}" target="_blank" rel="noopener">${esc(label)}</a>`).join("")}</div>
     <div class="muted">Then drop it above.</div>
