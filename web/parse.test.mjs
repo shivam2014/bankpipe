@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { parseStatement, chronological, rowsFromCsv, parseDate, parseDateInText,
-  mapHeader, parseMoney } from "./parse.js";
+import { parseStatement, chronological, auditStatement, rowsFromCsv, parseDate,
+  parseDateInText, mapHeader, parseMoney } from "./parse.js";
 import { makeStore } from "./db.js";
 
 const require = createRequire(import.meta.url);
@@ -46,6 +46,33 @@ test("each dated export parses to the same transaction count as the Python norma
     assert.ok(!p.error, `${name}: ${p.error}`);
     assert.equal(dated(p), want, `${name}: dated rows`);
   }
+});
+
+test("a Standard Chartered deposit/withdrawal export reads every dated row", () => {
+  const name = "scb-savings-2026-10.csv";
+  const p = parsed(name);
+  assert.ok(!p.error, p.error);
+  assert.equal(p.header, 3);
+  assert.deepEqual(p.mapping, ["date", "description", "credit", "debit", "balance"]);
+  assert.equal(p.order, "desc");
+  assert.equal(dated(p), 13);
+  const first = p.rows[0];
+  assert.equal(first.date, "2026-10-06");
+  assert.equal(first.description, "TEST PAYMENT 1");
+  assert.equal(first.amount, -25000000);
+  assert.equal(first.balance, 211346611);
+  const second = p.rows.find((row) => row.description === "TEST PAYMENT 2");
+  assert.equal(second.amount, 347900);
+  assert.equal(second.balance, 236346611);
+  // The quoted closing balance in line 1 and the tab indentation read cleanly.
+  const audit = auditStatement(rowsFor(name), p);
+  assert.equal(audit.closing, 211346611);
+  assert.equal(audit.closingMatches, true);
+  assert.equal(audit.breaks.length, 0);
+  // Current/Available Balance lines below the table carry no date and no money;
+  // they are parsed and then filtered, never stored as transactions.
+  assert.equal(p.rows.filter((row) => !row.date).length, 2);
+  assert.equal(p.rows.filter((row) => !row.date && row.amount !== null).length, 0);
 });
 
 test("the irregular PDF-style export is read without throwing, and is flagged", () => {
