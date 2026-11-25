@@ -75,3 +75,22 @@ test("the maintenance capabilities keep a handler", () => {
   assert.match(html, /window\.bpDownloadDiagnostics = \(\)/);
   assert.match(html, /window\.bpStoreLegacyMeta = async/);
 });
+
+test("Clear sits under the encrypted database buttons, and Start over keeps Reset", () => {
+  const page = settings();
+  const fileStart = page.indexOf("Encrypted database file");
+  const fileCard = page.slice(fileStart, page.indexOf("Snapshots in this browser", fileStart));
+  const clearAt = fileCard.indexOf("Clear current database");
+  assert.ok(clearAt > fileCard.indexOf("Download encrypted database"),
+    "Clear follows the download it must not be mistaken for");
+  assert.ok(clearAt > fileCard.indexOf("Import encrypted database"),
+    "Clear follows the import it must not be mistaken for");
+  assert.match(fileCard.slice(clearAt), /Keeps the encrypted database and its passphrase/,
+    "the clear control keeps its one-line explanation");
+  const device = page.slice(page.indexOf("This device"), page.indexOf("Start over"));
+  assert.equal(device.includes("Clear current database"), false,
+    "the clear control no longer lives in This device");
+  const startOver = page.slice(page.indexOf("Start over"), page.indexOf("Bank logins"));
+  assert.match(startOver, /onclick="bpStartOver\(\)"/, "Reset stays in Start over");
+  assert.equal(startOver.includes("Clear current database"), false);
+});

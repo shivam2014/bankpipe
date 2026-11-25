@@ -6279,6 +6279,11 @@ function renderSettings() {
         <input type="file" id="dbfile" accept=".bpk,.db,.bin,application/octet-stream"
           style="display:none" onchange="if(this.files[0]) bpImportSealedDb(this.files[0])">
       </div>
+      <div class="card-sep">
+        <button onclick="bpClear()" class="btn danger">Clear current database</button>
+        <p class="action-note">Keeps the encrypted database and its passphrase. The next open is
+        unlocked and empty.</p>
+      </div>
     </div>
 
     <div id="snapshots-section" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
@@ -6338,11 +6343,6 @@ function renderSettings() {
     </div>
     <div id="moderes" class="muted" style="font-size:12px;margin-top:8px"></div>
     <div id="dbstate" class="muted" style="font-size:12px;margin-top:4px"></div>
-    <div class="card-sep">
-      <button onclick="bpClear()" class="btn danger">Clear current database</button>
-      <p class="action-note">Keeps the encrypted database and its passphrase. The next open is
-      unlocked and empty.</p>
-    </div>
   </div>
   <div class="card pad" style="margin-top:14px">
     <h2 class="card-title">Start over</h2>
@@ -9232,9 +9232,7 @@ function bpImportCasInlineCreate(plan) {
   if (bundle?.family !== "cas") return null;
   const unresolved = (bundle.casTargets || []).filter((target) =>
     !target.targetId && target.action !== "kept" && target.action !== "conflict");
-  const creates = unresolved.filter((target) => target.action === "create"
-    && !target.createChoice && !target.needsChoice
-    && (target.rows || []).length > 0);
+  const creates = bpImportCasCreateTargets(bundle);
   return creates.length === 1 && unresolved.length === 1 ? creates[0] : null;
 }
 
