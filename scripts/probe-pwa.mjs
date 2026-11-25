@@ -326,6 +326,33 @@ async function main() {
     check("a hard reload leaves the theme setting alone", hard.theme === "dark", hard.theme);
     check("a hard reload deletes the stale shell cache", hard.stale === false);
     check("a hard reload leaves an unrelated cache alone", hard.keep === true);
+
+    // --- an offline tap -----------------------------------------------------
+    // The guard runs before any delete, so an offline tap must not take the
+    // offline shell away from a person who is relying on it.
+    const beforeTap = hard.href;
+    await send("Network.emulateNetworkConditions", {
+      offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0,
+    });
+    await evaluate('document.getElementById("reload-app").click()');
+    await waitFor('document.getElementById("reload-status")?.hidden === false',
+      "the offline line");
+    const offlineTap = await evaluate(`(async () => ({
+      text: document.getElementById("reload-status")?.textContent || "",
+      href: location.href,
+      busy: document.getElementById("reload-app")?.getAttribute("aria-busy"),
+      disabled: document.getElementById("reload-app")?.disabled === true,
+      caches: await caches.keys(),
+    }))()`);
+    check("an offline tap says nothing was changed",
+      offlineTap.text === "Can't reach the server. Nothing was changed.", offlineTap.text);
+    check("an offline tap does not navigate", offlineTap.href === beforeTap, offlineTap.href);
+    check("an offline tap leaves the shell cache in place",
+      offlineTap.caches.some((name) => name.startsWith("bankpipe-shell-")),
+      offlineTap.caches.join(", "));
+    check("the control is usable again after the offline line",
+      offlineTap.busy === null && offlineTap.disabled === false,
+      JSON.stringify({ busy: offlineTap.busy, disabled: offlineTap.disabled }));
   } finally {
     try { session?.close?.(); } catch { /* already closed */ }
     try { session?.child?.kill(); } catch { /* already gone */ }
