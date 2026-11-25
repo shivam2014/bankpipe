@@ -1268,10 +1268,18 @@ export function bondImportOf(account, assetId = "") {
  * Pure, so the copy is testable without a DOM.
  */
 export function importPlanPrimary({ family = "", identityOnly = false, planned = 0,
-  sales = 0, create = false, soldCost = 0, attachIdentity = false,
-  categories = [] } = {}) {
+  sales = 0, create = false, createAccounts = 0, soldCost = 0,
+  attachIdentity = false, categories = [] } = {}) {
   if (family === "cas") {
     if (identityOnly) return "Attach identity and fill empty values";
+    const creates = Number(createAccounts) || 0;
+    if (creates) {
+      const account = creates === 1 ? "the account" : `${creates} accounts`;
+      const work = planned
+        ? `import ${planned} ${planned === 1 ? "holding" : "holdings"}`
+        : sales ? `record ${sales} sale${sales === 1 ? "" : "s"}` : "import";
+      return `Create ${account} and ${work}`;
+    }
     if (planned) return `Import ${planned} ${planned === 1 ? "holding" : "holdings"}`;
     if (sales) return `Record ${sales} sale${sales === 1 ? "" : "s"}`;
     return "Attach identity";
