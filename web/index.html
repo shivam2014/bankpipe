@@ -1220,6 +1220,11 @@ th.sort .arrow{opacity:.45;font-size:9px;margin-left:4px}
 .banner{background:#fdf0d5;color:#7a4a08;border-radius:12px;padding:10px 14px;font-size:13px;
  margin-bottom:14px}
 .muted{color:var(--muted)}
+.action-note{font-size:12px;margin:6px 0 0;max-width:60ch;line-height:1.5;color:var(--muted)}
+.card-sep{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.card-note{font-size:13.5px}
+.card-title{margin-top:0}
+.confirm-title{margin:0 0 10px;font-size:17px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media(max-width:820px){.grid{grid-template-columns:1fr}.hero .num{font-size:32px}}
 table{width:100%;border-collapse:collapse}
@@ -2842,7 +2847,11 @@ window.bpDownloadSealedDb = async () => {
     a.href = url; a.download = `bankpipe-db-${fileStamp(new Date())}.bpk`;
     a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (e) {
-    alert("Cannot export: " + String(e.message || e));
+    const message = String(e.message || e);
+    alert(message === "the database is not encrypted"
+      ? "This database has no passphrase, so it cannot be exported. Set a passphrase first, "
+        + "then download it again."
+      : "Cannot export: " + message);
   }
 };
 window.bpAskImportDbPassphrase = (bytes, name) => new Promise((resolve, reject) => {
@@ -6243,16 +6252,16 @@ window.bpStartOver = () => {
     <div role="dialog" aria-modal="true" aria-labelledby="bp-erase-title"
          style="width:min(470px,100%);background:var(--card,#fff);border:1px solid var(--line,#e3e6ec);
                 border-radius:14px;padding:24px;box-shadow:0 18px 50px rgba(0,0,0,.28)">
-      <h2 id="bp-erase-title" style="margin:0 0 10px;font-size:1.1rem">Erase BankPipe's data from this browser?</h2>
+      <h2 id="bp-erase-title" class="confirm-title">Reset BankPipe?</h2>
       <p style="margin:0 0 18px;font-size:14px;line-height:1.5;color:var(--muted,#5c6270)">
-        Removes your accounts, transactions and keys from this browser. This cannot be
-        undone, and it never asks for the database passphrase. Backups in Google Drive
-        are not affected.
+        Deletes the database file and its keys from this browser. This cannot be undone.
+        No database is left to unlock: the next open asks you to set up again, with a new
+        passphrase. Backups in Google Drive and snapshots in this browser are not affected.
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn" data-act="cancel">Cancel</button>
         <button class="btn" data-act="download">Download a backup first</button>
-        <button class="btn" data-act="erase" style="border-color:#f0c9c4;color:#a32b22">Erase data</button>
+        <button class="btn danger" data-act="erase">Reset BankPipe</button>
       </div>
     </div>`;
   document.body.appendChild(wrap);
@@ -6269,13 +6278,13 @@ window.bpStartOver = () => {
     }
     if (b.dataset.act === "erase") {
       b.disabled = true;
-      b.textContent = "Erasing…";
+      b.textContent = "Resetting…";
       const store = await import("./db.js");
       // A snapshot needs the open database. When it is locked there is nothing
       // to snapshot, and erasing must never ask for the passphrase of the very
       // database it is about to delete.
       if (store.isUnlocked()) {
-        try { await store.snapshotDb("Before erasing this browser"); } catch (e) {}
+        try { await store.snapshotDb("Before resetting BankPipe"); } catch (e) {}
       }
       // Deleting the file is the difference between an erase and an empty
       // database that still asks for its old passphrase on the next visit.
@@ -6283,17 +6292,18 @@ window.bpStartOver = () => {
       for (const k of Object.keys(localStorage)) {
         if (k.startsWith("bankpipe.") || k.startsWith("bp.")) localStorage.removeItem(k);
       }
-      b.textContent = "Erased — reloading…";
+      b.textContent = "Reset — reloading…";
       location.replace("/");
     }
   });
 };
 window.bpClear = async () => {
   if (bpGuardSample("Clearing data")) return;
-  if (!confirm("Delete every asset and transaction imported on this device? Backups in Drive "
-    + "are untouched.")) return;
+  if (!confirm("Clear the current database? Every account, holding and transaction on this "
+    + "device is deleted. The encrypted database and its passphrase stay, so the next open "
+    + "is unlocked and empty. Backups in Drive are untouched.")) return;
   const store = await import("./db.js");
-  try { await store.snapshotDb("Before clearing all data"); } catch (e) {}
+  try { await store.snapshotDb("Before clearing the database"); } catch (e) {}
   await store.clearAll();
   localStorage.removeItem("bankpipe.txns.v1");
   localStorage.removeItem("bp.diagnostics.last");
@@ -6457,13 +6467,11 @@ function renderSettings() {
       from another device. This is the whole database, not a snapshot of it. An imported
       file keeps the passphrase it was downloaded with.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" onclick="bpDownloadSealedDb()">Download encrypted database</button>
-        <button class="btn" onclick="document.getElementById('dbfile').click()">Import encrypted database</button>
+        <button class="btn primary" onclick="bpDownloadSealedDb()">Download encrypted database</button>
+        <button class="btn primary" onclick="document.getElementById('dbfile').click()">Import encrypted database</button>
         <input type="file" id="dbfile" accept=".bpk,.db,.bin,application/octet-stream"
           style="display:none" onchange="if(this.files[0]) bpImportSealedDb(this.files[0])">
       </div>
-      <div class="muted" style="font-size:11.5px;margin-top:8px">Never move a plaintext
-      database; the export refuses one.</div>
     </div>
 
     <div id="snapshots-section" style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
@@ -6529,19 +6537,24 @@ function renderSettings() {
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button onclick="bpMode('demo')" id="modeDemo" class="btn">Demo data</button>
       <button onclick="bpMode('real')" id="modeReal" class="btn">My data</button>
-      <button onclick="bpClear()" class="btn" style="border-color:#f0c9c4;color:#a32b22">Clear all data</button>
       <button onclick="bpLockDb()" class="btn">Lock now</button>
       <button onclick="bpChangeDbPass()" class="btn">Change passphrase</button>
     </div>
     <div id="moderes" class="muted" style="font-size:12px;margin-top:8px"></div>
     <div id="dbstate" class="muted" style="font-size:12px;margin-top:4px"></div>
+    <div class="card-sep">
+      <button onclick="bpClear()" class="btn danger">Clear current database</button>
+      <p class="action-note">Keeps the encrypted database and its passphrase. The next open is
+      unlocked and empty.</p>
+    </div>
   </div>
   <div class="card pad" style="margin-top:14px">
-    <h2 style="margin-top:0">Erase this browser's data</h2>
-    <p class="muted" style="font-size:13px">Removes the copy stored in this browser &mdash;
-    accounts, transactions and keys &mdash; and shows the welcome screen again. Encrypted
-    backups in Google Drive are untouched. You can download a copy first.</p>
-    <button class="btn" onclick="bpStartOver()" style="border-color:#f0c9c4;color:#a32b22">Erase BankPipe's data from this browser</button>
+    <h2 class="card-title">Start over</h2>
+    <p class="muted card-note">Shows the welcome screen again and asks you to set up a new
+    database. You can download a copy first.</p>
+    <button class="btn danger" onclick="bpStartOver()">Reset BankPipe</button>
+    <p class="action-note">Deletes the database file and its keys. Google Drive backups and
+    snapshots in this browser stay.</p>
   </div>
   <div class="card pad" style="margin-top:14px">
     <h2 style="margin-top:0">Bank logins</h2>
