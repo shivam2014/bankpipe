@@ -992,7 +992,8 @@ test("the row's Create writes the account and its rows in one press", () => {
   assert.match(actions, /and import<\/button>/,
     "the button names the write it performs");
   const handler = between("window.bpImportCreateAndImport", "window.bpImportAccept");
-  assert.match(handler, /state\.choices\[choiceKey\] = "__create__"/);
+  assert.match(handler, /const choices = Array\.isArray\(choiceKey\) \? choiceKey : \[choiceKey\]/);
+  assert.match(handler, /state\.choices\[key\] = "__create__"/);
   assert.match(handler, /await bpImportInboxPrepare\(\)/);
   assert.match(handler, /await window\.bpImportApplyPlan\(after\.key\)/,
     "the same press applies the plan");

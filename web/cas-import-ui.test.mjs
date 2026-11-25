@@ -459,3 +459,28 @@ test("dropping an entry clears the answers that belonged to it", () => {
   assert.match(drop, /choice\.startsWith\(`\$\{bundle\.key\}:`\)/);
   assert.match(drop, /delete state\.acceptAsk\[bundle\.key\]/);
 });
+
+test("a statement whose every account is new is one press and no chooser", () => {
+  // The new-account verdict is one predicate, so the note, the chooser and the
+  // button cannot disagree about whether there is a decision.
+  const helpers = between("function bpImportCasCreateTargets", "function bpImportCasProposal");
+  assert.match(helpers, /target\.action === "create"/);
+  assert.match(helpers, /!\(target\.match\?\.matches \|\| \[\]\)\.length/,
+    "an account on file is a candidate, never a default create");
+  assert.match(helpers, /!target\.offer && !target\.home && !target\.contested/);
+  assert.match(helpers, /creates\.length === targets\.length/);
+  const status = between("function bpImportPlanStatus", "function bpImportCasCreateTargets");
+  assert.match(status, /bpImportCasNewTargets\(bundle\)\.length/);
+  assert.match(status, /note: ""/, "the empty statement carries no matching sentence");
+  const details = between("function bpImportPlanAccountDetails",
+    "function bpImportPlanReviewDetails");
+  assert.match(details, /bpImportCasNewTargets\(bundle\)\.length \|\| bpImportCasInlineCreate\(plan\)/,
+    "no chooser is drawn over accounts that are all new");
+  const actions = between("function bpImportPlanActions", "function bpImportPlanRowHtml");
+  assert.match(actions, /Import and create \$\{count\} accounts/,
+    "the one action names how many accounts it creates");
+  assert.match(actions, /keys\.map\(\(key\) => jsArg\(key\)\)/,
+    "the press carries every new account, not only the first");
+  assert.match(html, /createChoice: choice === "__create__"/,
+    "a folio the press creates counts as a resolved target");
+});
