@@ -97,6 +97,10 @@ nav button{border:0;background:none;font:inherit;font-size:13.5px;color:var(--mu
  padding:7px 12px;border-radius:9px;cursor:pointer;white-space:nowrap}
 nav button[aria-current="page"]{background:var(--card);color:var(--ink);font-weight:620;
  box-shadow:0 1px 2px rgba(0,0,0,.06)}
+/* The reload control takes 52px from the bar. Ten pixels of side padding on the
+   seven labels gives that width back, so 768 keeps every label and no arrow. */
+@media(min-width:641px) and (max-width:800px){
+ nav button{padding-left:10px;padding-right:10px}}
 .wrap{max-width:1040px;margin:0 auto;padding:24px var(--gutter) calc(12px + var(--fab-safe) + var(--kb))}
 /* The tab bar, the privacy toggle and the help control are fixed. Both the end
    of the page and a control scrolled into view stop above that band. */
