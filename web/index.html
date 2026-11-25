@@ -396,6 +396,14 @@ tr.bond-sub td{background:var(--hair);font-size:11.5px;color:var(--muted);
 .adv{margin-top:14px}
 .adv summary{cursor:pointer;font-size:12.5px;color:var(--muted);padding:4px 2px}
 .adv summary:hover{color:var(--ink)}
+.settings-advanced > summary{font-size:13.5px;min-height:44px;padding:12px 2px}
+.settings-advanced .settings-advanced-intro{font-size:12px;margin:4px 2px 10px;max-width:70ch}
+.settings-advanced-cards{display:grid;gap:14px}
+.settings-advanced-cards .card h2{margin-top:0}
+.settings-advanced-cards .card p{font-size:13.5px;margin:0 0 10px}
+.settings-advanced-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.settings-advanced-note{font-size:12px;margin:0}
+.settings-advanced-cards input[type=file]{max-width:100%}
 .fd-flag{font-size:9.5px;font-weight:650;letter-spacing:.05em;text-transform:uppercase;
  color:var(--amber);border:1px solid color-mix(in srgb,var(--amber) 35%,transparent);
  border-radius:99px;padding:1px 6px;margin-left:7px;white-space:nowrap;vertical-align:1px}
@@ -1446,7 +1454,7 @@ const views = { home: renderHome, assets: renderAssets, accounts: renderAssets,
                 transactions: renderTransactions, settings: renderSettings,
                 day: renderDay, account: renderAccount, report: renderReport,
                 asset: renderAsset, addAccount: renderAsset,
-                logins: renderLogins, verify: renderVerify, issues: renderIssues,
+                logins: renderLogins, issues: renderIssues,
                 category: renderCategory, gaps: renderGaps, holdingEdit: renderHoldingEdit,
                 bondHolding: renderBondHoldingForm, manualHolding: renderManualHoldingForm,
                 duplicates: renderDuplicates,
@@ -1519,14 +1527,13 @@ function go(name, opts = {}) {
     };
     setTimeout(() => fill(20), 0);
   }
-  if (name === "verify") wireVerify();
   if (name === "settings") setTimeout(() => {
     if (window.bpMarkMode) window.bpMarkMode();
     if (window.bpDbState) window.bpDbState();
   }, 0);
   if (!window.bp.demo && (localStorage.getItem("bp.mode") || "demo") === "real"
       && ["home", "assets", "transactions", "gaps", "issues", "upcoming",
-        "account", "category", "asset", "day", "report", "verify"].includes(name)) {
+        "account", "category", "asset", "day", "report"].includes(name)) {
     import("./db.js").then((store) => {
       if (!store.isUnlocked()) showDbUnlock();
     }).catch(() => {});
@@ -1725,7 +1732,7 @@ import { KEEP_OPTIONS, readKeep, selectedKeys, allSelected, toggleKey } from "./
 import { assetIdentity, assetShortIdentity } from "./asset-identity.js";
 import { selectionSummary, bulkDeleteBarText, bulkDeleteConfirmText,
   bulkDeleteFacts, bulkDeleteAssets } from "./asset-selection.js";
-import { profileFor, parseSheet, colIndex, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
+import { profileFor, parseSheet, classifyRegisterCategory, applyAssetPlan, safeId } from "./workbook.js";
 import { countRows, receiptFrom, receiptTotals } from "./receipt.js";
 import { sheetAccountLabel } from "./receipt-label.js";
 import { rowList } from "./receipt-rows.js";
@@ -2664,180 +2671,6 @@ window.bpResolveIssue = async (id, state) => {
   await store.resolveIssue(id, state);
   go("issues");
 };
-function renderVerify() {
-  return `<h1>Verify an import</h1>
-  <div class="card pad">
-    <p class="muted" style="margin-top:0;font-size:13px">Select the same workbook you
-    imported. Nothing is written. The app re-reads it, matches each sheet to an asset, and
-    compares rows present against rows in the file. Only counts are shown.</p>
-    <input type="file" id="vf" accept=".xlsm,.xlsx">
-    <div style="margin-top:10px">
-      <label class="field">Layout profile (optional JSON)
-        <input type="file" id="vpf" accept=".json"></label>
-      <div id="vpfn" class="muted" style="font-size:12px;margin-top:4px">
-        Using the profile from the import screen if one is loaded.</div>
-    </div>
-    <div id="vres" style="margin-top:12px"></div>
-  </div>`;
-}
-async function verifyWorkbook(file) {
-  const out = document.getElementById("vres");
-  out.innerHTML = `<div class="muted">checking…</div>`;
-  try {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array", cellDates: false });
-    const store = await import("./db.js");
-    const profile = window.bpVerifyProfile || window.bpProfile || null;
-    if (!window.bpAssetPlan) {
-      try {
-        const res = await fetch("./profiles/family-assets-plan.json", { cache: "no-store" });
-        if (res.ok) window.bpAssetPlan = await res.json();
-      } catch (e) {}
-    }
-    const results = [];
-    for (let i = 0; i < wb.SheetNames.length; i++) {
-      const name = wb.SheetNames[i];
-      const matrix = sheetRows(wb.Sheets[name]);
-      const rawMatrix = sheetRows(wb.Sheets[name], true);
-      const sp = profileFor(profile, i);
-      const row = { i, name, purpose: sp?.purpose || "generic", asset: "—",
-        category: "unknown", expected: 0, present: 0, missing: 0, dup: 0,
-        breaks: 0, status: "skipped" };
-      if (sp && sp.importable === false) { row.status = "not importable"; results.push(row); continue; }
-      if (sp && sp.purpose === "register") {
-      const planOk = window.bpAssetPlan
-        && Number(window.bpAssetPlan.sheet_index) === i
-        && /description/i.test(String(matrix[0]?.[0] || ""))
-        && /amount/i.test(String(matrix[0]?.[1] || ""));
-      const rp = planOk ? applyAssetPlan(matrix, window.bpAssetPlan, rawMatrix)
-        : parseSheet(matrix, sp, rawMatrix);
-      row.expected = rp.rows.length;
-      row.asset = `Register (sheet ${i + 1})`;
-      row.category = "other";
-      const ids = new Set(rp.rows.map((r) => `register-${i + 1}-${r.source_row}`));
-      const assets = await store.listAccounts();
-      row.present = assets.filter((a) => ids.has(a.id)).length;
-      row.missing = row.expected - row.present;
-      row.status = row.missing ? "missing" : "ok";
-      results.push(row); continue;
-    }
-    if (sp && sp.purpose === "holdings") {
-        const hp = parseSheet(matrix, sp);
-        row.expected = hp.rows.length;
-        row.category = "demat";
-        row.asset = safeId(sp.asset_id) || `holdings-${i + 1}`;
-        const lots = await store.listHoldings(row.asset);
-        const held = new Set(lots.map((l) => l.security_id));
-        const missing = hp.rows.filter((r) => r.security_id && !held.has(r.security_id)).length;
-        row.missing = missing; row.present = row.expected - missing;
-        row.status = missing ? "missing" : "ok";
-        results.push(row); continue;
-      }
-      let parsed;
-      if (sp && sp.purpose === "transactions") parsed = parseSheet(matrix, sp);
-      else parsed = parseStatement(matrix);
-      if (parsed.error || !parsed.rows.length) {
-        row.status = parsed.error || "no rows"; results.push(row); continue;
-      }
-      row.expected = parsed.rows.length;
-      const header = parsed.headerRow || parsed.header || 1;
-      const pre = scanPreamble(matrix, Math.max(0, header - 1));
-      const accounts = (await store.listAccounts())
-        .filter((a) => ["bank", "cash"].includes(categoryOf(a)));
-      const guess = guessAccount(pre, accounts);
-      let matchId = guess && guess.confidence !== "low" ? guess.id : "";
-      if (!matchId) {
-        const fallback = slug(sp?.account_label || name);
-        const asset = accounts.find((a) => a.id === fallback);
-        if (asset) matchId = asset.id;
-      }
-      if (!matchId) {
-        row.missing = row.expected; row.asset = "no match"; row.status = "unmatched";
-        row.missingRows = parsed.rows.slice(0, 6)
-          .map((r) => r.source_row).filter(Boolean);
-        results.push(row); continue;
-      }
-      const matched = accounts.find((a) => a.id === matchId);
-      row.asset = matched?.label || matchId;
-      row.category = matched?.category || "bank";
-      const plan = await store.planImport(matchId, parsed.rows);
-      row.dup = plan.held; row.missing = plan.missing;
-      row.missingRows = plan.missingRows || [];
-      row.suspect = (plan.suspectRows || []).length;
-      row.suspectRows = plan.suspectRows || [];
-      row.present = plan.rows - plan.missing;
-      const issues = await store.query(
-        "SELECT COUNT(*) AS n FROM issue WHERE account_id=? AND state='open'", [matchId]);
-      row.breaks = issues[0]?.n || 0;
-      row.status = row.missing ? "missing"
-        : row.suspect ? "suspect" : row.breaks ? "breaks" : "ok";
-      results.push(row);
-    }
-    for (const r of results) {
-      const srcRows = [...new Set([...(r.missingRows || []), ...(r.suspectRows || [])])]
-        .slice(0, 6);
-      if (!srcRows.length) continue;
-      const matrix = sheetRows(wb.Sheets[wb.SheetNames[r.i]]);
-      const sp = profileFor(profile, r.i);
-      let maxCols = 1;
-      for (const row of matrix) if (row.length > maxCols) maxCols = row.length;
-      const cols = sp?.columns?.length
-        ? sp.columns.map((c) => c.col)
-        : Array.from({ length: Math.min(12, maxCols) },
-          (_, i) => String.fromCharCode(65 + i));
-      r.sampleShapes = srcRows.map((srcRow) => {
-        const row = matrix[srcRow - 1] || [];
-        return { row: srcRow, cells: cols.map((col) => ({
-          col, shape: shape(row[colIndex(col)]) })) };
-      });
-    }
-    const missing = results.reduce((n, r) => n + r.missing, 0);
-    const breaks = results.reduce((n, r) => n + r.breaks, 0);
-    const totalRows = results.reduce((n, r) => n + r.expected, 0);
-    const body = results.map((r) => `<tr><td>${r.i + 1}</td><td>${esc(r.purpose)}</td>
-      <td>${esc(r.asset)}</td><td class="n">${r.expected}</td><td class="n">${r.present}</td>
-      <td class="n ${r.missing ? "neg" : ""}">${r.missing}</td>
-      <td class="n ${r.suspect ? "neg" : ""}">${r.suspect || 0}</td>
-      <td class="n">${r.dup}</td><td class="n">${r.breaks}</td><td>${esc(r.status)}</td></tr>`).join("");
-    const summary = ["BANKPIPE VERIFICATION", `generated: ${new Date().toISOString()}`,
-      `sheets: ${results.length}`, `rows: ${totalRows}`, `missing: ${missing}`, "",
-      "sheet purpose asset expected present missing duplicates balance_breaks status",
-      ...results.map((r) => [r.i + 1, r.purpose, r.category, r.expected, r.present,
-        r.missing, r.suspect || 0, r.dup, r.breaks, r.status].join(" | "))].join("\n");
-    window.bpVerifySummary = summary;
-    window.bpVerifyJson = JSON.stringify({ generated: new Date().toISOString(),
-      sheets: results.map((r) => ({ i: r.i, purpose: r.purpose,
-        asset_category: r.category,
-        expected: r.expected, present: r.present, missing: r.missing,
-        suspect: r.suspect || 0, duplicates: r.dup, breaks: r.breaks,
-        status: r.status, missing_rows: r.missingRows || [],
-        suspect_rows: r.suspectRows || [],
-        sample_shapes: r.sampleShapes || [] })) }, null, 2);
-    out.innerHTML = `<div class="pill ${missing || breaks ? "warn" : "ok"}">${missing
-      ? missing + " row" + (missing === 1 ? "" : "s") + " missing"
-      : "all rows present"}${breaks ? ` · ${breaks} balance break${breaks === 1 ? "" : "s"} to review` : ""}</div>
-      <table style="margin-top:10px"><tr><th>Sheet</th><th>Purpose</th><th>Asset</th>
-      <th class="n">Rows</th><th class="n">Present</th><th class="n">Missing</th>
-      <th class="n">Suspect</th><th class="n">Dup</th><th class="n">Breaks</th>
-      <th>Status</th></tr>${body}</table>
-      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" onclick="bpVerifyDownload()">Download summary</button>
-        <button class="btn" onclick="bpVerifyDownloadJson()">Download JSON</button>
-        <button class="btn" onclick="go('import')">Back to import</button></div>`;
-  } catch (e) {
-    out.innerHTML = `<div class="card pad">verify error: ${esc(String(e.message || e))}</div>`;
-  }
-}
-window.bpVerifyWorkbook = verifyWorkbook;
-window.bpVerifyDownload = () => {
-  const text = window.bpVerifySummary || "";
-  if (!text) return;
-  const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-  const a = document.createElement("a");
-  a.href = url; a.download = `bankpipe-verify-${new Date().toISOString().slice(0, 10)}.txt`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-};
 window.bpDownloadSealedDb = async () => {
   try {
     const store = await import("./db.js");
@@ -2958,33 +2791,6 @@ window.bpDownloadAppAudit = async () => {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
-window.bpVerifyDownloadJson = () => {
-  const text = window.bpVerifyJson || "";
-  if (!text) return;
-  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-  const a = document.createElement("a");
-  a.href = url; a.download = `bankpipe-verify-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-};
-function wireVerify() {
-  const vf = document.getElementById("vf");
-  if (vf) vf.onchange = () => { if (vf.files[0]) verifyWorkbook(vf.files[0]); };
-  const vpf = document.getElementById("vpf");
-  if (vpf) vpf.onchange = async () => {
-    const f = vpf.files[0]; if (!f) return;
-    const note = document.getElementById("vpfn");
-    try {
-      const obj = JSON.parse(await f.text());
-      if (!Array.isArray(obj.sheets)) throw new Error("no sheets array");
-      window.bpVerifyProfile = obj;
-      if (note) note.textContent = `Profile loaded: ${obj.sheets.length} sheets`;
-    } catch (e) {
-      window.bpVerifyProfile = null;
-      if (note) note.textContent = "Profile error: " + String(e.message || e);
-    }
-  };
-}
 function lastImportShort() {
   try {
     const last = JSON.parse(localStorage.getItem("bp.lastImport") || "null");
@@ -6520,17 +6326,6 @@ function renderSettings() {
     </div>
   </div>
   <div class="card pad" style="margin-top:14px">
-    <h2 style="margin-top:0">Workbook metadata</h2>
-    <p class="muted" style="font-size:13px">Store the legacy account, owner and TOTAL
-    supplement JSON in the encrypted database. One-time; after this BankPipe reads them
-    from the database and the files are not needed. A new database starts empty.</p>
-    <input type="file" id="legacy-meta" accept=".json" multiple>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
-      <button class="btn" onclick="bpStoreLegacyMeta()">Store in database</button>
-      <span id="legacy-meta-status" class="muted" style="font-size:12px"></span>
-    </div>
-  </div>
-  <div class="card pad" style="margin-top:14px">
     <h2 style="margin-top:0">This device</h2>
     <p class="muted" style="font-size:13px">Demo mode shows the sample portfolio. My data shows
     only what you have imported on this device.</p>
@@ -6564,29 +6359,6 @@ function renderSettings() {
     <button class="btn" onclick="go('logins')">Open bank logins</button>
   </div>
   <div class="card pad" style="margin-top:14px">
-    <h2 style="margin-top:0">Verify an import</h2>
-    <p class="muted" style="font-size:13px">Re-read a workbook and compare it with what is
-    stored. Nothing is written. Only counts are shown.</p>
-    <button class="btn" onclick="go('verify')">Verify import</button>
-  </div>
-  <div class="card pad" style="margin-top:14px">
-    <h2 style="margin-top:0">Audit data</h2>
-    <p class="muted" style="font-size:13px">Downloads counts, money totals, date
-    ranges and balance checks. No names, account numbers, narrations or passwords.
-    Send it to the local model for review.</p>
-    <button class="btn" onclick="bpDownloadAppAudit()">Download app audit</button>
-  </div>
-  <div class="card pad" style="margin-top:14px">
-    <h2 style="margin-top:0">Diagnostics</h2>
-    <p class="muted" style="font-size:13px">If an import looks wrong, send the shape-only
-    report. It has counts, header positions and character shapes. It has no amounts, names,
-    account numbers, narrations or ISINs.</p>
-    ${hasDiag ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn" onclick="bpDownloadDiagnostics()">Download last report</button>
-      <button class="btn" onclick="bpCopyDiagnostics(this)">Copy</button></div>`
-      : `<div class="muted" style="font-size:12.5px">No report yet. Import a statement to create one.</div>`}
-  </div>
-  <div class="card pad" style="margin-top:14px">
     <h2 style="margin-top:0">What is local and what is not</h2>
     <p class="muted" style="font-size:13px">The database stays in this browser. Snapshots are
     encrypted before they leave, and the passphrase never leaves the device. Two devices do
@@ -6599,7 +6371,46 @@ function renderSettings() {
     the same build.</p>
     <div id="about-version" class="muted" style="font-size:13px">Reading the version…</div>
     <div style="margin-top:10px"><button class="btn" onclick="bpCopyVersion(this)">Copy version</button></div>
-  </div>`;
+  </div>
+  <details class="adv settings-advanced">
+    <summary>Advanced</summary>
+    <p class="muted settings-advanced-intro">Maintenance tools for whoever keeps BankPipe
+    running: a counts-only audit, a shape-only import report, and the legacy workbook
+    metadata.</p>
+    <div class="settings-advanced-cards">
+      <div class="card pad">
+        <h2>Audit data</h2>
+        <p class="muted">Downloads counts, money totals, date ranges and balance checks.
+        No names, account numbers, narrations or passwords. Send it to the local model for
+        review.</p>
+        <div class="settings-advanced-actions">
+          <button class="btn" onclick="bpDownloadAppAudit()">Download app audit</button>
+        </div>
+      </div>
+      <div class="card pad">
+        <h2>Diagnostics</h2>
+        <p class="muted">If an import looks wrong, send the shape-only report. It has counts,
+        header positions and character shapes. It has no amounts, names, account numbers,
+        narrations or ISINs.</p>
+        ${hasDiag ? `<div class="settings-advanced-actions">
+          <button class="btn" onclick="bpDownloadDiagnostics()">Download last report</button>
+          <button class="btn" onclick="bpCopyDiagnostics(this)">Copy</button></div>`
+          : `<div class="muted settings-advanced-note">No report yet. Import a statement
+          to create one.</div>`}
+      </div>
+      <div class="card pad">
+        <h2>Workbook metadata</h2>
+        <p class="muted">Stores the legacy account, owner and TOTAL JSON from the old family
+        workbook. Only needed before re-importing that workbook; a database started in this
+        version does not use it.</p>
+        <input type="file" id="legacy-meta" accept=".json" multiple>
+        <div class="settings-advanced-actions">
+          <button class="btn" onclick="bpStoreLegacyMeta()">Store in database</button>
+          <span id="legacy-meta-status" class="muted settings-advanced-note"></span>
+        </div>
+      </div>
+    </div>
+  </details>`;
 }
 
 function flowMonthLabel(month) {
