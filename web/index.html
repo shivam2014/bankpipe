@@ -916,6 +916,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-section{margin-top:12px;border-top:1px solid var(--hair);padding-top:10px}
 .import-section-title{font-size:11px;text-transform:uppercase;letter-spacing:.06em;
  color:var(--muted);font-weight:680}
+.import-account-split{font-size:12px;color:var(--muted);margin-top:2px}
 .import-account-list{display:grid;gap:6px;margin-top:7px}
 .import-account-choice{display:flex;justify-content:space-between;gap:10px;align-items:center;
  width:100%;min-width:0;min-height:44px;text-align:left;border:1px solid var(--line);border-radius:10px;
@@ -7750,9 +7751,15 @@ function bpImportResolveCas(bundle) {
     const held = !!conflict || (exact && !targetId)
       || (!!offer && !exact && !targetId && !decided);
     const plan = bpImportPlanFor(bundle, targetRow, held ? [] : group.rows, null);
+    // A folio with no owner, no offer and no account is a safe create: the
+    // statement's folio number is its identity. Every other unresolved state is
+    // a question and keeps `held`, so it is never created behind the person.
+    const autoCreate = !held && !targetRow && !conflict && !home
+      && group.rows.length > 0;
     return { boId: folioKey(group),
       dpName: `${group.amc || "Folio"} mutual fund · folio …${folioTail(group.folioNo)}`,
       rows: group.rows, match, targetId, plan, offer, folioChoice: choice,
+      createChoice: choice === "__create__", autoCreate,
       home, contested: conflict,
       action: conflict ? "conflict"
         : home ? "update"
@@ -7823,8 +7830,13 @@ function bpImportResolveCas(bundle) {
       .map((item) => ({ account: item, rows: holdingsOf(item.id) }));
     const linked = planLinkedSales({ dematPlan: eventPlan, dematAssetId: targetId,
       asOf: bundle.asOf || "", portfolios: linkedPortfolios });
+    // An account with no candidate on file and no answer to give is the one case
+    // where creating is not a question: the statement's own BO ID and rows are
+    // the whole account. A near match or a tie keeps `needsChoice`, so it still
+    // waits for the person. Without rows there is nothing to create it from.
+    const autoCreate = !targetId && !createChoice && !needsChoice && planRows.length > 0;
     return { ...account, rows, match, targetId, plan, eventPlan, linked, createChoice,
-      needsChoice, action: targetRow ? "update" : "create" };
+      autoCreate, needsChoice, action: targetRow ? "update" : "create" };
   });
   bundle.casTargets = [...dematTargets, ...folioTargets];
   // The accounts this statement resolved to, for grouping. A folio is its own
@@ -7955,15 +7967,17 @@ function bpImportResolveCas(bundle) {
   bundle.needsChoice = bundle.casTargets.some((target) =>
     target.action === "decide" || target.needsChoice
     || (target.match.tie && !target.targetId && !target.createChoice));
-  bundle.create = bundle.casTargets.some((target) => !target.targetId
-    && !target.needsChoice
-    && target.action !== "kept" && target.action !== "decide"
-    && target.action !== "conflict");
+  // Every target is resolved on its own line: a match attaches, a safe create
+  // is created, and only a candidate or an offer keeps the plan waiting. The
+  // count is what the primary names, so one press can create several accounts.
+  bundle.createAccounts = bundle.casTargets.filter((target) =>
+    !target.targetId && (target.createChoice || target.autoCreate)).length;
+  bundle.create = bundle.createAccounts > 0;
   bundle.ready = !safety.blocked && !bundle.movementBlocked && bundle.casTargets.length > 0
     && bundle.casTargets.every((target) => target.action !== "decide" && target.plan
       && !["invalid", "future"].includes(target.plan.incomingDateState)
       && (target.plan.summary.ask === 0 || bundle.acceptAsk)
-      && (target.targetId || target.createChoice
+      && (target.targetId || target.createChoice || target.autoCreate
         || target.action === "kept" || target.action === "conflict"));
 }
 
@@ -8383,11 +8397,34 @@ function bpImportCasAccountsHtml(bundle) {
   const targets = bundle.casTargets || [];
   if (!targets.length) return `<div class="import-empty-state">No demat account was read from
     this statement.</div>`;
+  // The split a statement resolves to before the press. A match attaches, a safe
+  // create is created, and only a candidate or an offer is still a question.
+  let matchedCount = 0, createCount = 0, askCount = 0, keptCount = 0, conflictCount = 0;
+  for (const target of targets) {
+    if (target.targetId) matchedCount += 1;
+    else if (target.createChoice || target.autoCreate) createCount += 1;
+    else if (target.action === "kept") keptCount += 1;
+    else if (target.action === "conflict") conflictCount += 1;
+    else askCount += 1;
+  }
+  const splitParts = [];
+  if (matchedCount) splitParts.push(`${matchedCount} matched`);
+  if (createCount) splitParts.push(`${createCount} new`);
+  if (askCount) splitParts.push(`${askCount} to choose`);
+  if (keptCount) splitParts.push(`${keptCount} kept`);
+  if (conflictCount) splitParts.push(`${conflictCount} not imported`);
+  const split = targets.length > 1 ? splitParts.join(" · ") : "";
   return `<div class="import-section">
     <div class="import-section-title">Accounts in this statement</div>
+    ${split ? `<div class="import-account-split">${esc(split)}</div>` : ""}
     <div class="import-account-list">${targets.map((target) => {
+      const targetRow = target.targetId ? bpImportAccountRow(target.targetId) : null;
+      const targetLabel = targetRow?.account?.label || "the account";
+      const matchedNow = !!target.targetId
+        && (target.match?.identityId === target.targetId
+          || target.match?.attachId === target.targetId);
       const status = target.targetId
-        ? `Update ${esc(bpImportAccountRow(target.targetId)?.account?.label || "the account")}`
+        ? `${matchedNow ? "Matched" : "Update"} ${targetLabel}`
         : target.action === "conflict"
           ? "Two accounts hold this folio · not imported"
           : target.action === "decide"
@@ -8397,9 +8434,12 @@ function bpImportCasAccountsHtml(bundle) {
             : target.action === "kept"
               ? "Kept the manual total"
               : target.folio ? "New mutual fund folio account" : "New demat account";
-      const matchLine = target.match?.matches?.length
-        ? `${target.match.matches[0].hits} of ${target.match.matches[0].of} ISINs match`
-        : "";
+      const topMatch = target.targetId
+        ? (target.match?.matches || []).find((match) => match.id === target.targetId)
+          || target.match?.matches?.[0] || null
+        : target.match?.matches?.[0] || null;
+      const matchLine = topMatch?.identityKind ? `${topMatch.identityKind} match`
+        : topMatch?.hits ? `${topMatch.hits} of ${topMatch.of} ISINs match` : "";
       // An exact folio offer carries the money copy (manual total, statement
       // value, adopt or keep). The generic identity buttons would let a person
       // adopt without that copy or pick one of two settled owners, so they are
@@ -8878,6 +8918,7 @@ function bpImportPlanHtml(plan) {
                 soldCost: net.soldCost || 0,
                 attachIdentity: !!bundle.plan?.identityChange,
                 create: bundle.create && !bundle.targetId,
+                createAccounts: bundle.createAccounts || 0,
                 categories,
               });
   const noWork = plan.noWorkCopy || null;
@@ -9034,7 +9075,7 @@ function bpImportPlanTarget(plan, bundle = plan.head) {
     const labels = ids.map((id) => bpImportAccountRow(id))
       .filter(Boolean).map((row) => bpImportAccountDisplay(row.account));
     const creates = (bundle.casTargets || []).filter((target) =>
-      !target.targetId && target.createChoice);
+      !target.targetId && (target.createChoice || target.autoCreate));
     if (!labels.length) {
       if (creates.length === 1) {
         return { text: bpImportCasProposal(creates[0]), evidence: "New account" };
@@ -9044,18 +9085,23 @@ function bpImportPlanTarget(plan, bundle = plan.head) {
       }
       return null;
     }
-    const newSuffix = creates.length ? ` + ${creates.length} new` : "";
+    // A statement that does both says the split first. The matched account's
+    // full name is the evidence line, so the phone width cannot cut the count.
+    if (labels.length && creates.length) {
+      return { text: `${labels.length} matched · ${creates.length} new`,
+        evidence: labels.length === 1 ? labels[0] : "" };
+    }
     if (labels.length === 1) {
       const target = targets.find((item) => item.targetId === ids[0]);
       const identity = target?.match?.identityId === ids[0];
       const attached = target?.match?.attachId === ids[0];
       const evidence = !identity && attached ? matchLine(
         (target.match?.matches || []).find((match) => match.id === ids[0])) : "";
-      return { text: `${identity || attached ? "Matches" : "Goes to"} ${labels[0]}`
-        + newSuffix, evidence };
+      return { text: `${identity || attached ? "Matches" : "Goes to"} ${labels[0]}`,
+        evidence };
     }
     return { text: `Goes to ${labels.length} accounts · ${labels.slice(0, 2).join(", ")}`
-      + `${labels.length > 2 ? ` and ${labels.length - 2} more` : ""}${newSuffix}`,
+      + `${labels.length > 2 ? ` and ${labels.length - 2} more` : ""}`,
       evidence: "" };
   }
   if (bundle.createChoice) {
@@ -9075,12 +9121,20 @@ function bpImportPlanTarget(plan, bundle = plan.head) {
 function bpImportEntryConsequence(entry, plan, bundle = plan.head) {
   if (!entry) return "";
   if (entry.kind === "cas") {
-    const accounts = (bundle.casTargets || []).filter((target) =>
+    const live = (bundle.casTargets || []).filter((target) =>
       target.action !== "kept" && target.action !== "decide"
-      && target.action !== "conflict").length;
+      && target.action !== "conflict");
+    const accounts = live.length;
     if (accounts > 1) {
+      const matched = live.filter((target) => !!target.targetId).length;
+      const creates = live.filter((target) =>
+        !target.targetId && (target.createChoice || target.autoCreate)).length;
+      const asks = accounts - matched - creates;
+      const split = [matched ? `${matched} matched` : "",
+        creates ? `${creates} new` : "",
+        asks ? `${asks} to choose` : ""].filter(Boolean).join(" · ");
       const net = netConsequence(bundle.plan?.summary);
-      return `${accounts} accounts · ${net === "Nothing new"
+      return `${accounts} accounts${split ? ` · ${split}` : ""} · ${net === "Nothing new"
         ? "nothing new" : net}`;
     }
     if (accounts === 1) {
@@ -9240,7 +9294,8 @@ function bpImportAccountMenuHtml(bundle) {
     const targets = bundle.casTargets || [];
     const complex = targets.some((target) => target.folio
       || target.action === "decide" || target.action === "conflict");
-    const usable = targets.filter((target) => target.targetId || target.createChoice);
+    const usable = targets.filter((target) =>
+      target.targetId || target.createChoice || target.autoCreate);
     if (!complex && usable.length === 1) {
       const target = usable[0];
       return bpImportSingleAccountMenu(bundle, `${bundle.key}:${target.boId}`,
@@ -9315,7 +9370,8 @@ function bpImportCasInlineCreate(plan) {
   const unresolved = (bundle.casTargets || []).filter((target) =>
     !target.targetId && target.action !== "kept" && target.action !== "conflict");
   const creates = unresolved.filter((target) => target.action === "create"
-    && !target.createChoice && !target.needsChoice);
+    && !target.createChoice && !target.needsChoice
+    && (target.rows || []).length > 0);
   return creates.length === 1 && unresolved.length === 1 ? creates[0] : null;
 }
 
