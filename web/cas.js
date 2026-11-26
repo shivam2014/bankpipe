@@ -151,6 +151,15 @@ function isoAny(text) {
   return digits ? `${digits[3]}-${digits[2]}-${digits[1]}` : "";
 }
 
+// A demat table can print a bond without a maturity column: the date is then in
+// the security name beside the coupon. The last such date is the maturity.
+function nameMaturity(label) {
+  const dates = String(label || "").match(/\b\d{1,2}[\s-]+[A-Za-z]{3,9}[\s-]+\d{4}\b/g) || [];
+  if (!dates.length) return "";
+  const parts = dates[dates.length - 1].match(/(\d{1,2})[\s-]+([A-Za-z]{3,9})[\s-]+(\d{4})/);
+  return parts ? isoDate(`${parts[1]}-${parts[2].slice(0, 3)}-${parts[3]}`) : "";
+}
+
 const isIsin = (s) => ISIN.test(String(s).toUpperCase().replace(/\s+/g, ""));
 
 // A statement is a snapshot, and its own date is the one that decides which
@@ -480,10 +489,17 @@ function readTables(items, tables, headers = []) {
           : (label.match(/[A-Za-z]{3,}/g) || []).find((w) =>
             !/^(cfgp|fund|plan|direct|regular|growth|scheme|name|asset|equity|liquid|cash|formerly|the|and)$/i.test(w)) || "")
         : "";
+      // A demat table with no coupon or maturity column prints both in the
+      // security name. A row that carries a coupon is a bond, never a share,
+      // and the date beside the coupon is its maturity.
+      const kind = fundIsin ? "mf"
+        : table.kind === "equity" && couponPct !== null ? "bond" : table.kind;
+      const maturity = dateCell ? isoAny(dateCell.str)
+        : kind === "bond" ? nameMaturity(label) : "";
       out.push({
         isin,
         label,
-        kind: fundIsin ? "mf" : table.kind,
+        kind,
         account: owner?.boId || "",
         dpName: owner?.dpName || "",
         folio,
@@ -494,7 +510,7 @@ function readTables(items, tables, headers = []) {
         pricePaise: null,
         costPaise: costCell ? rupees(costCell.str) : null,
         valuePaise: valueCell ? rupees(valueCell.str) : null,
-        maturity: dateCell ? isoAny(dateCell.str) : "",
+        maturity,
         couponPct,
         frequency,
       });

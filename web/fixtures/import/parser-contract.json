@@ -1,0 +1,344 @@
+{
+  "note": "Hand-written from each fixture's own printed values. Never generated from parser output. Every amount is integer paise.",
+  "cases": {
+    "bank": {
+      "file": "banks/scb-savings-2026-10.csv",
+      "format": "csv",
+      "kind": "bank",
+      "family": "bank",
+      "confidence": "content",
+      "detectedAsOf": "",
+      "headerRow": 3,
+      "mapping": [
+        "date",
+        "description",
+        "credit",
+        "debit",
+        "balance"
+      ],
+      "order": "desc",
+      "rowCount": 13,
+      "undatedTail": 2,
+      "rows": [
+        {
+          "date": "2026-10-06",
+          "description": "TEST PAYMENT 1",
+          "amount": -25000000,
+          "balance": 211346611
+        },
+        {
+          "date": "2026-09-30",
+          "description": "TEST PAYMENT 2",
+          "amount": 347900,
+          "balance": 236346611
+        },
+        {
+          "date": "2026-09-24",
+          "description": "TEST PAYMENT 3",
+          "amount": -4500,
+          "balance": 235998711
+        },
+        {
+          "date": "2026-09-23",
+          "description": "TEST PAYMENT 4",
+          "amount": -273200,
+          "balance": 236003211
+        },
+        {
+          "date": "2026-09-21",
+          "description": "TEST PAYMENT 5",
+          "amount": 180000000,
+          "balance": 236276411
+        },
+        {
+          "date": "2026-09-21",
+          "description": "TEST PAYMENT 6",
+          "amount": 325500,
+          "balance": 56276411
+        },
+        {
+          "date": "2026-09-11",
+          "description": "TEST PAYMENT 7",
+          "amount": 20000000,
+          "balance": 55950911
+        },
+        {
+          "date": "2026-09-11",
+          "description": "TEST PAYMENT 8",
+          "amount": 2994400,
+          "balance": 35950911
+        },
+        {
+          "date": "2026-09-01",
+          "description": "TEST PAYMENT 9",
+          "amount": -4500,
+          "balance": 32956511
+        },
+        {
+          "date": "2026-08-31",
+          "description": "TEST PAYMENT 10",
+          "amount": 25000000,
+          "balance": 32961011
+        },
+        {
+          "date": "2026-08-27",
+          "description": "TEST PAYMENT 11",
+          "amount": -286500,
+          "balance": 7961011
+        },
+        {
+          "date": "2026-08-26",
+          "description": "TEST PAYMENT 12",
+          "amount": -465000,
+          "balance": 8247511
+        },
+        {
+          "date": "2026-08-24",
+          "description": "TEST PAYMENT 13",
+          "amount": 415900,
+          "balance": 8712511
+        }
+      ],
+      "totals": {
+        "depositsPaise": 229083700,
+        "withdrawalsPaise": 26033700,
+        "netPaise": 203050000,
+        "closingPaise": 211346611
+      }
+    },
+    "cas": {
+      "file": "import/pdf/cas-sold.pdf",
+      "format": "pdf",
+      "kind": "cas",
+      "family": "cas",
+      "confidence": "content",
+      "detectedAsOf": "2026-10-31",
+      "depository": "CDSL",
+      "demat": "IN99990001344321",
+      "holdingsCount": 1,
+      "transactionsCount": 1,
+      "sections": { "bond": 1 },
+      "holdings": [
+        {
+          "isin": "INE000000003",
+          "label": "7.15% TEST BOND 15 MAY 2032",
+          "kind": "bond",
+          "quantity": 5,
+          "valuePaise": 50000000,
+          "couponPct": 7.15,
+          "maturity": "2032-05-15"
+        }
+      ],
+      "transactions": [
+        {
+          "isin": "INE000000002",
+          "security": "8.00% SOLD BOND",
+          "date": "2026-10-10",
+          "type": "SALE",
+          "quantity": 10,
+          "openingPaise": 1000,
+          "creditPaise": 0,
+          "debitPaise": 1000,
+          "closingPaise": 0
+        }
+      ],
+      "totals": {
+        "holdingsQuantity": 5,
+        "holdingsValuePaise": 50000000,
+        "transactionDebitPaise": 1000
+      }
+    },
+    "zerodha": {
+      "file": "import/zerodha/kite-holdings-2026-11.xlsx",
+      "format": "xlsx",
+      "kind": "zerodha-holdings",
+      "family": "zerodha",
+      "confidence": "content",
+      "detectedAsOf": "",
+      "clientId": "TEST500",
+      "asOf": "2026-11-12",
+      "rowCount": 5,
+      "rows": [
+        {
+          "symbol": "TESTPOWER",
+          "isin": "INE000000028",
+          "quantity": 77,
+          "pledged": 7,
+          "averagePrice": 191.2386,
+          "category": "equity"
+        },
+        {
+          "symbol": "TESTGAS",
+          "isin": "INE000000026",
+          "quantity": 80,
+          "pledged": 0,
+          "averagePrice": 590.9125,
+          "category": "equity"
+        },
+        {
+          "symbol": "TESTBANK",
+          "isin": "INE000000024",
+          "quantity": 25,
+          "pledged": 0,
+          "averagePrice": 400,
+          "category": "equity"
+        },
+        {
+          "symbol": "TESTFUNDGROWTH",
+          "isin": "INF000000031",
+          "quantity": 100,
+          "pledged": 0,
+          "averagePrice": 20,
+          "category": "mf"
+        },
+        {
+          "symbol": "TESTFUNDDEBT",
+          "isin": "INF000000032",
+          "quantity": 50,
+          "pledged": 0,
+          "averagePrice": 10,
+          "category": "mf"
+        }
+      ],
+      "totals": {
+        "totalQuantity": 332,
+        "totalPledged": 7,
+        "totalCostPaise": 7449837
+      }
+    },
+    "motilal": {
+      "file": "import/pdf/motilal-sold.pdf",
+      "format": "pdf",
+      "kind": "motilal",
+      "family": "motilal",
+      "confidence": "content",
+      "detectedAsOf": "2026-11-12",
+      "clientUcid": "TEST0001",
+      "asOf": "2026-11-12",
+      "sections": [
+        "bond"
+      ],
+      "rowCount": 1,
+      "rows": [
+        {
+          "isin": "INE000000002",
+          "section": "bond",
+          "label": "SOLD BOND 31 DEC 2028",
+          "quantity": 10,
+          "cost_paise": 200000
+        }
+      ],
+      "totals": {
+        "totalQuantity": 10,
+        "totalCostPaise": 200000
+      }
+    },
+    "digifinn": {
+      "file": "import/digifinn/holdings-report.csv",
+      "format": "csv",
+      "kind": "digifinn-portfolio",
+      "family": "digifinn",
+      "confidence": "content",
+      "detectedAsOf": "",
+      "parsedKind": "portfolio",
+      "demat": "1200000000000001",
+      "asOf": "2026-10-26",
+      "rowCount": 2,
+      "rows": [
+        {
+          "isin": "INE000000001",
+          "label": "10.00% TEST BOND A 31 DEC 2030",
+          "purchase_date": "2026-10-23",
+          "quantity": 10,
+          "cost_paise": 10000000
+        },
+        {
+          "isin": "INE000000002",
+          "label": "9.50% TEST BOND B 31 DEC 2027",
+          "purchase_date": "2026-11-05",
+          "quantity": 20,
+          "cost_paise": 20000000
+        }
+      ],
+      "totals": {
+        "totalQuantity": 30,
+        "totalCostPaise": 30000000
+      }
+    },
+    "icici": {
+      "file": "import/icici/holdings.csv",
+      "format": "csv",
+      "kind": "icici-holdings",
+      "family": "icici",
+      "confidence": "content",
+      "detectedAsOf": "",
+      "asOf": "2026-11-12",
+      "asOfSource": "download",
+      "rowCount": 4,
+      "rows": [
+        {
+          "isin": "INE000001010",
+          "label": "TEST EQUITY ONE",
+          "symbol": "TEONE",
+          "category": "equity",
+          "quantity": 3,
+          "valuePaise": 30375
+        },
+        {
+          "isin": "INE000007020",
+          "label": "9.00% TEST BOND 2030",
+          "symbol": "TESTBOND1",
+          "category": "bond",
+          "quantity": 10,
+          "valuePaise": 1001000
+        },
+        {
+          "isin": "INE000008030",
+          "label": "8.50% TEST BOND 2031",
+          "symbol": "",
+          "category": "bond",
+          "quantity": 5,
+          "valuePaise": 500000
+        },
+        {
+          "isin": "INE000009040",
+          "label": "7.25% TEST BOND 2032",
+          "symbol": "TESTBOND3",
+          "category": "bond",
+          "quantity": 2,
+          "valuePaise": 200000
+        }
+      ],
+      "totals": {
+        "totalQuantity": 20,
+        "totalValuePaise": 1731375
+      }
+    }
+  },
+  "refusals": {
+    "renamedIciciColumn": {
+      "file": "import/icici/holdings.csv",
+      "from": "Allocated Quantity",
+      "to": "Holding Quantity",
+      "kind": "icici-holdings",
+      "confidence": "name",
+      "message": "Allocated Quantity"
+    },
+    "removedZerodhaColumn": {
+      "file": "import/zerodha/kite-holdings-2026-11.xlsx",
+      "sheet": "Equity",
+      "column": "Average Price",
+      "kind": "zerodha-holdings",
+      "message": "Average Price"
+    },
+    "noTextPdf": {
+      "file": "import/pdf/blank-synthetic.pdf",
+      "message": "no text layer"
+    },
+    "lockedPdf": {
+      "file": "import/pdf/locked-synthetic.pdf",
+      "message": "password protected",
+      "password": "Synthetic1"
+    }
+  }
+}

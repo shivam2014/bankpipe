@@ -223,3 +223,16 @@ test("a holdings table continued on the next page uses the header above it", () 
   assert.equal(continued.maturity, "2028-11-27");
   assert.equal(continued.valuePaise, 10000000);
 });
+
+test("a plain holdings row with a coupon in its name is a bond with a maturity", () => {
+  const out = parseCas({ pages: [page([
+    ...HOLD_HEADER,
+    text("INE000000003", 51, 520), text("7.15% TEST BOND 15 MAY 2032", 152, 520),
+    money("5", 293, 520), money("1,20,000.00", 530, 520),
+    money("5,00,000.00", 578, 520),
+  ])] });
+  assert.equal(out.holdings.length, 1);
+  assert.equal(out.holdings[0].kind, "bond");
+  assert.equal(out.holdings[0].couponPct, 7.15);
+  assert.equal(out.holdings[0].maturity, "2032-05-15");
+});

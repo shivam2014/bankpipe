@@ -55,6 +55,13 @@ Deep links:
 cd web && node --test
 ```
 
+The supported-file contract is the required check for any parser change and
+runs in the deploy workflow:
+
+```bash
+node --test web/parser-contract.test.mjs
+```
+
 Current counts are generated on every commit:
 [../docs/generated/facts.md](../docs/generated/facts.md). The runtime shape is in
 [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
