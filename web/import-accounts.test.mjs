@@ -1231,12 +1231,16 @@ test("the picker carries its broker's steps and format, once", () => {
   assert.match(icici, /bpImportInboxAdd/);
   const digifinn = between("function digifinnImportReportsHtml", "function iciciImportGuideHtml");
   assert.match(digifinn,
-    /<li>Portfolio Report CSV — Reports &amp; Documents\.<\/li>/);
+    /<li>Holdings Report CSV — Reports &amp; Documents\.<\/li>/);
   assert.match(digifinn,
-    /<li>\[Optional\] Payouts CSV — adds interest dates\.<\/li>/);
+    /<li>Investment Report CSV — adds coupon, yield and maturity\.<\/li>/);
+  assert.match(digifinn,
+    /<li>\[Optional\] Cashflow Future CSV — the upcoming interest schedule\.<\/li>/);
+  assert.doesNotMatch(digifinn, /<li>[^<]*(?:Payouts|Transaction)[^<]*<\/li>/,
+    "the DigiFinn guide names only the files it uses");
   const typeGuides = between("const IMPORT_TYPE_GUIDES", "function bpImportTypeGuideHtml");
   assert.match(typeGuides,
-    /steps: \["Portfolio Report CSV — Reports & Documents\.",\s*"\[Optional\] Payouts CSV — adds interest dates\."\]/);
+    /steps: \["Holdings Report CSV — Reports & Documents\.",\s*"Investment Report CSV — adds coupon, yield and maturity\.",\s*"\[Optional\] Cashflow Future CSV — the upcoming interest schedule\."\]/);
 });
 
 test("every source guide numbers its files and the path to each", () => {
@@ -1250,8 +1254,9 @@ test("every source guide numbers its files and the path to each", () => {
     zerodha: ["Holdings XLSX — Console → Holdings → XLSX, top right of the list."],
     motilal: ["Holding Summary PDF — Profile → Reports → Holding Summary - All Assets → Get Reports → Download from Report Status."],
     icici: ["Demat holdings CSV — Stocks → Demat holdings → Download CSV."],
-    digifinn: ["Portfolio Report CSV — Reports & Documents.",
-      "[Optional] Payouts CSV — adds interest dates."],
+    digifinn: ["Holdings Report CSV — Reports & Documents.",
+      "Investment Report CSV — adds coupon, yield and maturity.",
+      "[Optional] Cashflow Future CSV — the upcoming interest schedule."],
   };
   for (const [key, lines] of Object.entries(files)) {
     for (const line of lines) {

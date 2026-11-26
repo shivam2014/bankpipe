@@ -46,8 +46,9 @@ const GUIDES = {
   },
   digifinn: {
     format: "CSV",
-    files: ["Portfolio Report CSV — Reports & Documents.",
-      "[Optional] Payouts CSV — adds interest dates."],
+    files: ["Holdings Report CSV — Reports & Documents.",
+      "Investment Report CSV — adds coupon, yield and maturity.",
+      "[Optional] Cashflow Future CSV — the upcoming interest schedule."],
     check: "",
     links: ["Open DigiFinn ↗"],
   },

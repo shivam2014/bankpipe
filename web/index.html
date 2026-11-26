@@ -3184,11 +3184,11 @@ function digifinnImportReportsHtml(b) {
       </div>`).join("");
   return `<div class="eq-guide">
     <ol class="eq-guide-steps">
-      <li>Portfolio Report CSV — Reports &amp; Documents.</li>
-      <li>[Optional] Payouts CSV — adds interest dates.</li>
+      <li>Holdings Report CSV — Reports &amp; Documents.</li>
+      <li>Investment Report CSV — adds coupon, yield and maturity.</li>
+      <li>[Optional] Cashflow Future CSV — the upcoming interest schedule.</li>
     </ol>
-    <div class="muted import-step-note">Format: CSV. Not used: Transaction,
-      Investment, KYC, MITC.</div>
+    <div class="muted import-step-note">Format: CSV.</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">${rows}</div>
     <div id="import-broker-preview" style="margin-top:10px"></div>
     ${fieldSourcesHtml(b)}</div>`;
@@ -3248,8 +3248,9 @@ const IMPORT_TYPE_GUIDES = [
     check: "Not the tradebook.",
     links: [["Open Demat Holdings ↗", "https://www.icicidirect.com/"]] },
   { key: "digifinn", label: "DigiFinn", note: "CSV", title: "DigiFinn reports",
-    steps: ["Portfolio Report CSV — Reports & Documents.",
-      "[Optional] Payouts CSV — adds interest dates."],
+    steps: ["Holdings Report CSV — Reports & Documents.",
+      "Investment Report CSV — adds coupon, yield and maturity.",
+      "[Optional] Cashflow Future CSV — the upcoming interest schedule."],
     links: [["Open DigiFinn ↗", "https://www.digifinn.com/profile"]] },
 ];
 
