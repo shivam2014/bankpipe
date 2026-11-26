@@ -211,6 +211,7 @@ const ALLOWED_BINARY = new Set([
   "import/pdf/locked-synthetic.pdf",
   "import/pdf/motilal-sold.pdf",
   "import/zerodha/kite-holdings-2026-11.xlsx",
+  "motilal/motilal-portfolio-holding-summary-synthetic.pdf",
 ]);
 
 function fixtureFiles(dir, prefix = "") {
