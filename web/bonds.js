@@ -313,10 +313,12 @@ export function inferFace(costPaise, quantity) {
 
 // The slice of the next coupon earned since the previous one. Estimated from the
 // frequency and the next interest date; real day counts vary by issuer.
-function couponMonths(frequency) {
+// The Motilal report spells quarterly "QUATERLY", and rows imported before the
+// parser normalized it still carry that spelling, so the maths accepts both.
+export function couponMonths(frequency) {
   const f = String(frequency || "").toLowerCase();
   return f.includes("month") ? 1
-    : f.includes("quarter") ? 3
+    : (f.includes("quarter") || f.includes("quater")) ? 3
       : (f.includes("half") || f.includes("semi")) ? 6
         : (f.includes("annual") || f.includes("year")) ? 12 : 0;
 }

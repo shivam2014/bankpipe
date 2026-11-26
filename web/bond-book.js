@@ -4,7 +4,7 @@
 
 import { bondAnalytics, bondInputsMissing, bondMaturity, parseBondLabel,
   bondRatingChange, bondRatingRank, soldGain, storedCoupon, termSourceKind,
-  valueKindOf, BOND_RATINGS } from "./bonds.js";
+  valueKindOf, BOND_RATINGS, couponMonths } from "./bonds.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -150,13 +150,10 @@ export function bondRatingOf(h) {
   return BOND_RATINGS.includes(cat.toUpperCase()) ? cat : "";
 }
 
+// One frequency parser, so a spelling the maths accepts is accepted here too.
 export function bondPeriods(freq) {
-  const f = String(freq || "").toLowerCase();
-  if (f.includes("month")) return 12;
-  if (f.includes("quarter")) return 4;
-  if (f.includes("half")) return 2;
-  if (f.includes("annual") || f.includes("year")) return 1;
-  return null;
+  const months = couponMonths(freq);
+  return months ? 12 / months : null;
 }
 
 export function bondFrequency(freq) {
