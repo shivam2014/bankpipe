@@ -84,7 +84,7 @@ test("a locked file does not name an account it has not read", () => {
 test("the password hint follows the source", () => {
   assert.equal(passwordHint({ kind: "cas" }), "Usually your PAN in capitals");
   assert.equal(passwordHint({ name: "Portfolio_Holding_Summary.pdf" }),
-    "The password Motilal sent");
+    "Password is your PAN in capitals");
   assert.equal(passwordHint({ kind: "bank" }),
     "Usually your PAN, date of birth or customer ID");
   assert.equal(passwordHint({ name: "statement.pdf" }),

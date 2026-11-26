@@ -34,8 +34,8 @@ const GUIDES = {
   },
   motilal: {
     format: "PDF",
-    files: ["Portfolio Holding Summary PDF — Motilal Oswal → Reports → Portfolio Holding Summary."],
-    check: "Password protected. The password Motilal sent.",
+    files: ["Holding Summary PDF — Profile → Reports → Holding Summary - All Assets → Get Reports → Download from Report Status."],
+    check: "Password is your PAN in capitals.",
     links: ["Open Reports ↗"],
   },
   icici: {

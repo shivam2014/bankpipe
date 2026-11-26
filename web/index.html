@@ -3240,9 +3240,9 @@ const IMPORT_TYPE_GUIDES = [
     check: "A snapshot from the date chip, not a date range, and not the Tradebook.",
     links: [["Open Holdings ↗", "https://console.zerodha.com/portfolio/holdings"]] },
   { key: "motilal", label: "Motilal", note: "PDF", title: "Motilal Oswal holdings",
-    steps: ["Portfolio Holding Summary PDF — Motilal Oswal → Reports → Portfolio Holding Summary."],
-    check: "Password protected. The password Motilal sent.",
-    links: [["Open Reports ↗", "https://www.motilaloswal.com/"]] },
+    steps: ["Holding Summary PDF — Profile → Reports → Holding Summary - All Assets → Get Reports → Download from Report Status."],
+    check: "Password is your PAN in capitals.",
+    links: [["Open Reports ↗", "https://invest.motilaloswal.com/"]] },
   { key: "icici", label: "ICICI", note: "CSV", title: "ICICI Direct holdings",
     steps: ["Demat holdings CSV — Stocks → Demat holdings → Download CSV."],
     check: "Not the tradebook.",
@@ -12244,8 +12244,8 @@ function motilalPrompt(host, name, wrong) {
     window.bpMotilalLock = { resolve, reject };
     host.innerHTML = `<div class="card pad motilal-pw">
       <b>This PDF is locked</b>
-      <p class="muted motilal-pw-msg">${esc(name)} is password protected. Type the password
-        Motilal sent. It is usually PAN-based, not your BankPipe passphrase.</p>
+      <p class="muted motilal-pw-msg">${esc(name)} is password protected. Password is your PAN
+        in capitals. It is not your BankPipe passphrase.</p>
       <div class="motilal-pw-actions">
         <input id="motilal-file-pw" type="password" autocomplete="off" spellcheck="false"
           placeholder="PDF password" onkeydown="if(event.key==='Enter')bpMotilalUnlock()">

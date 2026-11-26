@@ -1248,7 +1248,7 @@ test("every source guide numbers its files and the path to each", () => {
   const files = {
     cas: ["Depository statement PDF — NSDL or CDSL → CAS, after month end."],
     zerodha: ["Holdings XLSX — Console → Holdings → XLSX, top right of the list."],
-    motilal: ["Portfolio Holding Summary PDF — Motilal Oswal → Reports → Portfolio Holding Summary."],
+    motilal: ["Holding Summary PDF — Profile → Reports → Holding Summary - All Assets → Get Reports → Download from Report Status."],
     icici: ["Demat holdings CSV — Stocks → Demat holdings → Download CSV."],
     digifinn: ["Portfolio Report CSV — Reports & Documents.",
       "[Optional] Payouts CSV — adds interest dates."],
@@ -1264,11 +1264,20 @@ test("every source guide numbers its files and the path to each", () => {
   for (const line of [
     "Password is your PAN in capitals.",
     "A snapshot from the date chip, not a date range, and not the Tradebook.",
-    "Password protected. The password Motilal sent.",
     "Not the tradebook.",
   ]) {
     assert.ok(guides.includes(`check: "${line}"`), `the check line stays: ${line}`);
   }
+});
+
+test("the Motilal guide opens the Riise app, not the old marketing site", () => {
+  const guides = between("const IMPORT_TYPE_GUIDES", "function bpImportTypeGuideHtml");
+  const motilal = guides.slice(guides.indexOf('{ key: "motilal"'),
+    guides.indexOf('{ key: "icici"'));
+  assert.match(motilal, /check: "Password is your PAN in capitals\."/);
+  assert.match(motilal, /https:\/\/invest\.motilaloswal\.com\//);
+  assert.doesNotMatch(motilal, /www\.motilaloswal\.com/,
+    "the guide never sends the reader to the retired marketing site");
 });
 
 test("erasing the browser deletes the database file, not just its rows", () => {

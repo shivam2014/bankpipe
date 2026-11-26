@@ -167,7 +167,7 @@ export function lockedAccountLine() {
 
 export function passwordHint({ kind = "", name = "", source = "" } = {}) {
   const hay = `${kind} ${name} ${source}`.toLowerCase();
-  if (/motilal|portfolio.?holding.?summary/.test(hay)) return "The password Motilal sent";
+  if (/motilal|portfolio.?holding.?summary/.test(hay)) return "Password is your PAN in capitals";
   if (/cas|cdsl|nsdl|depositor/.test(hay)) return "Usually your PAN in capitals";
   if (/bank|statement/.test(hay)) return "Usually your PAN, date of birth or customer ID";
   return "The password the sender used";

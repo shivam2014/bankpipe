@@ -84,6 +84,12 @@ test("the prompt stays inline and counts no attempts", () => {
     "the prompt carries no attempt count");
 });
 
+test("the Motilal unlock prompt names the PAN, not a password it sent", () => {
+  const prompt = between("function motilalPrompt(host, name, wrong)", "window.bpMotilalUnlock");
+  assert.match(prompt, /Password is your PAN\s+in capitals\./);
+  assert.doesNotMatch(prompt, /password Motilal sent|usually PAN-based/i);
+});
+
 test("the page says the password failure once, in the entry", () => {
   assert.equal(html.includes(PDF_PASSWORD_WRONG), false,
     "the sentence lives in import-password.js, not a second copy in the page");
