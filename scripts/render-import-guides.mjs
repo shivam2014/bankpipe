@@ -27,10 +27,9 @@ const GUIDES = {
     links: ["Open CDSL CAS ↗", "Open NSDL CAS ↗"],
   },
   zerodha: {
-    format: "CSV or XLSX",
-    files: ["Holdings XLSX — Console → Portfolio → Holdings → Download XLSX.",
-      "Holdings CSV — Kite → Holdings → Download CSV."],
-    check: "Either file works. A snapshot, not a date range, and not the Tradebook.",
+    format: "XLSX",
+    files: ["Holdings XLSX — Console → Holdings → XLSX, top right of the list."],
+    check: "A snapshot from the date chip, not a date range, and not the Tradebook.",
     links: ["Open Holdings ↗"],
   },
   motilal: {

@@ -1221,7 +1221,7 @@ test("the old per-type picker and its file inputs are not in the shell", () => {
 test("the picker carries its broker's steps and format, once", () => {
   const zerodha = between("function zerodhaImportGuideHtml", "function motilalImportGuideHtml");
   assert.match(zerodha, /Format: XLSX, not CSV/);
-  assert.match(zerodha, /Portfolio → Holdings/);
+  assert.match(zerodha, /Console → Holdings/);
   const motilal = between("function motilalImportGuideHtml", "function digifinnImportReportsHtml");
   assert.match(motilal, /Format: PDF, not XLSX or CSV/);
   assert.match(motilal, /Since Inception/);
@@ -1247,8 +1247,7 @@ test("every source guide numbers its files and the path to each", () => {
     "no guide falls back to a prose paragraph");
   const files = {
     cas: ["Depository statement PDF — NSDL or CDSL → CAS, after month end."],
-    zerodha: ["Holdings XLSX — Console → Portfolio → Holdings → Download XLSX.",
-      "Holdings CSV — Kite → Holdings → Download CSV."],
+    zerodha: ["Holdings XLSX — Console → Holdings → XLSX, top right of the list."],
     motilal: ["Portfolio Holding Summary PDF — Motilal Oswal → Reports → Portfolio Holding Summary."],
     icici: ["Demat holdings CSV — Stocks → Demat holdings → Download CSV."],
     digifinn: ["Portfolio Report CSV — Reports & Documents.",
@@ -1264,7 +1263,7 @@ test("every source guide numbers its files and the path to each", () => {
   }
   for (const line of [
     "Password is your PAN in capitals.",
-    "Either file works. A snapshot, not a date range, and not the Tradebook.",
+    "A snapshot from the date chip, not a date range, and not the Tradebook.",
     "Password protected. The password Motilal sent.",
     "Not the tradebook.",
   ]) {

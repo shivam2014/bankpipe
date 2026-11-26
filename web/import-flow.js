@@ -43,7 +43,7 @@ export const IMPORT_KINDS = {
   motilal: { label: "Motilal Oswal holdings report", family: "motilal", base: true,
     broker: "motilal", where: "Motilal Oswal → Reports → Portfolio Holding Summary" },
   "zerodha-holdings": { label: "Zerodha holdings", family: "zerodha", base: true,
-    broker: "zerodha", where: "Zerodha Console → Portfolio → Holdings → XLSX" },
+    broker: "zerodha", where: "Zerodha Console → Holdings → XLSX" },
   "zerodha-tradebook": { label: "Zerodha tradebook", family: "zerodha", base: false,
     broker: "zerodha", where: "Zerodha Console → Reports → Tradebook" },
   "icici-holdings": { label: "ICICI Direct holdings", family: "icici", base: true,

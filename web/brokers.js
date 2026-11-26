@@ -80,7 +80,7 @@ export const EQUITY_BROKERS = [
     page: { url: "https://www.motilaloswal.com/", where: "Reports" } },
   { id: "zerodha", label: "Zerodha", logo: "broker-logos/zerodha.svg",
     page: { url: "https://console.zerodha.com/portfolio/holdings",
-      where: "Portfolio → Holdings" } },
+      where: "Holdings" } },
   { id: "icici", label: "ICICI Direct", logo: "broker-logos/icici-direct.png",
     page: { url: "https://www.icicidirect.com/", where: "Stocks → Demat holdings" } },
 ];

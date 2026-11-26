@@ -280,7 +280,7 @@ The “best” path depends on whether BankPipe accepts a local companion. Witho
 
 | Broker | Best with a local companion | Auth / lifetime | Best browser-only | What the holding feed gives |
 |---|---|---|---|---|
-| **Zerodha** | **Kite Connect Personal** — `GET /portfolio/holdings` | OAuth; access token expires next morning; free; token can trade | **Console → Portfolio → Holdings → XLSX** + CAS | ISIN, quantity, average cost, LTP, P&L |
+| **Zerodha** | **Kite Connect Personal** — `GET /portfolio/holdings` | OAuth; access token expires next morning; free; token can trade | **Console → Holdings → XLSX** + CAS | ISIN, quantity, average cost, LTP, P&L |
 | **Motilal Oswal** | **MOFSL OpenAPI** — `POST /rest/report/v3/getdpholding` | Portal login; token expires 06:00 daily; free | Holdings export from MO Investor + CAS | ISIN, quantity, average buy price, collateral |
 | **ICICI Direct** | **Breeze API** — holdings | Session token expires daily/midnight; free | ICICI Direct portfolio download + CAS | Quantity, average cost |
 | **Upstox** | **Analytics Token** — portfolio GET APIs | Read-only token, 1 year; static IP; free | Holdings export + CAS | Quantity, average cost, LTP |

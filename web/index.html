@@ -1794,7 +1794,7 @@ const GUIDES = {
   broker: `<details>
       <summary style="cursor:pointer;font-size:12.5px">Where to download it</summary>
       <ol style="margin:8px 0 0">
-        <li><b>Zerodha</b> — Console → Portfolio → Holdings → XLSX</li>
+        <li><b>Zerodha</b> — Console → Holdings → XLSX</li>
         <li><b>Motilal</b> — MO Investor → Portfolio → Holdings → XLSX / CSV</li>
         <li><b>ICICI Direct</b> — Portfolio → Holdings → Download</li>
         <li><b>Upstox</b> — Portfolio → Holdings → Download</li>
@@ -3135,9 +3135,9 @@ function zerodhaImportGuideHtml(b) {
   return `<div class="eq-guide">
     <b class="eq-guide-title">Zerodha holdings XLSX</b>
     <ol class="eq-guide-steps">
-      <li>Open Console → Portfolio → Holdings.</li>
-      <li>Pick a single snapshot date, not a range.</li>
-      <li>Click XLSX next to Download.</li>
+      <li>Open Console → Holdings.</li>
+      <li>Pick the snapshot with the date chip, not a range.</li>
+      <li>Click XLSX at the top right of the list.</li>
     </ol>
     <div class="eq-guide-note">Format: XLSX, not CSV, and not the Tradebook.</div>
     <div class="eq-guide-actions">
@@ -3235,10 +3235,9 @@ const IMPORT_TYPE_GUIDES = [
     check: "Password is your PAN in capitals.",
     links: [["Open CDSL CAS ↗", "https://www.cdslindia.com/cas/logincas.aspx"],
       ["Open NSDL CAS ↗", "https://nsdlcas.nsdl.com/"]] },
-  { key: "zerodha", label: "Zerodha", note: "CSV or XLSX", title: "Zerodha holdings",
-    steps: ["Holdings XLSX — Console → Portfolio → Holdings → Download XLSX.",
-      "Holdings CSV — Kite → Holdings → Download CSV."],
-    check: "Either file works. A snapshot, not a date range, and not the Tradebook.",
+  { key: "zerodha", label: "Zerodha", note: "XLSX", title: "Zerodha holdings",
+    steps: ["Holdings XLSX — Console → Holdings → XLSX, top right of the list."],
+    check: "A snapshot from the date chip, not a date range, and not the Tradebook.",
     links: [["Open Holdings ↗", "https://console.zerodha.com/portfolio/holdings"]] },
   { key: "motilal", label: "Motilal", note: "PDF", title: "Motilal Oswal holdings",
     steps: ["Portfolio Holding Summary PDF — Motilal Oswal → Reports → Portfolio Holding Summary."],
