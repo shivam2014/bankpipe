@@ -380,6 +380,13 @@ test("without a frequency Next interest names the missing input", () => {
   assert.match(total.sub, /gain/);
 });
 
+test("the report's QUATERLY spelling still means four payouts a year", () => {
+  const view = bondRowView({ ...dashedRow, frequency: "QUATERLY" });
+  assert.equal(view.periods, 4);
+  assert.equal(view.frequency, "Quarterly");
+  assert.ok(view.payout > 0);
+});
+
 test("an unreadable date in the name stays a dash and says so", () => {
   const view = bondRowView({ ...dashedRow, label: "TESTD-11.90%-31-02-27-PVT" });
   assert.equal(view.coupon, 11.9);

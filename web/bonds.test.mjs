@@ -419,6 +419,13 @@ test("accrued interest is the part of the next coupon already earned", () => {
   assert.equal(accruedInterest(1190000, "Monthly", "2026-12-03", "2026-12-03").accrued, null);
 });
 
+test("the report's QUATERLY spelling still accrues quarterly interest", () => {
+  const quarterly = accruedInterest(1190000, "Quarterly", "2026-12-03", "2026-11-11");
+  const misspelled = accruedInterest(1190000, "QUATERLY", "2026-12-03", "2026-11-11");
+  assert.ok(quarterly.accrued > 0);
+  assert.deepEqual(misspelled, quarterly);
+});
+
 test("the stored face value beats the cost heuristic", () => {
   const a = bondAnalytics({
     label: "9.75% TESTC 27 NOV 2028", quantity: 10, cost_paise: 7356643,

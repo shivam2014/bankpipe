@@ -150,6 +150,16 @@ test("reads a BONDS row whose instrument and dates wrap", () => {
   assert.equal(testd.market_value_paise, 20000000);
 });
 
+test("the report's QUATERLY spelling reads as quarterly", () => {
+  const raw = bondsPage();
+  const quarterly = page(raw.items.map((cell) =>
+    cell.str === "MONTHLY" ? { ...cell, str: "QUATERLY" } : cell));
+  const parsed = parseMotilalPages([quarterly]);
+  assert.equal(parsed.error, null);
+  assert.deepEqual(parsed.rows.map((row) => row.frequency),
+    ["quarterly", "quarterly"]);
+});
+
 test("reads DIRECT EQUITY and MUTUAL FUND sections", () => {
   const parsed = parseMotilalPages([equityPage(), mutualFundPage()]);
   assert.equal(parsed.error, null);

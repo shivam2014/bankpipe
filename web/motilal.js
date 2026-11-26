@@ -228,7 +228,8 @@ function frequencyOf(value) {
   const key = compact(value);
   if (!key) return "";
   if (/month/.test(key)) return "monthly";
-  if (/quarter/.test(key)) return "quarterly";
+  // The report prints "QUATERLY" on its quarterly bonds.
+  if (/quarter|quater/.test(key)) return "quarterly";
   if (/half|semi/.test(key)) return "half-yearly";
   if (/annual|year/.test(key)) return "yearly";
   return text(value).toLowerCase();
