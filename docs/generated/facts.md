@@ -7,7 +7,7 @@ the test runs, never typed by hand.
 
 | Fact | Value |
 |---|---|
-| Web test suite | 1699 tests, 1697 passing |
+| Web test suite | 1711 tests, 1709 passing |
 | Worker test suite | 29 tests, 29 passing |
 | SQLite tables | 7 (`account`, `fact`, `holding`, `import_run`, `issue`, `setting`, `locker`) |
 | Core modules in the import map | 10 |
