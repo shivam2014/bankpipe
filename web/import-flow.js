@@ -89,6 +89,34 @@ function dateInText(value) {
   return "";
 }
 
+// The wording a depository statement prints, in one place so detection and the
+// contract matrix cannot drift apart.
+export function looksLikeCasText(text) {
+  return /consolidated\s+account\s+statement|national\s+securities\s+depository|central\s+depository\s+services|\be-?CAS\b/i
+    .test(String(text || ""));
+}
+
+// Motilal's title, or the two labels its report prints beside the section.
+export function looksLikeMotilalText(text) {
+  const body = String(text || "");
+  return /portfolio\s+holding\s+summary/i.test(body)
+    || (/\bCLIENT\s+UCID\b/i.test(body) && /\bBONDS\b/i.test(body));
+}
+
+// A cashflow export prints the "future" wording, or a matrix row that names
+// Yield, Frequency and Maturity. No other report prints all three.
+export function looksLikeDigiFinnCashflow(text) {
+  const body = String(text || "");
+  if (/portfolio\s*cash\s*flow|cash\s*flow\s+future|cashflow\s+future|total\s+futureexpected\s+interest/i.test(body)) {
+    return true;
+  }
+  return parseCsv(body).some((row) => {
+    const keys = row.map(norm);
+    return keys.includes("yield") && keys.includes("frequency")
+      && keys.includes("maturity");
+  });
+}
+
 // A Kite holdings sheet is identified by its header, not by where the header
 // sits. The summary block above it can be any length, the Combined sheet
 // shifts every column by one, and a renamed quantity column still counts; only
@@ -157,18 +185,7 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
 
   // Cashflow exports also carry an ISIN table that looks like a holdings
   // report. The cashflow wording is the only reliable first signal.
-  if (/portfolio\s*cash\s*flow|cash\s*flow\s+future|cashflow\s+future|total\s+futureexpected\s+interest/i.test(bodyText)) {
-    return info("digifinn-cashflow", "content", date);
-  }
-  // The paid-cashflow export prints the same wide matrix without the "future"
-  // wording, so the shape itself is the signal: one row that names Yield,
-  // Frequency and Maturity. No other report prints all three.
-  const cashflowMatrix = bodyRows.some((row) => {
-    const keys = row.map(norm);
-    return keys.includes("yield") && keys.includes("frequency")
-      && keys.includes("maturity");
-  });
-  if (cashflowMatrix) return info("digifinn-cashflow", "content", date);
+  if (looksLikeDigiFinnCashflow(bodyText)) return info("digifinn-cashflow", "content", date);
   // A transactions report also prints a price and a quantity, so it is read
   // before the tradebook shape. Its "Transaction Type" name is the giveaway.
   if (headerIn(TRANSACTIONS_DETECTION_SCHEMA)) return info("digifinn-transactions", "content", date);
@@ -193,14 +210,10 @@ export function detectImportFile({ name = "", text: body = "", matrix = null } =
   if (headerIn(INVESTMENT_SCHEMA)) {
     return info("digifinn-investment", "content", date);
   }
-  if (/portfolio\s+holding\s+summary/i.test(bodyText)
-    || (/\bCLIENT\s+UCID\b/i.test(bodyText) && /\bBONDS\b/i.test(bodyText))) {
+  if (looksLikeMotilalText(bodyText)) {
     return info("motilal", "content", date);
   }
-  if (/consolidated\s+account\s+statement/i.test(bodyText)
-    || /national\s+securities\s+depository/i.test(bodyText)
-    || /central\s+depository\s+services/i.test(bodyText)
-    || /\be-?CAS\b/i.test(bodyText)) {
+  if (looksLikeCasText(bodyText)) {
     return info("cas", "content", date);
   }
   // A Standard Chartered export calls its description column "Transaction" and
