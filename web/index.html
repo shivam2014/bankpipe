@@ -7460,7 +7460,8 @@ function bpImportResolveBroker(bundle) {
     ...row.account, holdings: row.holdings,
   }));
   bundle.match = accountMatches({
-    accountKey: bundle.accountKey, accountKind: bundle.accountKind, rows: bundle.rows,
+    accountKey: bundle.accountKey, accountKind: bundle.accountKind,
+    family: bundle.family, rows: bundle.rows,
   }, accounts);
   // A demat already filed under this broker is a candidate even when the file
   // carries no client ID and no ISIN it names is on that account. Creating a
@@ -7506,7 +7507,12 @@ function bpImportResolveBroker(bundle) {
   // what the row's account menu uses.
   bundle.createOffered = !!bundle.base;
   bundle.createChoice = createChoice;
-  bundle.createLabel = bpImportBrokerOnlyLabel(bundle);
+  // The investment report prints the holder but no demat. Use the name it
+  // prints so the account is not just "DigiFinn" when the report names a person.
+  bundle.holder = String(bundle.base?.parsed?.identity?.name || "").trim();
+  bundle.createLabel = !bundle.accountKey && bundle.holder
+    ? `${bpImportBrokerOnlyLabel(bundle)} · ${bundle.holder}`
+    : bpImportBrokerOnlyLabel(bundle);
   const identity = bundle.accountKey
     ? { kind: bundle.accountKind || "bo", value: bundle.accountKey } : null;
   bundle.plan = bpImportPlanFor(bundle, targetId ? bpImportAccountRow(targetId) : null,
@@ -9097,8 +9103,11 @@ function bpImportAccountCandidates(bundle, { forCas = false, target = null } = {
 function bpImportChoiceEvidence(match) {
   if (match.identityKind) return `${match.identityKind} match`;
   if (match.brokerAccount && !match.hits) return "Filed under this broker";
+  if (match.hits && match.basis === "bond") {
+    return `${match.hits} of ${match.of} bond name${match.of === 1 ? "" : "s"} match`;
+  }
   if (match.hits) return `${match.hits} of ${match.of} ISIN${match.of === 1 ? "" : "s"} match`;
-  if (match.of) return "No ISINs match";
+  if (match.of) return "No ISINs or bond names match";
   return "No holdings to compare";
 }
 
@@ -9949,6 +9958,16 @@ async function bpImportInboxReadOne(entry) {
         entry.parsed = parsed;
         entry.kind = detected.kind;
         entry.broker = "digifinn";
+        // The report carries no ISIN and no units, so its rows are bond facts
+        // without either. The report's own date and holder name are the
+        // identity it does print.
+        entry.asOf = parsed.asOf;
+        entry.rows = parsed.rows.map((row) => ({
+          isin: "", label: row.label, category: "bond", quantity: null,
+          costPaise: row.invested_paise, purchaseDate: row.purchase_date,
+          couponPct: row.coupon_pct, maturity: row.maturity, issuer: row.issuer,
+          yieldPct: row.yield_pct, sourceRow: row.source_row,
+        }));
         entry.termsByLabel = parsed.rows.map((row) => ({
           label: row.label, couponPct: row.coupon_pct, maturity: row.maturity,
           issuer: row.issuer, yieldPct: row.yield_pct, purchaseDate: row.purchase_date,
@@ -10393,8 +10412,10 @@ async function bpImportUpdateAccountMeta(accountId, bundle, plan, account) {
   if (!String(fresh.number || "").trim() && (cas || bundle.family === "digifinn")) {
     patch.number = bundle.accountKey || "";
   }
-  if (!String(fresh.holder || "").trim() && cas && bundle.base?.parsed?.holder) {
-    patch.holder = bundle.base.parsed.holder;
+  if (!String(fresh.holder || "").trim()) {
+    const holder = bundle.base?.parsed?.holder
+      || bundle.base?.parsed?.identity?.name || bundle.holder || "";
+    if (holder) patch.holder = holder;
   }
   await store.updateAccount(accountId, patch);
 }
@@ -10424,7 +10445,7 @@ async function bpImportCreateBrokerAccount(bundle) {
   if (bundle.family === "digifinn" && bundle.accountKey) meta.demat = bundle.accountKey;
   await store.createAccount({
     id, label, bank: bpImportBrokerName(bundle.family), category: "demat",
-    subtype: "equity", type: "equity", number, holder: "",
+    subtype: "equity", type: "equity", number, holder: bundle.holder || "",
     meta: JSON.stringify(meta),
   });
   return id;

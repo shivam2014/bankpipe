@@ -10,7 +10,8 @@ import { categoryOf, isDepositoryAccount, isImportAccount } from "./assets.js";
 import { parseCsv } from "./digifinn.js";
 import { parseDate, parseNumber, parseMoney } from "./holding-import.js";
 import { looksLikeBankStatement } from "./parse.js";
-import { bondInputsMissing, bondMaturity, isDisposed, termSourceRank } from "./bonds.js";
+import { bondInputsMissing, bondLabelName, bondMaturity, isDisposed,
+  parseBondLabel, termSourceRank } from "./bonds.js";
 import { findHeaderRow, headerMessage, readDate, readNumber, cellText,
   refusalResult, tableWhere } from "./table-schema.js";
 import { looksLikeZerodhaHoldings, ZERODHA_HOLDINGS_SCHEMA } from "./zerodha.js";
@@ -50,7 +51,8 @@ export const IMPORT_KINDS = {
     broker: "icici", where: "ICICI Direct → Portfolio → Holdings → Download" },
   "digifinn-portfolio": { label: "DigiFinn holdings report", family: "digifinn", base: true,
     broker: "digifinn", where: "DigiFinn → Reports & Documents → Holdings Report" },
-  "digifinn-investment": { label: "DigiFinn investment report", family: "digifinn", base: false,
+  "digifinn-investment": { label: "DigiFinn investment report", family: "digifinn",
+    base: false, fallbackBase: true,
     broker: "digifinn", where: "DigiFinn → Reports & Documents → Investment Report" },
   "digifinn-transactions": { label: "DigiFinn transactions report", family: "digifinn", base: false,
     broker: "digifinn", where: "DigiFinn → Reports & Documents → Transactions" },
@@ -71,6 +73,10 @@ const KIND_RANK = {
 
 const baseKind = (kind) => !!IMPORT_KINDS[kind]?.base;
 export const isBaseImportKind = baseKind;
+// A fallback base is enrichment while a holdings report is present and the
+// base only when none is. Its rows carry bond terms but no ISIN or units.
+const fallbackBaseKind = (kind) => !!IMPORT_KINDS[kind]?.fallbackBase;
+export const isFallbackImportKind = fallbackBaseKind;
 
 function dateInText(value) {
   const body = String(value || "");
@@ -372,6 +378,25 @@ const OPTIONAL_ADDS = {
 const rowIsin = (row) => upper(row?.isin || row?.security_id || "");
 const rowKey = (row) => rowIsin(row) || norm(row?.label || row?.security_name || "");
 
+// A bond's identity before its ISIN arrives: the name with the coupon and
+// maturity every DigiFinn report prints. Terms are part of the key because a
+// name alone can describe more than one instrument; a row whose label and
+// printed terms are the same is the same bond. A row with no terms falls back
+// to its full printed label, which is stricter, never looser.
+export function bondRowKey(row) {
+  const label = text(row?.label || row?.security_name || "");
+  if (!label) return "";
+  const category = String(row?.category || row?.kind || "").trim().toLowerCase();
+  if (category && category !== "bond") return "";
+  const parsed = parseBondLabel(label);
+  const coupon = asNumber(row?.couponPct ?? row?.coupon_pct) ?? parsed?.couponPct ?? null;
+  const maturity = parseDate(row?.maturity || row?.maturity_date || "") || parsed?.maturity || "";
+  const name = norm(bondLabelName(label));
+  if (!name) return "";
+  if (coupon === null && !maturity) return `label:${norm(label)}`;
+  return `bond:${name}|${coupon === null ? "" : coupon}|${maturity}`;
+}
+
 function fillEmpty(row, key, value) {
   if (value === null || value === undefined || value === "") return;
   if (row[key] === null || row[key] === undefined || row[key] === "") row[key] = value;
@@ -389,9 +414,12 @@ function enrichRows(baseRows, optional) {
   const rows = (baseRows || []).map((row) => ({ ...row }));
   const byIsin = new Map();
   const byLabel = new Map();
+  const byBond = new Map();
   for (const row of rows) {
     if (rowIsin(row)) byIsin.set(rowIsin(row), row);
     if (row.label) byLabel.set(norm(row.label), row);
+    const bond = bondRowKey(row);
+    if (bond && !byBond.has(bond)) byBond.set(bond, row);
   }
   for (const file of optional) {
     for (const trade of Object.entries(file.firstBuyByIsin || {})) {
@@ -404,7 +432,7 @@ function enrichRows(baseRows, optional) {
       if (row) fillEmpty(row, "purchaseDate", trade[1]);
     }
     for (const term of file.termsByLabel || []) {
-      const row = byLabel.get(norm(term.label));
+      const row = byLabel.get(norm(term.label)) || byBond.get(bondRowKey(term));
       if (!row) continue;
       fillEmpty(row, "couponPct", term.couponPct);
       fillEmpty(row, "maturity", term.maturity);
@@ -540,17 +568,34 @@ export function groupBundles(files = []) {
     const bundle = ensure(key, { ...file, family, accountKey: "" });
     bundle.files.push(file);
     bundle.optional.push(file);
-    bundle.warnings.push(sameFamily.length > 1
-      ? `This ${IMPORT_KINDS[file.kind].label.toLowerCase()} names no account and two accounts use ${IMPORT_KINDS[family]?.label || family} files. Add it to the right account.`
-      : `Add the ${IMPORT_KINDS[family]?.label || family} holdings report first.`);
+    if (!fallbackBaseKind(file.kind)) {
+      bundle.warnings.push(sameFamily.length > 1
+        ? `This ${IMPORT_KINDS[file.kind].label.toLowerCase()} names no account and two accounts use ${IMPORT_KINDS[family]?.label || family} files. Add it to the right account.`
+        : `Add the ${IMPORT_KINDS[family]?.label || family} holdings report first.`);
+    }
   }
   const out = [];
   for (const bundle of bundles.values()) {
     const filesInBundle = [...bundle.files].sort((a, b) =>
       (KIND_RANK[a.kind] ?? 9) - (KIND_RANK[b.kind] ?? 9)
       || String(a.name || "").localeCompare(String(b.name || "")));
-    const base = filesInBundle.find((file) => baseKind(file.kind)) || null;
-    const optionals = filesInBundle.filter((file) => !baseKind(file.kind));
+    let base = filesInBundle.find((file) => baseKind(file.kind)) || null;
+    let optionals = filesInBundle.filter((file) => !baseKind(file.kind));
+    // The investment report carries the bond terms but no ISIN and no units.
+    // It is an enrichment when a holdings report is present and the base when
+    // none is, so a person who brings only it still gets the bonds.
+    if (!base) {
+      const fallback = optionals.find((file) => fallbackBaseKind(file.kind)
+        && (file.rows || []).length);
+      if (fallback) {
+        base = fallback;
+        optionals = optionals.filter((file) => file !== fallback);
+        bundle.warnings = bundle.warnings.filter((line) =>
+          !/^Add the .* holdings report first\.$/.test(line));
+        bundle.warnings.push("This file has no ISIN or units. Its bonds import without "
+          + "them; a later holdings report pairs with each bond by name.");
+      }
+    }
     const rows = base ? enrichRows(base.rows || [], optionals) : [];
     if (!base) bundle.warnings.push("No holdings report in this set, so there is nothing to import yet.");
     if (filesInBundle.filter((file) => baseKind(file.kind)).length > 1) {
@@ -907,6 +952,7 @@ export function normalizeAccount(account, holdings = account?.holdings || []) {
     meta,
     holdings: holdings || [],
     isins: [...new Set((holdings || []).map(rowIsin).filter(Boolean))],
+    bondKeys: [...new Set((holdings || []).map(bondRowKey).filter(Boolean))],
   };
 }
 
@@ -932,9 +978,29 @@ function identityFor(file) {
  */
 export function accountMatches(file, accounts = [], { forCas = false } = {}) {
   const identity = identityFor(file);
-  const wanted = [...new Set((file?.rows || []).map(rowIsin).filter(Boolean))];
-  const wantedSet = new Set(wanted);
+  // A row is one fact to place: its ISIN when it has one, else the bond name
+  // and terms. Dedupe by that same key, so two lots of one ISIN are one
+  // overlap, as before, and a label-only row is one bond.
+  const wantedRows = [];
+  const wantedSeen = new Set();
+  for (const row of file?.rows || []) {
+    const isin = rowIsin(row);
+    const bond = bondRowKey(row);
+    const key = isin ? `i:${isin}` : bond ? `b:${bond}` : "";
+    if (!key || wantedSeen.has(key)) continue;
+    wantedSeen.add(key);
+    wantedRows.push({ isin, bond });
+  }
   const wantedAmc = String(file?.amc || "").trim().toLowerCase();
+  // A label match proves the bond, not the custodian. Only an account filed
+  // under the same broker may receive a file that has no ISIN to compare.
+  const brokerToken = BROKER_TOKEN[String(file?.family || "")];
+  const brokerNamed = (raw) => {
+    if (!brokerToken) return true;
+    const meta = safeMeta(raw);
+    return brokerToken.test([raw.label, raw.bank, meta.dp, meta.broker_source]
+      .filter(Boolean).join(" "));
+  };
   const matches = [];
   for (const raw of accounts) {
     // The import list and the matcher share one rule: a demat, a fund folio or
@@ -968,13 +1034,20 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
       // account is its custodian. Only a folio identity may reach one.
       continue;
     }
-    let hits = 0;
-    for (const isin of account.isins) if (wantedSet.has(isin)) hits += 1;
+    let isinHits = 0;
+    let bondHits = 0;
+    for (const want of wantedRows) {
+      if (want.isin && account.isins.includes(want.isin)) { isinHits += 1; continue; }
+      if (want.bond && account.bondKeys.includes(want.bond)
+        && brokerNamed(raw)) bondHits += 1;
+    }
+    const hits = isinHits + bondHits;
     if (!identityKind && !hits) continue;
     matches.push({
       id: account.id, label: account.label, identity: !!identityKind, identityKind,
       amcMatch: !!wantedAmc && account.amc === wantedAmc,
-      hits, of: wanted.length, isins: account.isins, brokerOnly: account.brokerOnly,
+      hits, isinHits, bondHits, basis: isinHits ? "isin" : bondHits ? "bond" : "",
+      of: wantedRows.length, isins: account.isins, brokerOnly: account.brokerOnly,
       boId: account.boId, clientId: account.clientId, ucid: account.ucid,
       account,
     });
@@ -989,10 +1062,14 @@ export function accountMatches(file, accounts = [], { forCas = false } = {}) {
   // One attach rule for both report families. A file's BO ID, UCID or client ID
   // names the account. Without one, an ISIN overlap has to explain most of the
   // file; one match out of five hundred does not buy a whole snapshot a home.
-  const attachId = !tie && top && (top.identity || (top.hits > 0 && share >= 0.8))
+  // A bond-name overlap is weaker evidence, so it attaches only when every bond
+  // in the file is on the account.
+  const bondOnly = top?.basis === "bond";
+  const enough = bondOnly ? share === 1 : share >= 0.8;
+  const attachId = !tie && top && (top.identity || (top.hits > 0 && enough))
     ? top.id : "";
   return {
-    matches, total: wanted.length, tie,
+    matches, total: wantedRows.length, tie,
     bestId: !tie && top ? top.id : "",
     attachId,
     identityId: top && top.identity ? top.id : "",
@@ -1561,7 +1638,8 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   const oldRows = (existing.holdings || []).map(normalizeHolding);
   const inRows = (incoming?.rows || []).map(normalizeIncoming).filter((row) => row.isin || row.label);
   const oldByIsin = new Map();
-  const oldByLabel = new Map();
+  const oldByBond = new Map();
+  const oldTaken = new Set();
   const soldByIsin = new Map();
   for (const row of oldRows) {
     // A disposal is history, not a holding the next report can revive. A report
@@ -1577,8 +1655,45 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       continue;
     }
     if (row.isin) oldByIsin.set(row.isin, row);
-    if (row.label) oldByLabel.set(norm(row.label), row);
+    const bond = bondRowKey(row);
+    if (bond) {
+      const list = oldByBond.get(bond) || [];
+      list.push(row);
+      oldByBond.set(bond, list);
+    }
   }
+  // The ISIN is the first identity. Before one exists, the bond name with its
+  // coupon and maturity is; a match must be one-to-one, and two candidates are
+  // a report the app cannot place, not a row to merge.
+  const pickOld = (row) => {
+    if (row.isin) {
+      const exact = oldByIsin.get(row.isin);
+      if (exact && !oldTaken.has(exact)) {
+        oldTaken.add(exact);
+        return { old: exact, ambiguous: 0 };
+      }
+    }
+    const bond = bondRowKey(row);
+    if (!bond) return { old: null, ambiguous: 0 };
+    let candidates = (oldByBond.get(bond) || []).filter((old) => !oldTaken.has(old));
+    // An ISIN row only upgrades a row that has no ISIN. Two stores that both
+    // name an ISIN are two facts, never one.
+    if (row.isin) candidates = candidates.filter((old) => !old.isin);
+    if (candidates.length > 1 && row.purchaseDate) {
+      const sameDate = candidates.filter((old) => old.purchaseDate === row.purchaseDate);
+      if (sameDate.length === 1) candidates = sameDate;
+    }
+    if (candidates.length > 1 && row.costPaise !== null) {
+      const sameCost = candidates.filter((old) => old.costPaise !== null
+        && !moneyDifferent(old.costPaise, row.costPaise));
+      if (sameCost.length === 1) candidates = sameCost;
+    }
+    if (candidates.length === 1) {
+      oldTaken.add(candidates[0]);
+      return { old: candidates[0], ambiguous: 0 };
+    }
+    return { old: null, ambiguous: candidates.length };
+  };
   const incomingIsins = new Set(inRows.map((row) => row.isin).filter(Boolean));
   const categories = new Set(incoming?.categories?.length
     ? incoming.categories.map((category) => String(category).toLowerCase())
@@ -1598,7 +1713,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   // One that would only add history or fill an empty field stays identity-only.
   const casLiveChange = olderCas && inRows.some((row) => {
     const old = oldByIsin.get(row.isin)
-      || (!row.isin ? oldByLabel.get(norm(row.label)) : null);
+      || (!row.isin ? (oldByBond.get(bondRowKey(row)) || [])[0] : null);
     if (!old) return false;
     return (row.quantity !== null && moneyDifferent(old.quantity, row.quantity))
       || (row.valuePaise !== null && moneyDifferent(old.valuePaise, row.valuePaise));
@@ -1675,7 +1790,12 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   let added = 0, updated = 0, kept = 0, ask = 0, flagged = 0, skipped = 0, manualOnly = 0;
   let costCarried = 0;
   for (const row of inRows) {
-    const old = oldByIsin.get(row.isin) || (!row.isin ? oldByLabel.get(norm(row.label)) : null);
+    const match = pickOld(row);
+    const old = match.old;
+    if (match.ambiguous > 1) {
+      warnings.push(`${row.label || row.isin}: ${match.ambiguous} stored rows share this `
+        + "bond's name, so the app did not merge them.");
+    }
     if (!old) {
       const sold = row.isin ? soldByIsin.get(row.isin) : null;
       if (sold) {
@@ -1792,7 +1912,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
         if (incoming?.kind === "cas" && next.valuePaise !== null
           && !next.valueSource) next.valueSource = "CAS";
         decisions.push({ isin: row.isin, label: row.label, action: "add", existing: null,
-          next, changes: [], flags: [], reason: "new holding" });
+          next, changes: [], flags: match.ambiguous ? ["ambiguous-name"] : [], reason: "new holding" });
       } else {
         skipped += 1;
         decisions.push({ isin: row.isin, label: row.label, action: "skip", existing: null,
@@ -1803,6 +1923,9 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       continue;
     }
     const next = { ...old };
+    // An ISIN that arrived after the bond was first imported upgrades the row
+    // it names; the bond is not added a second time.
+    if (row.isin && !next.isin) next.isin = row.isin;
     const changes = [];
     const rowFlags = [];
     const quantityDiffers = row.quantity !== null && moneyDifferent(old.quantity, row.quantity);
@@ -1905,12 +2028,23 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       }
       if (quantityDiffers || valueDiffers) next.asOf = incomingState.date || old.asOf;
     } else if (sameDate) {
-      if (quantityDiffers) {
+      // A report that fills a unit count the first report could not print is
+      // completing the row, not disagreeing with it.
+      if (old.quantity === null && row.quantity !== null) {
+        next.quantity = row.quantity;
+        changes.push(fieldChange("snapshot", "quantity", old.quantity, row.quantity,
+          incomingName, incomingState.date));
+      } else if (quantityDiffers) {
         next.quantity = row.quantity;
         changes.push({ ...fieldChange("snapshot", "quantity", old.quantity, row.quantity,
           incomingName, incomingState.date), requiresConfirm: true });
       }
-      if (valueDiffers) {
+      if (old.valuePaise === null && row.valuePaise !== null) {
+        next.valuePaise = row.valuePaise;
+        next.valueSource = incomingName;
+        changes.push(fieldChange("snapshot", "value", old.valuePaise, row.valuePaise,
+          incomingName, incomingState.date));
+      } else if (valueDiffers) {
         next.valuePaise = row.valuePaise;
         next.valueSource = incomingName;
         changes.push({ ...fieldChange("snapshot", "value", old.valuePaise, row.valuePaise,
@@ -1974,6 +2108,14 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
           return;
         }
         if (costMode === "ask") {
+          if (oldValue === null || oldValue === undefined || oldValue === "") {
+            next[field] = newValue;
+            next[sourceField] = newSource;
+            next[asOfField] = incomingState.date || "";
+            changes.push(fieldChange("cost", field, oldValue, newValue, newSource,
+              incomingState.date));
+            return;
+          }
           changes.push({ ...fieldChange("cost", field, oldValue, newValue, newSource,
             incomingState.date), requiresConfirm: true });
           return;
@@ -1992,6 +2134,16 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
         if (recovery && field === "cost") return;
         if (newValue === null || newValue === undefined || newValue === "") return;
         if (costMode === "ask") {
+          // An empty field is not a disagreement. The report fills it, and the
+          // person is not asked to confirm a fact neither source contradicts.
+          if (oldValue === null || oldValue === undefined || oldValue === "") {
+            if (immutableManual && field === "cost") return;
+            next[field === "cost" ? "costPaise"
+              : field === "purchase" ? "purchaseDate" : field] = newValue;
+            changes.push(fieldChange("cost", field, oldValue, newValue,
+              incoming?.label || incoming?.kind, incomingState.date));
+            return;
+          }
           if (moneyDifferent(oldValue, newValue) || (typeof oldValue === "string" && oldValue !== newValue)) {
             changes.push({ ...fieldChange("cost", field, oldValue, newValue,
               incoming?.label || incoming?.kind, incomingState.date), requiresConfirm: true });
@@ -2067,7 +2219,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       }
     }
     const changedFields = fieldsWouldChange(old, next,
-      ["quantity", "valuePaise", "valueSource", "costPaise", "purchaseDate", "couponPct",
+      ["isin", "quantity", "valuePaise", "valueSource", "costPaise", "purchaseDate", "couponPct",
         "frequency", "facePaise", "maturity", "asOf", "label", "yieldPct", "interestDate",
         "payoutPaise", "futureInterestPaise", "futurePrincipalPaise"]);
     if (labelChanged) changes.push(fieldChange("label", "label", old.label, row.label,
@@ -2234,6 +2386,20 @@ function importHoldingRow(next, source = {}, manual) {
   };
 }
 
+// The key a stored row was matched by. An ISIN names a row directly; a row
+// imported before its ISIN arrived is found by the facts it was stored with.
+function holdingStorageKey(row) {
+  const isin = upper(row?.security_id || row?.isin || "");
+  if (isin) return `isin:${isin}`;
+  const label = norm(row?.label || row?.security_name || "");
+  if (!label) return "";
+  const quantity = asNumber(row?.quantity);
+  const purchase = parseDate(row?.purchaseDate ?? row?.purchase_date ?? "") || "";
+  const asOf = parseDate(row?.asOf ?? row?.as_of ?? "") || "";
+  const cost = asMoney(row?.costPaise ?? row?.cost_paise);
+  return `label:${label}|${quantity ?? ""}|${purchase}|${asOf}|${cost ?? ""}`;
+}
+
 /**
  * The rows a merge plan writes, without touching the store. This is the broker
  * writer's row builder and the preview's projection of it, so one function
@@ -2250,8 +2416,19 @@ function importHoldingRow(next, source = {}, manual) {
  * @returns {Array<object>}
  */
 export function mergeRowsFromPlan(holdings, plan, source = {}, acceptAsk = false) {
-  const decisions = new Map(((plan?.decisions) || []).map((decision) =>
-    [String(decision.isin || "").toUpperCase(), decision]));
+  const byIsin = new Map();
+  const byExisting = new Map();
+  for (const decision of plan?.decisions || []) {
+    if (decision.isin) byIsin.set(upper(decision.isin), decision);
+    if (decision.existing) {
+      const key = holdingStorageKey(decision.existing);
+      if (key) byExisting.set(key, decision);
+    }
+  }
+  // A row imported before its ISIN arrived is identified by the name and facts
+  // it was stored with, not by the ISIN it is about to gain.
+  const decisionFor = (holding) => byExisting.get(holdingStorageKey(holding))
+    || byIsin.get(upper(holding.security_id || ""));
   const manual = new Map((holdings || []).filter((holding) => holding.source === "manual"
     && holding.security_id).map((holding) =>
     [String(holding.security_id).toUpperCase(), holding]));
@@ -2267,7 +2444,7 @@ export function mergeRowsFromPlan(holdings, plan, source = {}, acceptAsk = false
   // ISIN, matched by its transaction key, or by its date on a legacy row.
   const recoveryOf = (holding) => {
     if (!acceptAsk) return null;
-    const decision = decisions.get(String(holding.security_id || "").toUpperCase());
+    const decision = decisionFor(holding);
     if (decision?.action !== "ask" || !decision.recovery) return null;
     const marker = decision.recovery;
     const key = String(holding.txn_key || "");
@@ -2282,15 +2459,15 @@ export function mergeRowsFromPlan(holdings, plan, source = {}, acceptAsk = false
       push(recovery ? { ...holding, disposed_cost_paise: recovery.costPaise } : holding);
       continue;
     }
-    const key = String(holding.security_id || "").toUpperCase();
-    const decision = decisions.get(key);
+    const decision = decisionFor(holding);
     if (!decision || decision.action === "keep" || decision.action === "skip"
       || decision.action === "manual") {
       push(holding);
       continue;
     }
     if (decision.action === "ask" && !acceptAsk) { push(holding); continue; }
-    push(importHoldingRow(decision.next, source, manual.get(key)));
+    push(importHoldingRow(decision.next, source,
+      manual.get(upper(holding.security_id || ""))));
   }
   for (const decision of plan?.decisions || []) {
     // A quantity the sale does not explain is an accepted live row. A recovery
@@ -2372,7 +2549,7 @@ function aggregateReceipts(receipts) {
   return { summary, warnings: [...new Set(warnings)], blocking };
 }
 
-const NET_FIELDS = ["label", "category", "quantity", "cost_paise", "value_paise",
+const NET_FIELDS = ["security_id", "label", "category", "quantity", "cost_paise", "value_paise",
   "face_paise", "purchase_date", "interest_date", "frequency", "yield_bps",
   "payout_paise", "future_interest_paise", "future_principal_paise", "value_source",
   "coupon_pct", "coupon_source", "coupon_as_of", "maturity", "maturity_source",
@@ -2398,13 +2575,28 @@ const holdingKey = (row) => `${String(row?.security_id || row?.isin || "").toUpp
  *   removed: number, soldCost: number}}
  */
 export function planNetChange(before = [], after = []) {
-  const old = new Map((before || []).map((row) => [holdingKey(row), row]));
+  const old = new Map();
+  const oldByBond = new Map();
+  for (const row of before || []) {
+    old.set(holdingKey(row), row);
+    // Only a row imported before its ISIN arrived needs the bond-name bridge.
+    // A sold lot keeps its ISIN and is never the same row as a new live lot.
+    if (!row.security_id && !row.isin) {
+      const bond = bondRowKey(row);
+      if (bond && !oldByBond.has(bond)) oldByBond.set(bond, row);
+    }
+  }
   const seen = new Set();
+  const seenBond = new Set();
   const net = { added: 0, updated: 0, kept: 0, history: 0, removed: 0, soldCost: 0 };
   for (const row of after || []) {
     const key = holdingKey(row);
     seen.add(key);
-    const prior = old.get(key);
+    const bond = bondRowKey(row);
+    if (bond) seenBond.add(bond);
+    // A row that gained its ISIN is the row already on file, not an add and a
+    // removal. The bond key is how the before/after count says so.
+    const prior = old.get(key) || (bond ? oldByBond.get(bond) : null);
     if (row.disposed_at) {
       if (prior && fieldsWouldChange(prior, row, NET_FIELDS).length) net.soldCost += 1;
       else net.kept += 1;
@@ -2424,7 +2616,12 @@ export function planNetChange(before = [], after = []) {
     if (fieldsWouldChange(prior, row, NET_FIELDS).length) net.updated += 1;
     else net.kept += 1;
   }
-  for (const key of old.keys()) if (!seen.has(key)) net.removed += 1;
+  for (const [key, row] of old) {
+    if (seen.has(key)) continue;
+    const bond = bondRowKey(row);
+    if (bond && seenBond.has(bond)) continue;
+    net.removed += 1;
+  }
   return net;
 }
 
