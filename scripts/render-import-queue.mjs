@@ -940,7 +940,7 @@ const FLOWS = [
       return JSON.stringify({ label,
         bar: text(document.querySelector("#import-inbox-host .import-batchbar .btn")),
         pill: text(receipt?.querySelector(".import-row-pill")),
-        receipt: text(receipt?.querySelector(".import-row-note")),
+        receipt: text(receipt?.querySelector(".import-history-headline")),
         accounts: accounts.map((item) => item.label),
         holdings, receipts: document.querySelectorAll(".import-row-receipt").length });
     `,
@@ -953,7 +953,7 @@ const FLOWS = [
         wrong.push(`bar: ${JSON.stringify(state.bar)} (one press leaves nothing to run)`);
       }
       if (state.pill !== "Imported") wrong.push(`receipt pill: ${state.pill}`);
-      if (!/28 holdings imported/.test(state.receipt || "")) {
+      if (!/28 holdings into/.test(state.receipt || "")) {
         wrong.push(`receipt: ${JSON.stringify(state.receipt)}`);
       }
       if (state.holdings !== 28) wrong.push(`holdings: ${state.holdings}`);
@@ -984,7 +984,7 @@ const FLOWS = [
       const holdings = accounts[0] ? (await store.listHoldings(accounts[0].id)).length : 0;
       return JSON.stringify({ before,
         bar: text(document.querySelector("#import-inbox-host .import-batchbar .btn")),
-        receipt: text(document.querySelector(".import-row-receipt .import-row-note")),
+        receipt: text(document.querySelector(".import-row-receipt .import-history-headline")),
         holdings });
     `,
     checks: (state) => {
@@ -993,7 +993,7 @@ const FLOWS = [
       if (state.bar !== "") {
         wrong.push(`bar after: ${JSON.stringify(state.bar)} (nothing was left to run)`);
       }
-      if (!/28 holdings imported/.test(state.receipt || "")) {
+      if (!/28 holdings into/.test(state.receipt || "")) {
         wrong.push(`receipt: ${JSON.stringify(state.receipt)}`);
       }
       if (state.holdings !== 28) wrong.push(`holdings: ${state.holdings}`);

@@ -180,6 +180,7 @@ function pageScript({ seed = null, press = false } = {}) {
     }
     summary.receipts = receipts;
     summary.status = text(document.getElementById("import-inbox-status"));
+    summary.receipt = text(host.querySelector(".import-row-receipt"));
     summary.planState = (window.bpImportInbox.plans || []).map((plan) => ({
       key: plan.key, ready: plan.ready, needsChoice: plan.needsChoice,
       accountCount: plan.accountCount, summary: plan.summary,
@@ -231,8 +232,11 @@ function verifyWrite(state) {
   const wrong = [];
   if (state.receipts !== 1) wrong.push(`receipts: ${state.receipts}`);
   if (state.rowCount !== 0) wrong.push(`rows left in the queue: ${state.rowCount}`);
-  if (!/imported/i.test(state.status)) {
+  if (!/7 holdings into 4 accounts\./.test(state.status || "")) {
     wrong.push(`status: ${JSON.stringify(state.status)}`);
+  }
+  if (!/4 accounts created/.test(state.receipt || "")) {
+    wrong.push(`receipt does not name the accounts it created: ${JSON.stringify(state.receipt)}`);
   }
   if (state.accounts.length !== 4) {
     wrong.push(`accounts created: want 4, got ${state.accounts.length} `

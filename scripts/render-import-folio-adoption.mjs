@@ -179,6 +179,7 @@ function pageScript({ write = false, keep = false, manualPaise = MANUAL_PAISE } 
     const meta = JSON.parse(stored.account.meta || "{}");
     summary.afterAdopt = afterAdopt;
     summary.status = document.getElementById("import-inbox-status")?.textContent?.trim() || "";
+    summary.receipt = text(document.querySelector(".import-row-receipt")) || "";
     summary.funds = stored.funds.map((account) => ({
       id: account.id, number: account.number, label: account.label,
       subtype: account.subtype, meta,
@@ -367,8 +368,8 @@ function verifyWrite(state) {  const wrong = [];
     if (Number(holding.cost_paise) !== COST_PAISE) wrong.push(`cost: ${holding.cost_paise}`);
     if (holding.value_source !== "CAS") wrong.push(`value source: ${holding.value_source}`);
   }
-  if (!/adopted into Test Mutual Fund/.test(state.status || "")) {
-    wrong.push(`receipt: ${JSON.stringify(state.status)}`);
+  if (!/adopted into Test Mutual Fund/.test(state.receipt || "")) {
+    wrong.push(`receipt: ${JSON.stringify(state.receipt || state.status)}`);
   }
   return wrong;
 }

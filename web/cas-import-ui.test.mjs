@@ -109,7 +109,9 @@ test("a trade-only statement with no account is not reported ready", () => {
 test("the inbox receipt carries the sold, linked and conflict counts", () => {
   assert.match(html, /sold: outcome\.sold \|\| 0/);
   assert.match(html, /linkedSold: outcome\.linkedSold \|\| 0/);
-  assert.match(html, /parts\.push\(`\$\{sold\} sale/);
+  assert.match(html, /created: Number\(outcome\.created \|\| 0\)/);
+  assert.match(html, /const receipt = bpImportReceipt\(\{ identityOnly, live, label, removed,/);
+  assert.match(html, /linkedSold \? \[`\$\{linkedSold\} sale/);
   assert.match(html, /conflicts\.length \? "" : "good"/);
 });
 

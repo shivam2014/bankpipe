@@ -424,7 +424,7 @@ function verifyZeroWrite(state) {
   else if (folio.rows.length !== 1 || folio.rows[0].isin !== FUND) {
     wrong.push(`the folio rows are ${JSON.stringify(folio.rows)}`);
   }
-  if (!/3 holdings imported/.test(after.status || "")) {
+  if (!/3 holdings into/.test(after.status || "")) {
     wrong.push(`the receipt does not count what it wrote: ${JSON.stringify(after.status)}`);
   }
   const wrote = (after.holdings || []).reduce((total, account) => total + account.rows.length, 0);

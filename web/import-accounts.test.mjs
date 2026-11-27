@@ -968,8 +968,44 @@ test("the batch imports only the rows that are ready and reports each one", () =
   assert.match(batch, /filter\(\(entry\) =>\s*entry\.status === "ready" && !entry\.duplicateOf\)/);
   assert.match(batch, /await window\.bpBatchImport\?\.\(\)/);
   assert.match(batch, /await window\.bpImportApplyPlan\(plan\.key, \{ silent: true \}\)/);
-  const receipt = between("const receiptText = keptOnly", "if \(!opts.silent\)");
+  const receipt = between("const receipt = bpImportReceipt", "if \(!opts.silent\)");
   assert.match(receipt, /state\.receipts\.push/);
+});
+
+test("a finished import is a headline and one fact per bullet", () => {
+  const source = between("function bpImportReceipt({", "window.bpImportApplyPlan");
+  const { bpImportReceipt } = new Function(`${source}
+    return { bpImportReceipt };`)();
+  const receipt = bpImportReceipt({ live: 17, label: "4 accounts", created: 3,
+    facts: ["Folio …3856 adopted into Axis mutual fund",
+      "Axis mutual fund manual total replaced by the statement",
+      "1 sale or transfer recorded"] });
+  assert.equal(receipt.headline, "17 holdings into 4 accounts");
+  assert.deepEqual(receipt.facts, [
+    "3 accounts created",
+    "Folio …3856 adopted into Axis mutual fund",
+    "Axis mutual fund manual total replaced by the statement",
+  ], "three bullets, each one fact");
+  const repeat = bpImportReceipt({ live: 2, label: "one account",
+    facts: ["2 holdings into one account", "1 account created"] });
+  assert.deepEqual(repeat.facts, ["1 account created"],
+    "a bullet never repeats the headline");
+});
+
+test("a history row keeps the file name, the time, the headline and its bullets", () => {
+  const source = [
+    between("function bpImportWhen", "function bpImportHistoryRowHtml"),
+    between("function bpImportHistoryRowHtml", "function bpImportQueueReceipts"),
+  ].join("\n");
+  const { bpImportHistoryRowHtml } = new Function("esc", `${source}
+    return { bpImportHistoryRowHtml };`)((value) => String(value ?? ""));
+  const row = bpImportHistoryRowHtml({ name: "cas-synthetic.pdf",
+    at: new Date().toISOString(), headline: "17 holdings into 4 accounts",
+    facts: ["3 accounts created"] });
+  assert.match(row, /cas-synthetic\.pdf/);
+  assert.match(row, /today \d{2}:\d{2}/);
+  assert.match(row, /17 holdings into 4 accounts/);
+  assert.match(row, /<ul class="import-history-facts"><li>3 accounts created<\/li><\/ul>/);
 });
 
 test("the bar renders only when a ready file can run", () => {

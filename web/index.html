@@ -839,10 +839,15 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-history-chevron{display:inline-block;transition:transform .15s ease}
 .import-history[open] .import-history-chevron{transform:rotate(90deg)}
 .import-history-row{display:grid;grid-template-columns:minmax(0,1fr) auto;
-  gap:1px 12px;padding:6px 0;border-top:1px solid var(--hair)}
+  gap:1px 12px;padding:8px 0;border-top:1px solid var(--hair)}
 .import-history-row:first-of-type{border-top:0}
 .import-history-name{font-size:13.5px;font-weight:620;min-width:0;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.import-history-headline{grid-column:1/-1;font-size:13.5px;overflow-wrap:anywhere}
+.import-history-facts{grid-column:1/-1;margin:1px 0 0;padding-left:16px;
+  font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.import-history-facts li{margin:0}
+.import-history-facts li::marker{color:var(--muted)}
 .import-history-what{grid-column:1/-1;font-size:12px;color:var(--muted);
   overflow-wrap:anywhere}
 .import-history-when{font-size:12px;color:var(--muted);white-space:nowrap}
@@ -9571,12 +9576,18 @@ function bpImportBankRows() {
 
 function bpImportBankReceipt(entry) {
   const result = entry.result || {};
-  const counts = `${result.inserted || 0} new · ${result.duplicates || 0} already held${
-    result.breaks ? ` · ${result.breaks} breaks` : ""}`;
+  const inserted = Number(result.inserted || 0);
+  const duplicates = Number(result.duplicates || 0);
+  const breaks = Number(result.breaks || 0);
   const label = accountLabel(entry, bpBatchState().accounts || []);
-  return { name: entry.name,
-    text: `${counts}${label ? ` into ${label}` : ""}${
-      result.browserOnly ? " · browser only" : ""}`,
+  const headline = inserted
+    ? `${inserted} transaction${inserted === 1 ? "" : "s"}${label ? ` into ${label}` : ""}`
+    : `No new transactions${label ? ` into ${label}` : ""}`;
+  const facts = [];
+  if (duplicates) facts.push(`${duplicates} already held`);
+  if (breaks) facts.push(`${breaks} break${breaks === 1 ? "" : "s"}`);
+  if (result.browserOnly) facts.push("browser only");
+  return { name: entry.name, headline, facts: facts.slice(0, 3),
     at: entry.importedAt || "" };
 }
 
@@ -9601,10 +9612,15 @@ function bpImportWhen(value) {
 
 function bpImportHistoryRowHtml(receipt) {
   const when = bpImportWhen(receipt.at);
+  const facts = (receipt.facts || []).filter(Boolean);
   return `<div class="import-row-receipt import-history-row">
     <span class="import-row-name import-history-name">${esc(receipt.name)}</span>
     ${when ? `<span class="import-history-when">${esc(when)}</span>` : ""}
-    <span class="import-row-note import-history-what">${esc(receipt.text)}</span>
+    ${receipt.headline
+      ? `<span class="import-history-headline">${esc(receipt.headline)}</span>`
+      : `<span class="import-row-note import-history-what">${esc(receipt.text || "")}</span>`}
+    ${facts.length ? `<ul class="import-history-facts">${
+      facts.map((fact) => `<li>${esc(fact)}</li>`).join("")}</ul>` : ""}
     <span class="import-row-pill good">Imported</span>
   </div>`;
 }
@@ -9616,7 +9632,8 @@ function bpImportQueueReceipts() {
   const state = bpImportInboxState();
   const receipts = [
     ...(state.receipts || []).map((receipt) => ({
-      name: receipt.name, text: receipt.text, at: receipt.at || "",
+      name: receipt.name, at: receipt.at || "",
+      headline: receipt.headline, facts: receipt.facts, text: receipt.text,
     })),
     ...(window.bpBatch?.entries || []).filter((entry) => entry.status === "done")
       .map(bpImportBankReceipt),
@@ -10562,7 +10579,7 @@ async function bpImportApplyCas(bundle, opts = {}) {
     return { ok: true, accountId: identityOnly[0]?.targetId || "",
       total: filled + history, added: 0, updated: filled, filled, history,
       identityOnly: true, accounts: targets.length, sold: 0, linkedSold: 0,
-      conflicts: [], warnings: [],
+      created: 0, facts: [], conflicts: [], warnings: [],
       label: identityOnly[0]?.targetId
         ? bpImportAccountRow(identityOnly[0].targetId)?.account?.label || "the account"
         : "the account" };
@@ -10686,8 +10703,9 @@ async function bpImportApplyCas(bundle, opts = {}) {
   return { ok: true, total: summary.added + summary.updated + summary.history,
     added: summary.added, updated: summary.updated, history: summary.history,
     filled, accounts: targets.length, places: Number(outcome.places || 0),
-    kept: !!outcome.kept,
+    kept: !!outcome.kept, created: Number(outcome.created || 0),
     sold: outcome.sold || 0, linkedSold: outcome.linkedSold || 0,
+    facts: outcome.facts || [],
     conflicts: outcome.conflicts || [], warnings: outcome.warnings || [],
     label: Number(outcome.places || 0) > 1 ? `${outcome.places} accounts`
       : placeLabel
@@ -10722,15 +10740,33 @@ function bpImportPlanBlockedReceipt(plan) {
   return null;
 }
 
-// The receipt's leading phrases. A replace that deleted rows did write, so it
-// is never reported as "nothing added".
-function bpImportReceiptLead({ identityOnly = false, live = 0, extraText = "", removed = 0 } = {}) {
-  const parts = [];
-  if (identityOnly) parts.push(`Identity attached${extraText}`);
-  else if (live) parts.push(`${live} holding${live === 1 ? "" : "s"} imported${extraText}`);
-  else if (!removed) parts.push(`Nothing added${extraText}`);
-  if (removed) parts.push(`${removed} demat holding${removed === 1 ? "" : "s"} removed`);
-  return parts;
+// A finished import reads as a headline and at most three one-fact bullets.
+// The headline is the outcome; the bullets are what a person checks next: an
+// account that now exists, a folio that was adopted, the manual total that was
+// replaced. A bullet never repeats the headline. A replace that deleted rows
+// did write, so it is never reported as "nothing added".
+function bpImportReceipt({ identityOnly = false, live = 0, label = "", removed = 0,
+  sold = 0, created = 0, facts = [] } = {}) {
+  const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const where = label || "the account";
+  const sales = (n) => count(n, "sale or transfer recorded", "sales or transfers recorded");
+  const removals = (n) => count(n, "demat holding removed", "demat holdings removed");
+  const headline = identityOnly
+    ? `Identity attached to ${where}`
+    : live ? `${count(live, "holding", "holdings")} into ${where}`
+      : removed ? removals(removed)
+        : sold ? sales(sold) : "Nothing added";
+  const lines = [];
+  const add = (fact) => {
+    const line = String(fact || "").trim();
+    if (!line || line === headline || lines.includes(line)) return;
+    lines.push(line);
+  };
+  if (created) add(count(created, "account created", "accounts created"));
+  for (const fact of facts) add(fact);
+  if (removed && live) add(removals(removed));
+  if (sold && live) add(sales(sold));
+  return { headline, facts: lines.slice(0, 3) };
 }
 
 window.bpImportApplyPlan = async (key, opts = {}) => {
@@ -10813,15 +10849,16 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
       out.added += Number(result.added || 0);
       out.updated += Number(result.updated || 0);
       out.soldCost += Number(result.soldCost || 0);
+      out.created += Number(result.created || 0);
+      out.facts.push(...(result.facts || []));
       out.conflicts.push(...(result.conflicts || []));
       return out;
     }, { added: 0, updated: 0, filled: 0, history: 0, sold: 0,
-      linkedSold: 0, soldCost: 0, conflicts: [] });
+      linkedSold: 0, soldCost: 0, created: 0, facts: [], conflicts: [] });
     const extraFacts = [];
     if (combined.filled) extraFacts.push(`${combined.filled} empty value${combined.filled === 1 ? "" : "s"} filled`);
     if (combined.history) extraFacts.push(`${combined.history} matured bond${combined.history === 1 ? "" : "s"} moved to history`);
     if (combined.soldCost) extraFacts.push(`${combined.soldCost} sold cost basis${combined.soldCost === 1 ? "" : "es"} recorded`);
-    const extraText = extraFacts.length ? `, ${extraFacts.join(" and ")}` : "";
     const live = combined.added + Math.max(0, combined.updated - combined.filled);
     const conflicts = combined.conflicts
       .map((conflict) => conflict?.message || conflict).filter(Boolean);
@@ -10829,12 +10866,6 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
     const sold = combined.sold;
     const linkedSold = combined.linkedSold;
     const removed = Number(plan.removals || 0);
-    const parts = [];
-    parts.push(...bpImportReceiptLead({ identityOnly, live, extraText, removed }));
-    if (sold) parts.push(`${sold} sale${sold === 1 ? "" : "s"} or transfer${
-      sold === 1 ? "" : "s"} recorded as sold`);
-    if (linkedSold) parts.push(`${linkedSold} also reduced in the linked cost portfolio`);
-    if (conflicts.length) parts.push(conflicts.join(" "));
     // Name only the account(s) the writers actually wrote into. A target that
     // only had its identity checked is not somewhere the rows went.
     const resultLabels = [...new Set(results.map((result) => result?.label).filter(Boolean))];
@@ -10843,18 +10874,21 @@ window.bpImportApplyPlan = async (key, opts = {}) => {
         : (plan.accounts[0]
           ? bpImportAccountRow(plan.accounts[0])?.account?.label || "the account"
           : resultLabels[0] || "the account");
-    // A kept folio writes no account, so "into <label>" would name an account
-    // the import did not touch. The kept receipt is the whole status.
-    const keptOnly = results.length && results.every((result) => result.kept);
-    const receiptText = keptOnly ? parts.join("; ")
-      : `${parts.join("; ")} into ${label}.`;
+    const facts = [
+      ...combined.facts,
+      ...(linkedSold ? [`${linkedSold} sale${linkedSold === 1 ? "" : "s"} also reduced a linked cost portfolio`] : []),
+      ...extraFacts,
+    ];
+    const receipt = bpImportReceipt({ identityOnly, live, label, removed,
+      sold, created: combined.created, facts });
+    const receiptText = `${receipt.headline}.`;
     state.receipts = state.receipts || [];
     // One write time for every file in this plan; the history reads it back.
     const importedAt = new Date().toISOString();
     receiptFiles.forEach((name, index) => {
-      state.receipts.push({ name, at: importedAt,
-        text: index === 0 ? receiptText
-          : `Imported with the file above into ${label}.` });
+      state.receipts.push(index === 0
+        ? { name, at: importedAt, headline: receipt.headline, facts: receipt.facts }
+        : { name, at: importedAt, headline: "Imported with the file above", facts: [] });
     });
     if (!opts.silent) {
       bpImportInboxStatus(receiptText, conflicts.length ? "" : "good");
@@ -13011,6 +13045,7 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false, opts =
     const contested = card.folioPlan?.contested || [];
     const movements = (cas.transactions || []).length > 0;
     const messages = [];
+    const facts = [];
     if (kept.length) {
       // Keeping the manual total is a completed decision, not a missing account:
       // no rows, no events and no account are written, and the receipt says so.
@@ -13018,6 +13053,9 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false, opts =
       messages.push(`Folio${kept.length === 1 ? "" : "s"} ${tails} kept: `
         + "the manual total stays and none of its rows were imported"
         + `${movements ? " and none of its movements were recorded" : ""}.`);
+      for (const offer of kept) {
+        facts.push(`Folio …${folioTail(offer.folioNo)} kept; the manual total stays`);
+      }
     }
     if (contested.length) {
       const tails = contested.map((group) => `…${folioTail(group.folioNo)}`).join(", ");
@@ -13025,13 +13063,17 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false, opts =
         contested.length === 1 ? "is" : "are"} on more than one account that already `
         + "holds units: none of its rows or movements were imported. Remove one "
         + "duplicate, then import again.");
+      for (const group of contested) {
+        facts.push(`Folio …${folioTail(group.folioNo)} skipped; ${
+          group.accounts.length} accounts already hold units`);
+      }
     }
     if (messages.length && !movementEvents.length) {
       const message = messages.join(" ");
       const host = document.getElementById(key);
       if (host) host.innerHTML = `<div class="muted">${esc(message)}</div>`;
-      return { ok: true, written: 0, places: 0, sold: 0, linkedSold: 0,
-        kept: true, conflicts: [message], warnings: [] };
+      return { ok: true, written: 0, places: 0, created: 0, sold: 0, linkedSold: 0,
+        kept: true, facts, conflicts: [message], warnings: [] };
     }
     // A remaining movement with no target is not a completed decision. Fall
     // through to the writer, which refuses and keeps the file instead of
@@ -13043,7 +13085,8 @@ window.bpCasCreateAndImport = async (key = "cas-host", confirmed = false, opts =
       return { ok: false, reason: "Created the demat account. Import again to write the holdings." };
     }
   }
-  return window.bpCasImport(key, confirmed, opts);
+  const result = await window.bpCasImport(key, confirmed, opts);
+  return result?.ok ? { ...result, created: createdCount } : result;
 };
 window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
   const card = (window.bpCasCards || {})[key] || {};
@@ -13275,6 +13318,9 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
     let appliedEvents = 0;
     let alreadyEvents = 0;
     const conflictMessages = [];
+    // The history gets short facts, not the full sentence above. One fact per
+    // bullet, so an adoption and the manual total it replaced are two lines.
+    const conflictFacts = [];
     for (const [assetId, holdings] of byAsset) {
       const existing = rowsOf(assetId);
       const asset = assetOf(assetId);
@@ -13396,31 +13442,42 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       if (offer.basis === "folio" && chosen === "__skip__") {
         conflictMessages.push(`Folio …${tail} was kept: the manual total stays and `
           + "none of its rows were imported.");
+        conflictFacts.push(`Folio …${tail} kept; the manual total stays`);
       } else if (adopted) {
         conflictMessages.push(`Folio …${tail} adopted into ${adopted.label}; its manual
           total was replaced by the statement's units, folio, cost and source.`);
+        conflictFacts.push(`Folio …${tail} adopted into ${adopted.label}`,
+          `${adopted.label} manual total replaced by the statement`);
       } else if (offer.basis === "folio") {
         conflictMessages.push(`Folio …${tail} was not linked because the adopt-or-keep `
           + "choice was not made; none of its rows were imported.");
+        conflictFacts.push(`Folio …${tail} not linked; its rows were not imported`);
       } else if (!choosable.length) {
         conflictMessages.push(`Folio …${tail} was not linked: ${offer.reason}. It is a new
           account; the existing total still counts.`);
+        conflictFacts.push(`Folio …${tail} is a new account`);
       } else if (choosable.length > 1 && !chosen) {
         conflictMessages.push(`Folio …${tail} was not linked: ${offer.reason}. It became a
           new account; choose an account next time to adopt it.`);
+        conflictFacts.push(`Folio …${tail} is a new account; choose an account next time`);
       } else if (chosen === "__create__") {
         conflictMessages.push(`Folio …${tail} was not linked because you chose Keep both.
           It is a new account, and the existing total still counts.`);
+        conflictFacts.push(`Folio …${tail} kept separate as a new account`);
       } else {
         conflictMessages.push(`Folio …${tail} was not linked; it is a new account and both
           totals count. Choose Adopt next time to link it to ${
             choosable[0]?.label || "the existing account"}.`);
+        conflictFacts.push(`Folio …${tail} kept separate; choose Adopt next time`);
       }
     }
     for (const group of card.folioPlan?.contested || []) {
-      conflictMessages.push(`Folio …${folioTail(group.folioNo)} is on ${
+      const tail = folioTail(group.folioNo);
+      conflictMessages.push(`Folio …${tail} is on ${
         group.accounts.length} accounts that already hold units; none of its rows were
         imported. Remove one duplicate, then import again.`);
+      conflictFacts.push(`Folio …${tail} skipped; ${
+        group.accounts.length} accounts already hold units`);
     }
     const keptKeys = new Set((card.folioPlan?.offers || [])
       .filter((offer) => offer.basis === "folio"
@@ -13454,7 +13511,7 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
       keptNewer ? ` ${keptNewer} holding${keptNewer === 1 ? "" : "s"} bought after the statement
         date were kept.` : ""}</div>`;
     return { ok: true, written, places, sold: soldCount, linkedSold,
-      conflicts: conflictMessages, warnings: conflictMessages };
+      facts: conflictFacts, conflicts: conflictMessages, warnings: conflictMessages };
   } catch (e) {
     alert("Could not import the CAS: " + (e.message || e));
     return { ok: false, reason: e?.message || String(e) };
