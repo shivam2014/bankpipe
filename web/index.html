@@ -9226,10 +9226,10 @@ function bpImportPlanStatus(plan) {
       note: `${ask} difference${ask === 1 ? " needs" : "s need"} your decision.` };
   }
   // Every account this statement names is new. The resolver already made each
-  // one a safe create, so the writer is ready, but the row still names the one
-  // press that creates them instead of claiming an account is missing.
+  // one a safe create, so the plan is ready: the row's one press creates them,
+  // and a pill saying an account is missing would contradict that press.
   if (plan.ready && bpImportCasNewTargets(bundle).length) {
-    return { key: "account", label: "Needs an account", tone: "warn", note: "" };
+    return { key: "ready", label: "Ready", tone: "good", note: "" };
   }
   if (plan.ready) return { key: "ready", label: "Ready", tone: "good", note: "" };
   if (plan.needsChoice) {
@@ -9348,7 +9348,8 @@ function bpImportPlanActions(plan, status, entry, first = true) {
   } else if (bundle.movementBlocked) {
     buttons.push(`<button class="btn" onclick="bpAssetNew('demat', { number: ${
       jsArg(bundle.movementMissing?.[0] || "")} })">Add the account</button>`);
-  } else if (status.key === "account") {
+  } else if (status.key === "account"
+    || (status.key === "ready" && bpImportCasNewTargets(bundle).length)) {
     const newTargets = bpImportCasNewTargets(bundle);
     const casTarget = newTargets.length ? null : bpImportCasInlineCreate(plan);
     if (newTargets.length) {
@@ -9622,9 +9623,16 @@ function bpImportWhen(value) {
     { day: "numeric", month: "short", year: "numeric" });
 }
 
+// The two receipts that record a finish and no write. Both headlines are the
+// writer's count, so the status line and the history pill share one test.
+function bpImportReceiptNoChange(headline) {
+  return headline === "Nothing added" || /^No new transactions\b/.test(headline || "");
+}
+
 function bpImportHistoryRowHtml(receipt) {
   const when = bpImportWhen(receipt.at);
   const facts = (receipt.facts || []).filter(Boolean);
+  const noChange = bpImportReceiptNoChange(receipt.headline);
   return `<div class="import-row-receipt import-history-row">
     <span class="import-row-name import-history-name">${esc(receipt.name)}</span>
     ${when ? `<span class="import-history-when">${esc(when)}</span>` : ""}
@@ -9633,7 +9641,8 @@ function bpImportHistoryRowHtml(receipt) {
       : `<span class="import-row-note import-history-what">${esc(receipt.text || "")}</span>`}
     ${facts.length ? `<ul class="import-history-facts">${
       facts.map((fact) => `<li>${esc(fact)}</li>`).join("")}</ul>` : ""}
-    <span class="import-row-pill good">Imported</span>
+    <span class="import-row-pill${noChange ? "" : " good"}">${
+      noChange ? "No change" : "Imported"}</span>
   </div>`;
 }
 
@@ -9654,7 +9663,7 @@ function bpImportQueueReceipts() {
   const keep = 12;
   const shown = receipts.slice(0, keep);
   return `<details class="import-history import-row-more" open>
-    <summary><span>${receipts.length} imported</span><span
+    <summary><span>${receipts.length} finished</span><span
       class="import-history-chevron" aria-hidden="true">›</span></summary>
     ${shown.map(bpImportHistoryRowHtml).join("")}
     ${receipts.length > keep ? `<div class="muted import-note">Showing the last ${keep}
@@ -9809,19 +9818,43 @@ window.bpImportQueueImport = async () => {
   if (!plans.length && !banks.length) return;
   const receiptsBefore = (state.receipts || []).length;
   state.batchBusy = true;
-  bpImportInboxStatus(`Importing ${plans.reduce((total, plan) => total + plan.files.length, 0)
-    + banks.length} files…`);
+  const importing = `Importing ${plans.reduce((total, plan) => total + plan.files.length, 0)
+    + banks.length} files…`;
+  bpImportInboxStatus(importing);
   bpImportInboxRender();
+  // A failed plan or a no-work plan leaves its own sentence in the status. The
+  // batch must not replace that specific reason with its generic line.
+  let outcome = "";
   try {
     if (banks.length) await window.bpBatchImport?.();
     for (const plan of plans) {
       if (!(state.plans || []).some((item) => item.key === plan.key)) continue;
       await window.bpImportApplyPlan(plan.key, { silent: true });
+      // A writer refusal is bad; a plan with no work leaves its own sentence.
+      // The "Importing …" line is progress, not an outcome.
+      if (state.messageKind === "bad"
+        || /^Nothing to (change|import yet)/.test(state.message || "")) {
+        outcome = state.message;
+      }
     }
-    const bankDone = banks.filter((entry) => entry.status === "done").length;
-    const imported = (state.receipts || []).length - receiptsBefore + bankDone;
-    if (imported) {
-      bpImportInboxStatus(`${imported} file${imported === 1 ? "" : "s"} imported.`, "good");
+    const bankDone = banks.filter((entry) => entry.status === "done");
+    const bankWrote = bankDone.filter((entry) =>
+      Number(entry.result?.inserted || 0) > 0).length;
+    const receipts = (state.receipts || []).slice(receiptsBefore);
+    const planEmpty = receipts.filter((receipt) =>
+      bpImportReceiptNoChange(receipt.headline)).length;
+    const empty = planEmpty + bankDone.length - bankWrote;
+    const imported = receipts.length - planEmpty + bankWrote;
+    if (outcome) {
+      bpImportInboxStatus(imported
+        ? `${imported} file${imported === 1 ? "" : "s"} imported. ${outcome}`
+        : outcome, "bad");
+    } else if (imported) {
+      bpImportInboxStatus(`${imported} file${imported === 1 ? "" : "s"} imported.${
+        empty ? ` ${empty} finished with nothing added.` : ""}`,
+        empty ? "" : "good");
+    } else if (empty) {
+      bpImportInboxStatus(`${empty} file${empty === 1 ? "" : "s"} finished with nothing added.`);
     } else {
       bpImportInboxStatus("Nothing was imported. Check the rows.", "bad");
     }

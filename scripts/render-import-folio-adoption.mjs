@@ -105,36 +105,46 @@ function pageScript({ write = false, keep = false, manualPaise = MANUAL_PAISE } 
   state.entries.push(${JSON.stringify(entry())});
   // Force the resolver to read the store again, so the seeded manual account is
   // one of the accounts the offer is computed from.
-  window.bpImportDropPlan("__render__");
+  await window.bpImportDropPlan("__render__");
   await sleep(1200);
 
-  const card = [...document.querySelectorAll(".import-bundle")]
-    .find((item) => item.querySelector(".import-title")?.textContent.trim() === "CDSL CAS");
-  if (!card) throw new Error("the CDSL card is missing");
   const text = (node) => (node?.textContent || "").replace(/\\s+/g, " ").trim();
+  const rowOf = () => document.querySelector('.import-row[data-entry="inbox-render-folio-adoption"]')
+    || [...document.querySelectorAll(".import-row")]
+      .find((item) => item.querySelector(".import-row-name")?.textContent.trim()
+        === "cdsl-cas-synthetic.pdf");
+  const row = rowOf();
+  if (!row) throw new Error("the CDSL row is missing: "
+    + JSON.stringify([...document.querySelectorAll(".import-row-name")].map(text)));
   const planOf = () => (state.plans || [])[0] || {};
   const folioTargetOf = () => (planOf().head?.casTargets || []).find((target) => target.folio);
   const folio = folioTargetOf();
-  const offerNode = () => card.querySelector(".import-folio");
+  // The same block sits in the row's account control (closed) and in the open
+  // "Choose the account" details. Measure and read the visible one.
+  const visible = () => rowOf()?.querySelector(
+    "details.import-row-more.import-row-account[open]") || rowOf();
+  const offerNode = () => visible()?.querySelector(".import-folio");
   const buttons = () => [...(offerNode()?.querySelectorAll("button") || [])].map(text);
+  const barNode = () => document.querySelector(".import-batchbar .btn");
   const rect = offerNode()?.getBoundingClientRect();
   const summary = {
     ready: !!planOf().ready,
-    pill: text(card.querySelector(".import-pill")),
-    statusLines: [...card.querySelectorAll(".import-account-choice .import-choice-meta")].map(text),
+    pill: text(rowOf()?.querySelector(".import-row-pill")),
+    statusLines: [...(visible()?.querySelectorAll(
+      ".import-account-choice .import-choice-meta") || [])].map(text),
     offer: text(offerNode()),
     offerButtons: buttons(),
     offerHeight: rect ? Math.round(rect.height * 10) / 10 : 0,
     offerWidth: rect ? Math.round(rect.width * 10) / 10 : 0,
     pageOverflow: document.documentElement.scrollWidth > window.innerWidth,
-    accountChrome: [...card.querySelectorAll(".import-account-choice")].map(text),
+    accountChrome: [...(visible()?.querySelectorAll(".import-account-choice") || [])].map(text),
     folioAction: folio?.action || "",
     folioBasis: folio?.offer?.basis || "",
     folioTargetId: folio?.targetId || "",
-    genericFolioButton: [...card.querySelectorAll("button")]
+    genericFolioButton: [...(rowOf()?.querySelectorAll("button") || [])]
       .some((button) => /Create a new mutual fund folio account/i.test(text(button))),
-    importLabels: [...card.querySelectorAll("button")]
-      .map(text).filter((line) => /^Import \\d+ holding/.test(line)),
+    bar: text(barNode()),
+    barDisabled: !!barNode()?.disabled,
   };
   if (${write}) {
     const adopt = [...(offerNode()?.querySelectorAll("button") || [])]
@@ -142,26 +152,22 @@ function pageScript({ write = false, keep = false, manualPaise = MANUAL_PAISE } 
     if (!adopt) throw new Error("the Adopt button is missing");
     adopt.click();
     await sleep(1200);
-    const cardNow = [...document.querySelectorAll(".import-bundle")]
-      .find((item) => item.querySelector(".import-title")?.textContent.trim() === "CDSL CAS");
-    if (!cardNow) throw new Error("the CDSL card is missing after Adopt");
-    const freshOffer = cardNow.querySelector(".import-folio");
+    if (!rowOf()) throw new Error("the CDSL row is missing after Adopt");
     const afterAdopt = {
       ready: !!planOf().ready,
-      pill: text(cardNow.querySelector(".import-pill")),
-      statusLines: [...cardNow.querySelectorAll(".import-account-choice .import-choice-meta")].map(text),
-      accountChrome: [...cardNow.querySelectorAll(".import-account-choice")].map(text),
-      offer: text(freshOffer),
-      offerButtons: [...(freshOffer?.querySelectorAll("button") || [])].map(text),
+      pill: text(rowOf().querySelector(".import-row-pill")),
+      statusLines: [...(visible()?.querySelectorAll(
+        ".import-account-choice .import-choice-meta") || [])].map(text),
+      accountChrome: [...(visible()?.querySelectorAll(".import-account-choice") || [])].map(text),
+      offer: text(offerNode()),
+      offerButtons: buttons(),
       folioTargetId: (folioTargetOf() || {}).targetId || "",
-      importLabels: [...cardNow.querySelectorAll("button")]
-        .map(text).filter((line) => /^Import \\d+ holding/.test(line)),
-      allButtons: [...cardNow.querySelectorAll("button")].map(text),
+      bar: text(barNode()),
+      barDisabled: !!barNode()?.disabled,
       summary: planOf().summary || null,
       needsChoice: !!planOf().needsChoice,
     };
-    const button = [...cardNow.querySelectorAll("button")]
-      .find((item) => /^Import \\d+ holding/.test(text(item)));
+    const button = barNode();
     if (!button || button.disabled) {
       throw new Error("the Import button is not available: " + JSON.stringify(afterAdopt));
     }
@@ -196,21 +202,21 @@ function pageScript({ write = false, keep = false, manualPaise = MANUAL_PAISE } 
     if (!keepButton) throw new Error("the Keep the manual total button is missing");
     keepButton.click();
     await sleep(1200);
-    const cardNow = [...document.querySelectorAll(".import-bundle")]
-      .find((item) => item.querySelector(".import-title")?.textContent.trim() === "CDSL CAS");
-    if (!cardNow) throw new Error("the CDSL card is missing after Keep");
+    if (!rowOf()) throw new Error("the CDSL row is missing after Keep");
     const afterKeep = {
       ready: !!planOf().ready,
-      pill: text(cardNow.querySelector(".import-pill")),
-      statusLines: [...cardNow.querySelectorAll(".import-account-choice .import-choice-meta")].map(text),
-      offer: text(cardNow.querySelector(".import-folio")),
-      allButtons: [...cardNow.querySelectorAll("button")].map(text),
+      pill: text(rowOf().querySelector(".import-row-pill")),
+      statusLines: [...(visible()?.querySelectorAll(
+        ".import-account-choice .import-choice-meta") || [])].map(text),
+      offer: text(offerNode()),
+      allButtons: [...(rowOf()?.querySelectorAll("button") || [])].map(text),
       folioTargetId: (folioTargetOf() || {}).targetId || "",
+      bar: text(barNode()),
+      barDisabled: !!barNode()?.disabled,
       summary: planOf().summary || null,
       needsChoice: !!planOf().needsChoice,
     };
-    const finish = [...cardNow.querySelectorAll("button")]
-      .find((button) => /^Finish without importing$/.test(text(button)));
+    const finish = barNode();
     if (!finish || finish.disabled) {
       throw new Error("the finish button is not available: " + JSON.stringify(afterKeep));
     }
@@ -228,8 +234,9 @@ function pageScript({ write = false, keep = false, manualPaise = MANUAL_PAISE } 
       ? (await store.listHoldings(funds[0].id)).length : -1;
     summary.keepAccounts = accounts.length;
     summary.keepStatus = document.getElementById("import-inbox-status")?.textContent?.trim() || "";
+    summary.keepReceipt = text(document.querySelector(".import-row-receipt")) || "";
   }
-  card.scrollIntoView({ block: "start" });
+  rowOf()?.scrollIntoView({ block: "start" });
   window.scrollBy(0, -70);
   return JSON.stringify(summary);
 })()`;
@@ -245,8 +252,8 @@ function verifyCard(state) {
   const wrong = [];
   if (state.pageOverflow) wrong.push("the page scrolls sideways");
   if (state.ready) wrong.push("the card is Ready before the adopt-or-keep choice");
-  if (state.pill !== "Choose an account") {
-    wrong.push(`pill: want "Choose an account", got ${JSON.stringify(state.pill)}`);
+  if (state.pill !== "Needs an account") {
+    wrong.push(`pill: want "Needs an account", got ${JSON.stringify(state.pill)}`);
   }
   if (!state.statusLines.some((line) => line.includes("Existing folio · choose below"))) {
     wrong.push(`status lines: ${JSON.stringify(state.statusLines)}`);
@@ -284,8 +291,8 @@ function verifyCard(state) {
   }
   if (state.folioTargetId) wrong.push(`a target exists without a choice: ${state.folioTargetId}`);
   if (state.genericFolioButton) wrong.push("the generic create-folio button is still shown");
-  if (state.importLabels.length) {
-    wrong.push(`an Import button is available before the choice: ${JSON.stringify(state.importLabels)}`);
+  if (state.bar) {
+    wrong.push(`an Import button is available before the choice: ${JSON.stringify(state.bar)}`);
   }
   return wrong;
 }
@@ -298,8 +305,10 @@ function verifyKeep(state) {
   if (!after.statusLines.some((line) => line.includes("Kept the manual total"))) {
     wrong.push(`after Keep status: ${JSON.stringify(after.statusLines)}`);
   }
-  if (!after.allButtons.includes("Finish without importing")) {
-    wrong.push(`after Keep buttons: ${JSON.stringify(after.allButtons)}`);
+  // The finish action moved from the card to the queue's batch bar; the row
+  // still names the one press that closes the file.
+  if (after.bar !== "Import 1 ready file" || after.barDisabled) {
+    wrong.push(`after Keep finish action: ${JSON.stringify(after)}`);
   }
   if (after.folioTargetId) wrong.push(`Keep made a target: ${after.folioTargetId}`);
   if (after.needsChoice) wrong.push("Keep still asks for a choice");
@@ -314,11 +323,22 @@ function verifyKeep(state) {
     wrong.push(`the printed number changed: ${JSON.stringify(state.keepFunds?.[0]?.number)}`);
   }
   if (state.keepHoldings !== 0) wrong.push(`rows were written: ${state.keepHoldings}`);
-  if (!/kept: the manual total\s+stays and none of its rows were imported/.test(state.keepStatus || "")) {
-    wrong.push(`Keep receipt: ${JSON.stringify(state.keepStatus)}`);
+  if (!/Nothing added/.test(state.keepReceipt || "")
+    || !/kept; the manual total stays/.test(state.keepReceipt || "")) {
+    wrong.push(`Keep receipt: ${JSON.stringify(state.keepReceipt || state.keepStatus)}`);
   }
-  if (/into 2 accounts/.test(state.keepStatus || "")) {
-    wrong.push(`Keep receipt counts a kept folio as written: ${JSON.stringify(state.keepStatus)}`);
+  if (!/1 file finished with nothing added\./.test(state.keepStatus || "")) {
+    wrong.push(`Keep status: ${JSON.stringify(state.keepStatus)}`);
+  }
+  if (!/\bNo change\b/.test(state.keepReceipt || "")) {
+    wrong.push(`the history row does not say No change: ${JSON.stringify(state.keepReceipt)}`);
+  }
+  if (/\bImported\b/.test(state.keepReceipt || "")) {
+    wrong.push(`the history row calls a no-change finish Imported: ${
+      JSON.stringify(state.keepReceipt)}`);
+  }
+  if (/\binto 2 accounts\b/.test(state.keepReceipt || "")) {
+    wrong.push(`Keep receipt counts a kept folio as written: ${JSON.stringify(state.keepReceipt)}`);
   }
   return wrong;
 }
@@ -330,8 +350,8 @@ function verifyWrite(state) {  const wrong = [];
   if (after.folioTargetId !== "axis-value") {
     wrong.push(`after Adopt target: ${JSON.stringify(after.folioTargetId)}`);
   }
-  if (!after.importLabels.includes("Import 1 holding")) {
-    wrong.push(`after Adopt import buttons: ${JSON.stringify(after.importLabels)}`);
+  if (after.bar !== "Import 1 ready file" || after.barDisabled) {
+    wrong.push(`after Adopt import action: ${JSON.stringify(after)}`);
   }
   if (!(state.funds || []).some((account) => account.id === "axis-value")) {
     wrong.push(`the value-only id was not kept: ${JSON.stringify(state.funds)}`);
@@ -347,11 +367,11 @@ function verifyWrite(state) {  const wrong = [];
   if (meta.dp !== undefined) {
     wrong.push(`the adopted folio gained a synthetic DP: ${JSON.stringify(meta.dp)}`);
   }
-  if (/into 2 accounts/.test(state.status || "")) {
-    wrong.push(`the receipt counts a demat that received no row: ${JSON.stringify(state.status)}`);
+  if (/\binto 2 accounts\b/.test(state.receipt || "")) {
+    wrong.push(`the receipt counts a demat that received no row: ${JSON.stringify(state.receipt)}`);
   }
-  if (!/into Test Mutual Fund\.\s*$/.test(state.status || "")) {
-    wrong.push(`the receipt does not name the account it wrote: ${JSON.stringify(state.status)}`);
+  if (!/1 holding into Test Mutual Fund/.test(state.receipt || "")) {
+    wrong.push(`the receipt does not name the account it wrote: ${JSON.stringify(state.receipt)}`);
   }
   if (!(meta.folios || []).includes(PRINTED)) {
     wrong.push(`the printed folio is not stored: ${JSON.stringify(meta.folios)}`);

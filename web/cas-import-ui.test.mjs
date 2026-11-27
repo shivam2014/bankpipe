@@ -483,16 +483,34 @@ test("a statement whose every account is new is one press and no chooser", () =>
   assert.match(helpers, /creates\.length === targets\.length/);
   const status = between("function bpImportPlanStatus", "function bpImportCasCreateTargets");
   assert.match(status, /bpImportCasNewTargets\(bundle\)\.length/);
-  assert.match(status, /note: ""/, "the empty statement carries no matching sentence");
+  assert.match(status, /key: "ready", label: "Ready", tone: "good", note: ""/,
+    "a ready statement whose accounts are all new says Ready, not Needs an account");
   const details = between("function bpImportPlanAccountDetails",
     "function bpImportPlanReviewDetails");
   assert.match(details, /bpImportCasNewTargets\(bundle\)\.length \|\| bpImportCasInlineCreate\(plan\)/,
     "no chooser is drawn over accounts that are all new");
   const actions = between("function bpImportPlanActions", "function bpImportPlanRowHtml");
+  assert.match(actions, /status\.key === "ready" && bpImportCasNewTargets\(bundle\)\.length/,
+    "only a ready all-new plan draws the create press, never a review-blocked one");
   assert.match(actions, /Import and create \$\{count\} accounts/,
     "the one action names how many accounts it creates");
   assert.match(actions, /keys\.map\(\(key\) => jsArg\(key\)\)/,
     "the press carries every new account, not only the first");
   assert.match(html, /createChoice: choice === "__create__"/,
     "a folio the press creates counts as a resolved target");
+});
+
+test("an all-new statement that is ready reports Ready, not Needs an account", () => {
+  const source = [
+    between("function bpImportPlanStatus", "function bpImportCasCreateTargets"),
+    between("function bpImportCasCreateTargets", "function bpImportCasProposal"),
+  ].join("\n");
+  const { bpImportPlanStatus } = new Function("bpImportPlanDateBlocked", `${source}
+    return { bpImportPlanStatus };`)(() => false);
+  const target = (boId) => ({ boId, action: "create", targetId: "",
+    createChoice: false, autoCreate: true, needsChoice: false,
+    match: { matches: [] }, offer: null, home: null, contested: null, rows: [{}] });
+  const status = bpImportPlanStatus({ ready: true, head: { family: "cas",
+    casTargets: [target("9999000012345678"), target("9999000098765432")] } });
+  assert.deepEqual(status, { key: "ready", label: "Ready", tone: "good", note: "" });
 });
