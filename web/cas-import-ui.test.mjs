@@ -304,7 +304,17 @@ test("a value-only folio offer compares the manual total and the statement", () 
   assert.match(html, /Adopt into \$\{esc\(candidate\.label\)\}/);
   assert.match(html, /Keep both/);
   assert.match(html, /market movement/);
-  assert.match(html, /Keep both counts both\./);
+  assert.match(html, /Keep both counts both; choose it only if the manual total is a separate position\./);
+});
+
+test("the guess puts the green on Adopt when the values corroborate it", () => {
+  // The gap threshold is the same one the warning uses. Below it, the sole
+  // candidate is the likely home, and Keep both is not a default because it
+  // counts the same position twice. A warned gap recommends neither.
+  assert.match(html, /const recommended = !exact && !large && choosable\.length === 1/);
+  assert.match(html, /const adopted = \(candidate\) => chosen === candidate\.id\s*\n\s*\|\| \(!chosen && candidate\.id === recommended\)/);
+  assert.match(html, /adopted\(candidate\) \? " primary" : ""/);
+  assert.match(html, /chosen === "__create__" \|\| \(!chosen && !choosable\.length\) \? " primary" : ""/);
 });
 
 test("the exact folio offer keeps the same structure without the guess", () => {

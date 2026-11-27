@@ -37,15 +37,23 @@ const fund = {
   quantity: 100, valuePaise: STATEMENT_PAISE, costPaise: COST_PAISE,
   folio: FOLIO, amc: "TESTMUTUAL", amcFull: "Test Mutual Fund",
 };
+// One demat holding keeps the statement's own account in the write, so the
+// queue shows the account question instead of calling the whole file "nothing
+// new" while the folio answer is still open.
+const equity = {
+  isin: "INE000A01001", label: "TEST EQUITY LTD", kind: "equity",
+  quantity: 10, valuePaise: 1000000, costPaise: 800000,
+  folio: "", amc: "", amcFull: "",
+};
 
 function statement() {
-  const holdings = [{ ...fund, account: DEMAT }];
+  const holdings = [{ ...fund, account: DEMAT }, { ...equity, account: DEMAT }];
   return {
     depository: "NSDL", demat: DEMAT, asOf: AS_OF,
     accounts: [{ boId: DEMAT, dpName: "Test DP", holdings }],
     holdings, transactions: [],
     counts: { rows: holdings.length, quarantined: 0 },
-    printedTotalPaise: STATEMENT_PAISE,
+    printedTotalPaise: holdings.reduce((total, holding) => total + holding.valuePaise, 0),
   };
 }
 
@@ -99,34 +107,54 @@ function pageScript() {
   state.entries.push(${JSON.stringify(entry())});
   // Force the resolver to read the store again, so the seeded manual account is
   // one of the accounts the offer is computed from.
-  window.bpImportDropPlan("__render__");
+  await window.bpImportDropPlan("__render__");
   await sleep(1200);
 
-  const card = [...document.querySelectorAll(".import-bundle")]
-    .find((item) => item.querySelector(".import-title")?.textContent.trim() === "CDSL CAS"
-      || item.querySelector(".import-title")?.textContent.trim() === "NSDL CAS");
-  if (!card) throw new Error("the CAS card is missing");
   const text = (node) => (node?.textContent || "").replace(/\\s+/g, " ").trim();
+  const row = document.querySelector('.import-row[data-entry="inbox-render-folio-guess"]')
+    || [...document.querySelectorAll(".import-row")]
+      .find((item) => item.querySelector(".import-row-name")?.textContent.trim()
+        === "nsdl-cas-synthetic.pdf");
+  if (!row) throw new Error("the CAS row is missing: "
+    + JSON.stringify([...document.querySelectorAll(".import-row-name")].map(text)));
   const planOf = () => (state.plans || [])[0] || {};
   const folioTargetOf = () => (planOf().head?.casTargets || []).find((target) => target.folio);
   const folio = folioTargetOf();
-  const offerNode = () => card.querySelector(".import-folio");
+  // The same block sits in the row's account control (closed) and in the open
+  // "Choose the account" details. Measure and read the visible one.
+  const visible = () => row.querySelector("details.import-row-more.import-row-account[open]") || row;
+  const offerNode = () => visible().querySelector(".import-folio");
   const buttons = () => [...(offerNode()?.querySelectorAll("button") || [])].map(text);
+  const primaryButtons = () => [...(offerNode()?.querySelectorAll("button.primary") || [])].map(text);
   const rect = offerNode()?.getBoundingClientRect();
   const summary = {
     ready: !!planOf().ready,
-    pill: text(card.querySelector(".import-pill")),
-    statusLines: [...card.querySelectorAll(".import-account-choice .import-choice-meta")].map(text),
+    pill: text(row.querySelector(".import-row-pill")),
+    statusLines: [...visible().querySelectorAll(".import-account-choice .import-choice-meta")].map(text),
     offer: text(offerNode()),
     offerButtons: buttons(),
+    primaryButtons: primaryButtons(),
     offerHeight: rect ? Math.round(rect.height * 10) / 10 : 0,
     offerWidth: rect ? Math.round(rect.width * 10) / 10 : 0,
+    // The row hands nowrap to its details unless the open block resets it.
+    // Catch any child whose text is wider than its box.
+    overflowing: (() => {
+      const out = [];
+      for (const node of offerNode()?.querySelectorAll("*") || []) {
+        if (node.scrollWidth > node.clientWidth + 1) {
+          out.push({ cls: String(node.className || node.tagName),
+            sw: node.scrollWidth, cw: node.clientWidth,
+            text: (node.textContent || "").trim().slice(0, 48) });
+        }
+      }
+      return out.slice(0, 8);
+    })(),
     pageOverflow: document.documentElement.scrollWidth > window.innerWidth,
     folioAction: folio?.action || "",
     folioBasis: folio?.offer?.basis || "",
     folioTargetId: folio?.targetId || "",
   };
-  card.scrollIntoView({ block: "start" });
+  row.scrollIntoView({ block: "start" });
   window.scrollBy(0, -70);
   return JSON.stringify(summary);
 })()`;
@@ -135,15 +163,18 @@ function pageScript() {
 const SHOTS = [
   { width: 320, height: 2400 },
   { width: 390, height: 2400 },
-  { width: 1280, height: 1800 },
+  { width: 604, height: 2400 },
 ];
 
 function verifyCard(state) {
   const wrong = [];
   if (state.ready) wrong.push("the card is Ready before the adopt-or-keep choice");
   if (state.pageOverflow) wrong.push("the page scrolls sideways");
-  if (state.pill !== "Choose an account") {
-    wrong.push(`pill: want "Choose an account", got ${JSON.stringify(state.pill)}`);
+  if ((state.overflowing || []).length) {
+    wrong.push(`the block's text overflows: ${JSON.stringify(state.overflowing)}`);
+  }
+  if (state.pill !== "Needs an account") {
+    wrong.push(`pill: want "Needs an account", got ${JSON.stringify(state.pill)}`);
   }
   if (!state.statusLines.some((line) => line.includes("Similar account · choose below"))) {
     wrong.push(`status lines: ${JSON.stringify(state.statusLines)}`);
@@ -164,10 +195,16 @@ function verifyCard(state) {
   if (state.offerButtons.some((line) => /Keep the manual total|Create/i.test(line))) {
     wrong.push(`the guess still carries an exact-only answer: ${JSON.stringify(state.offerButtons)}`);
   }
+  // The green is the recommendation, not the double count. A 2.5% gap is
+  // inside the card's own market-movement band, so Adopt is the sole primary.
+  if (JSON.stringify(state.primaryButtons) !== JSON.stringify(["Adopt into Test Mutual Fund"])) {
+    wrong.push(`the green is not on Adopt: ${JSON.stringify(state.primaryButtons)}`);
+  }
   for (const want of ["Same fund?", "TEST FUND TAX SAVER - REGULAR GROWTH · folio …3856",
     "The existing row has no folio on file.", "Existing Test Mutual Fund", "3,21,678.00",
     "This statement", "3,13,579.41", "Difference", "−₹ 8,098.59", "2.5%",
-    "Adopt replaces the manual total.", "Keep both counts both."]) {
+    "Adopt replaces the manual total, so this fund counts once.",
+    "Keep both counts both; choose it only if the manual total is a separate position."]) {
     if (!state.offer.includes(want)) {
       wrong.push(`offer is missing ${JSON.stringify(want)}: ${JSON.stringify(state.offer)}`);
     }
@@ -249,12 +286,12 @@ try {
           + "asked for.\n  " + wrong.join("\n  ")
           + "\n  full state: " + JSON.stringify(state));
       }
-      console.log(`${out} · offer ${state.offerWidth}×${state.offerHeight}`);
+      console.log(`${out} · offer ${state.offerWidth}×${state.offerHeight} · green on ${state.primaryButtons.join(", ")}`);
     }
   }
   console.log("import folio guess: the question names the fund and folio, labels the match "
-    + "as a guess, compares the manual total with the statement and waits for Adopt or "
-    + "Keep both · 320/390/1280 light and dark");
+    + "as a guess, compares the manual total with the statement, puts the green on Adopt "
+    + "and names when Keep both is right · 320/390/604 light and dark");
 } finally {
   server.child.kill();
   rmSync(dir, { recursive: true, force: true });

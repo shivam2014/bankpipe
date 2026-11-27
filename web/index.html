@@ -825,6 +825,9 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
  border-radius:9px;background:var(--bg);color:var(--ink)}
 .import-row-pw input:focus-visible{outline:2px solid var(--green);outline-offset:2px}
 .import-row-more{grid-column:1/-1;margin-top:6px}
+/* The row's account line is one clipped line; the details it opens carry the
+   full question and must wrap normally. */
+.import-row-more.import-row-account[open]{white-space:normal;overflow:visible}
 .import-row-more summary{cursor:pointer;font-size:12px;color:var(--muted);
  display:flex;align-items:center;min-height:44px}
 .import-row-more summary:hover{color:var(--ink)}
@@ -950,7 +953,7 @@ a.mini-btn{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .import-section-title{font-size:11px;text-transform:uppercase;letter-spacing:.06em;
  color:var(--muted);font-weight:680}
 .import-account-split{font-size:12px;color:var(--muted);margin-top:2px}
-.import-account-list{display:grid;gap:6px;margin-top:7px}
+.import-account-list{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;margin-top:7px}
 .import-account-choice{display:flex;justify-content:space-between;gap:10px;align-items:center;
  width:100%;min-width:0;min-height:44px;text-align:left;border:1px solid var(--line);border-radius:10px;
  background:var(--card);color:var(--ink);font:inherit;padding:9px 11px;cursor:pointer}
@@ -11090,8 +11093,16 @@ function casFolioOfferHtml(offer, { chosen = "", onChoose } = {}) {
     </div>`;
   };
   const tables = choosable.map(compare).join("");
+  // A gap over 25% is the card's own warning that the values may be different
+  // holdings. Below it, one candidate and a close total are the evidence that
+  // this is the same fund, so adoption is the action that leaves one position.
+  // An exact folio already has its answer; it needs no default.
   const large = choosable.length > 0 && Number.isFinite(first?.diffPct)
     && Math.abs(first.diffPct) >= 0.25;
+  const recommended = !exact && !large && choosable.length === 1
+    ? choosable[0].id : "";
+  const adopted = (candidate) => chosen === candidate.id
+    || (!chosen && candidate.id === recommended);
   const reason = !choosable.length && offer.reason
     ? `<div class="import-folio-note">${esc(offer.reason.charAt(0).toUpperCase()
       + offer.reason.slice(1))}.</div>` : "";
@@ -11099,19 +11110,20 @@ function casFolioOfferHtml(offer, { chosen = "", onChoose } = {}) {
     ? exact
       ? ["Adopt replaces the manual total.",
         "Keep the manual total. No rows are imported."]
-      : ["Adopt replaces the manual total.", "Keep both counts both."]
+      : ["Adopt replaces the manual total, so this fund counts once.",
+        "Keep both counts both; choose it only if the manual total is a separate position."]
     : exact
       ? ["Keep the manual total. No rows are imported."]
       : ["Nothing is linked; keeping both is the safe choice."];
   const buttons = choosable.map((candidate) => `<button type="button" class="btn${
-    chosen === candidate.id ? " primary" : ""}" onclick="${
+    adopted(candidate) ? " primary" : ""}" onclick="${
     onChoose(offer, candidate.id)}">Adopt into ${esc(candidate.label)}</button>`).join("");
   const keep = exact
     ? `<button type="button" class="btn${
       chosen === "__skip__" ? " primary" : ""}" onclick="${
       onChoose(offer, "__skip__")}">Keep the manual total</button>`
     : `<button type="button" class="btn${
-      !chosen || chosen === "__create__" ? " primary" : ""}" onclick="${
+      chosen === "__create__" || (!chosen && !choosable.length) ? " primary" : ""}" onclick="${
       onChoose(offer, "__create__")}">Keep both</button>`;
   return `<div class="import-folio" data-folio="${esc(offer.key)}">
     <div class="import-folio-head"><b>Same fund?</b>${guess}</div>
