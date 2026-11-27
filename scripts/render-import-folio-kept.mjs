@@ -141,6 +141,10 @@ const unhomedEntry = entry(statement({
 }), "inbox-unhomed");
 
 function pageScript({ mode, write = false } = {}) {
+  const currentEntry = mode === "kept" ? keptEntry
+    : mode === "unhomed" ? unhomedEntry
+      : mode === "boundary" ? boundaryEntry
+        : mode === "zeroonly" ? zeroOnlyEntry : zeroEntry;
   return `(async () => {
   const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
   const store = await import("./db.js");
@@ -186,28 +190,37 @@ function pageScript({ mode, write = false } = {}) {
   state.choices = {};
   state.acceptAsk = {};
   state.accountRows = null;
-  state.entries.push(${JSON.stringify(mode === "kept" ? keptEntry
-    : mode === "unhomed" ? unhomedEntry
-      : mode === "boundary" ? boundaryEntry
-        : mode === "zeroonly" ? zeroOnlyEntry : zeroEntry)});
-  window.bpImportDropPlan("__render__");
+  state.entries.push(${JSON.stringify(currentEntry)});
+  await window.bpImportDropPlan("__render__");
   await sleep(1400);
 
-  const cardOf = () => [...document.querySelectorAll(".import-bundle")]
-    .find((item) => item.querySelector(".import-title")?.textContent.trim() === "CDSL CAS");
-  const card = cardOf();
-  if (!card) throw new Error("the CDSL card is missing");
+  const rowOf = () => document.querySelector('.import-row[data-entry="${currentEntry.id}"]')
+    || [...document.querySelectorAll(".import-row")]
+      .find((item) => item.querySelector(".import-row-name")?.textContent.trim()
+        === "cdsl-cas-synthetic.pdf");
+  const card = rowOf();
+  if (!card) throw new Error("the CDSL row is missing: "
+    + JSON.stringify([...document.querySelectorAll(".import-row-name")].map(text)));
   const planOf = () => (state.plans || [])[0] || {};
-  const primary = () => [...(cardOf()?.querySelectorAll("button") || [])]
-    .find((button) => !button.closest(".import-folio")
-      && /^(Import \\d|Record \\d|Finish without|Choose below)/.test(text(button)));
+  // The panel repeats the account list in the closed control and in the open
+  // "Choose the account" details. Read the visible one.
+  const visible = () => rowOf()?.querySelector(
+    "details.import-row-more.import-row-account[open]") || rowOf();
+  // The one press that continues this row: a create-and-import action when the
+  // statement names an account that does not exist, else the queue's bar.
+  const primary = () => {
+    const action = [...(rowOf()?.querySelectorAll(".import-row-actions .btn") || [])]
+      .find((button) => /^(Import \\d|Import and create|Record \\d|Create )/.test(text(button)));
+    return action || document.querySelector(".import-batchbar .btn");
+  };
   const summary = {
     before: {
       ready: !!planOf().ready,
-      pill: text(card.querySelector(".import-pill")),
+      pill: text(card.querySelector(".import-row-pill")),
+      facts: text(card.querySelector(".import-row-facts")),
       primary: text(primary()),
       sales: text(card.querySelector(".cas-sales")),
-      accountLines: [...card.querySelectorAll(".import-account-choice")].map(text),
+      accountLines: [...(visible()?.querySelectorAll(".import-account-choice") || [])].map(text),
       summary: planOf().summary || null,
     },
   };
@@ -217,13 +230,13 @@ function pageScript({ mode, write = false } = {}) {
     if (!keep) throw new Error("the keep button is missing");
     keep.click();
     await sleep(1300);
-    const afterKeepCard = cardOf();
+    if (!rowOf()) throw new Error("the CDSL row is missing after Keep");
     summary.afterKeep = {
       ready: !!planOf().ready,
-      pill: text(afterKeepCard.querySelector(".import-pill")),
+      pill: text(rowOf().querySelector(".import-row-pill")),
       primary: text(primary()),
-      sales: text(afterKeepCard.querySelector(".cas-sales")),
-      accountLines: [...afterKeepCard.querySelectorAll(".import-account-choice")].map(text),
+      sales: text(rowOf().querySelector(".cas-sales")),
+      accountLines: [...(visible()?.querySelectorAll(".import-account-choice") || [])].map(text),
       saleEvents: (planOf().head?.saleEvents || []).map((event) => event.isin),
     };
     const button = primary();
@@ -242,6 +255,7 @@ function pageScript({ mode, write = false } = {}) {
     const manual = accounts.find((account) => account.id === "axis-value");
     summary.after = {
       status: document.getElementById("import-inbox-status")?.textContent?.trim() || "",
+      receipt: text(document.querySelector(".import-row-receipt")) || "",
       entries: state.entries.length,
       demat: demat ? (await store.listHoldings(demat.id)).map((holding) => ({
         isin: holding.security_id, quantity: holding.quantity,
@@ -274,6 +288,7 @@ function pageScript({ mode, write = false } = {}) {
     }
     summary.after = {
       status: document.getElementById("import-inbox-status")?.textContent?.trim() || "",
+      receipt: text(document.querySelector(".import-row-receipt")) || "",
       entries: state.entries.length, accounts: accounts.length, holdings,
     };
   }
@@ -298,10 +313,11 @@ function pageScript({ mode, write = false } = {}) {
     }
     summary.after = {
       status: document.getElementById("import-inbox-status")?.textContent?.trim() || "",
+      receipt: text(document.querySelector(".import-row-receipt")) || "",
       entries: state.entries.length, accounts: accounts.length, holdings,
     };
   }
-  card.scrollIntoView({ block: "start" });
+  rowOf()?.scrollIntoView({ block: "start" });
   window.scrollBy(0, -70);
   return JSON.stringify(summary);
 })()`;
@@ -315,7 +331,7 @@ const SHOTS = [
 function verifyKeptCard(state) {
   const wrong = [];
   if (state.before.ready) wrong.push("the card is Ready before the adopt-or-keep choice");
-  if (state.before.pill !== "Choose an account") {
+  if (state.before.pill !== "Needs an account") {
     wrong.push(`pill: ${JSON.stringify(state.before.pill)}`);
   }
   if (!state.before.sales.includes("Sold 2 units of " + EQUITY)) {
@@ -341,7 +357,7 @@ function verifyKeptAfter(state) {
   if ((afterKeep.saleEvents || []).includes(FUND)) {
     wrong.push("the kept folio's own sale is in the planned events");
   }
-  if (afterKeep.primary !== "Record 1 sale") {
+  if (afterKeep.primary !== "Import 1 ready file") {
     wrong.push(`after Keep primary: ${JSON.stringify(afterKeep.primary)}`);
   }
   return wrong;
@@ -374,17 +390,16 @@ function verifyKeptWrite(state) {
     }
     if (after.manual.rows !== 0) wrong.push(`the manual account gained rows: ${after.manual.rows}`);
   }
-  for (const want of ["1 sale or transfer recorded as sold", "…8993 was kept",
-    "none of its rows were imported"]) {
-    if (!String(after.status || "").includes(want)) {
-      wrong.push(`the receipt is missing ${JSON.stringify(want)}: ${JSON.stringify(after.status)}`);
+  for (const want of ["1 sale or transfer recorded", "Folio …1234 kept; the manual total stays"]) {
+    if (!String(after.receipt || "").includes(want)) {
+      wrong.push(`the receipt is missing ${JSON.stringify(want)}: ${JSON.stringify(after.receipt)}`);
     }
   }
-  if (/none of its movements were recorded/.test(after.status || "")) {
-    wrong.push(`the receipt says the demat sale was not recorded: ${after.status}`);
+  if (/none of its movements were recorded/.test(after.receipt || "")) {
+    wrong.push(`the receipt says the demat sale was not recorded: ${after.receipt}`);
   }
-  if (/into 2 accounts/.test(after.status || "")) {
-    wrong.push(`the receipt counts an account that received no row: ${after.status}`);
+  if (/\binto 2 accounts\b/.test(after.receipt || "")) {
+    wrong.push(`the receipt counts an account that received no row: ${after.receipt}`);
   }
   return wrong;
 }
@@ -392,16 +407,14 @@ function verifyKeptWrite(state) {
 function verifyZeroCard(state) {
   const wrong = [];
   if (!state.before.ready) wrong.push("the zero-unit card is not Ready");
-  if (state.before.primary !== "Import 3 holdings") {
+  if (state.before.primary !== "Import and create 2 accounts") {
     wrong.push(`the zero-unit card says ${JSON.stringify(state.before.primary)}`);
   }
-  const dematLine = (state.before.accountLines || []).find((line) => /…5678/.test(line));
-  if (!dematLine || !/2 holdings/.test(dematLine)) {
-    wrong.push(`the demat line is ${JSON.stringify(dematLine)}`);
-  }
-  const folioLine = (state.before.accountLines || []).find((line) => /mutual fund · folio/.test(line));
-  if (!folioLine || !/1 holding/.test(folioLine)) {
-    wrong.push(`the folio line is ${JSON.stringify(folioLine)}`);
+  // Every account in the statement is new, so the row summarises the split
+  // instead of listing the accounts. The per-account row counts are asserted
+  // against the store in verifyZeroWrite.
+  if (!/2 accounts · 2 new · 3 holdings/.test(state.before.facts || "")) {
+    wrong.push(`the zero-unit facts are ${JSON.stringify(state.before.facts)}`);
   }
   return wrong;
 }
@@ -424,8 +437,8 @@ function verifyZeroWrite(state) {
   else if (folio.rows.length !== 1 || folio.rows[0].isin !== FUND) {
     wrong.push(`the folio rows are ${JSON.stringify(folio.rows)}`);
   }
-  if (!/3 holdings into/.test(after.status || "")) {
-    wrong.push(`the receipt does not count what it wrote: ${JSON.stringify(after.status)}`);
+  if (!/3 holdings into 2 accounts/.test(after.receipt || "")) {
+    wrong.push(`the receipt does not count what it wrote: ${JSON.stringify(after.receipt)}`);
   }
   const wrote = (after.holdings || []).reduce((total, account) => total + account.rows.length, 0);
   if (wrote !== 3) wrong.push(`the store holds ${wrote} rows, the receipt says 3`);
@@ -435,12 +448,11 @@ function verifyZeroWrite(state) {
 function verifyZeroOnlyCard(state) {
   const wrong = [];
   if (!state.before.ready) wrong.push("the zero-unit-only card is not Ready");
-  if (state.before.primary !== "Import 1 holding") {
+  if (state.before.primary !== "Create Test DP demat …5678 and import") {
     wrong.push(`the zero-unit-only card says ${JSON.stringify(state.before.primary)}`);
   }
-  const demat = (state.before.accountLines || []).find((line) => /…5678/.test(line));
-  if (!demat || !/New demat account/.test(demat) || !/1 holding/.test(demat)) {
-    wrong.push(`the zero-unit-only demat line is ${JSON.stringify(demat)}`);
+  if (!/1 holding/.test(state.before.facts || "")) {
+    wrong.push(`the zero-unit-only facts are ${JSON.stringify(state.before.facts)}`);
   }
   return wrong;
 }
@@ -458,8 +470,8 @@ function verifyZeroOnlyWrite(state) {
       wrong.push(`the demat rows are ${JSON.stringify(demat.rows)}`);
     }
   }
-  if (!/1 holding imported/.test(after.status || "")) {
-    wrong.push(`the receipt does not count the row: ${JSON.stringify(after.status)}`);
+  if (!/1 holding into/.test(after.receipt || "")) {
+    wrong.push(`the receipt does not count the row: ${JSON.stringify(after.receipt)}`);
   }
   return wrong;
 }
@@ -467,15 +479,14 @@ function verifyZeroOnlyWrite(state) {
 function verifyBoundaryCard(state) {
   const wrong = [];
   if (!state.before.ready) wrong.push("the boundary card is not Ready");
-  if (state.before.primary !== "Import 1 holding") {
+  // The statement's demat is new, so the row is one create-and-import press.
+  // A fund account that happens to hold the same ISIN must not be named here.
+  if (!/^Create .*…5678 and import$/.test(state.before.primary || "")) {
     wrong.push(`the boundary card says ${JSON.stringify(state.before.primary)}`);
   }
-  const lines = state.before.accountLines || [];
+  const lines = [...(state.before.accountLines || []), state.before.primary || ""];
   if (lines.some((line) => /Update Test Mutual Fund|Update .*mutual fund/i.test(line))) {
     wrong.push(`the fund account is the demat target: ${JSON.stringify(lines)}`);
-  }
-  if (!lines.some((line) => /…5678/.test(line) && /New demat account/.test(line))) {
-    wrong.push(`the boundary card has no new demat line: ${JSON.stringify(lines)}`);
   }
   return wrong;
 }
@@ -514,7 +525,7 @@ function verifyUnhomedAfterKeep(state) {
   const wrong = [];
   const afterKeep = state.afterKeep || {};
   if (!afterKeep.ready) wrong.push("the card is not Ready after Keep");
-  if (afterKeep.primary !== "Finish without importing") {
+  if (afterKeep.primary !== "Import 1 ready file") {
     wrong.push(`after Keep primary: ${JSON.stringify(afterKeep.primary)}`);
   }
   if (String(afterKeep.sales || "").includes(REDEEMED)) {
@@ -527,9 +538,14 @@ function verifyUnhomedWrite(state) {
   const wrong = [];
   const after = state.after || {};
   if (after.entries !== 1) wrong.push(`the file left the inbox: ${after.entries}`);
-  if (!/No account on file can take this statement/.test(after.status || "")) {
-    wrong.push(`the refusal is missing: ${JSON.stringify(after.status)}`);
+  if (!/No account on file can take this statement|movement has no account or folio that can record it/i
+    .test(after.status || "")) {
+    wrong.push(`the specific refusal is missing: ${JSON.stringify(after.status)}`);
   }
+  if (/Nothing was imported\. Check the rows\./.test(after.status || "")) {
+    wrong.push(`the generic batch line overwrote the refusal: ${JSON.stringify(after.status)}`);
+  }
+  if (after.receipt) wrong.push(`a refused movement wrote a receipt: ${after.receipt}`);
   const manual = after.manual || {};
   if (manual.meta?.current_value_paise !== MANUAL_PAISE) {
     wrong.push(`the manual total changed: ${JSON.stringify(manual.meta)}`);

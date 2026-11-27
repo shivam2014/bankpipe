@@ -204,8 +204,8 @@ function pageScript({ seed = null, press = false } = {}) {
 
 function verifyEmpty(state) {
   const wrong = [];
-  if (state.pill !== "Needs an account") {
-    wrong.push(`pill: want "Needs an account", got ${JSON.stringify(state.pill)}`);
+  if (state.pill !== "Ready") {
+    wrong.push(`pill: want "Ready", got ${JSON.stringify(state.pill)}`);
   }
   if (state.note) {
     wrong.push(`the empty statement carries a note: ${JSON.stringify(state.note)}`);

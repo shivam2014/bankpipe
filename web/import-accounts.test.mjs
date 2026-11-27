@@ -972,6 +972,79 @@ test("the batch imports only the rows that are ready and reports each one", () =
   assert.match(receipt, /state\.receipts\.push/);
 });
 
+const batchPlan = (key) => ({ key, ready: true, noWork: false,
+  files: [{ entryId: `${key}-file` }] });
+
+function batchHarness(plans, apply, { banks = [], importBanks } = {}) {
+  const state = { plans, entries: [], receipts: [], batchBusy: false,
+    message: "", messageKind: "" };
+  const status = (text, kind = "") => {
+    state.message = text || "";
+    state.messageKind = kind;
+  };
+  const window = { bpBatch: { entries: banks },
+    bpBatchImport: importBanks || (async () => {}), bpImportApplyPlan: apply };
+  const helpers = between("function bpImportReceiptNoChange",
+    "function bpImportHistoryRowHtml");
+  const source = between("window.bpImportQueueImport = async",
+    "// One password gate exists");
+  const factory = new Function("window", "bpImportInboxState", "bpImportInboxStatus",
+    "bpImportInboxRender", `${helpers}
+      ${source}
+      return window.bpImportQueueImport;`);
+  return { state, status, run: factory(window, () => state, status, () => {}) };
+}
+
+test("a batch does not call a file imported when its receipt says Nothing added", async () => {
+  const batch = batchHarness([batchPlan("kept")], async () => {
+    batch.state.receipts.push({ name: "cas.pdf", headline: "Nothing added",
+      facts: ["Folio …1234 kept; the manual total stays"] });
+  });
+  await batch.run();
+  assert.equal(batch.state.message, "1 file finished with nothing added.");
+});
+
+test("a batch reports the write and the no-change finish in one line", async () => {
+  const batch = batchHarness([batchPlan("write"), batchPlan("kept")], async (key) => {
+    batch.state.receipts.push(key === "write"
+      ? { name: "tradebook.xlsx", headline: "3 holdings into Demat · Zerodha" }
+      : { name: "cas.pdf", headline: "Nothing added", facts: ["Folio …1234 kept"] });
+  });
+  await batch.run();
+  assert.equal(batch.state.message, "1 file imported. 1 finished with nothing added.");
+});
+
+test("a batch does not call a bank file imported when it inserted nothing", async () => {
+  const bank = { name: "statement.csv", status: "ready", result: null };
+  const batch = batchHarness([], async () => {}, {
+    banks: [bank],
+    importBanks: async () => {
+      bank.status = "done";
+      bank.result = { inserted: 0, duplicates: 3 };
+    },
+  });
+  await batch.run();
+  assert.equal(batch.state.message, "1 file finished with nothing added.");
+});
+
+test("a batch keeps the writer's specific refusal", async () => {
+  const batch = batchHarness([batchPlan("movement")], async () => {
+    batch.status("The statement's movement has no account or folio that can record it. "
+      + "Add its account, then import again.", "bad");
+  });
+  await batch.run();
+  assert.match(batch.state.message, /movement has no account or folio/);
+  assert.doesNotMatch(batch.state.message, /Nothing was imported\. Check the rows\./);
+  assert.equal(batch.state.messageKind, "bad");
+});
+
+test("a batch keeps a plan's own nothing-to-change sentence", async () => {
+  const sentence = "Nothing to change: every fact in these files is already on the account.";
+  const batch = batchHarness([batchPlan("noop")], async () => batch.status(sentence));
+  await batch.run();
+  assert.equal(batch.state.message, sentence);
+});
+
 test("a finished import is a headline and one fact per bullet", () => {
   const source = between("function bpImportReceipt({", "window.bpImportApplyPlan");
   const { bpImportReceipt } = new Function(`${source}
@@ -1006,6 +1079,38 @@ test("a history row keeps the file name, the time, the headline and its bullets"
   assert.match(row, /today \d{2}:\d{2}/);
   assert.match(row, /17 holdings into 4 accounts/);
   assert.match(row, /<ul class="import-history-facts"><li>3 accounts created<\/li><\/ul>/);
+});
+
+test("a history row that added nothing says No change, not Imported", () => {
+  const source = between("function bpImportWhen", "function bpImportQueueReceipts");
+  const { bpImportHistoryRowHtml } = new Function("esc", `${source}
+    return { bpImportHistoryRowHtml };`)((value) => String(value ?? ""));
+  const kept = bpImportHistoryRowHtml({ name: "cas.pdf", at: new Date().toISOString(),
+    headline: "Nothing added", facts: ["Folio …1234 kept; the manual total stays"] });
+  assert.match(kept, />No change</);
+  assert.doesNotMatch(kept, />Imported</);
+  const bank = bpImportHistoryRowHtml({ name: "statement.csv",
+    at: new Date().toISOString(), headline: "No new transactions into HDFC" });
+  assert.match(bank, />No change</);
+  const wrote = bpImportHistoryRowHtml({ name: "cas.pdf", at: new Date().toISOString(),
+    headline: "3 holdings into Demat · Zerodha" });
+  assert.match(wrote, />Imported</);
+});
+
+test("the history summary counts finished files, not only writes", () => {
+  const source = [
+    between("function bpImportWhen", "function bpImportQueueReceipts"),
+    between("function bpImportQueueReceipts", "function bpImportQueueCounts"),
+  ].join("\n");
+  const factory = new Function("esc", "window", "bpImportInboxState",
+    "bpImportBankReceipt", `${source}
+      return { bpImportQueueReceipts };`);
+  const receipts = factory((value) => String(value ?? ""), { bpBatch: { entries: [] } },
+    () => ({ receipts: [{ name: "cas.pdf", headline: "Nothing added" }] }),
+    () => null);
+  const finished = receipts.bpImportQueueReceipts();
+  assert.match(finished, /1 finished</);
+  assert.doesNotMatch(finished, /1 imported</);
 });
 
 test("the bar renders only when a ready file can run", () => {
