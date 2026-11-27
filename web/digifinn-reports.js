@@ -169,6 +169,26 @@ function asOfFrom(rows, header) {
   return "";
 }
 
+// The Investment Report prints numeric dates month-first ("12/31/30"). The
+// shared reader prefers day-first when both parts fit a month and flags the
+// ambiguity; this report's own unambiguous cells settle the order, so resolve
+// it here rather than letting a purchase date disagree with the holdings report.
+function portalDate(row, cols, field, options) {
+  const parsed = readDate(row, cols, field, options);
+  if (!parsed.ambiguous) return parsed;
+  const match = String(cellText(row, cols, field)).trim()
+    .match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})$/);
+  if (!match) return parsed;
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const year = Number(match[3]) <= 79 ? 2000 + Number(match[3]) : 1900 + Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1
+    || date.getUTCDate() !== day) return parsed;
+  return { ...parsed, ambiguous: false,
+    iso: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}` };
+}
+
 export function parsePortfolioReport(text, fileName = "") {
   const rows = cleanRows(parseCsv(text));
   const where = { file: fileName, table: "Portfolio Report" };
@@ -237,14 +257,16 @@ export function parseInvestmentReport(text, fileName = "") {
       const label = cellText(row, cols, "label");
       if (!label || norm(label) === "total") continue;
       const parsed = parseBondLabel(label);
-      const purchase = readDate(row, cols, "purchase_date",
+      const purchase = portalDate(row, cols, "purchase_date",
         { where, schema: INVESTMENT_SCHEMA, rowNumber: r + 1 });
       if (purchase.ambiguous) ambiguousDates++;
-      const stated = readDate(row, cols, "maturity",
+      const stated = portalDate(row, cols, "maturity",
         { where, schema: INVESTMENT_SCHEMA, rowNumber: r + 1 });
       out.push({
         label,
         issuer: cellText(row, cols, "issuer"),
+        // The report prints no units. null is a known unknown, not a zero.
+        quantity: null,
         coupon_pct: readNumber(row, cols, "coupon_pct",
           { where, schema: INVESTMENT_SCHEMA, rowNumber: r + 1 }),
         // The name is the broker's own label; a printed date column is the
@@ -262,6 +284,7 @@ export function parseInvestmentReport(text, fileName = "") {
     return { kind: "investment", fileName, rows: [], ...refusalResult(error) };
   }
   return { kind: "investment", fileName, asOf: asOfFrom(rows, header.index),
+    identity: identityFrom(rows, header.index),
     rows: out, ambiguousDates, error: null };
 }
 
