@@ -50,13 +50,17 @@ test("bought before the statement date and absent from it is not settled", () =>
   assert.equal(line.state, "not_settled");
 });
 
-test("bought after the statement date is still in transit, not a break", () => {
-  const [line] = reconPositions({
+test("bought after the statement date is in transit and is not a break", () => {
+  const lines = reconPositions({
     lots: [lot("INE000000012", 30, { purchase_date: "2026-11-01" })],
     positions: [],
     today: TODAY, asOf: AS_OF,
   });
-  assert.equal(line.state, "in_transit");
+  assert.equal(lines[0].state, "in_transit");
+  const sum = reconSummary(lines);
+  assert.equal(sum.breaks, 0);
+  assert.equal(sum.counts.in_transit, 1);
+  assert.equal(sum.latestPurchase, "2026-11-01");
 });
 
 test("a holding with no purchase record has no cost", () => {

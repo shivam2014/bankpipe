@@ -28,6 +28,19 @@ test("the receipt counts positions, matches and breaks", () => {
   assert.equal(head, "3 positions · 2 matched · 1 break");
 });
 
+test("the receipt names the statement date against the latest trade", () => {
+  assert.equal(reconHeadline({ reason: "ok", total: 3, breaks: 1,
+    counts: { matched: 2 }, asOf: "2026-09-30", latestPurchase: "2026-11-20" }),
+  "3 positions · 2 matched · 1 break · statement 30 Sep 2026 · trades to 20 Nov 2026");
+  assert.equal(reconHeadline({ reason: "ok", total: 3, breaks: 1,
+    counts: { matched: 2 }, asOf: "2026-09-30", latestPurchase: "2026-08-01" }),
+  "3 positions · 2 matched · 1 break · statement 30 Sep 2026");
+  assert.equal(reconHeadline({ reason: "ok", total: 2, breaks: 0,
+    counts: { matched: 1, in_transit: 1 }, asOf: "2026-09-30",
+    latestPurchase: "2026-11-01" }),
+  "2 positions · 1 matched · 0 breaks · 1 in transit · statement 30 Sep 2026 · trades to 1 Nov 2026");
+});
+
 test("one position and no breaks reads in the singular", () => {
   assert.equal(reconHeadline({ reason: "ok", total: 1, breaks: 0, counts: { matched: 1 } }),
     "1 position · 1 matched · 0 breaks");
@@ -40,8 +53,16 @@ test("rows list breaks only, never the matches", () => {
   });
   assert.equal(rows.length, 2);
   assert.equal(rows[0].stateLabel, "Quantity differs");
-  assert.equal(rows[0].detail, "seller 30 units · depository 10 units");
+  assert.equal(rows[0].detail, "portfolio 30 units · depository 10 units");
   assert.equal(rows[1].stateLabel, "Closed");
+});
+
+test("an absent lot with no purchase date does not claim it was not settled", () => {
+  const [row] = reconRows({ lines: [line("not_settled", { lotQty: 20 })] });
+  assert.equal(row.detail, "portfolio 20 units · purchase date unknown");
+  const [dated] = reconRows({ lines: [line("not_settled",
+    { lotQty: 20, firstPurchase: "2024-06-06" })] });
+  assert.equal(dated.detail, "portfolio 20 units · not in the statement");
 });
 
 test("a holding with no purchase record says that, not a fake gain", () => {

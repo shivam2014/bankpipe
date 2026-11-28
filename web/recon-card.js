@@ -48,11 +48,24 @@ const units = (n) => {
   return `${v} unit${v === 1 ? "" : "s"}`;
 };
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const isoDay = (value) => String(value || "").slice(0, 10);
+const dayText = (value) => {
+  const match = isoDay(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1] || match[2]} ${match[1]}`;
+};
+
+// The left side is the linked cost portfolio (the trade file), never the
+// counterparty: "portfolio" is what the person actually owns there.
 const STATE_TEXT = {
-  quantity_differs: (l) => `seller ${units(l.lotQty)} · depository ${units(l.custodianQty)}`,
-  not_settled: (l) => `seller ${units(l.lotQty)} · not in the statement`,
+  quantity_differs: (l) => `portfolio ${units(l.lotQty)} · depository ${units(l.custodianQty)}`,
+  not_settled: (l) => l.firstPurchase
+    ? `portfolio ${units(l.lotQty)} · not in the statement`
+    : `portfolio ${units(l.lotQty)} · purchase date unknown`,
   cost_missing: (l) => `${units(l.custodianQty)} held · no purchase record`,
-  in_transit: (l) => `bought after the statement date`,
+  in_transit: (l) => `bought ${dayText(l.firstPurchase)} · after the statement date`,
   matched: (l) => units(l.lotQty),
   closed: (l) => `matured ${l.maturity}`,
 };
@@ -93,8 +106,20 @@ export function reconHeadline(result) {
   const total = Number(result.total) || 0;
   const breaks = Number(result.breaks) || 0;
   const matched = Number(result.counts?.matched) || 0;
+  const transits = Number(result.counts?.in_transit) || 0;
+  const asOf = isoDay(result.asOf);
+  const latest = isoDay(result.latestPurchase);
+  // One line, because the age of the statement is part of the verdict: a gap
+  // against a statement older than the trade that created it is not the same
+  // finding as a gap against the latest one.
+  const statement = asOf
+    ? latest && latest > asOf
+      ? ` · statement ${dayText(asOf)} · trades to ${dayText(latest)}`
+      : ` · statement ${dayText(asOf)}`
+    : "";
+  const transit = transits ? ` · ${transits} in transit` : "";
   return `${total} position${total === 1 ? "" : "s"} · ${matched} matched · `
-    + `${breaks} break${breaks === 1 ? "" : "s"}`;
+    + `${breaks} break${breaks === 1 ? "" : "s"}${transit}${statement}`;
 }
 
 /** One row per break, in the order recon.js sorted them. */

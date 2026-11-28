@@ -1470,6 +1470,15 @@ function moneyDifferent(a, b) {
   return Math.abs(Number(a) - Number(b)) > 1;
 }
 
+// A bond quantity is whole units. The one-paise slack that keeps money
+// rounding quiet must never swallow a one-unit holding difference.
+function quantityDifferent(a, b) {
+  if (a === null || a === undefined || b === null || b === undefined) {
+    return (a ?? null) !== (b ?? null);
+  }
+  return Math.abs(Number(a) - Number(b)) > 1e-9;
+}
+
 function fieldChange(group, field, from, to, source, asOf, extra = {}) {
   return { group, field, from, to, source, asOf, requiresConfirm: false, ...extra };
 }
@@ -1477,6 +1486,7 @@ function fieldChange(group, field, from, to, source, asOf, extra = {}) {
 function fieldsWouldChange(oldRow, nextRow, keys) {
   return keys.filter((key) => {
     const a = oldRow[key], b = nextRow[key];
+    if (key === "quantity") return quantityDifferent(a, b);
     if (typeof a === "number" || typeof b === "number") return moneyDifferent(a, b);
     return String(a ?? "") !== String(b ?? "");
   });
@@ -1703,29 +1713,15 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   const unsafeDate = incomingState.state === "invalid" || incomingState.state === "future";
   const existingSource = String(existing.snapshot?.source || "");
   const hasExistingSnapshot = !!(existing.snapshot?.asOf);
-  // A manual snapshot is the person's own record, so an older CAS still only
-  // attaches identity there. A broker snapshot is different: the depository is
-  // the authority for what is still held, even when its statement is older.
-  const manualSnapshot = existingSource === "manual" || !!existing.cost?.manual;
+  // The depository is the authority for what is held at the statement's date,
+  // not for a later one. An older CAS than the snapshot on file therefore
+  // attaches identity and fills empty fields; a newer broker's quantity, value
+  // and date stay. Reversing import order must not move the account back in time.
   const olderCas = incoming?.kind === "cas" && hasExistingSnapshot
     && existingSource !== "cas" && oldRows.length > 0 && relation === "older";
-  // An older CAS that would move a live quantity or value is a source change.
-  // One that would only add history or fill an empty field stays identity-only.
-  const casLiveChange = olderCas && inRows.some((row) => {
-    const old = oldByIsin.get(row.isin)
-      || (!row.isin ? (oldByBond.get(bondRowKey(row)) || [])[0] : null);
-    if (!old) return false;
-    return (row.quantity !== null && moneyDifferent(old.quantity, row.quantity))
-      || (row.valuePaise !== null && moneyDifferent(old.valuePaise, row.valuePaise));
-  });
-  const identityOnly = olderCas && (manualSnapshot || !casLiveChange);
+  const identityOnly = olderCas;
   const olderWithData = hasExistingSnapshot && relation === "older" && oldRows.length > 0;
   const undatedWithData = hasExistingSnapshot && relation === "undated" && oldRows.length > 0;
-  // The one exception to "older snapshots do not overwrite": a dated, safe CAS
-  // owns quantity and value. The latest broker still owns cost and terms.
-  const casQuantityTake = incoming?.kind === "cas" && !unsafeDate
-    && incomingState.state === "dated" && relation === "older"
-    && hasExistingSnapshot && oldRows.length > 0 && !identityOnly;
   const canTakeSnapshot = !unsafeDate && !identityOnly && !olderWithData && !undatedWithData
     && snapshotDecision({ relation, incomingState: incomingState.state, existing: existing.snapshot }).take;
   const canAdd = !unsafeDate && !identityOnly && !olderWithData && !undatedWithData;
@@ -1743,10 +1739,8 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
   } else if (incomingState.state === "undated") {
     warnings.push("No date on the report: empty fields fill, new rows add, dated data stays.");
   }
-  if (casQuantityTake) {
-    warnings.push("Older CAS: its quantity and value replace the broker's; cost and terms stay from the newer report.");
-  } else if (identityOnly) {
-    warnings.push("Older CAS: identity attaches; the newer holdings stay.");
+  if (identityOnly) {
+    warnings.push("Older CAS: identity attaches; the newer holdings and date stay.");
   } else if (olderWithData) {
     warnings.push("Older snapshot: only empty fields fill.");
   }
@@ -1898,7 +1892,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       const maturity = bondMaturity(row).maturity;
       // A matured bond is history, not a live holding. An older CAS still brings
       // it across, so the final set does not depend on which file arrived first.
-      if (!canAdd && (identityOnly || casQuantityTake) && maturity && maturity < now) {
+      if (!canAdd && identityOnly && maturity && maturity < now) {
         decisions.push({ isin: row.isin, label: row.label, action: "history", existing: null,
           next: { ...row, quantity: 0, valuePaise: 0, asOf: incomingState.date || "" },
           changes: [fieldChange("snapshot", "quantity", row.quantity, 0, "maturity", maturity)],
@@ -1917,8 +1911,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
         skipped += 1;
         decisions.push({ isin: row.isin, label: row.label, action: "skip", existing: null,
           next: null, changes: [], flags: ["older-snapshot"],
-          reason: identityOnly ? "older CAS: identity only"
-            : casQuantityTake ? "older CAS: no live row is added" : "older than the data on file" });
+          reason: identityOnly ? "older CAS: identity only" : "older than the data on file" });
       }
       continue;
     }
@@ -1928,7 +1921,8 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
     if (row.isin && !next.isin) next.isin = row.isin;
     const changes = [];
     const rowFlags = [];
-    const quantityDiffers = row.quantity !== null && moneyDifferent(old.quantity, row.quantity);
+    const quantityDiffers = row.quantity !== null
+      && quantityDifferent(old.quantity, row.quantity);
     const valueDiffers = row.valuePaise !== null && moneyDifferent(old.valuePaise, row.valuePaise);
     // A sale recorded from a CAS is a fact. A newer report that shows more units
     // than the sale left behind is a disagreement to surface, not a quantity to
@@ -1980,25 +1974,6 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       // The report describes the position before the sale, so its quantity and
       // value are not this account's. Only its cost is used, below, and only
       // for the units it names.
-    } else if (casQuantityTake) {
-      if (quantityDiffers) {
-        next.quantity = row.quantity;
-        changes.push(fieldChange("snapshot", "quantity", old.quantity, row.quantity,
-          incomingName, incomingState.date, {
-            fromSource: existingSource || "broker",
-            fromAsOf: existing.snapshot?.asOf || "",
-          }));
-      }
-      if (valueDiffers) {
-        next.valuePaise = row.valuePaise;
-        next.valueSource = "CAS";
-        changes.push(fieldChange("snapshot", "value", old.valuePaise, row.valuePaise,
-          "CAS", incomingState.date, {
-            fromSource: existingSource || "broker",
-            fromAsOf: existing.snapshot?.asOf || "",
-          }));
-      }
-      if (quantityDiffers || valueDiffers) next.asOf = incomingState.date || old.asOf;
     } else if (quantityConflict || valueConflict) {
       const from = { fromSource: existingSource || "broker",
         fromAsOf: existing.snapshot?.asOf || "" };
@@ -2059,7 +2034,7 @@ export function planMerge({ incoming, existing = {}, today = isoToday() } = {}) 
       // A value belongs to the quantity it was struck at. An older or undated
       // report cannot put its value on a different, newer quantity.
       const valueQuantityMatches = old.quantity === null || row.quantity === null
-        || !moneyDifferent(old.quantity, row.quantity);
+        || !quantityDifferent(old.quantity, row.quantity);
       if (old.valuePaise === null && row.valuePaise !== null && valueQuantityMatches) {
         next.valuePaise = row.valuePaise;
         next.valueSource = incomingName;
