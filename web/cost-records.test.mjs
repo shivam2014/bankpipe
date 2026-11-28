@@ -96,7 +96,10 @@ test("a link to a fund folio is unattached", () => {
 
 // --- naming the target the way the rest of the app does --------------------
 
-test("a printed demat number falls back to the account that holds the bond", () => {
+test("a printed demat number does not fall back to another account on one bond", () => {
+  // The record names demat two, which holds none of its bonds. Demat one holds
+  // the only bond, but one shared ISIN is not enough to make it the home. It is
+  // offered as a choice instead of being chosen.
   const named = record("cost-named", { number: dematTwo.number });
   const tasks = costRecordTasks({
     assets: [dematOne, dematTwo, named],
@@ -104,7 +107,8 @@ test("a printed demat number falls back to the account that holds the bond", () 
     positions: positions([["demat-one", [lot("INE999900001")]],
       ["demat-two", [lot("INE999900002")]]]),
   });
-  assert.equal(tasks[0].target.id, "demat-one");
+  assert.equal(tasks[0].target, null);
+  assert.deepEqual(tasks[0].targets.map((demat) => demat.id), ["demat-one"]);
 });
 
 test("a printed number that holds none of the bonds is not a target", () => {
@@ -118,7 +122,7 @@ test("a printed number that holds none of the bonds is not a target", () => {
   assert.equal(tasks[0].target, null);
 });
 
-test("a split record keeps a target that holds one of its live lots", () => {
+test("a split record lists both demats as choices and picks neither", () => {
   const split = record("cost-split");
   const tasks = costRecordTasks({
     assets: [dematOne, dematTwo, split],
@@ -127,8 +131,9 @@ test("a split record keeps a target that holds one of its live lots", () => {
     positions: positions([["demat-one", [lot("INE999900001")]],
       ["demat-two", [lot("INE999900002")]]]),
   });
-  assert.ok(tasks[0].target);
-  assert.ok(["demat-one", "demat-two"].includes(tasks[0].target.id));
+  assert.equal(tasks[0].target, null);
+  assert.deepEqual(tasks[0].targets.map((demat) => demat.id),
+    ["demat-one", "demat-two"]);
 });
 
 test("the demat holding most of the record's ISINs is the target", () => {

@@ -45,7 +45,9 @@ test("the notice keeps the sentence and the Import a CAS action above the cards"
   assert.match(notice, /NO_DEMAT_SENTENCE/);
   assert.match(notice, /go\('import'\)">Import a CAS</);
   assert.match(notice, /bpAttachCostRecord/);
-  assert.match(notice, /attachActionLabel\(task\.target\)/);
+  assert.match(notice, /attachActionLabel\(demat\)/);
+  assert.match(notice, /task\.targets/,
+    "a weak link offers the demats that hold a lot instead of choosing one");
   const form = between("function assetForm", "function bondLabelParts");
   const taskAt = form.indexOf("costTaskNoticeHtml(costTask)");
   const cardsAt = form.indexOf("holdingsBlock(holdings, id)");

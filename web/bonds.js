@@ -191,24 +191,27 @@ const hasUnits = (row) => row?.quantity === null || row?.quantity === undefined
 
 /**
  * The demat account a bond portfolio feeds. The explicit link wins, then the
- * demat number the portfolio names, then the demat holding most of its ISINs.
+ * demat number the portfolio names, then a demat that holds most of its ISINs.
  * The overlap is counted over distinct ISINs, so a portfolio with several lots
- * of one bond cannot outvote two other bonds, and history is not counted.
+ * of one bond cannot outvote two other bonds. An overlap is a home only when
+ * one demat holds more than half of the portfolio's live ISINs; a single shared
+ * bond in a larger portfolio is a coincidence, not an identity. More than one
+ * demat holding any of it is ambiguous, so no home is guessed.
  * @param {Array<object>} lots
  * @param {object} asset a bond portfolio
  * @param {Array<object>} demats
  * @param {Map<string, Array<object>>} positionsOf
- * @returns {string} demat account id, or ""
+ * @returns {{id: string, reason: "linked"|"number"|"overlap"|"ambiguous"|"named-missing"|"none"}}
  */
-export function bondHomeOf(lots, asset, demats, positionsOf) {
+export function bondHomeResult(lots, asset, demats, positionsOf) {
   const meta = assetMeta(asset);
   if (meta.linked_asset && demats.some((d) => d.id === meta.linked_asset)) {
-    return meta.linked_asset;
+    return { id: meta.linked_asset, reason: "linked" };
   }
   const wanted = boId(meta.demat || asset?.number || "").boId;
   if (wanted) {
     const hit = demats.find((d) => boId(d.number).boId === wanted);
-    if (hit) return hit.id;
+    if (hit) return { id: hit.id, reason: "number" };
   }
   const isins = new Set();
   for (const lot of lots || []) {
@@ -224,7 +227,18 @@ export function bondHomeOf(lots, asset, demats, positionsOf) {
       count.set(demat.id, (count.get(demat.id) || 0) + 1);
     }
   }
-  return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  const held = [...count.entries()].filter(([, hits]) => hits > 0);
+  const majority = held.filter(([, hits]) => hits * 2 > isins.size);
+  if (majority.length === 1) return { id: majority[0][0], reason: "overlap" };
+  // Two demats holding a majority, or any two holding some of it, are a choice
+  // for the person. A weak single overlap is not a home either.
+  if (majority.length > 1 || held.length > 1) return { id: "", reason: "ambiguous" };
+  return { id: "", reason: wanted ? "named-missing" : "none" };
+}
+
+/** The demat id only, for callers that do not need the reason. */
+export function bondHomeOf(lots, asset, demats, positionsOf) {
+  return bondHomeResult(lots, asset, demats, positionsOf).id;
 }
 
 // Face values seen in Indian retail bond lots. Pick the one that makes the

@@ -12,7 +12,7 @@ import { reconPositions, reconSummary } from "./recon.js";
 import { reconInputs } from "./recon-diagnostics.js";
 import { KEEP_KEY, KEEP_DEFAULT, clampKeep, keysToPrune, deletableKeys }
   from "./snapshots.js";
-import { bondHomeOf, isLiveBondRow } from "./bonds.js";
+import { bondHomeResult, isLiveBondRow } from "./bonds.js";
 
 const DB_KEY = "bankpipe.db.v1";
 
@@ -1693,10 +1693,18 @@ export async function reconFor(assetId, today = new Date().toISOString().slice(0
   }
 
   if (isBondPortfolio) {
-    const home = bondHomeOf(myBonds, me, demats, positionsOf);
-    if (!home) return hidden("no-linked-demat");
-    const custodian = demats.find((d) => d.id === home);
-    const positions = positionsOf.get(home) || [];
+    const home = bondHomeResult(myBonds, me, demats, positionsOf);
+    if (!home.id) {
+      // A weak overlap is not a link, and a guess would compare the portfolio
+      // with an account most of its bonds are not in. Say which gap it is: a
+      // demat the portfolio names but that is not on file, or two accounts that
+      // both hold enough of it to be plausible.
+      const reason = home.reason === "ambiguous" ? "ambiguous-demat"
+        : home.reason === "named-missing" ? "unlinked-demat" : "no-linked-demat";
+      return hidden(reason);
+    }
+    const custodian = demats.find((d) => d.id === home.id);
+    const positions = positionsOf.get(home.id) || [];
     if (!positions.length) return hidden("no-second-statement");
     const asOf = latestDay(reconMeta(custodian).holdings_as_of, custodian?.value_date,
       ...positions.map((row) => row.as_of));
@@ -1709,7 +1717,9 @@ export async function reconFor(assetId, today = new Date().toISOString().slice(0
   for (const seller of assets.filter((a) => String(a.category || "") === "bonds")) {
     const lots = (await listHoldings(seller.id)).filter(isLiveBondRow);
     if (!lots.length) continue;
-    if (bondHomeOf(lots, seller, demats, positionsOf) === me.id) linked.push({ seller, lots });
+    if (bondHomeResult(lots, seller, demats, positionsOf).id === me.id) {
+      linked.push({ seller, lots });
+    }
   }
   const lots = linked.flatMap((entry) => entry.lots);
   if (!lots.length) return hidden("no-cost-source");

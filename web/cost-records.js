@@ -78,19 +78,21 @@ function heldCount(dematId, isins, positionsOf) {
 /**
  * One task per unattached cost record, in the order the page lists them.
  * `target` is the live demat the record's bonds sit in, found the way the rest
- * of the app finds it: the stored link, then the demat number, then ISIN
- * overlap. It is null when no live demat holds a single lot.
+ * of the app finds it: the stored link, then the demat number, then a majority
+ * of the ISINs. It is null when the link is weak or two demats are plausible.
+ * `targets` lists every demat that holds at least one lot, so the page can ask
+ * the person instead of guessing; it is empty when none does.
  *
  * @param {{assets?: Array<object>,
  *   lots?: Map<string, Array<object>>|object,
  *   positions?: Map<string, Array<object>>|object}} input
- * @returns {Array<{record: object, target: object|null}>}
+ * @returns {Array<{record: object, target: object|null, targets: Array<object>}>}
  */
 export function costRecordTasks({ assets = [], lots = new Map(),
   positions = new Map() } = {}) {
   const demats = liveDemats(assets);
   if (!demats.length) return unattachedCostRecords(assets)
-    .map((record) => ({ record, target: null }));
+    .map((record) => ({ record, target: null, targets: [] }));
   const positionsOf = new Map();
   for (const demat of demats) {
     // A disposed row is history and must not pull a cost record back onto the
@@ -107,13 +109,12 @@ export function costRecordTasks({ assets = [], lots = new Map(),
     // A printed demat number can name an account that holds none of the
     // record's bonds. That is the no-account case, not an attach.
     if (target && heldCount(target.id, isins, positionsOf) === 0) target = null;
-    if (!target) {
-      target = demats
-        .map((demat) => ({ demat, hits: heldCount(demat.id, isins, positionsOf) }))
-        .filter((row) => row.hits > 0)
-        .sort((a, b) => b.hits - a.hits)[0]?.demat || null;
-    }
-    return { record, target };
+    const targets = demats
+      .map((demat) => ({ demat, hits: heldCount(demat.id, isins, positionsOf) }))
+      .filter((row) => row.hits > 0)
+      .sort((a, b) => b.hits - a.hits)
+      .map((row) => row.demat);
+    return { record, target, targets };
   });
 }
 

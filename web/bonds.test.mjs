@@ -4,7 +4,8 @@ import { parseBondLabel, bondMaturity, splitMatured, inferFace, bondAnalytics,
   storedCoupon, termSourceKind, termSourceRank, bondWriteRow,
   bondLabelName, bondSummary, accruedInterest, BOND_RATINGS, bondRatingRank, bondFillPlan,
   bondGrade, bondRatingChange, carryBrokerFields, soldGain, bondHomeOf,
-  bondInputsMissing, bondTermGaps, valueKindOf, isLiveBondRow } from "./bonds.js";
+  bondHomeResult, bondInputsMissing, bondTermGaps, valueKindOf,
+  isLiveBondRow } from "./bonds.js";
 
 test("parses the coupon and maturity from a bond label", () => {
   const p = parseBondLabel("10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026");
@@ -717,6 +718,72 @@ test("a cost portfolio resolves to its demat by link, number, then ISIN overlap"
     demats, positionsOf), "d1");
   assert.equal(bondHomeOf([{ security_id: "INE000000009" }], { id: "p1" },
     demats, positionsOf), "");
+});
+
+test("one shared bond in a larger portfolio is not a home", () => {
+  const isin = (n) => `INE0000000${String(n).padStart(2, "0")}`;
+  const demats = [{ id: "d1", category: "demat", number: "IN99990001344321" },
+    { id: "d2", category: "demat", number: "IN99990005344322" }];
+  const positionsOf = new Map([
+    ["d1", [{ security_id: isin(1) }]],
+    ["d2", [{ security_id: isin(99) }]],
+  ]);
+  const lots = Array.from({ length: 10 }, (_, i) => ({ security_id: isin(i) }));
+  assert.deepEqual(bondHomeResult(lots, { id: "p1" }, demats, positionsOf),
+    { id: "", reason: "none" });
+});
+
+test("a demat holding most of the portfolio is its home", () => {
+  const isin = (n) => `INE0000000${String(n).padStart(2, "0")}`;
+  const demats = [{ id: "d1", category: "demat", number: "IN99990001344321" },
+    { id: "d2", category: "demat", number: "IN99990005344322" }];
+  const positionsOf = new Map([
+    ["d1", [1, 2, 3, 4, 5, 6].map((n) => ({ security_id: isin(n) }))],
+    ["d2", [7, 8, 9, 10].map((n) => ({ security_id: isin(n) }))],
+  ]);
+  const lots = Array.from({ length: 10 }, (_, i) => ({ security_id: isin(i + 1) }));
+  assert.equal(bondHomeOf(lots, { id: "p1" }, demats, positionsOf), "d1");
+});
+
+test("two demats holding one bond each are a choice, not a home", () => {
+  const isin = (n) => `INE0000000${String(n).padStart(2, "0")}`;
+  const demats = [{ id: "d1", category: "demat", number: "IN99990001344321" },
+    { id: "d2", category: "demat", number: "IN99990005344322" }];
+  const positionsOf = new Map([
+    ["d1", [{ security_id: isin(1) }]],
+    ["d2", [{ security_id: isin(2) }]],
+  ]);
+  const lots = Array.from({ length: 5 }, (_, i) => ({ security_id: isin(i + 1) }));
+  assert.deepEqual(bondHomeResult(lots, { id: "p1" }, demats, positionsOf),
+    { id: "", reason: "ambiguous" });
+});
+
+test("two demats that both hold most of a portfolio are ambiguous", () => {
+  const demats = [{ id: "d1", category: "demat", number: "IN99990001344321" },
+    { id: "d2", category: "demat", number: "IN99990005344322" }];
+  const positionsOf = new Map([
+    ["d1", [{ security_id: "INE000000001" }, { security_id: "INE000000002" }]],
+    ["d2", [{ security_id: "INE000000001" }, { security_id: "INE000000003" }]],
+  ]);
+  const lots = ["INE000000001", "INE000000002", "INE000000003"]
+    .map((security_id) => ({ security_id }));
+  assert.deepEqual(bondHomeResult(lots, { id: "p1" }, demats, positionsOf),
+    { id: "", reason: "ambiguous" });
+});
+
+test("a portfolio naming a demat not on file does not attach to another", () => {
+  // The cost record names the 0907 account; only the 3122 demat is on file and
+  // it holds one of the portfolio's bonds. That is a missing statement, not a
+  // reason to compare the whole portfolio against 3122.
+  const demats = [{ id: "d1", category: "demat", number: "IN99990000003122" }];
+  const positionsOf = new Map([
+    ["d1", [{ security_id: "INE000000001" }]],
+  ]);
+  const lots = Array.from({ length: 5 }, (_, i) =>
+    ({ security_id: `INE0000000${i + 1}` }));
+  assert.deepEqual(bondHomeResult(lots,
+    { id: "p1", number: "9999000000000907" }, demats, positionsOf),
+  { id: "", reason: "named-missing" });
 });
 
 test("a disposed row is not a live bond", () => {

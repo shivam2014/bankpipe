@@ -21,6 +21,13 @@ test("two assets on one demat are refused, not guessed", () => {
   assert.match(reconHeadline({ reason: "ambiguous-pair" }), /Two assets share this demat/);
 });
 
+test("a weak or ambiguous link names the gap instead of guessing", () => {
+  assert.match(reconHeadline({ reason: "unlinked-demat" }),
+    /names a demat that is not on file/);
+  assert.match(reconHeadline({ reason: "ambiguous-demat" }),
+    /More than one demat holds some/);
+});
+
 test("the receipt counts positions, matches and breaks", () => {
   const head = reconHeadline({
     reason: "ok", total: 3, breaks: 1, counts: { matched: 2 },

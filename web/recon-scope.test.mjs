@@ -6,7 +6,7 @@ import { makeStore, useDemoStore, listAccounts, reconFor } from "./db.js";
 import { assetClassParts, assetSections, assetValue, classPage,
   holdingClass } from "./assets.js";
 import { reconCardHtml, reconDismissKey, reconEligible, reconHasCard,
-  reconHiddenHtml } from "./recon-card.js";
+  reconHeadline, reconHiddenHtml } from "./recon-card.js";
 
 const require = createRequire(import.meta.url);
 const initSqlJs = require("./vendor/sql-wasm.js");
@@ -100,6 +100,59 @@ test("a bond portfolio cannot use a fund folio as its demat", async () => {
   const result = await reconFor("p3", "2026-11-14");
   assert.equal(result.reason, "no-linked-demat");
   assert.equal(reconHasCard(result), false);
+});
+
+test("one shared bond does not link a larger portfolio to a demat", async () => {
+  const b = (n) => bond(`INE99990000${n}`, 10);
+  await seed([
+    { id: "d1", label: "Demat one", category: "demat", subtype: "equity",
+      number: "IN99990000003122", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+    { id: "p1", label: "Portfolio one", category: "bonds" },
+  ], {
+    d1: [b(1)],
+    p1: [b(1), b(2), b(3), b(4), b(5)],
+  });
+  const portfolio = await reconFor("p1", "2026-11-14");
+  assert.equal(portfolio.reason, "no-linked-demat");
+  const demat = await reconFor("d1", "2026-11-14");
+  assert.equal(demat.reason, "no-cost-source",
+    "the demat does not import a portfolio that holds one of its bonds");
+});
+
+test("a portfolio naming a demat not on file says which statement is missing", async () => {
+  const b = (n) => bond(`INE99990000${n}`, 10);
+  await seed([
+    { id: "d1", label: "Demat one", category: "demat", subtype: "equity",
+      number: "IN99990000003122", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+    { id: "p1", label: "Portfolio one", category: "bonds",
+      number: "9999000000000907" },
+  ], {
+    d1: [b(1)],
+    p1: [b(1), b(2), b(3), b(4), b(5)],
+  });
+  const result = await reconFor("p1", "2026-11-14");
+  assert.equal(result.reason, "unlinked-demat");
+  assert.equal(reconHasCard(result), true);
+  assert.match(reconHeadline(result), /names a demat that is not on file/);
+});
+
+test("two demats that both hold most of a portfolio are ambiguous", async () => {
+  const b = (n) => bond(`INE99990000${n}`, 10);
+  await seed([
+    { id: "d1", label: "Demat one", category: "demat", subtype: "equity",
+      number: "IN99990000003122", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+    { id: "d2", label: "Demat two", category: "demat", subtype: "equity",
+      number: "IN99990000009999", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+    { id: "p1", label: "Portfolio one", category: "bonds" },
+  ], {
+    d1: [b(1), b(2)],
+    d2: [b(1), b(3)],
+    p1: [b(1), b(2), b(3)],
+  });
+  const result = await reconFor("p1", "2026-11-14");
+  assert.equal(result.reason, "ambiguous-demat");
+  assert.equal(reconHasCard(result), true);
+  assert.match(reconHeadline(result), /More than one demat holds some/);
 });
 
 test("a newer row date is the statement date, not an older account label", async () => {

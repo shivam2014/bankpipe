@@ -100,6 +100,14 @@ export function reconHeadline(result) {
   if (result.reason === "no-linked-demat") {
     return "No demat account is linked to this bond portfolio yet.";
   }
+  if (result.reason === "unlinked-demat") {
+    return "This bond portfolio names a demat that is not on file. Import that statement "
+      + "or attach it to the right demat.";
+  }
+  if (result.reason === "ambiguous-demat") {
+    return "More than one demat holds some of this portfolio. "
+      + "Link the right one before auditing.";
+  }
   if (result.reason === "not-applicable") {
     return "Reconciliation compares bond lots with a demat. This account is neither.";
   }

@@ -14126,13 +14126,19 @@ async function costTaskFor(store, assets, id) {
     positions: new Map(dematRows) }).find((task) => task.record.id === id) || null;
 }
 // One notification on the portfolio page, above the bond cards. The record is
-// the page, so the task no longer repeats its name or links to itself.
+// the page, so the task no longer repeats its name or links to itself. A weak
+// link is a choice, not a default: every demat that holds a lot gets a button,
+// and none is pressed for the person.
 function costTaskNoticeHtml(task) {
+  const choices = task.target ? [task.target] : (task.targets || []);
   return `<section class="cost-task" aria-label="Cost record without an account">
     <div class="cost-task-line">${esc(costRecordSentence(1))}</div>
     <div class="cost-task-item">
-      ${task.target
-        ? `<button class="btn" onclick="bpAttachCostRecord(${jsArg(task.record.id)},${jsArg(task.target.id)})">${esc(attachActionLabel(task.target))}</button>`
+      ${choices.length
+        ? `${choices.length > 1
+          ? `<span class="cost-task-none">More than one demat holds some of its bonds. Choose one:</span>` : ""}
+          ${choices.map((demat) => `<button class="btn"
+            onclick="bpAttachCostRecord(${jsArg(task.record.id)},${jsArg(demat.id)})">${esc(attachActionLabel(demat))}</button>`).join("")}`
         : `<span class="cost-task-none">${esc(NO_DEMAT_SENTENCE)}</span>
           <button class="btn" onclick="go('import')">Import a CAS</button>`}
     </div>
