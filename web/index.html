@@ -10414,9 +10414,15 @@ async function bpImportUpdateAccountMeta(accountId, bundle, plan, account) {
         (decision.changes || []).some((change) => change.group === "snapshot"));
     const costChanged = (plan?.decisions || []).some((decision) =>
       (decision.changes || []).some((change) => change.group === "cost"));
-    if (snapshotChanged || !meta.holdings_as_of) {
+    // A file that only fills an empty field must not move the account's
+    // statement date backwards. The snapshot date belongs to the newest file
+    // that actually owns the quantity and value.
+    const currentAsOf = String(meta.holdings_as_of || "").slice(0, 10);
+    const nextAsOf = String(day || "").slice(0, 10);
+    const takesSnapshot = !currentAsOf || (nextAsOf && nextAsOf >= currentAsOf);
+    if ((snapshotChanged || !currentAsOf) && takesSnapshot) {
       meta.holdings_source = bundle.family;
-      meta.holdings_as_of = day || meta.holdings_as_of || "";
+      meta.holdings_as_of = nextAsOf || currentAsOf;
     }
     meta.broker_source = bundle.broker;
     if (costChanged || !meta.cost_as_of) {
@@ -10598,6 +10604,10 @@ async function bpImportApplyCas(bundle, opts = {}) {
     if (target.plan?.identityOnly && target.targetId) identityOnly.push(target);
     else importTargets.push(target);
   }
+  // An older CAS attaches identity only. It did not own the snapshot, so it
+  // must not stamp its date over the newer broker report already on file.
+  const identityOnlyIds = new Set(identityOnly
+    .map((target) => String(target.targetId || "")).filter(Boolean));
   for (const target of targets) {
     if (!target.targetId) continue;
     const account = (await store.listAccounts()).find((item) => item.id === target.targetId);
@@ -10735,8 +10745,11 @@ async function bpImportApplyCas(bundle, opts = {}) {
     if (!account) continue;
     const meta = { ...metaOf(account), identity_source: "cas",
       identity_as_of: bundle.asOf || meta.identity_as_of || "",
-      holdings_source: "cas", holdings_as_of: bundle.asOf || meta.holdings_as_of || "",
       broker_only: "0" };
+    if (!identityOnlyIds.has(id)) {
+      meta.holdings_source = "cas";
+      meta.holdings_as_of = bundle.asOf || meta.holdings_as_of || "";
+    }
     if (bundle.base?.parsed?.depository) meta.depository = bundle.base.parsed.depository;
     const patch = { meta: JSON.stringify(meta) };
     const home = (after.accounts || []).find((item) => item.assetId === id);
@@ -13450,7 +13463,17 @@ window.bpCasImport = async (key = "cas-host", confirmed = false, opts = {}) => {
           ...(Array.isArray(meta.holdings_files) ? meta.holdings_files : []),
           sourceLabel,
         ])];
-        const nextMeta = { ...meta, holdings_source: "cas", holdings_as_of: asOf,
+        // The writer only runs for a statement that owns the snapshot, but keep
+        // the date monotonic here too: a stale statement must never relabel a
+        // newer account even if it reaches this far.
+        const currentAsOf = String(meta.holdings_as_of || "").slice(0, 10);
+        const incomingAsOf = String(asOf || "").slice(0, 10);
+        const ownsSnapshot = !currentAsOf || !incomingAsOf || incomingAsOf >= currentAsOf;
+        const nextMeta = { ...meta,
+          holdings_source: ownsSnapshot ? "cas" : (meta.holdings_source || "broker"),
+          holdings_as_of: ownsSnapshot
+            ? (incomingAsOf || currentAsOf)
+            : currentAsOf,
           holdings_file: sources.join(" · "), holdings_files: sources };
         const home = (route.accounts || []).find((h) => h.assetId === assetId);
         const dpName = String(home?.dpName || "").trim();

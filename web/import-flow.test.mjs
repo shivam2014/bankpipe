@@ -645,7 +645,7 @@ test("a newer CAS takes quantity and value but never overwrites the broker's cos
   assert.equal(decision.next.purchaseDate, "2024-06-06");
 });
 
-test("an older CAS takes quantity and value while the broker keeps cost", () => {
+test("an older CAS attaches identity and leaves the broker's quantity and date", () => {
   const plan = planMerge({
     incoming: {
       kind: "cas", label: "CAS", asOf: "2026-09-30",
@@ -663,17 +663,16 @@ test("an older CAS takes quantity and value while the broker keeps cost", () => 
     today: "2026-11-14",
   });
   assert.equal(plan.relation, "older");
-  assert.equal(plan.identityOnly, false);
+  assert.equal(plan.identityOnly, true);
   assert.equal(plan.identityChange.action, "replace");
   assert.equal(plan.summary.added, 0);
-  assert.equal(plan.summary.updated, 1);
-  const decision = plan.decisions.find((item) => item.action === "update");
-  assert.equal(decision.next.quantity, 7);
-  assert.equal(decision.next.valuePaise, 90000);
-  assert.equal(decision.next.valueSource, "CAS");
+  assert.equal(plan.summary.updated, 0);
+  const decision = plan.decisions.find((item) => item.action === "keep");
+  assert.equal(decision.next.quantity, 10);
+  assert.equal(decision.next.valuePaise, 100000);
   assert.equal(decision.next.costPaise, 200000);
   assert.equal(decision.next.purchaseDate, "2024-06-06");
-  assert.equal(decision.next.asOf, "2026-09-30");
+  assert.equal(decision.next.asOf, "2026-11-12");
 });
 
 test("an older CAS adds a matured row as history so file order does not lose it", () => {
@@ -712,7 +711,7 @@ test("an older CAS adds a matured row as history so file order does not lose it"
   assert.equal(matured.valuePaise, 0);
 });
 
-test("an older CAS replaces a broker row's quantity and value but not cost", () => {
+test("an older CAS does not put its value on a broker row it did not take", () => {
   const plan = planMerge({
     incoming: {
       kind: "cas", label: "CAS", asOf: "2026-09-30",
@@ -730,17 +729,16 @@ test("an older CAS replaces a broker row's quantity and value but not cost", () 
     today: "2026-11-14",
   });
   assert.equal(plan.relation, "older");
-  assert.equal(plan.identityOnly, false);
-  assert.equal(plan.summary.updated, 1);
-  const decision = plan.decisions.find((item) => item.action === "update");
-  assert.equal(decision.next.quantity, 7);
-  assert.equal(decision.next.valuePaise, 90000);
-  assert.equal(decision.next.valueSource, "CAS");
+  assert.equal(plan.identityOnly, true);
+  assert.equal(plan.summary.updated, 0);
+  const decision = plan.decisions.find((item) => item.action === "keep");
+  assert.equal(decision.next.quantity, 10);
+  assert.equal(decision.next.valuePaise, null);
   assert.equal(decision.next.costPaise, 200000);
   assert.equal(decision.next.purchaseDate, "2024-06-06");
 });
 
-test("an older safe CAS sets quantity and value while the broker keeps cost and terms", () => {
+test("an older CAS never moves a broker row's date backwards", () => {
   const plan = planMerge({
     incoming: {
       kind: "cas", label: "CAS", asOf: "2026-10-31",
@@ -758,17 +756,14 @@ test("an older safe CAS sets quantity and value while the broker keeps cost and 
     today: "2026-11-14",
   });
   assert.equal(plan.relation, "older");
-  assert.equal(plan.identityOnly, false);
-  assert.equal(plan.summary.updated, 1);
-  const decision = plan.decisions.find((item) => item.action === "update");
-  assert.equal(decision.next.quantity, 40);
-  assert.equal(decision.next.valuePaise, 400000);
+  assert.equal(plan.identityOnly, true);
+  assert.equal(plan.summary.updated, 0);
+  const decision = plan.decisions.find((item) => item.action === "keep");
+  assert.equal(decision.next.quantity, 100);
+  assert.equal(decision.next.valuePaise, 1000000);
   assert.equal(decision.next.costPaise, 200000);
   assert.equal(decision.next.purchaseDate, "2024-06-06");
-  assert.equal(decision.next.asOf, "2026-10-31");
-  const quantity = decision.changes.find((change) => change.field === "quantity");
-  assert.equal(quantity.fromSource, "broker");
-  assert.equal(quantity.fromAsOf, "2026-11-05");
+  assert.equal(decision.next.asOf, "2026-11-05");
 });
 
 test("a newer broker report asks before changing a CAS-sourced quantity", () => {
@@ -1143,6 +1138,70 @@ test("importing the same two dated files in either order converges on one row", 
   assert.deepEqual(pick(rows), pick(otherRows));
   assert.deepEqual(pick(rows), { quantity: 10, valuePaise: 100000, costPaise: 200000,
     purchaseDate: "2024-06-06" });
+});
+
+test("a newer broker quantity survives an older CAS imported second", () => {
+  const broker = incoming({
+    asOf: "2026-11-20",
+    rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2028", category: "bond",
+      quantity: 10, valuePaise: 970000, costPaise: 200000, purchaseDate: "2024-06-06" }],
+  });
+  const cas = {
+    kind: "cas", label: "NSDL CAS", asOf: "2026-09-30",
+    identity: { kind: "bo", value: "IN99990001344321" }, categories: ["bond"],
+    rows: [{ isin: isin(1), label: "9.00% TEST BOND 31 Dec 2028", kind: "bond",
+      category: "bond", quantity: 14, valuePaise: 1400000, costPaise: null,
+      purchaseDate: "" }],
+  };
+  const empty = { identity: { source: "", asOf: "" }, snapshot: { source: "", asOf: "" },
+    cost: { source: "", asOf: "" }, holdings: [] };
+
+  const brokerFirst = planMerge({ incoming: broker, existing: empty, today: "2026-11-21" });
+  let rows = mergeRowsFromPlan([], brokerFirst, { family: "icici", asOf: "2026-11-20" }, true);
+  const casSecond = planMerge({
+    incoming: cas,
+    existing: { ...empty, snapshot: { source: "icici", asOf: "2026-11-20" },
+      identity: { source: "broker", asOf: "2026-11-20" },
+      cost: { source: "icici", asOf: "2026-11-20" }, holdings: rows },
+    today: "2026-11-21",
+  });
+  assert.equal(casSecond.identityOnly, true);
+  assert.equal(casSecond.summary.added + casSecond.summary.updated, 0);
+  rows = mergeRowsFromPlan(rows, casSecond, { family: "cas", asOf: "2026-09-30" }, true);
+  assert.equal(rows[0].quantity, 10, "the older CAS did not take the broker's units");
+  assert.equal(rows[0].value_paise, 970000, "the older CAS did not take the broker's value");
+  assert.equal(rows[0].as_of, "2026-11-20", "the row keeps the newer snapshot date");
+
+  const casFirst = planMerge({ incoming: cas, existing: empty, today: "2026-11-21" });
+  let otherRows = mergeRowsFromPlan([], casFirst, { family: "cas", asOf: "2026-09-30" }, true);
+  const brokerSecond = planMerge({
+    incoming: broker,
+    existing: { ...empty, snapshot: { source: "cas", asOf: "2026-09-30" },
+      identity: { source: "cas", asOf: "2026-09-30" }, cost: { source: "", asOf: "" },
+      holdings: otherRows },
+    today: "2026-11-21",
+  });
+  assert.equal(brokerSecond.summary.ask, 1, "the newer broker asks before replacing a CAS quantity");
+  otherRows = mergeRowsFromPlan(otherRows, brokerSecond,
+    { family: "icici", asOf: "2026-11-20" }, true);
+  assert.equal(otherRows[0].quantity, 10);
+  assert.equal(otherRows[0].as_of, "2026-11-20");
+});
+
+test("a one-unit quantity change is a holding change, not money rounding", () => {
+  const plan = planMerge({
+    incoming: incoming({ asOf: "2026-11-12", rows: [{ isin: isin(1),
+      label: "9.00% TEST BOND 31 Dec 2026", category: "bond", quantity: 9,
+      valuePaise: 100000, costPaise: 200000, purchaseDate: "2024-06-06" }] }),
+    existing: existingAccount({
+      snapshot: { source: "broker", asOf: "2026-09-30" },
+      holdings: [holding({ quantity: 10 })],
+    }),
+    today: "2026-11-14",
+  });
+  assert.equal(plan.summary.updated, 1);
+  assert.equal(plan.decisions[0].next.quantity, 9);
+  assert.equal(plan.decisions[0].changes.some((change) => change.field === "quantity"), true);
 });
 
 test("an identical re-import of the broker's own key changes nothing", () => {

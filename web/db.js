@@ -1663,6 +1663,14 @@ function reconMeta(asset) {
 }
 const isFundDemat = (asset) => String(asset?.category || "") === "demat"
   && /mutual\s*fund|^mf$/i.test(String(asset?.subtype || ""));
+const isoDay = (value) => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : "";
+};
+// The statement is as new as its newest row. An account that mixed a newer
+// broker report into an older CAS must not be audited as if the older date
+// covered the newer rows; the latest row is the one piece of evidence left.
+const latestDay = (...values) => values.map(isoDay).filter(Boolean).sort().pop() || "";
 
 export async function reconFor(assetId, today = new Date().toISOString().slice(0, 10)) {
   const assets = await listAccounts();
@@ -1690,13 +1698,10 @@ export async function reconFor(assetId, today = new Date().toISOString().slice(0
     const custodian = demats.find((d) => d.id === home);
     const positions = positionsOf.get(home) || [];
     if (!positions.length) return hidden("no-second-statement");
-    const lines = reconPositions({
-      lots: myBonds,
-      positions,
-      today,
-      asOf: String(reconMeta(custodian).holdings_as_of || custodian?.value_date || "").slice(0, 10),
-    });
-    return { asset: me, seller: me, custodian, reason: "ok", lines,
+    const asOf = latestDay(reconMeta(custodian).holdings_as_of, custodian?.value_date,
+      ...positions.map((row) => row.as_of));
+    const lines = reconPositions({ lots: myBonds, positions, today, asOf });
+    return { asset: me, seller: me, custodian, reason: "ok", lines, asOf,
       inputs: reconInputs(myBonds, positions), ...reconSummary(lines) };
   }
 
@@ -1708,14 +1713,11 @@ export async function reconFor(assetId, today = new Date().toISOString().slice(0
   }
   const lots = linked.flatMap((entry) => entry.lots);
   if (!lots.length) return hidden("no-cost-source");
-  const lines = reconPositions({
-    lots,
-    positions: myBonds,
-    today,
-    asOf: String(reconMeta(me).holdings_as_of || me.value_date || "").slice(0, 10),
-  });
+  const asOf = latestDay(reconMeta(me).holdings_as_of, me.value_date,
+    ...myBonds.map((row) => row.as_of));
+  const lines = reconPositions({ lots, positions: myBonds, today, asOf });
   return { asset: me, seller: linked.length === 1 ? linked[0].seller : null,
-    custodian: me, reason: "ok", lines,
+    custodian: me, reason: "ok", lines, asOf,
     inputs: reconInputs(lots, myBonds), ...reconSummary(lines) };
 }
 

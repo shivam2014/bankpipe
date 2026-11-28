@@ -102,6 +102,28 @@ test("a bond portfolio cannot use a fund folio as its demat", async () => {
   assert.equal(reconHasCard(result), false);
 });
 
+test("a newer row date is the statement date, not an older account label", async () => {
+  const seller = [
+    bond(BOND_A, 10),
+    { security_id: BOND_B, label: "Bond B", category: "bond", quantity: 10,
+      cost_paise: 100000, value_paise: null, purchase_date: "2026-10-15" },
+  ];
+  const demat = [{ security_id: BOND_A, label: "Bond A", category: "bond",
+    quantity: 10, cost_paise: null, value_paise: 100000,
+    purchase_date: "", as_of: "2026-11-20" }];
+  await seed([
+    { id: "d1", label: "Demat one", category: "demat", subtype: "equity",
+      number: "1200000012345678", meta: JSON.stringify({ holdings_as_of: "2026-09-30" }) },
+    { id: "p1", label: "Portfolio one", category: "bonds",
+      meta: JSON.stringify({ linked_asset: "d1" }) },
+  ], { d1: demat, p1: seller });
+  const result = await reconFor("d1", "2026-11-28");
+  assert.equal(result.asOf, "2026-11-20");
+  const absent = result.lines.find((line) => line.isin === BOND_B);
+  assert.equal(absent.state, "not_settled",
+    "the newer snapshot does not explain a lot it should have listed");
+});
+
 test("the reconcile card carries a per-account dismiss and a restore", () => {
   const html = reconCardHtml({ reason: "ok", total: 1, breaks: 0,
     counts: { matched: 1 }, lines: [] }, { dismissId: "d1" });

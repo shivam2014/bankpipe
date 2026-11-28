@@ -79,6 +79,7 @@ export function reconPositions({ lots = [], positions = [], today = "", asOf = "
   const lines = [];
   for (const row of map.values()) {
     if (!row.lotQty && !row.custodianQty) continue;
+    row.asOf = asOf;
     // A bond matured before the statement date is history, not a holding. Say so
     // before any quantity comparison, or the leftovers read as missing units.
     if (!row.maturity && row.label) {
@@ -111,20 +112,26 @@ export function reconPositions({ lots = [], positions = [], today = "", asOf = "
 
 /**
  * Counts for a receipt line: "7 positions · 5 matched · 2 breaks".
- * A closed position is neither: it is history and must not read as a problem.
+ * A closed position is history and an in-transit purchase is expected, so
+ * neither may read as a problem. The latest purchase date lets the card say
+ * whether the statement is older than the trades it is being asked to explain.
  * @param {Array<object>} lines from reconPositions
- * @returns {{total:number, breaks:number, counts:object, costPaise:number}}
+ * @returns {{total:number, breaks:number, counts:object, costPaise:number,
+ *   latestPurchase:string}}
  */
 export function reconSummary(lines = []) {
   const counts = {};
   for (const state of RECON_STATES) counts[state] = 0;
   let costPaise = 0;
+  let latestPurchase = "";
   for (const line of lines || []) {
     if (counts[line.state] === undefined) counts[line.state] = 0;
     counts[line.state] += 1;
     costPaise += Number(line.costPaise) || 0;
+    const bought = String(line.firstPurchase || "");
+    if (bought && bought > latestPurchase) latestPurchase = bought;
   }
   const breaks = (lines || []).filter((l) =>
-    l.state !== "matched" && l.state !== "closed").length;
-  return { total: (lines || []).length, breaks, counts, costPaise };
+    l.state !== "matched" && l.state !== "closed" && l.state !== "in_transit").length;
+  return { total: (lines || []).length, breaks, counts, costPaise, latestPurchase };
 }
