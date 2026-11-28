@@ -4,7 +4,7 @@ import { parseBondLabel, bondMaturity, splitMatured, inferFace, bondAnalytics,
   storedCoupon, termSourceKind, termSourceRank, bondWriteRow,
   bondLabelName, bondSummary, accruedInterest, BOND_RATINGS, bondRatingRank, bondFillPlan,
   bondGrade, bondRatingChange, carryBrokerFields, soldGain, bondHomeOf,
-  bondInputsMissing, valueKindOf, isLiveBondRow } from "./bonds.js";
+  bondInputsMissing, bondTermGaps, valueKindOf, isLiveBondRow } from "./bonds.js";
 
 test("parses the coupon and maturity from a bond label", () => {
   const p = parseBondLabel("10.25% TEST ISSUER PRIVATE LIMITED 31 DEC 2026");
@@ -745,6 +745,20 @@ test("one term is not enough: bondAnalytics needs a coupon and a maturity", () =
     { noCost: false, noTerms: true });
   assert.deepEqual(bondInputsMissing({ ...base, label: "TEST BOND 15 May 2030" }),
     { noCost: false, noTerms: true });
+});
+
+test("the terms gap names the side that is absent", () => {
+  assert.deepEqual(bondTermGaps({ category: "bond", maturity: "2030-05-15" }),
+    { noCoupon: true, noMaturity: false }, "a stored date leaves only the coupon");
+  assert.deepEqual(bondTermGaps({ category: "bond", coupon_pct: 8 }),
+    { noCoupon: false, noMaturity: true }, "a stored rate leaves only the date");
+  assert.deepEqual(bondTermGaps({ category: "bond", label: "8.25% TEST BOND" }),
+    { noCoupon: false, noMaturity: true }, "the name's rate is a coupon");
+  assert.deepEqual(bondTermGaps({ category: "bond",
+    label: "TEST BOND 15 May 2030" }), { noCoupon: true, noMaturity: false },
+  "the name's date is a maturity");
+  assert.deepEqual(bondTermGaps({ category: "equity", label: "8.25% TEST 15 May 2030" }),
+    { noCoupon: false, noMaturity: false }, "terms are a bond idea");
 });
 
 test("a stored value is classified by its source, not by arithmetic", () => {

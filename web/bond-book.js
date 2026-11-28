@@ -2,9 +2,9 @@
 // fact names the section it ranks in, and the card groups that list. Money
 // figures come from bondAnalytics()/bondRowView, never from this module.
 
-import { bondAnalytics, bondInputsMissing, bondMaturity, parseBondLabel,
-  bondRatingChange, bondRatingRank, soldGain, storedCoupon, termSourceKind,
-  valueKindOf, BOND_RATINGS, couponMonths } from "./bonds.js";
+import { bondAnalytics, bondInputsMissing, bondMaturity, bondTermGaps,
+  parseBondLabel, bondRatingChange, bondRatingRank, soldGain, storedCoupon,
+  termSourceKind, valueKindOf, BOND_RATINGS, couponMonths } from "./bonds.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -21,16 +21,50 @@ const numberOrNull = (value) => {
 
 export const DEFAULT_CURRENCY = "₹";
 
-// The four card sentences, in the owner's words. The demat statement supplies
-// the quantity and value a card already shows; the dealer report is the file
-// that carries cost and terms, so a gap line asks for that file and never
-// denies the statement that produced the row.
+// The card's gap sentences. Each names the fact the row actually lacks: cost
+// is money paid, coupon and maturity are the two terms. A stored maturity is
+// never called missing because the coupon is.
 export const BOND_GAP_COPY = Object.freeze({
-  costTermsMarket: "No cost, terms or value yet. Your dealer's report has the cost and terms.",
-  costTerms: "No cost or terms yet. Your dealer's report has both.",
   cost: "Cost not known yet",
-  terms: "Coupon or maturity not known yet",
+  coupon: "Coupon not known yet",
+  maturity: "Maturity date not known yet",
+  value: "Value not known yet",
+  couponMaturity: "Coupon and maturity not known yet",
 });
+
+function joinOr(items) {
+  if (items.length < 2) return items[0] || "";
+  return `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+}
+
+function joinAnd(items) {
+  if (items.length < 2) return items[0] || "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+// The one-line card answers with the missing facts, not a category. The
+// dealer report supplies cost and terms; a market value stays the market's.
+export function bondGapCopy({ noCost = false, noCoupon = false,
+  noMaturity = false, noMarket = false } = {}) {
+  const report = [noCost && "cost", noCoupon && "coupon", noMaturity && "maturity"]
+    .filter(Boolean);
+  const missing = [...report, noMarket && "value"].filter(Boolean);
+  if (!missing.length) return "";
+  if (missing.length === 1) return BOND_GAP_COPY[missing[0]] || "";
+  const supply = report.length === 2 && missing.length === 2
+    ? " Your dealer's report has both."
+    : report.length ? ` Your dealer's report has the ${joinAnd(report)}.` : "";
+  return `No ${joinOr(missing)} yet.${supply}`;
+}
+
+// A terms line asks only for the side that is absent, so a maturity printed
+// on the card is never reported as unknown.
+export function bondTermGapCopy({ noCoupon = false, noMaturity = false } = {}) {
+  if (noCoupon && noMaturity) return BOND_GAP_COPY.couponMaturity;
+  if (noCoupon) return BOND_GAP_COPY.coupon;
+  if (noMaturity) return BOND_GAP_COPY.maturity;
+  return "";
+}
 
 // Returns leads because the card answers "what is owed and what has been paid"
 // before "what is it worth" and "what were the terms".
@@ -283,18 +317,50 @@ export function bondRowView(h) {
  *
  * @param {object} v a bondRowView()
  * @param {{matured?: boolean}} [options]
- * @returns {{noCost: boolean, noTerms: boolean, noMarket: boolean,
+ * @returns {{noCost: boolean, noTerms: boolean, noCoupon: boolean,
+ *   noMaturity: boolean, noMarket: boolean,
  *   treatment: "one-line"|"cost-line"|"terms-line"|"full"}}
  */
 export function bondCardGap(v, { matured = !!v.matured } = {}) {
   const input = bondInputsMissing(v.h || {});
+  const terms = bondTermGaps(v.h || {});
   const noMarket = v.value === null;
-  const gap = { noCost: input.noCost, noTerms: input.noTerms, noMarket };
+  const gap = { noCost: input.noCost, noTerms: input.noTerms,
+    noCoupon: terms.noCoupon, noMaturity: terms.noMaturity, noMarket };
   if (matured) return { ...gap, treatment: "full" };
   if (input.noCost && input.noTerms) return { ...gap, treatment: "one-line" };
   if (input.noCost) return { ...gap, treatment: "cost-line" };
   if (input.noTerms) return { ...gap, treatment: "terms-line" };
   return { ...gap, treatment: "full" };
+}
+
+/**
+ * The holdings card's coverage counts, from the same rules the cards render.
+ * A name is the label the card prints, not the issuer field a full card may
+ * note separately. Cost, coupon and maturity are counted apart so the summary
+ * says which fact is absent.
+ *
+ * @param {Array<object>} rows live holdings rows
+ * @returns {{bondRows: Array<object>, missingCost: number, missingName: number,
+ *   missingRating: number, missingFace: number, missingCoupon: number,
+ *   missingMaturity: number}}
+ */
+export function bondHoldingGaps(rows) {
+  const bondRows = (rows || []).filter((h) =>
+    String(h.category || "").toLowerCase() === "bond"
+    || /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase()));
+  const counts = { bondRows, missingCost: 0, missingName: 0, missingRating: 0,
+    missingFace: 0, missingCoupon: 0, missingMaturity: 0 };
+  for (const h of bondRows) {
+    const terms = bondTermGaps(h);
+    if (bondInputsMissing(h).noCost) counts.missingCost += 1;
+    if (!String(h.label || "").trim()) counts.missingName += 1;
+    if (!bondRatingOf(h)) counts.missingRating += 1;
+    if (!(Number(h.face_paise) > 0)) counts.missingFace += 1;
+    if (terms.noCoupon) counts.missingCoupon += 1;
+    if (terms.noMaturity) counts.missingMaturity += 1;
+  }
+  return counts;
 }
 
 /**
@@ -776,8 +842,8 @@ export function bondCardHtml(v, assetId, {
   // A statement value is a value. The line must not say the card has none just
   // because the demat file supplied a statement figure instead of a market
   // price, so only a row with no figure at all gets the value sentence.
-  const oneLineBase = gap.noMarket && !statementOnly && !atCostValue
-    ? BOND_GAP_COPY.costTermsMarket : BOND_GAP_COPY.costTerms;
+  const copyMarket = gap.noMarket && !statementOnly && !atCostValue;
+  const oneLineBase = bondGapCopy({ ...gap, noMarket: copyMarket });
   const oneLineCopy = importTarget ? oneLineBase
     : `${oneLineBase.split(". ")[0]}.`;
   const gapLine = gap.treatment === "one-line"
@@ -787,7 +853,7 @@ export function bondCardHtml(v, assetId, {
       ? `<div class="bond-gap-line">${BOND_GAP_COPY.cost}${
         importLink ? ` ${importLink}` : ""}</div>`
       : gap.treatment === "terms-line"
-        ? `<div class="bond-gap-line">${BOND_GAP_COPY.terms}${
+        ? `<div class="bond-gap-line">${bondTermGapCopy(gap)}${
           importLink ? ` ${importLink}` : ""}</div>`
         : "";
   // A matured lot is money already owed, not a task. Say what is missing
@@ -795,9 +861,12 @@ export function bondCardHtml(v, assetId, {
   // A matured lot always has a maturity date; its terms gap can only be the
   // coupon. Never claim the known date is unknown.
   const maturedGap = matured
-    ? (gap.noCost && gap.noTerms ? "Cost or coupon not known"
+    ? (gap.noCost && gap.noTerms
+      ? `Cost or ${gap.noCoupon ? "coupon" : "maturity"} not known`
       : gap.noCost ? "Cost not known"
-        : gap.noTerms ? "Coupon not known" : "")
+        : gap.noCoupon && gap.noMaturity ? "Coupon and maturity not known"
+          : gap.noCoupon ? "Coupon not known"
+            : gap.noMaturity ? "Maturity not known" : "")
     : "";
   const sectionHtml = (section) => {
     const items = facts.filter((f) => f.section === section

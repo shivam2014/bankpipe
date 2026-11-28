@@ -85,26 +85,32 @@ export function bondMaturity(row) {
   return { maturity: parsed.maturity, source: "label", guessed: true };
 }
 
+// Which half of the terms is absent, so a card with a stored maturity asks
+// only for its coupon. The tolerance is the shared one: a stored coupon or a
+// percentage in the name counts, and so does a stored or name-read maturity.
+// A yield is not a coupon. Terms are a bond idea, never an equity or fund one.
+export function bondTermGaps(row) {
+  const category = String(row?.category || "").trim().toLowerCase();
+  if (category !== "bond") return { noCoupon: false, noMaturity: false };
+  // A stored zero is still a stored term.
+  const hasCoupon = storedCoupon(row).stored
+    || /\d+(?:\.\d+)?\s*%/.test(String(row?.label || ""));
+  const hasMaturity = !!bondMaturity(row).maturity;
+  return { noCoupon: !hasCoupon, noMaturity: !hasMaturity };
+}
+
 // What the card needs before it can compute anything, shared by the card and
 // the import gap list so the two screens cannot disagree. Cost is the number
-// the person paid. Terms are a coupon and a maturity; a yield is not a coupon,
-// because the card cannot print a yield as one. The coupon may be a rate on
-// the row or a percentage in the name; the maturity may be stored or in that
-// name. One missing term is still a gap: bondAnalytics needs both to estimate
-// the anchor, so a broker report can fill either side.
+// the person paid. Terms are a coupon and a maturity. One missing term is
+// still a gap: bondAnalytics needs both to estimate the anchor, so a broker
+// report can fill either side.
 export function bondInputsMissing(row) {
   const cost = row?.costPaise ?? row?.cost_paise;
   const noCost = cost === null || cost === undefined || cost === "";
   const category = String(row?.category || "").trim().toLowerCase();
   if (category !== "bond") return { noCost, noTerms: false };
-  // Use the same stored coupon the card reads, then the name. A stored zero
-  // is still a stored term; a yield is not a coupon.
-  const hasCoupon = storedCoupon(row).stored
-    || /\d+(?:\.\d+)?\s*%/.test(String(row?.label || ""));
-  const hasMaturity = !!bondMaturity(row).maturity;
-  // bondAnalytics needs both terms. A coupon without a date, or a date without
-  // a coupon, cannot be estimated, so it is still a terms gap.
-  return { noCost, noTerms: !hasCoupon || !hasMaturity };
+  const terms = bondTermGaps(row);
+  return { noCost, noTerms: terms.noCoupon || terms.noMaturity };
 }
 
 // A stored value is either a price or a statement figure, and its source says
