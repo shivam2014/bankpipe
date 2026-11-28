@@ -129,6 +129,26 @@ const MATURITY_ONLY = {
   as_of: "2026-10-31",
 };
 
+// A CAS stores the maturity and face but not the coupon. Six lots have no
+// cost; two of those carry a rating. Two more carry a cost and no rating. The
+// header counts the coupon alone, and the two cards ask for their own gap.
+const CAS_COUPON_BARE = Array.from({ length: 6 }, (_, index) => ({
+  security_id: `INE00000013${index}`, label: `TEST CAS COUPON ${index + 1} 31 Dec 2026`,
+  category: "bond", quantity: 1, face_paise: 10000000,
+  face_source: "CAS", face_as_of: "2026-10-31",
+  value_paise: 9950000, value_source: "CAS", as_of: "2026-10-31",
+  maturity: "2026-12-31", maturity_source: "CAS", maturity_as_of: "2026-10-31",
+  ...(index < 2 ? { rating: "AA", rating_at_purchase: "AA" } : {}),
+  source: "report",
+}));
+const CAS_COUPON_COSTED = Array.from({ length: 2 }, (_, index) => ({
+  security_id: `INE00000014${index}`, label: `TEST COSTED COUPON ${index + 1} 30 Nov 2026`,
+  category: "bond", quantity: 1, face_paise: 10000000,
+  cost_paise: 9859863, value_paise: 5000000, value_source: "BSE",
+  as_of: "2026-10-31", maturity: "2026-11-30", maturity_source: "CAS",
+  maturity_as_of: "2026-10-31", source: "report",
+}));
+
 // A bare lot whose name, face and rating are present, so the CAS scene's hold
 // bar can show the priced market figure instead of the fetch line.
 const BARE_QUIET = {
@@ -159,6 +179,10 @@ const SCENES = {
   oneTerm: { rows: [COUPON_ONLY, MATURITY_ONLY],
     banner: "2 bonds need terms — import a dealer report",
     bare: 0, bondRows: 2 },
+  header: { rows: [CAS_COUPON_BARE[0], CAS_COUPON_COSTED[0]].concat(
+    CAS_COUPON_BARE.slice(1), CAS_COUPON_COSTED.slice(1)),
+    banner: "8 bonds need cost or terms — import a dealer report",
+    bare: 6, bondRows: 8 },
   matured: { rows: [MATURED_CAS, MATURED_BARE, BARE_QUIET],
     banner: "1 bond needs cost — import a dealer report",
     bare: 0, bondRows: 0 },
@@ -365,9 +389,13 @@ function pageScript({ scene }) {
     if (coupon?.treatment !== "terms-line" || maturity?.treatment !== "terms-line") {
       throw new Error(\`one-term treatments: \${coupon?.treatment} \${maturity?.treatment}\`);
     }
-    for (const card of [coupon, maturity]) {
-      if (!card.text.includes("Coupon or maturity not known yet")) {
-        throw new Error(\`the one-term sentence is \${card.text}\`);
+    for (const [card, want] of [[coupon, "Maturity date not known yet"],
+      [maturity, "Coupon not known yet"]]) {
+      if (!card.text.includes(want)) {
+        throw new Error(\`the one-term sentence is \${card.text}, want \${want}\`);
+      }
+      if (card.text.includes("Coupon or maturity")) {
+        throw new Error(\`the one-term sentence still merges both: \${card.text}\`);
       }
       if (card.facts.includes("total-if-held")) {
         throw new Error("a one-term card still has an anchor");
@@ -378,6 +406,34 @@ function pageScript({ scene }) {
     }
     if (!maturity.facts.includes("maturity") || maturity.facts.includes("coupon")) {
       throw new Error(\`the maturity-only facts: \${maturity.facts.join("|")}\`);
+    }
+  }
+  if (${JSON.stringify(scene)} === "header") {
+    const want = "8 holdings · 6 ratings missing · 8 coupons not stored";
+    if (!state.holdBar.includes(want)) {
+      throw new Error(\`the hold bar says \${state.holdBar}, want \${want}\`);
+    }
+    if (/coupons? or maturit/i.test(state.holdBar)) {
+      throw new Error(\`the hold bar still merges the terms: \${state.holdBar}\`);
+    }
+    const bare = state.cards.find((card) => card.name.includes("TEST CAS COUPON 1 31 Dec"));
+    const costed = state.cards.find((card) => card.name.includes("TEST COSTED COUPON 1"));
+    if (bare?.treatment !== "one-line") {
+      throw new Error(\`the bare coupon card is \${bare?.treatment}\`);
+    }
+    if (costed?.treatment !== "terms-line") {
+      throw new Error(\`the costed coupon card is \${costed?.treatment}\`);
+    }
+    if (!bare.text.includes("No cost or coupon yet. Your dealer's report has both.")) {
+      throw new Error(\`the bare coupon card says \${bare.text}\`);
+    }
+    if (!costed.text.includes("Coupon not known yet") || costed.text.includes("maturity")) {
+      throw new Error(\`the costed coupon card says \${costed.text}\`);
+    }
+    for (const card of [bare, costed]) {
+      if (!card.facts.includes("maturity")) {
+        throw new Error(\`\${card.name} lost its stored maturity\`);
+      }
     }
   }
   if (${JSON.stringify(scene)} === "matured") {
@@ -484,7 +540,8 @@ function pageScript({ scene }) {
       throw new Error(\`the terms line is \${termsLine?.treatment || "missing"}\`);
     }
   }
-  if (!["bar", "long", "terms", "oneTerm", "matured"].includes(${JSON.stringify(scene)})) {
+  if (!["bar", "long", "terms", "oneTerm", "matured", "header"]
+    .includes(${JSON.stringify(scene)})) {
     const complete = state.cards.find((card) => card.name.includes("TEST COMPLETE"));
     if (!complete) throw new Error("the complete card is missing");
     if (complete.treatment !== "full") throw new Error("the complete card has a treatment");
@@ -501,7 +558,7 @@ function pageScript({ scene }) {
     throw new Error("the banner is above the disclosure");
   }
 
-  const scrollTarget = ${JSON.stringify(scene)} === "bar"
+  const scrollTarget = ["bar", "header"].includes(${JSON.stringify(scene)})
     ? document.querySelector(".hold-bar") : detail;
   window.scrollTo(0, scrollTarget.getBoundingClientRect().top + window.scrollY - 72);
   await sleep(100);
@@ -538,6 +595,8 @@ const SHOTS = [
   { scene: "oneTerm", width: 390, height: 1600, theme: "dark" },
   { scene: "oneTerm", width: 1280, height: 1400, theme: "light" },
   { scene: "oneTerm", width: 1280, height: 1400, theme: "dark" },
+  { scene: "header", width: 390, height: 1500, theme: "light" },
+  { scene: "header", width: 390, height: 1500, theme: "dark" },
   { scene: "matured", width: 390, height: 2200, theme: "light" },
   { scene: "matured", width: 390, height: 2200, theme: "dark" },
   { scene: "matured", width: 1280, height: 1200, theme: "light" },

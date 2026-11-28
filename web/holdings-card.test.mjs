@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { assetAtCost } from "./assets.js";
-import { bondAnalytics, bondInputsMissing, splitMatured } from "./bonds.js";
+import { bondAnalytics, bondInputsMissing, bondTermGaps, splitMatured }
+  from "./bonds.js";
 import { summarizeHoldings } from "./holdings.js";
 import { bondBookSummary, bondCardHtml, bondCoverageText, bondDateLabel,
-  bondGapBannerHtml, bondRatingOf, bondRowView, bondSortValue, moneyText }
-  from "./bond-book.js";
+  bondGapBannerHtml, bondHoldingGaps, bondRatingOf, bondRowView, bondSortValue,
+  moneyText } from "./bond-book.js";
 import { bondGapBanner, bondImportOf, importAccountGaps } from "./import-flow.js";
 import { escapeHtml as esc, jsArg } from "./escape.js";
 
@@ -20,17 +21,18 @@ assert.ok(from >= 0 && to > from, "holdingsCard is in index.html");
 
 const holdingsCard = new Function(
   "window", "splitMatured", "summarizeHoldings", "bondAnalytics", "assetAtCost",
-  "bondInputsMissing", "bondRatingOf", "importAccountGaps", "dateLabel",
-  "bondGapBanner", "bondRowView", "bondSortValue", "bondCoverageText",
-  "bondBookSummary", "bondImportOf", "currency", "bondCardHtml",
-  "bondGapBannerHtml", "money", "esc", "jsArg", "bondFetchPanelBody",
+  "bondInputsMissing", "bondTermGaps", "bondHoldingGaps", "bondRatingOf",
+  "importAccountGaps", "dateLabel", "bondGapBanner", "bondRowView",
+  "bondSortValue", "bondCoverageText", "bondBookSummary", "bondImportOf",
+  "currency", "bondCardHtml", "bondGapBannerHtml", "money", "esc", "jsArg",
+  "bondFetchPanelBody",
   `${html.slice(from, to)}
    return holdingsCard;`,
 )({ bpBondSortState: null, bpGapAccountRows: [], bpBondFetchStatus: null },
   splitMatured, summarizeHoldings, bondAnalytics, assetAtCost,
-  bondInputsMissing, bondRatingOf, importAccountGaps, bondDateLabel,
-  bondGapBanner, bondRowView, bondSortValue, bondCoverageText,
-  bondBookSummary, bondImportOf, () => "₹", bondCardHtml,
+  bondInputsMissing, bondTermGaps, bondHoldingGaps, bondRatingOf,
+  importAccountGaps, bondDateLabel, bondGapBanner, bondRowView, bondSortValue,
+  bondCoverageText, bondBookSummary, bondImportOf, () => "₹", bondCardHtml,
   bondGapBannerHtml, moneyText, esc, jsArg, () => "");
 
 const base = {

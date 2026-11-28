@@ -1725,9 +1725,10 @@ import { summarizeHoldings } from "./holdings.js";
 import { parseHoldingsMatrix, diffHoldings } from "./holding-import.js";
 import { bondAnalytics, bondSummary, bondMaturity, splitMatured, parseBondLabel,
   bondLabelName, inferFace, bondFillPlan, bondRatingChange, termSourceRank,
-  bondWriteRow, bondInputsMissing } from "./bonds.js";
+  bondWriteRow, bondInputsMissing, bondTermGaps } from "./bonds.js";
 import { bondCardHtml, bondBookSummary, bondCoverageText, bondGapBannerHtml,
-  bondRowView, bondSortValue, bondRatingOf, bondFrequency } from "./bond-book.js";
+  bondHoldingGaps, bondRowView, bondSortValue, bondRatingOf, bondFrequency }
+  from "./bond-book.js";
 import { bondLabelText, bondHoldingPatch, bondKeptLine } from "./bond-holding.js";
 import { bondPrefill } from "./bond-source.js";
 import { BOND_BROKERS, bondBroker, brokerReport, parseBrokerReport,
@@ -14680,15 +14681,13 @@ function holdingsCard(allRows, assetId, account) {
   // cost-only lots per row, so each card adds its own lot to stay in step.
   const atCost = assetAtCost(account);
   // A name, rating and face belong to a bond. Counting a share or a fund unit as
-  // "missing a face value" would invent work that does not exist.
-  const bondRows = rows.filter((h) => String(h.category || "") === "bond"
-    || /^IN[A-Z0-9]{10}$/.test(String(h.security_id || "").toUpperCase()));
-  const missingCost = bondRows.filter((h) => bondInputsMissing(h).noCost).length;
-  const missingRating = bondRows.filter((h) => !bondRatingOf(h)).length;
-  const missingName = bondRows.filter((h) => !String(h.issuer || "").trim()).length;
-  const missingFace = bondRows.filter((h) => !(Number(h.face_paise) > 0)).length;
-  const missingTerms = bondRows.filter((h) => !(Number(h.coupon_pct) > 0)
-    || !String(h.maturity || "").trim()).length;
+  // "missing a face value" would invent work that does not exist. The counts
+  // come from the same rules the cards render: the name is the label the card
+  // prints, and coupon and maturity are counted apart so the line names only
+  // the term that is actually absent.
+  const gaps = bondHoldingGaps(rows);
+  const { bondRows, missingCost, missingName, missingRating, missingFace,
+    missingCoupon, missingMaturity } = gaps;
   // The two gap lists share one origin: the account's stored provenance and the
   // shared bond rule. The banner counts lots; the disclosure prints the account
   // sentences first and then the per-bond face, name and rating rows.
@@ -14773,20 +14772,23 @@ function holdingsCard(allRows, assetId, account) {
       ? `${missingFaceInferred} face value${missingFaceInferred === 1 ? "" : "s"} inferred` : "",
     missingName ? `${missingName} name${missingName === 1 ? "" : "s"} missing` : "",
     missingRating ? `${missingRating} rating${missingRating === 1 ? "" : "s"} missing` : "",
-    missingTerms ? `${missingTerms} coupon or maturity not stored` : "",
+    missingCoupon ? `${missingCoupon} coupon${missingCoupon === 1 ? "" : "s"} not stored` : "",
+    missingMaturity ? `${missingMaturity} ${missingMaturity === 1
+      ? "maturity" : "maturities"} not stored` : "",
   ].filter(Boolean);
   const needsFetch = missingDetails.length > 0;
-  const needsCount = missingFace + missingName + missingRating + missingTerms;
+  const needsCount = missingFace + missingName + missingRating
+    + missingCoupon + missingMaturity;
   const needsRows = bondRows.map((h) => {
     const missing = [];
     if (!(Number(h.face_paise) > 0)) {
       missing.push(bondInputsMissing(h).noCost ? "face value missing" : "face value inferred");
     }
-    if (!String(h.issuer || "").trim()) missing.push("issuer name");
+    if (!String(h.label || "").trim()) missing.push("name");
     if (!bondRatingOf(h)) missing.push("rating");
-    if (!(Number(h.coupon_pct) > 0) || !String(h.maturity || "").trim()) {
-      missing.push("coupon or maturity not stored");
-    }
+    const terms = bondTermGaps(h);
+    if (terms.noCoupon) missing.push("coupon not stored");
+    if (terms.noMaturity) missing.push("maturity not stored");
     return missing.length ? { h, missing } : null;
   }).filter(Boolean);
   const costNote = missingCost && !banner
