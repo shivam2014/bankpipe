@@ -786,6 +786,21 @@ test("a portfolio naming a demat not on file does not attach to another", () => 
   { id: "", reason: "named-missing" });
 });
 
+test("a named demat that is not on file is not replaced by a majority overlap", () => {
+  // The portfolio names 0907; 3122 holds three of its five ISINs. A majority
+  // is not a declaration: the missing 0907 statement is the gap, and 3122 is
+  // not the account to audit the portfolio against.
+  const demats = [{ id: "d1", category: "demat", number: "IN99990000003122" }];
+  const positionsOf = new Map([
+    ["d1", [1, 2, 3].map((n) => ({ security_id: `INE0000000${n}` }))],
+  ]);
+  const lots = Array.from({ length: 5 }, (_, i) =>
+    ({ security_id: `INE0000000${i + 1}` }));
+  assert.deepEqual(bondHomeResult(lots,
+    { id: "p1", number: "9999000000000907" }, demats, positionsOf),
+  { id: "", reason: "named-missing" });
+});
+
 test("a disposed row is not a live bond", () => {
   assert.equal(isLiveBondRow({ category: "bond", quantity: 0 }), true);
   assert.equal(isLiveBondRow({ category: "bond", disposed_at: "2026-08-12" }), false);

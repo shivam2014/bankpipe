@@ -136,6 +136,55 @@ test("a portfolio naming a demat not on file says which statement is missing", a
   assert.match(reconHeadline(result), /names a demat that is not on file/);
 });
 
+test("a demat holding most of a named-missing portfolio shows no card", async () => {
+  // The portfolio names 0907, which is not on file. 3122 holds three of its
+  // five bonds; a majority is not an ownership claim, so 3122 renders nothing.
+  const b = (n) => bond(`INE99990000${n}`, 10);
+  await seed([
+    { id: "d1", label: "ICICI demat", category: "demat", subtype: "equity",
+      number: "IN99990000003122", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+    { id: "p1", label: "Motilal portfolio", category: "bonds",
+      number: "9999000000000907" },
+  ], {
+    d1: [b(1), b(2), b(3)],
+    p1: [b(1), b(2), b(3), b(4), b(5)],
+  });
+  const stranger = await reconFor("d1", "2026-11-14");
+  assert.equal(stranger.reason, "no-cost-source",
+    "the account that holds most of the portfolio is not its owner");
+  assert.equal(reconHasCard(stranger), false);
+  const portfolio = await reconFor("p1", "2026-11-14");
+  assert.equal(portfolio.reason, "unlinked-demat");
+  assert.equal(reconHasCard(portfolio), true);
+  assert.match(reconHeadline(portfolio), /names a demat that is not on file/);
+});
+
+test("the owner's demat shows the card even when another holds most", async () => {
+  // 0907 is on file, so the portfolio's own number resolves there. 3122 holds
+  // three of the five bonds and must not audit the portfolio.
+  const b = (n) => bond(`INE99990000${n}`, 10);
+  await seed([
+    { id: "d1", label: "ICICI demat", category: "demat", subtype: "equity",
+      number: "IN99990000003122", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+    { id: "d2", label: "Motilal demat", category: "demat", subtype: "equity",
+      number: "9999000000000907", meta: JSON.stringify({ holdings_as_of: AS_OF }) },
+    { id: "p1", label: "Motilal portfolio", category: "bonds",
+      number: "9999000000000907" },
+  ], {
+    d1: [b(1), b(2), b(3)],
+    d2: [b(1), b(2)],
+    p1: [b(1), b(2), b(3), b(4), b(5)],
+  });
+  const stranger = await reconFor("d1", "2026-11-14");
+  assert.equal(reconHasCard(stranger), false);
+  const owner = await reconFor("d2", "2026-11-14");
+  assert.equal(owner.reason, "ok");
+  assert.equal(owner.custodian.id, "d2");
+  assert.equal(reconHasCard(owner), true);
+  const portfolio = await reconFor("p1", "2026-11-14");
+  assert.equal(portfolio.custodian.id, "d2");
+});
+
 test("two demats that both hold most of a portfolio are ambiguous", async () => {
   const b = (n) => bond(`INE99990000${n}`, 10);
   await seed([

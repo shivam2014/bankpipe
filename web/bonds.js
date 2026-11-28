@@ -192,6 +192,9 @@ const hasUnits = (row) => row?.quantity === null || row?.quantity === undefined
 /**
  * The demat account a bond portfolio feeds. The explicit link wins, then the
  * demat number the portfolio names, then a demat that holds most of its ISINs.
+ * A number the portfolio names is a declaration, not a hint: when it is not on
+ * file the statement is missing, and an overlap with another demat must not
+ * stand in for it, or that account's gap is reported on a stranger's page.
  * The overlap is counted over distinct ISINs, so a portfolio with several lots
  * of one bond cannot outvote two other bonds. An overlap is a home only when
  * one demat holds more than half of the portfolio's live ISINs; a single shared
@@ -211,7 +214,7 @@ export function bondHomeResult(lots, asset, demats, positionsOf) {
   const wanted = boId(meta.demat || asset?.number || "").boId;
   if (wanted) {
     const hit = demats.find((d) => boId(d.number).boId === wanted);
-    if (hit) return { id: hit.id, reason: "number" };
+    return hit ? { id: hit.id, reason: "number" } : { id: "", reason: "named-missing" };
   }
   const isins = new Set();
   for (const lot of lots || []) {
@@ -233,7 +236,7 @@ export function bondHomeResult(lots, asset, demats, positionsOf) {
   // Two demats holding a majority, or any two holding some of it, are a choice
   // for the person. A weak single overlap is not a home either.
   if (majority.length > 1 || held.length > 1) return { id: "", reason: "ambiguous" };
-  return { id: "", reason: wanted ? "named-missing" : "none" };
+  return { id: "", reason: "none" };
 }
 
 /** The demat id only, for callers that do not need the reason. */
